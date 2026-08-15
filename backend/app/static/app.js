@@ -141,6 +141,7 @@ async function openScenarioDetail(id) {
       <div class="row">
         <button onclick="regenerateReference(${scenario.id})">Regenerate reference</button>
         <button onclick="publishScenario(${scenario.id})">Publish</button>
+        <button onclick="deleteScenario(${scenario.id})">Delete draft</button>
       </div>
     ` : ""}
     <p id="scenario-detail-status" class="muted"></p>
@@ -175,6 +176,17 @@ async function publishScenario(id) {
     await api(`/hr/scenarios/${id}/publish`, { method: "POST" });
     loadScenarios();
     openScenarioDetail(id);
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+async function deleteScenario(id) {
+  const statusEl = document.getElementById("scenario-detail-status");
+  try {
+    await api(`/hr/scenarios/${id}`, { method: "DELETE" });
+    document.getElementById("scenario-detail").classList.add("hidden");
+    loadScenarios();
   } catch (e) {
     statusEl.textContent = e.message;
   }

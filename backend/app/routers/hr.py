@@ -126,7 +126,39 @@ def _get_draft_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
 
 @router.get("/scenarios", response_model=list[ScenarioOut])
 def list_scenarios(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    return db.query(Scenario).order_by(Scenario.created_at.desc()).all()
+    """Just the current scenario per (round, band) - not full history.
+    The published scenario (what candidates are actually being scored
+    against) always wins if one exists, even if there's a newer draft
+    being prepared to replace it - losing sight of what's live would be
+    worse than the clutter this is meant to fix. Falls back to the most
+    recent draft only when nothing's published yet for that slot. Older
+    drafts/archived scenarios still exist in the DB (submissions
+    reference them by id), they're just not surfaced here."""
+    all_scenarios = db.query(Scenario).order_by(Scenario.created_at.desc()).all()
+    current_per_slot = {}
+    for scenario in all_scenarios:
+        key = (scenario.round_number, scenario.experience_band)
+        current = current_per_slot.get(key)
+        is_better = current is None or (
+            scenario.status == ScenarioStatus.published and current.status != ScenarioStatus.published
+        )
+        if is_better:
+            current_per_slot[key] = scenario
+    return sorted(current_per_slot.values(), key=lambda s: (s.round_number, s.experience_band.value))
+
+
+@router.delete("/scenarios/{scenario_id}", status_code=204)
+def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Discard a draft you don't want (e.g. a bad description, a failed
+    generation). Only drafts - a published/archived scenario can have
+    candidate submissions pointing at it and must never be deleted."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    if scenario.status != ScenarioStatus.draft:
+        raise HTTPException(400, f"Scenario is {scenario.status.value}, not draft - can't delete it.")
+    db.delete(scenario)
+    db.commit()
 
 
 # ---- Candidate results dashboard ----

@@ -48,6 +48,64 @@ def test_candidate_sees_only_matching_band_scenario(client, monkeypatch):
     assert res.json()["scenario"]["title"] == "Senior-only scenario"
 
 
+def test_scenario_list_shows_only_current_per_round_and_band(client, monkeypatch):
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    for title in ("First attempt", "Second attempt", "Third attempt"):
+        client.post(
+            "/hr/scenarios",
+            json={"round_number": 1, "title": title, "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+            headers=_auth(hr_token),
+        )
+
+    res = client.get("/hr/scenarios", headers=_auth(hr_token))
+    matching = [s for s in res.json() if s["round_number"] == 1 and s["experience_band"] == "0-7"]
+    assert len(matching) == 1
+    assert matching[0]["title"] == "Third attempt"  # the most recently created one
+
+
+def test_scenario_list_prefers_published_over_a_newer_draft(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch, title="Live one")
+
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+    client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Draft replacement", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        headers=_auth(hr_token),
+    )
+
+    res = client.get("/hr/scenarios", headers=_auth(hr_token))
+    matching = [s for s in res.json() if s["round_number"] == 1 and s["experience_band"] == "0-7"]
+    assert len(matching) == 1
+    assert matching[0]["id"] == published["id"]  # the live one, not the newer unpublished draft
+
+
+def test_can_delete_a_draft_but_not_a_published_scenario(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch)
+
+    res = client.delete(f"/hr/scenarios/{published['id']}", headers=_auth(hr_token))
+    assert res.status_code == 400  # can't delete something a candidate might already be scored against
+
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+    draft = client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Bad draft", "description": "desc", "experience_band": "7+", "time_limit_minutes": 30},
+        headers=_auth(hr_token),
+    ).json()
+
+    res = client.delete(f"/hr/scenarios/{draft['id']}", headers=_auth(hr_token))
+    assert res.status_code == 204
+
+    res = client.get("/hr/scenarios", headers=_auth(hr_token))
+    assert draft["id"] not in [s["id"] for s in res.json()]
+
+
 def test_candidate_round_never_exposes_reference_answer(client, monkeypatch):
     # The reference answer is the answer key - it must never reach a
     # candidate's response, even though HR's own view of the same
