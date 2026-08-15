@@ -48,6 +48,26 @@ def test_candidate_sees_only_matching_band_scenario(client, monkeypatch):
     assert res.json()["scenario"]["title"] == "Senior-only scenario"
 
 
+def test_candidate_round_never_exposes_reference_answer(client, monkeypatch):
+    # The reference answer is the answer key - it must never reach a
+    # candidate's response, even though HR's own view of the same
+    # scenario legitimately includes it.
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    scenario = _publish_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.get("/candidate/round/1", headers=_auth(cand_token))
+    assert "reference_json" not in res.json()["scenario"]
+
+    res = client.post("/candidate/round/1/start", headers=_auth(cand_token))
+    assert "reference_json" not in (res.json().get("scenario") or {})
+
+    # Sanity check the reference genuinely exists (HR's own view has it) -
+    # otherwise this test would trivially pass by testing nothing.
+    hr_scenarios = client.get("/hr/scenarios", headers=_auth(hr_token)).json()
+    assert next(s for s in hr_scenarios if s["id"] == scenario["id"])["reference_json"]
+
+
 def test_draft_scenario_not_visible_until_published(client, monkeypatch):
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))

@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import User, Scenario, ScenarioStatus, Submission, ExperienceBand, Role
-from ..schemas import ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionOut, CandidateSummaryOut, CandidateRoundSummary
+from ..schemas import ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut, CandidateSummaryOut, CandidateRoundSummary
 from ..dependencies import require_hr
 from ..services import llm_service
 
@@ -156,7 +156,7 @@ def list_candidates(db: Session = Depends(get_db), hr: User = Depends(require_hr
     return out
 
 
-@router.get("/candidates/{candidate_id}/report", response_model=list[SubmissionOut])
+@router.get("/candidates/{candidate_id}/report", response_model=list[SubmissionReportOut])
 def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """All submissions (with scores where available) for one candidate, across all rounds."""
     candidate = db.get(User, candidate_id)

@@ -12,3 +12,7 @@ qa_eval.db
 # nested .git) - not part of the project, kept only until you're ready
 # to delete it yourself.
 _to_delete/
+
+# Personal scratch notes - as of writing this contains a live API key
+# in plaintext. Never track this; move the key to .env instead.
+QA tool info.txt

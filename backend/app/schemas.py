@@ -60,7 +60,10 @@ class ScenarioUpdate(BaseModel):
     reference_json: Optional[list[TestCaseRow]] = None
 
 
-class ScenarioOut(BaseModel):
+class ScenarioPublicOut(BaseModel):
+    """Candidate-facing scenario shape - deliberately excludes
+    reference_json. That's the answer key; it must never reach a
+    candidate's browser (dev tools / network tab would expose it)."""
     id: int
     round_number: int
     title: str
@@ -68,11 +71,15 @@ class ScenarioOut(BaseModel):
     experience_band: str
     status: str
     time_limit_minutes: int
-    reference_json: Optional[list[dict]] = None
     published_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class ScenarioOut(ScenarioPublicOut):
+    """HR-facing shape - includes the reference answer for review/scoring."""
+    reference_json: Optional[list[dict]] = None
 
 
 # ---- Submissions / Round 1 ----
@@ -92,6 +99,7 @@ class ScoreOut(BaseModel):
 
 
 class SubmissionOut(BaseModel):
+    """Candidate-facing: their own submission only, never the reference."""
     id: int
     scenario_id: int
     round_number: int
@@ -100,19 +108,21 @@ class SubmissionOut(BaseModel):
     started_at: Optional[datetime] = None
     created_at: datetime
     score: Optional[ScoreOut] = None
-    # Populated for HR's candidate report (drill-down: submission vs.
-    # reference side by side) - not needed on the candidate's own
-    # "my submissions" list, but harmless/unused there.
-    scenario: Optional[ScenarioOut] = None
 
     class Config:
         from_attributes = True
 
 
-class RoundStateOut(BaseModel):
-    """What the candidate's round screen needs: the live scenario (if any)
-    plus their own submission for it (if they've started/submitted)."""
+class SubmissionReportOut(SubmissionOut):
+    """HR-facing only (candidate report drill-down): adds the scenario,
+    including its reference answer, for side-by-side comparison."""
     scenario: Optional[ScenarioOut] = None
+
+
+class RoundStateOut(BaseModel):
+    """What the candidate's round screen needs: the live scenario (if any,
+    with no reference answer attached) plus their own submission for it."""
+    scenario: Optional[ScenarioPublicOut] = None
     submission: Optional[SubmissionOut] = None
 
 
