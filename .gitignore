@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+qa_eval.db
+*.db
+.pytest_cache/
+.DS_Store
+
+# Stale backup from an earlier broken `git init` attempt (contains a
+# nested .git) - not part of the project, kept only until you're ready
+# to delete it yourself.
+_to_delete/

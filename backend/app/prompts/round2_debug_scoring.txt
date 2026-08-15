@@ -1,0 +1,6 @@
+# TODO(round2): not wired up yet - see llm_service.score_round2_debugging (stub).
+# Placeholder for the prompt that will:
+#   1. Ask Claude for a reference debugging approach given the seeded bug.
+#   2. Score the candidate's written debugging approach against it.
+# Follow the same two-call pattern as round1_reference_generation.txt +
+# round1_scoring.txt when implementing this.

@@ -1,0 +1,147 @@
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #2a2f3a;
+  --text: #e6e8eb;
+  --muted: #9aa2b1;
+  --accent: #5b8cff;
+  --good: #3ecf8e;
+  --bad: #ef5b5b;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+header {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.panel-inset {
+  background: #10131a;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.list-row {
+  align-items: center;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 560px;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.9rem;
+}
+
+th { color: var(--muted); font-weight: 600; }
+
+td input, td select { width: 100%; }
+td textarea { width: 100%; min-height: 3rem; }
+
+.side-by-side {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+@media (max-width: 700px) {
+  .side-by-side { grid-template-columns: 1fr; }
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  background: var(--border);
+  color: var(--text);
+}
+
+.badge-draft { background: #4a3f1a; color: #e6c766; }
+.badge-published { background: #17402c; color: var(--good); }
+.badge-archived { background: #2a2f3a; color: var(--muted); }
+
+.timer {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+details summary {
+  cursor: pointer;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+input, textarea, select, button {
+  font: inherit;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #10131a;
+  color: var(--text);
+  padding: 0.5rem 0.7rem;
+}
+
+textarea { width: 100%; min-height: 140px; }
+
+button {
+  background: var(--accent);
+  border: none;
+  color: white;
+  cursor: pointer;
+  padding: 0.55rem 1rem;
+}
+
+button:hover { opacity: 0.9; }
+
+.row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+
+.muted { color: var(--muted); font-size: 0.9rem; }
+
+.score-good { color: var(--good); font-weight: 600; }
+.score-bad { color: var(--bad); font-weight: 600; }
+
+.hidden { display: none !important; }
+
+code, pre {
+  background: #10131a;
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+}

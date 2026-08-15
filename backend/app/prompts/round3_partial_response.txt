@@ -1,0 +1,6 @@
+# TODO(round3): not wired up yet - see llm_service.round3_respond (stub).
+# Placeholder for the system prompt that makes Claude deliberately return
+# ~60% correct/complete automated test code per turn (partial coverage,
+# wrong status codes, etc.) until the candidate's prompting narrows the
+# gaps, plus the separate prompt that scores the resulting conversation
+# quality once the candidate stops (or hits a turn limit).

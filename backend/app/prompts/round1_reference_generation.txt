@@ -1,0 +1,17 @@
+You are a senior QA engineer with 10+ years of experience writing test cases for production software. You are generating a REFERENCE set of manual test cases for a candidate assessment - this reference will be used to score a candidate's own test cases, so it needs to be thorough and realistic.
+
+Scenario (experience band: {experience_band}):
+{scenario_description}
+
+Write a reference set of test cases a strong QA engineer at the {experience_band} experience level would produce. Requirements:
+- Cover happy path, edge cases, negative cases, and boundary conditions.
+- Write like a human QA engineer documenting test cases for a team wiki: plain, specific, a little uneven in phrasing - not a uniform AI-generated list. Avoid phrases like "As an AI" or overly generic hedging.
+- Each test case: a short title, preconditions (if any), steps, expected result, a priority, and a type.
+- priority is one of: High, Medium, Low.
+- type is one of: Positive, Negative, Boundary, Edge - and your set of cases should include a realistic mix, not all Positive.
+- Aim for the number and depth of cases a real engineer at this level would produce in a focused 30-45 minute session - don't pad with trivial duplicates.
+
+Respond with ONLY a JSON array, no other text, in this shape:
+[
+  {{"title": "...", "preconditions": "...", "steps": "...", "expected_result": "...", "priority": "High", "type": "Positive"}}
+]

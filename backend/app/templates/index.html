@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>QA Eval Tool</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <strong>QA Eval Tool</strong>
+    <span id="who" class="muted"></span>
+  </header>
+  <main>
+
+    <!-- Logged out: login only. Accounts are seeded (app/seed.py) - no signup. -->
+    <section id="auth-panel" class="panel">
+      <p class="muted">Sign in with the account HR gave you.</p>
+      <div class="row">
+        <input id="email" type="email" placeholder="email" />
+        <input id="password" type="password" placeholder="password" />
+      </div>
+      <div class="row">
+        <button onclick="login()">Log in</button>
+      </div>
+      <p id="auth-error" class="muted"></p>
+    </section>
+
+    <!-- HR view -->
+    <section id="hr-panel" class="panel-group hidden">
+
+      <div class="panel">
+        <h3>Create a scenario</h3>
+        <div class="row">
+          <select id="s-round">
+            <option value="1">Round 1 - Manual test cases</option>
+            <option value="2">Round 2 - Debugging</option>
+          </select>
+          <select id="s-band">
+            <option value="0-7">0-7 years</option>
+            <option value="7+">7+ years</option>
+          </select>
+          <input id="s-time-limit" type="number" min="1" value="30" style="width:6rem" />
+          <span class="muted">min limit</span>
+        </div>
+        <div class="row">
+          <input id="s-title" placeholder="Scenario title" style="flex:1" />
+        </div>
+        <textarea id="s-desc" placeholder="Describe the feature/system the candidate should write test cases for..."></textarea>
+        <div class="row">
+          <button onclick="createScenario()">Create &amp; generate reference</button>
+        </div>
+        <p id="hr-create-status" class="muted"></p>
+      </div>
+
+      <div class="panel">
+        <h3>Scenarios</h3>
+        <div id="scenario-list"></div>
+      </div>
+
+      <div id="scenario-detail" class="panel hidden"></div>
+
+      <div class="panel">
+        <h3>Candidates</h3>
+        <div id="candidates-table"></div>
+      </div>
+
+      <div id="candidate-detail" class="panel hidden"></div>
+
+    </section>
+
+    <!-- Candidate view -->
+    <section id="candidate-panel" class="panel-group hidden">
+      <div id="round-view" class="panel"></div>
+      <div class="panel">
+        <h3>My results</h3>
+        <div id="my-submissions"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

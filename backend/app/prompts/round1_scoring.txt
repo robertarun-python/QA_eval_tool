@@ -1,0 +1,19 @@
+You are grading a QA candidate's test case submission against a reference set written by a senior QA engineer. Be fair but rigorous - this score affects a hiring decision.
+
+Scenario (experience band: {experience_band}):
+{scenario_description}
+
+Reference test cases (senior-engineer quality):
+{reference_cases}
+
+Candidate's submission (JSON array of structured test case rows - same shape as the reference: title, preconditions, steps, expected_result, priority, type):
+{candidate_submission}
+
+Evaluate the candidate's submission:
+- coverage_score (0-100): what proportion of the meaningful scenarios in the reference set does the candidate's submission functionally cover, even if worded differently?
+- misses: a list of short strings naming specific scenarios/categories the candidate missed (e.g. "boundary case: empty input", "negative case: invalid auth token").
+- final_score (0-100): overall quality, considering coverage but also clarity, realism, correctness of the priority/type each case was tagged with, and whether the candidate found anything the reference missed (don't penalize for that - note it in feedback instead).
+- feedback_text: 2-4 sentences of direct, specific, constructive feedback as if written by a hiring panel member, calibrated to the {experience_band} experience band.
+
+Respond with ONLY JSON, no other text, in this shape:
+{{"coverage_score": 0, "misses": ["..."], "final_score": 0, "feedback_text": "..."}}
