@@ -126,25 +126,43 @@ def _get_draft_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
 
 @router.get("/scenarios", response_model=list[ScenarioOut])
 def list_scenarios(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """Just the current scenario per (round, band) - not full history.
-    The published scenario (what candidates are actually being scored
-    against) always wins if one exists, even if there's a newer draft
-    being prepared to replace it - losing sight of what's live would be
-    worse than the clutter this is meant to fix. Falls back to the most
-    recent draft only when nothing's published yet for that slot. Older
-    drafts/archived scenarios still exist in the DB (submissions
-    reference them by id), they're just not surfaced here."""
-    all_scenarios = db.query(Scenario).order_by(Scenario.created_at.desc()).all()
-    current_per_slot = {}
+    """At most two rows per (round, band): the published scenario (what
+    candidates are actually being scored against right now), and the
+    single most recent draft being prepared next, if any. Never the pile
+    of abandoned attempts behind them - older drafts/archived scenarios
+    still exist in the DB (submissions reference them by id), they're
+    just not surfaced in this summary view."""
+    # Ordered by id, not created_at: two scenarios created in quick
+    # succession can land on the same datetime.utcnow() tick, and
+    # ORDER BY on a tied timestamp isn't reliably insertion-order. The
+    # auto-incrementing id always is.
+    all_scenarios = db.query(Scenario).order_by(Scenario.id.desc()).all()
+    slots = {}
     for scenario in all_scenarios:
         key = (scenario.round_number, scenario.experience_band)
-        current = current_per_slot.get(key)
-        is_better = current is None or (
-            scenario.status == ScenarioStatus.published and current.status != ScenarioStatus.published
-        )
-        if is_better:
-            current_per_slot[key] = scenario
-    return sorted(current_per_slot.values(), key=lambda s: (s.round_number, s.experience_band.value))
+        slot = slots.setdefault(key, {"published": None, "draft": None})
+        if scenario.status == ScenarioStatus.published and slot["published"] is None:
+            slot["published"] = scenario
+        elif scenario.status == ScenarioStatus.draft and slot["draft"] is None:
+            slot["draft"] = scenario
+        # archived scenarios (superseded by a later publish) are true
+        # history - deliberately never shown here again.
+
+    result = [s for slot in slots.values() for s in (slot["published"], slot["draft"]) if s is not None]
+    return sorted(result, key=lambda s: (s.round_number, s.experience_band.value, s.status != ScenarioStatus.published.value))
+
+
+@router.get("/scenarios/{scenario_id}", response_model=ScenarioOut)
+def get_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Fetch any one scenario by id, regardless of whether it's the
+    'current' one for its slot - list_scenarios() filters for the
+    summary view, but HR must still be able to open/review a scenario
+    right after creating it even if something else is currently live
+    for that round+band."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    return scenario
 
 
 @router.delete("/scenarios/{scenario_id}", status_code=204)

@@ -66,22 +66,30 @@ def test_scenario_list_shows_only_current_per_round_and_band(client, monkeypatch
     assert matching[0]["title"] == "Third attempt"  # the most recently created one
 
 
-def test_scenario_list_prefers_published_over_a_newer_draft(client, monkeypatch):
+def test_scenario_list_shows_live_plus_one_in_progress_draft(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     published = _publish_scenario(client, hr_token, monkeypatch, title="Live one")
 
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+    # Two draft attempts after publishing - only the newest should show,
+    # never both (that would be the abandoned-attempts clutter again).
     client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Abandoned idea", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        headers=_auth(hr_token),
+    )
+    draft = client.post(
         "/hr/scenarios",
         json={"round_number": 1, "title": "Draft replacement", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
         headers=_auth(hr_token),
-    )
+    ).json()
 
     res = client.get("/hr/scenarios", headers=_auth(hr_token))
     matching = [s for s in res.json() if s["round_number"] == 1 and s["experience_band"] == "0-7"]
-    assert len(matching) == 1
-    assert matching[0]["id"] == published["id"]  # the live one, not the newer unpublished draft
+    assert {s["id"] for s in matching} == {published["id"], draft["id"]}
+    assert next(s for s in matching if s["id"] == published["id"])["status"] == "published"
+    assert next(s for s in matching if s["id"] == draft["id"])["status"] == "draft"
 
 
 def test_can_delete_a_draft_but_not_a_published_scenario(client, monkeypatch):

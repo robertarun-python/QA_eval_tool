@@ -1,13 +1,19 @@
 // Minimal vanilla-JS frontend. No build step, no framework - talks to
-// the FastAPI JSON API with plain fetch() calls. Token is kept in a JS
-// variable only (never localStorage) so a page refresh logs you out;
-// fine for a POC, swap for a proper cookie/session if this grows up.
+// the FastAPI JSON API with plain fetch() calls. The token lives in
+// sessionStorage (survives a refresh, clears when the tab closes) -
+// explicit logout is the only way out otherwise. A production version
+// would move this to an httpOnly cookie instead (sessionStorage is
+// still readable by any injected script, same as localStorage).
 
-let token = null;
-let role = null;
+let token = sessionStorage.getItem("qa_eval_token");
+let role = sessionStorage.getItem("qa_eval_role");
 let currentRound = 1;
 let timerHandle = null;
 let rowCount = 0;
+
+if (token && role) {
+  onLoggedIn();
+}
 
 function authHeaders() {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
@@ -15,6 +21,13 @@ function authHeaders() {
 
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: authHeaders(), ...opts });
+  if (res.status === 401) {
+    // The stored token is missing/expired (sessions last 12h) - the
+    // server no longer recognizes it, so there's nothing useful left to
+    // do but send the user back to login rather than fail silently.
+    logout();
+    throw new Error("Your session expired - please log in again.");
+  }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error((data && data.detail) || `Request failed (${res.status})`);
@@ -41,12 +54,28 @@ async function login() {
   }
   token = data.access_token;
   role = data.role;
+  sessionStorage.setItem("qa_eval_token", token);
+  sessionStorage.setItem("qa_eval_role", role);
   onLoggedIn();
+}
+
+function logout() {
+  stopTimer();
+  sessionStorage.removeItem("qa_eval_token");
+  sessionStorage.removeItem("qa_eval_role");
+  token = null;
+  role = null;
+  document.getElementById("hr-panel").classList.add("hidden");
+  document.getElementById("candidate-panel").classList.add("hidden");
+  document.getElementById("who").innerHTML = "";
+  document.getElementById("email").value = "";
+  document.getElementById("password").value = "";
+  document.getElementById("auth-panel").classList.remove("hidden");
 }
 
 function onLoggedIn() {
   document.getElementById("auth-panel").classList.add("hidden");
-  document.getElementById("who").textContent = `Logged in as ${role}`;
+  document.getElementById("who").innerHTML = `Logged in as ${role} <button onclick="logout()">Log out</button>`;
   if (role === "hr") {
     document.getElementById("hr-panel").classList.remove("hidden");
     loadScenarios();
@@ -102,9 +131,15 @@ async function loadScenarios() {
 }
 
 async function openScenarioDetail(id) {
-  const scenarios = await api("/hr/scenarios");
-  const scenario = scenarios.find((s) => s.id === id);
   const box = document.getElementById("scenario-detail");
+  let scenario;
+  try {
+    scenario = await api(`/hr/scenarios/${id}`);
+  } catch (e) {
+    box.classList.remove("hidden");
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
   box.classList.remove("hidden");
 
   const refRows = (scenario.reference_json || []).map((r) => `
