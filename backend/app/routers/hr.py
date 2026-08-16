@@ -2,25 +2,46 @@
 HR-only endpoints: author scenarios (draft -> review generated reference ->
 publish), and view the candidate results dashboard.
 
-Only round 1 has a working reference-generation/scoring pipeline so far
-(see llm_service.py) - round 2 scenarios can be authored and published here
-too (the lifecycle is round-agnostic), but candidate-side submission/scoring
-for round 2 is still a TODO(round2) stub in candidate.py.
+Rounds 1 and 2 have a working reference-generation/scoring pipeline (see
+llm_service.py) and share the same candidate-facing row shape (title,
+preconditions, steps, expected_result) - round 1's cases and round 2's
+debugging steps are structurally identical, just differently worded.
+Round 3 is conversational and has no scenario-level test-case reference
+(its target is each candidate's own round 1 answer) - instead it has an
+auto-generated Test Environment reference sheet (environment_json, see
+_generate_reference) that plays the same role reference_json does for
+rounds 1/2 (generated at creation, required before publish) - see
+publish_scenario and list_scenarios below, and routers/candidate.py for
+its dedicated endpoints.
 """
+from collections import Counter
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fpdf import FPDF
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, ScenarioStatus, Submission, ExperienceBand, Role
-from ..schemas import ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut, CandidateSummaryOut, CandidateRoundSummary
+from ..models import User, Scenario, ScenarioStatus, Submission, RoundStatus, ExperienceBand, Role
+from ..schemas import (
+    ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
+    CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern,
+    Round3TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
+    CandidateRoundComment,
+)
 from ..dependencies import require_hr
 from ..services import llm_service
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
 VALID_BANDS = (ExperienceBand.junior.value, ExperienceBand.senior.value)
+
+# Mirrors app.js's ROUND_LABELS - only used here for the PDF's per-round
+# headings, so a small local copy (not worth a shared-constants file
+# across two different languages) is the pragmatic choice.
+ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 3: "Conversational"}
 
 
 @router.post("/scenarios", response_model=ScenarioOut, status_code=201)
@@ -53,16 +74,44 @@ def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: 
 def _generate_reference(scenario: Scenario, db: Session) -> None:
     """Synchronous on purpose: HR is actively waiting to review this
     (unlike candidate-facing scoring, which runs in the background)."""
-    if scenario.round_number != 1:
-        # TODO(round2): plug in llm_service.generate_round2_reference once
-        # that exists. Leaving reference_json empty means HR can still
-        # create/save a draft Round 2 scenario now; publishing it is
-        # blocked below until a reference exists.
-        return
-    scenario.reference_json = llm_service.generate_round1_reference(
-        scenario_description=scenario.description,
-        experience_band=scenario.experience_band.value,
-    )
+    if scenario.round_number == 1:
+        scenario.reference_json = llm_service.generate_round1_reference(
+            scenario_description=scenario.description,
+            experience_band=scenario.experience_band.value,
+            time_limit_minutes=scenario.time_limit_minutes,
+        )
+    elif scenario.round_number == 2:
+        scenario.reference_json = llm_service.generate_round2_reference(
+            scenario_description=scenario.description,
+            experience_band=scenario.experience_band.value,
+            time_limit_minutes=scenario.time_limit_minutes,
+        )
+    else:
+        # Round 3 has no scenario-level test-case reference (its target
+        # is each candidate's own round 1 answer) - what it needs instead
+        # is a Test Environment reference sheet (credentials, API
+        # endpoints, DB schema, ...) plus a reference sketch of the app's
+        # screens, both shown to every candidate. Both describe the
+        # actual app under test, which lives in round 1's scenario, not
+        # round 3's own (round 3's description is just instructions to
+        # the candidate, not a description of the app) - ground both in
+        # whichever round 1 scenario is currently live for this band,
+        # falling back to round 3's own text only if round 1 hasn't been
+        # published for this band yet. Same lifecycle as reference_json
+        # otherwise: generated here (together, one HR "Regenerate" action
+        # refreshes both), required before publish (see publish_scenario).
+        live_round1 = db.query(Scenario).filter(
+            Scenario.round_number == 1,
+            Scenario.experience_band == scenario.experience_band,
+            Scenario.is_live.is_(True),
+        ).first()
+        app_description = live_round1.description if live_round1 else scenario.description
+        scenario.environment_json = llm_service.generate_round3_environment(
+            app_description=app_description,
+        )
+        scenario.ui_mockup_json = llm_service.generate_round3_ui_mockup(
+            app_description=app_description,
+        )
     db.commit()
     db.refresh(scenario)
 
@@ -96,26 +145,72 @@ def update_scenario(scenario_id: int, payload: ScenarioUpdate, db: Session = Dep
 
 @router.post("/scenarios/{scenario_id}/publish", response_model=ScenarioOut)
 def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Moves a draft into the published library for its round+band. This
+    does NOT by itself decide what candidates see - `is_live` (set via
+    move_to_screening below) controls that. The one exception: if
+    nothing is currently live for this round+band, publishing the first
+    scenario for it also makes it live, so a scenario doesn't sit
+    published-but-invisible with no HR action ever having asked for that."""
     scenario = _get_draft_scenario_or_404(scenario_id, db)
-    if not scenario.reference_json:
+    # Round 3 has no scenario-level test-case reference to review upfront
+    # (its target is each candidate's own round 1 answer) - but it does
+    # have its own generated content that must exist before candidates
+    # see this scenario: the Test Environment reference sheet and the
+    # reference UI screens.
+    if scenario.round_number == 3:
+        if not scenario.environment_json:
+            raise HTTPException(400, "Can't publish a round 3 scenario with no test environment generated yet.")
+        if not scenario.ui_mockup_json:
+            raise HTTPException(400, "Can't publish a round 3 scenario with no reference UI screens generated yet.")
+    elif not scenario.reference_json:
         raise HTTPException(400, "Can't publish a scenario with no reference answer yet - generate or write one first.")
-
-    # Enforce "one live scenario per round+band": archive whatever was
-    # published before for this exact (round, band) combination.
-    db.query(Scenario).filter(
-        Scenario.round_number == scenario.round_number,
-        Scenario.experience_band == scenario.experience_band,
-        Scenario.status == ScenarioStatus.published,
-    ).update({"status": ScenarioStatus.archived})
 
     scenario.status = ScenarioStatus.published
     scenario.published_at = datetime.utcnow()
+
+    has_live = db.query(Scenario).filter(
+        Scenario.round_number == scenario.round_number,
+        Scenario.experience_band == scenario.experience_band,
+        Scenario.is_live.is_(True),
+    ).first()
+    if has_live is None:
+        scenario.is_live = True
+
+    db.commit()
+    db.refresh(scenario)
+    return scenario
+
+
+@router.post("/scenarios/{scenario_id}/move-to-screening", response_model=ScenarioOut)
+def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Makes this published scenario the one candidates in its round+band
+    actually get served, demoting whichever one held that spot before.
+    Only one scenario per (round, band) is ever live at a time."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    if scenario.status != ScenarioStatus.published:
+        raise HTTPException(400, f"Scenario is {scenario.status.value}, not published - publish it first.")
+    if scenario.is_live:
+        return scenario
+
+    db.query(Scenario).filter(
+        Scenario.round_number == scenario.round_number,
+        Scenario.experience_band == scenario.experience_band,
+        Scenario.is_live.is_(True),
+    ).update({"is_live": False})
+
+    scenario.is_live = True
     db.commit()
     db.refresh(scenario)
     return scenario
 
 
 def _get_draft_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
+    """For actions that only make sense pre-publish: edit, regenerate,
+    delete, (re-)publish. A published scenario may have real candidate
+    submissions scored against it and must stay exactly as it was -
+    move_to_screening is the only thing that still acts on it."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
@@ -126,30 +221,26 @@ def _get_draft_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
 
 @router.get("/scenarios", response_model=list[ScenarioOut])
 def list_scenarios(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """At most two rows per (round, band): the published scenario (what
-    candidates are actually being scored against right now), and the
-    single most recent draft being prepared next, if any. Never the pile
-    of abandoned attempts behind them - older drafts/archived scenarios
-    still exist in the DB (submissions reference them by id), they're
-    just not surfaced in this summary view."""
-    # Ordered by id, not created_at: two scenarios created in quick
-    # succession can land on the same datetime.utcnow() tick, and
-    # ORDER BY on a tied timestamp isn't reliably insertion-order. The
-    # auto-incrementing id always is.
-    all_scenarios = db.query(Scenario).order_by(Scenario.id.desc()).all()
-    slots = {}
-    for scenario in all_scenarios:
-        key = (scenario.round_number, scenario.experience_band)
-        slot = slots.setdefault(key, {"published": None, "draft": None})
-        if scenario.status == ScenarioStatus.published and slot["published"] is None:
-            slot["published"] = scenario
-        elif scenario.status == ScenarioStatus.draft and slot["draft"] is None:
-            slot["draft"] = scenario
-        # archived scenarios (superseded by a later publish) are true
-        # history - deliberately never shown here again.
-
-    result = [s for slot in slots.values() for s in (slot["published"], slot["draft"]) if s is not None]
-    return sorted(result, key=lambda s: (s.round_number, s.experience_band.value, s.status != ScenarioStatus.published.value))
+    """Every scenario that successfully generated its reference content -
+    draft or published - so HR builds a real library over time and
+    nothing they intentionally created disappears. The only thing
+    filtered out is a draft with no generated content: a failed or
+    interrupted generation, not real content (Regenerate fixes those;
+    they're reachable directly by id if needed). Round 3's generated
+    content is environment_json, not reference_json (see publish_scenario)."""
+    scenarios = (
+        db.query(Scenario)
+        .filter(or_(
+            Scenario.reference_json.isnot(None),
+            Scenario.environment_json.isnot(None),
+        ))
+        .order_by(Scenario.id.desc())
+        .all()
+    )
+    return sorted(
+        scenarios,
+        key=lambda s: (s.round_number, s.experience_band.value, s.status != ScenarioStatus.published.value),
+    )
 
 
 @router.get("/scenarios/{scenario_id}", response_model=ScenarioOut)
@@ -168,8 +259,8 @@ def get_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Dep
 @router.delete("/scenarios/{scenario_id}", status_code=204)
 def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Discard a draft you don't want (e.g. a bad description, a failed
-    generation). Only drafts - a published/archived scenario can have
-    candidate submissions pointing at it and must never be deleted."""
+    generation). Only drafts - a published scenario can have candidate
+    submissions pointing at it and must never be deleted."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
@@ -212,9 +303,225 @@ def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User 
     candidate = db.get(User, candidate_id)
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")
-    return (
+    submissions = (
         db.query(Submission)
         .filter(Submission.user_id == candidate_id)
         .order_by(Submission.round_number)
         .all()
     )
+    out = []
+    for s in submissions:
+        report = SubmissionReportOut.model_validate(s)
+        if s.round_number == 3:
+            report.test_cases = [
+                Round3TestCaseOut(
+                    id=tc.id, title=tc.title, draft_prompt=tc.draft_prompt,
+                    created_at=tc.created_at, turn_count=len(tc.turns),
+                )
+                for tc in s.round3_test_cases
+            ]
+        out.append(report)
+    return out
+
+
+def _gather_candidate_rounds(candidate: User, db: Session) -> list[dict]:
+    """Per-round data for whichever rounds this candidate has actually
+    reached - feeds both the LLM summary and the PDF's round table.
+    A round the candidate hasn't started yet is omitted entirely rather
+    than included as an empty stub, so the summary prompt (and the PDF)
+    only ever sees rounds that are genuinely in progress or further."""
+    submissions_by_round = {s.round_number: s for s in candidate.submissions}
+    rounds = []
+    for round_number in (1, 2, 3):
+        submission = submissions_by_round.get(round_number)
+        if submission is None:
+            continue
+        entry = {
+            "round_number": round_number,
+            "status": submission.status.value,
+            "scenario_title": submission.scenario.title if submission.scenario else None,
+        }
+        if submission.score is not None:
+            entry.update({
+                "final_score": submission.score.final_score,
+                "coverage_score": submission.score.coverage_score,
+                "feedback_text": submission.score.feedback_text,
+                "misses": submission.score.misses_json or [],
+            })
+        rounds.append(entry)
+    return rounds
+
+
+@router.post("/candidates/{candidate_id}/summary", response_model=CandidateAssessmentSummaryOut)
+def candidate_summary(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Cross-round synthesis for HR to hand off - to the candidate as
+    feedback, or to the next round's interviewers as a briefing. Not
+    persisted - generated fresh on each click, same as "Regenerate
+    reference" elsewhere in this file. See llm_service.generate_candidate_summary."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+
+    rounds = _gather_candidate_rounds(candidate, db)
+    if not rounds:
+        raise HTTPException(400, "This candidate hasn't started any round yet - nothing to summarize.")
+
+    band = candidate.experience_band.value if candidate.experience_band else "unspecified"
+    result = llm_service.generate_candidate_summary(
+        candidate_email=candidate.email,
+        experience_band=band,
+        rounds=rounds,
+    )
+    return CandidateAssessmentSummaryOut(
+        candidate_email=candidate.email,
+        experience_band=candidate.experience_band.value if candidate.experience_band else None,
+        round_comments=[CandidateRoundComment(**r) for r in result["rounds"]],
+        final_summary=result["final_summary"],
+    )
+
+
+# fpdf2's built-in core fonts (Helvetica/Times/Courier) only render
+# Latin-1 - no embedded Unicode font shipped with this repo, so LLM
+# prose (which routinely uses curly quotes, em dashes, ellipses) would
+# otherwise crash the endpoint with a 500 on generation. Normalize the
+# common "smart typography" characters to their plain-ASCII equivalents,
+# then fall back to replacing anything still outside Latin-1 with "?"
+# as a last resort - this endpoint must never fail to render just
+# because the LLM used a fancy dash.
+_SMART_TYPOGRAPHY = {
+    "‘": "'", "’": "'",   # ‘ ’
+    "“": '"', "”": '"',   # “ ”
+    "–": "-", "—": "-",   # – —
+    "…": "...",                # …
+    "•": "-",                  # •
+    " ": " ",                  # non-breaking space
+}
+
+
+def _pdf_safe_text(text: str) -> str:
+    for smart, plain in _SMART_TYPOGRAPHY.items():
+        text = text.replace(smart, plain)
+    return text.encode("latin-1", errors="replace").decode("latin-1")
+
+
+@router.post("/candidates/{candidate_id}/summary/pdf")
+def candidate_summary_pdf(
+    candidate_id: int,
+    payload: CandidateSummaryPdfRequest,
+    db: Session = Depends(get_db),
+    hr: User = Depends(require_hr),
+):
+    """Renders the round_comments/final_summary the frontend already
+    generated (via the endpoint above) into a downloadable PDF - takes
+    them as input rather than regenerating, so downloading doesn't cost
+    a second LLM call. Re-fetches the round table itself (for each
+    round's status/score, paired with its comment) rather than trusting
+    a client-supplied one."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+
+    rounds_by_number = {r["round_number"]: r for r in _gather_candidate_rounds(candidate, db)}
+    band = candidate.experience_band.value if candidate.experience_band else "unspecified"
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, "Candidate Assessment Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(0, 8, f"Candidate: {_pdf_safe_text(candidate.email)}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, f"Experience band: {band}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 8, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d')}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    for rc in payload.round_comments:
+        r = rounds_by_number.get(rc.round_number, {})
+        label = ROUND_LABELS.get(rc.round_number, f"Round {rc.round_number}")
+        score = r.get("final_score")
+        score_text = f"{score}/100" if score is not None else "not scored yet"
+
+        pdf.set_font("Helvetica", "B", 12)
+        pdf.cell(0, 8, f"Round {rc.round_number} - {label}", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "I", 9)
+        pdf.cell(0, 6, f"Status: {r.get('status', 'unknown')}  |  Score: {score_text}", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", "", 11)
+        pdf.multi_cell(0, 7, _pdf_safe_text(rc.comment))
+        pdf.ln(2)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Final Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.multi_cell(0, 7, _pdf_safe_text(payload.final_summary))
+
+    pdf_bytes = bytes(pdf.output())
+    safe_email = candidate.email.replace("@", "_at_").replace(".", "_")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_email}-summary.pdf"'},
+    )
+
+
+# ---- Screening history ----
+#
+# Per-scenario performance across everyone who's ever attempted it -
+# the point is closing the loop on scenario authoring: a question that
+# nobody clears (or that everybody clears) isn't discriminating, and a
+# question with a tight cluster of common misses is telling you either
+# "candidates keep missing this, it's a good question" or "the prompt/
+# reference is ambiguous here" - both worth knowing before writing the
+# next one. A scenario_id is a fixed, HR-approved reference the moment
+# it's published (edits are draft-only, see _get_draft_scenario_or_404),
+# so grouping by scenario_id always compares candidates against the
+# exact same question - never a moving target.
+
+@router.get("/history", response_model=list[ScenarioHistoryOut])
+def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    scenarios = (
+        db.query(Scenario)
+        .join(Submission, Submission.scenario_id == Scenario.id)
+        .distinct()
+        .all()
+    )
+
+    out = []
+    for scenario in scenarios:
+        submissions = scenario.submissions
+        scored = [s for s in submissions if s.status == RoundStatus.scored and s.score is not None]
+        pending = [s for s in submissions if s.status == RoundStatus.submitted]
+        cleared = [s for s in scored if (s.score.final_score or 0) >= settings.passing_score]
+
+        # Grouped by exact text, not summarized by another LLM call: the
+        # scoring LLM already names each gap in its own words per
+        # submission, so counting *that* text directly is a transparent,
+        # reproducible read on what recurs - worth more here than a fluent
+        # paraphrase would be, given this feeds a hiring-process decision.
+        misses_counter = Counter(
+            miss for s in scored for miss in (s.score.misses_json or [])
+        )
+        common_misses = [
+            MissPattern(text=text, count=count)
+            for text, count in misses_counter.most_common(10)
+        ]
+
+        dates = [s.started_at or s.created_at for s in submissions]
+
+        out.append(ScenarioHistoryOut(
+            scenario_id=scenario.id,
+            round_number=scenario.round_number,
+            experience_band=scenario.experience_band.value,
+            title=scenario.title,
+            is_live=scenario.is_live,
+            first_used_at=min(dates) if dates else None,
+            last_used_at=max(dates) if dates else None,
+            total_attempted=len(submissions),
+            scored_count=len(scored),
+            pending_count=len(pending),
+            cleared_count=len(cleared),
+            not_cleared_count=len(scored) - len(cleared),
+            cleared_pct=round(len(cleared) / len(scored) * 100, 1) if scored else None,
+            passing_score=settings.passing_score,
+            common_misses=common_misses,
+        ))
+
+    return sorted(out, key=lambda h: h.last_used_at or datetime.min, reverse=True)

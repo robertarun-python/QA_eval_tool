@@ -1,147 +1,664 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --border: #2a2f3a;
-  --text: #e6e8eb;
-  --muted: #9aa2b1;
+  --bg: #0a0c10;
+  --surface: #10131a;
+  --surface-2: #191d26;
+  --panel: #14171f;
+  --panel-hover: #1a1e28;
+  --border: #242933;
+  --border-soft: #1c2029;
+  --text: #eceef2;
+  --text-dim: #c2c7d1;
+  --muted: #8a92a3;
   --accent: #5b8cff;
+  --accent-strong: #4372e6;
+  --accent-soft: rgba(91, 140, 255, 0.13);
   --good: #3ecf8e;
-  --bad: #ef5b5b;
+  --good-soft: rgba(62, 207, 142, 0.14);
+  --bad: #f0616a;
+  --bad-soft: rgba(240, 97, 106, 0.14);
+  --warn: #e6c766;
+  --radius-sm: 7px;
+  --radius-md: 11px;
+  --radius-lg: 16px;
+  --rail-width: 268px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.4);
+  --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 
 * { box-sizing: border-box; }
 
+html, body { height: 100%; }
+
 body {
   margin: 0;
-  font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14.5px;
+  letter-spacing: -0.005em;
 }
 
-header {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border);
+h1, h2, h3, h4, h5 { margin: 0 0 0.5rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
+h3 { font-size: 1rem; }
+h4 { font-size: 0.92rem; }
+h5 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; margin-top: 1rem; }
+p { margin: 0 0 0.6rem; line-height: 1.6; color: var(--text-dim); }
+/* Scenario descriptions (especially round 2's bug reports) are often
+   multi-paragraph HR-authored text - preserve the line breaks HR typed
+   instead of collapsing everything into one run-on line. */
+.scenario-description { white-space: pre-line; }
+/* A <p> reserved for a status message (create/publish/error banners)
+   still occupies a full line of height while blank, which is exactly
+   the kind of dead space at the bottom of a card that reads as
+   unfinished. Nothing to show yet should mean nothing there yet. */
+p:empty { display: none; margin: 0; }
+
+.hidden { display: none !important; }
+
+/* Thin, unobtrusive scrollbars everywhere (webkit) - default chunky
+   scrollbars are one of the fastest tells of an unpolished dark UI. */
+* { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
+*::-webkit-scrollbar-thumb:hover { background: #313848; }
+
+/* ---- Login screen ---- */
+
+.auth-screen {
+  min-height: 100vh;
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(91, 140, 255, 0.11), transparent 42%),
+    radial-gradient(circle at 85% 85%, rgba(139, 91, 255, 0.09), transparent 42%),
+    var(--bg);
 }
 
-main {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 1.5rem;
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 2.25rem 2rem;
+  box-shadow: var(--shadow-lg);
 }
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.75rem;
+}
+
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1.1rem;
+}
+.field-group input { margin-bottom: 0; }
+
+.error-text {
+  color: var(--bad);
+  font-size: 0.85rem;
+  min-height: 1.2em;
+  margin: 0.75rem 0 0;
+}
+
+/* ---- Brand mark (reused in login card + rail) ---- */
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--accent), #8b5bff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.76rem;
+  letter-spacing: 0;
+  color: white;
+  box-shadow: 0 4px 14px rgba(91, 140, 255, 0.35);
+}
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.3; }
+.brand-text strong { font-size: 0.92rem; font-weight: 700; }
+.brand-text span { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+
+/* ---- App shell: fixed-height left rail + scrollable main column ---- */
+
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app-rail {
+  width: var(--rail-width);
+  flex-shrink: 0;
+  height: 100vh;
+  background: var(--surface);
+  border-right: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+}
+
+.rail-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1.35rem 1.35rem 1.15rem;
+}
+
+.rail-nav {
+  padding: 0.5rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  overflow-y: auto;
+}
+
+.rail-nav:empty { display: none; }
+
+.rail-section-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  padding: 1rem 0.6rem 0.4rem;
+}
+
+.rail-footer {
+  margin-top: auto;
+  padding: 1rem 1.35rem;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+/* Identity block: avatar + email/role stack, side by side. Stacked
+   above a full-width logout button (not crammed into one row with it) -
+   an email is too long to share a row with a button at this rail width
+   without wrapping badly. */
+.rail-user {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0; /* lets the email truncate instead of overflowing the rail */
+}
+
+.rail-user-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #8b5bff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.8rem;
+  color: white;
+}
+
+.rail-user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.rail-user-email {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-user-role {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  text-transform: capitalize;
+  color: var(--muted);
+}
+.rail-user-role::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0 2px var(--good-soft);
+  flex-shrink: 0;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(91, 140, 255, 0.05), transparent 30%),
+    var(--bg);
+}
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(10, 12, 16, 0.82);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-soft);
+  padding: 1.35rem 2.25rem;
+}
+
+.app-topbar .eyebrow {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 0.3rem;
+}
+
+.app-topbar h1 { font-size: 1.32rem; margin-bottom: 0.2rem; }
+.app-topbar p { margin: 0; color: var(--muted); }
+
+.app-content {
+  flex: 1;
+  width: 100%;
+  max-width: 1440px;
+  padding: 2rem 2.25rem 3.5rem;
+}
+
+@media (max-width: 860px) {
+  .app-shell { flex-direction: column; height: auto; overflow: visible; }
+  .app-rail { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .rail-brand { border-right: 1px solid var(--border-soft); }
+  .rail-nav { flex-direction: row; flex-wrap: wrap; overflow-y: visible; }
+  .rail-footer { margin-top: 0; border-top: none; border-left: 1px solid var(--border-soft); flex: 1 1 220px; }
+  .app-main { height: auto; overflow-y: visible; }
+  .app-topbar { position: static; }
+}
+
+/* ---- Nav buttons (round selector, HR page switcher) ---- */
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.87rem;
+  transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.nav-btn:hover:not(:disabled) { background: var(--panel-hover); }
+
+.nav-chip {
+  width: 27px;
+  height: 27px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--muted);
+  transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.nav-btn-copy { display: flex; flex-direction: column; min-width: 0; gap: 0.05rem; }
+.nav-btn-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav-btn-note { font-size: 0.71rem; color: var(--muted); font-weight: 500; }
+
+.nav-btn.active {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+  color: var(--text);
+}
+.nav-btn.active .nav-chip { background: var(--accent); color: white; }
+.nav-btn.active .nav-btn-note { color: var(--accent); }
+
+.nav-btn:disabled { color: var(--muted); opacity: 0.5; cursor: not-allowed; }
+.nav-btn:disabled:hover { background: transparent; }
+
+/* ---- Page layout helpers ---- */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: stretch;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 1000px) {
+  .card-grid { grid-template-columns: 1fr; }
+}
+
+/* ---- Panels / cards / tables ---- */
 
 .panel {
   background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem;
-  margin-bottom: 1rem;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-sm);
 }
+
+/* Stretched to match its row partner's height (see .card-grid) - the
+   description field is the one element with genuinely elastic content,
+   so it's the one that should absorb the extra height, not leave it
+   as dead space below the button. */
+.card {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+.card textarea { flex: 1; }
 
 .panel-inset {
-  background: #10131a;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 1rem;
-  margin-bottom: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  padding: 1.1rem 1.25rem;
+  margin-bottom: 0.85rem;
 }
 
-.list-row {
-  align-items: center;
-}
+.table-scroll { overflow-x: auto; margin-bottom: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--border-soft); }
 
-.table-scroll {
-  overflow-x: auto;
-  margin-bottom: 0.75rem;
-}
-
-table {
-  border-collapse: collapse;
-  width: 100%;
-  min-width: 560px;
-}
+table { border-collapse: collapse; width: 100%; min-width: 480px; }
 
 th, td {
-  border: 1px solid var(--border);
-  padding: 0.4rem 0.5rem;
+  padding: 0.65rem 0.85rem;
   text-align: left;
   vertical-align: top;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border-soft);
 }
 
-th { color: var(--muted); font-weight: 600; }
-
-td input, td select { width: 100%; }
-td textarea { width: 100%; min-height: 3rem; }
-
-.side-by-side {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--surface);
 }
+
+tbody tr { transition: background-color 0.12s var(--ease); }
+tbody tr:hover { background: var(--panel-hover); }
+tbody tr:last-child td { border-bottom: none; }
+
+td input, td select { width: 100%; margin-bottom: 0; }
+td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
+
+.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 
 @media (max-width: 700px) {
   .side-by-side { grid-template-columns: 1fr; }
 }
 
 .badge {
-  display: inline-block;
-  padding: 0.1rem 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
   border-radius: 999px;
-  font-size: 0.75rem;
-  background: var(--border);
-  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: var(--surface-2);
+  color: var(--text-dim);
 }
 
-.badge-draft { background: #4a3f1a; color: #e6c766; }
-.badge-published { background: #17402c; color: var(--good); }
-.badge-archived { background: #2a2f3a; color: var(--muted); }
+.badge-draft { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
+.badge-published { background: var(--good-soft); color: var(--good); }
+.badge-published::before {
+  content: "";
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--good);
+}
+
+/* Round 3's per-turn/per-step status - nothing really executed, this is
+   just what the assistant claims would happen (see llm_service.round3_respond). */
+.badge-pass { background: var(--good-soft); color: var(--good); }
+.badge-fail { background: var(--bad-soft); color: var(--bad); }
+.badge-partial { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
+
+/* Round 3's execution trace - plain-English steps with their own
+   pass/fail marker (so a failure is locatable to a specific step, not
+   just an overall verdict), plus a distinct "observed result" callout
+   styled like a log/screenshot-caption readout. Deliberately never
+   shows code - see schemas.Round3ExecutionStep. */
+.exec-steps {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.exec-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  font-size: 0.87rem;
+  color: var(--text-dim);
+}
+.exec-step-mark {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-top: 0.05rem;
+}
+.exec-step-pass .exec-step-mark { background: var(--good-soft); color: var(--good); }
+.exec-step-fail .exec-step-mark { background: var(--bad-soft); color: var(--bad); }
+.exec-step-partial .exec-step-mark { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
+
+/* A step's optional concrete data point (a field value, a status code, a
+   row) - de-emphasized relative to the main execution trace: smaller,
+   muted, no bottom margin, so it doesn't compete with the step list. */
+.exec-step-detail summary { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; font-weight: 400; }
+.exec-step-detail { font-size: 0.82rem; color: var(--text-dim); margin-top: 0.15rem; }
+
+.observed-box {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.9rem;
+  font-size: 0.87rem;
+  color: var(--text-dim);
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
 
 .timer {
-  font-weight: 600;
+  font-weight: 700;
   color: var(--accent);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
 }
 
-details summary {
-  cursor: pointer;
-  color: var(--accent);
-  margin-bottom: 0.5rem;
-}
+details summary { cursor: pointer; color: var(--accent); margin-bottom: 0.5rem; font-size: 0.88rem; font-weight: 500; }
+
+/* ---- Form controls ---- */
 
 input, textarea, select, button {
   font: inherit;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: #10131a;
+  background: var(--surface);
   color: var(--text);
-  padding: 0.5rem 0.7rem;
+  padding: 0.6rem 0.8rem;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 
-textarea { width: 100%; min-height: 140px; }
+input, textarea, select { width: 100%; margin-bottom: 0.65rem; }
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+input::placeholder, textarea::placeholder { color: var(--muted); }
+
+textarea { min-height: 130px; resize: vertical; line-height: 1.5; }
+
+.field-row { display: flex; gap: 0.6rem; margin-bottom: 0.65rem; }
+.field-row > select { margin-bottom: 0; }
+.field-inline { display: flex; align-items: center; gap: 0.55rem; flex-shrink: 0; }
+.field-inline input { width: 5.5rem; margin-bottom: 0; }
 
 button {
   background: var(--accent);
-  border: none;
+  border: 1px solid var(--accent);
   color: white;
   cursor: pointer;
-  padding: 0.55rem 1rem;
+  width: auto;
+  margin-bottom: 0;
+  font-weight: 600;
+  font-size: 0.87rem;
+  padding: 0.62rem 1rem;
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.1s var(--ease), box-shadow 0.15s var(--ease);
 }
 
-button:hover { opacity: 0.9; }
+button:hover { background: var(--accent-strong); border-color: var(--accent-strong); box-shadow: 0 4px 14px rgba(91, 140, 255, 0.28); }
+button:active { transform: translateY(1px); }
+
+button:disabled {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+button:disabled:hover { background: var(--surface-2); box-shadow: none; }
+
+.btn-block { width: 100%; }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.42rem 0.8rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.btn-ghost:hover { background: var(--panel-hover); border-color: var(--border); color: var(--text); box-shadow: none; }
 
 .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
 
-.muted { color: var(--muted); font-size: 0.9rem; }
+.muted { color: var(--muted); font-size: 0.87rem; }
 
-.score-good { color: var(--good); font-weight: 600; }
-.score-bad { color: var(--bad); font-weight: 600; }
+.score-good { color: var(--good); font-weight: 700; }
+.score-bad { color: var(--bad); font-weight: 700; }
 
-.hidden { display: none !important; }
+code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.35rem; font-size: 0.85em; }
 
-code, pre {
-  background: #10131a;
-  border-radius: 4px;
-  padding: 0.1rem 0.3rem;
+.hint-box {
+  background: var(--accent-soft);
+  border: 1px solid rgba(91, 140, 255, 0.3);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1.1rem;
+  margin-bottom: 0.85rem;
+  color: var(--text-dim);
+  font-size: 0.87rem;
+  line-height: 1.55;
+}
+
+/* Round 3's auto-generated Test Environment reference sheet (fictional
+   credentials, a simulated API base URL, ...) - a plain key/value list
+   inside the same hint-box treatment. */
+.env-fields {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2rem 0.75rem;
+  margin: 0.5rem 0;
+}
+.env-fields dt { color: var(--muted); font-weight: 500; }
+.env-fields dd {
+  margin: 0;
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  white-space: pre-line; /* multi-line values, e.g. a list of API endpoints */
+}
+
+/* Round 3's auto-generated reference UI screens - a static, schematic
+   wireframe (never real markup/CSS from the LLM - see app.js's
+   renderMockupScreens). Deliberately plain/sketch-like so it reads
+   honestly as a reference, not a polished replica of a real screen. */
+.mockup-details summary { font-size: inherit; }
+.mockup-screen {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+  margin-bottom: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--surface);
+}
+.mockup-el { font-size: 0.85rem; color: var(--text-dim); }
+.mockup-el-label, .mockup-el-text { color: var(--muted); }
+.mockup-el-button {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.mockup-el-link { color: var(--accent); text-decoration: underline; align-self: flex-start; }
+.mockup-el-input { display: flex; flex-direction: column; gap: 0.2rem; }
+.mockup-el-caption { color: var(--muted); font-size: 0.78rem; }
+.mockup-el-box {
+  display: block;
+  height: 1.6rem;
+  max-width: 16rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.empty-state {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 2rem 1.25rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.87rem;
+  background: var(--surface);
 }

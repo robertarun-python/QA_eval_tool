@@ -10,7 +10,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Enum
+    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Enum, Boolean
 )
 from sqlalchemy.orm import relationship
 
@@ -36,8 +36,7 @@ class RoundStatus(str, enum.Enum):
 
 class ScenarioStatus(str, enum.Enum):
     draft = "draft"          # created, reference generated, HR still reviewing
-    published = "published"   # the one live scenario candidates in this round+band see
-    archived = "archived"     # superseded by a newer published scenario
+    published = "published"   # approved and ready to be used - may or may not be the live one
 
 
 class User(Base):
@@ -76,12 +75,31 @@ class Scenario(Base):
     config_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Draft -> published -> archived lifecycle: HR reviews the generated
-    # reference before candidates can see the scenario, and only one
-    # scenario per (round_number, experience_band) is ever `published`
-    # at a time (enforced in the publish endpoint, not the DB).
+    # Draft -> published lifecycle: HR reviews the generated reference
+    # before candidates can see the scenario. Any number of scenarios
+    # for the same (round_number, experience_band) can be `published`
+    # at once (that's just "approved, in the library") - `is_live` is
+    # the separate flag that says which single one of them candidates
+    # actually get served, enforced in the "move to screening" endpoint.
     status = Column(Enum(ScenarioStatus), default=ScenarioStatus.draft, nullable=False)
+    is_live = Column(Boolean, default=False, nullable=False)
     reference_json = Column(JSON, nullable=True)  # HR-approved "superhuman" reference answer
+    # Round 3 only: auto-generated fictional test-environment reference
+    # facts (credentials, a simulated API base URL, ...) shown to
+    # candidates alongside the scenario description - see
+    # llm_service.generate_round3_environment. Same lifecycle as
+    # reference_json: generated at creation, HR can regenerate it,
+    # required before publish.
+    environment_json = Column(JSON, nullable=True)
+    # Round 3 only: auto-generated structured reference screens (login
+    # page, home page, ...) shown to candidates as a static visual
+    # reference for the app they're automating - see
+    # llm_service.generate_round3_ui_mockup. Structured (screens ->
+    # ordered typed elements), never raw HTML, so the frontend renders it
+    # through trusted CSS instead of injecting LLM-authored markup. Same
+    # lifecycle as environment_json: generated at creation, HR can
+    # regenerate it (together with environment_json), required before publish.
+    ui_mockup_json = Column(JSON, nullable=True)
     time_limit_minutes = Column(Integer, default=30, nullable=False)
     published_at = Column(DateTime, nullable=True)
 
@@ -109,9 +127,21 @@ class Submission(Base):
     candidate = relationship("User", back_populates="submissions")
     scenario = relationship("Scenario", back_populates="submissions")
     score = relationship("Score", back_populates="submission", uselist=False)
+    # created_at, not turn_number: turn_number resets per test case (see
+    # ConversationTurn), so ordering by it alone would interleave test
+    # cases. created_at is monotonic regardless, which is what "the
+    # transcript in the order it happened" actually needs - code that
+    # wants turns grouped by test case does that grouping itself, e.g.
+    # scoring_service.score_round3_submission.
     conversation_turns = relationship(
         "ConversationTurn", back_populates="submission",
-        order_by="ConversationTurn.turn_number",
+        order_by="ConversationTurn.created_at",
+    )
+    # Round 3 only: the candidate's own, self-titled test cases - see
+    # Round3TestCase. Ordered by creation so the tab strip is stable.
+    round3_test_cases = relationship(
+        "Round3TestCase", back_populates="submission",
+        order_by="Round3TestCase.created_at",
     )
 
 
@@ -130,15 +160,53 @@ class Score(Base):
     submission = relationship("Submission", back_populates="score")
 
 
+class Round3TestCase(Base):
+    """Round 3 only: one candidate-created, self-titled automation test
+    case. Deliberately no fixed category (UI/API/DB) - the candidate
+    decides what to test and how many to write, which is the actual
+    thing this round assesses. `title` is nullable: "Test case N" is a
+    display-time fallback for an untitled one, not a stored default."""
+    __tablename__ = "round3_test_cases"
+
+    id = Column(Integer, primary_key=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
+    title = Column(String, nullable=True)
+    # Autosave target for the candidate's in-progress, unsent message -
+    # see candidate.py's PATCH /round/3/test-case/{id}/draft. Cleared
+    # back to "" once that text is actually sent as a turn.
+    draft_prompt = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    submission = relationship("Submission", back_populates="round3_test_cases")
+    turns = relationship(
+        "ConversationTurn", back_populates="test_case",
+        order_by="ConversationTurn.turn_number",
+    )
+
+
 class ConversationTurn(Base):
-    """Round 3 only: each back-and-forth between candidate and the LLM."""
+    """Round 3 only: each back-and-forth between candidate and the LLM,
+    scoped to one of the candidate's own test cases (see Round3TestCase)."""
     __tablename__ = "conversation_turns"
 
     id = Column(Integer, primary_key=True)
     submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
+    test_case_id = Column(Integer, ForeignKey("round3_test_cases.id"), nullable=False)
+    # 1-indexed *within this test case*, not global across the submission -
+    # keeps "turn cap per test case" a plain count query and each test
+    # case's transcript independently orderable.
     turn_number = Column(Integer, nullable=False)
     candidate_prompt = Column(Text, nullable=False)
-    model_response = Column(Text, nullable=False)
+    # Structured, not plain text: {response_text, steps, observed_result,
+    # status} - see schemas.Round3TurnResponse / llm_service.round3_respond.
+    # No code field, deliberately - the candidate reasons from an
+    # execution trace (plain-English steps + what was observed), never
+    # from reading an implementation. Every other LLM-output column in
+    # this app (reference_json, misses_json, raw_llm_response_json) is
+    # JSON for the same reason - the frontend renders these as distinct
+    # pieces, it shouldn't have to parse a text blob to do that.
+    model_response = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     submission = relationship("Submission", back_populates="conversation_turns")
+    test_case = relationship("Round3TestCase", back_populates="turns")

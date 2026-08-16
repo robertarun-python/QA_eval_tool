@@ -1,0 +1,22 @@
+You are a senior engineer with 10+ years of experience debugging production issues. You are generating a REFERENCE debugging approach for a candidate assessment - this reference will be used to score a candidate's own debugging approach, so it needs to be thorough, methodical, and realistic, not a generic checklist.
+
+Bug scenario (experience band: {experience_band}):
+{scenario_description}
+
+Write the reference debugging approach a strong engineer at the {experience_band} experience level would actually take to go from "here's a vague production report" to "here's the root cause and the fix." This should be a TIGHT, focused investigation - not an exhaustive forensic walkthrough of every possible layer. A good reference for a {time_limit_minutes}-minute session looks like roughly: one step to reproduce/confirm the issue, one focused check per layer that's actually relevant to this specific bug (most bugs only implicate 3-5 layers, not all of them), and a closing root-cause conclusion - around 5-8 steps total, not 10+.
+
+1. Reproduce and characterize the issue first (one step, maybe two). Establish what's actually happening and under what conditions (which users/segments, which environment, is it consistent or intermittent) - you cannot debug what you haven't pinned down. Keep this tight: a quick comparison between an affected and an unaffected case is usually enough, not an exhaustive reproduction matrix.
+2. Then one step per layer that's actually plausibly relevant to this bug, moving from the surface inward - only the layers this specific scenario calls for. Consider (don't force all of): UI/client rendering, device/OS/app version, network, API/request-response contract, server-side business logic and rules, database/configuration data, location/geo-targeting rules, caching, deployment/environment consistency. Most realistic bugs narrow to 3-5 of these, not all of them.
+3. For each layer investigated, be concrete but brief: what specific thing would you check (a log, a flag, an API response field, a config table, a rule's priority order), and what result at that check would rule the layer IN vs OUT.
+4. Converge on 1-2 most probable root-cause candidates, justified by which evidence pointed there - not a shrug of "it could be any of these." If the scenario involves a conflict between two rules/configs (e.g. one setting overriding another it shouldn't), name that conflict explicitly. This can be folded into the final step rather than needing its own.
+5. A closing step (or fold into #4): the recommended fix and, briefly, what regression test would catch this class of bug next time - a sentence is enough, this doesn't need its own elaborate step.
+
+Formatting:
+- Write like a human engineer talking through their actual investigation: plain, specific, a little uneven in phrasing - not a uniform AI-generated list. Avoid phrases like "As an AI" or generic hedging.
+- Each step: a short title, preconditions (what needs to already be true or known before this step makes sense - leave blank if none), what to actually do (steps), and what you'd expect to observe or confirm at that point (expected_result) - phrase expected_result so it's clear what result rules the layer in vs. out where relevant.
+- Favor fewer, sharper steps over covering every layer for completeness' sake. Someone reading this should recognize it as what a sharp engineer would actually jot down in {time_limit_minutes} minutes, not a textbook debugging methodology reference.
+
+Respond with ONLY a JSON array, no other text, in this shape:
+[
+  {{"title": "...", "preconditions": "...", "steps": "...", "expected_result": "..."}}
+]

@@ -1,0 +1,12 @@
+You are a senior QA engineer putting together a reference wireframe sheet for a candidate assessment. Nothing here is a real app - there is no real system behind it - but it should read like a genuine, if schematic, sketch of the screens a QA engineer would actually have open in a browser while automating this feature.
+
+App/feature the candidate will be writing test automation against:
+{app_description}
+
+Describe 2-3 screens that cover the core flow implied by the description above (e.g. a login/entry screen plus one or two of the main screens after that). For each screen, give an ordered, top-to-bottom list of the UI elements a tester would actually see and interact with - labels, inputs, buttons, links, and short blocks of static text. Keep it wireframe-level: element type and its visible text only, no colors, no exact pixel layout, no styling detail - the point is giving the candidate something concrete to describe precisely, not a polished mockup.
+
+REQUIRED: somewhere across these screens, include 1-2 pairs of elements whose text is genuinely easy to confuse with each other - e.g. a button labeled "Login" and a link labeled "Log In" both present on the same screen, or an input labeled "Username" whose neighboring element implies something subtly different (like a second field labeled "User ID"), or two buttons with near-identical wording where only one does what the candidate would assume. This is not optional flavor - the whole point is testing whether the candidate's automation instructions are precise enough to pick the right one, so every mockup must include at least one such pair somewhere in it.
+
+Respond with ONLY JSON, no other text, in this shape:
+{{"screens": [{{"name": "Login", "elements": [{{"type": "label", "text": "Email"}}, {{"type": "input", "text": "Email"}}, {{"type": "input", "text": "Password"}}, {{"type": "button", "text": "Login"}}, {{"type": "link", "text": "Log In"}}]}}]}}
+Valid element types: "label", "input", "button", "link", "text".

@@ -99,16 +99,15 @@ pytest ../tests
 
 ## What's next
 
-Round 2 (debugging) and Round 3 (prompt-refinement automation) are
-stubbed — HR can already author/publish Round 2 scenarios (the
-draft→publish lifecycle is round-agnostic), but candidate-side
-submission and scoring for rounds 2/3 still return `501`. Each is
-flagged with `TODO(round2)` / `TODO(round3)` comments in
-`backend/app/services/llm_service.py`,
-`backend/app/routers/hr.py`, and `backend/app/routers/candidate.py`.
-Round 1 is the template to follow: one prompt file to generate a
-reference answer, one to score against it, wired through
-`scoring_service.py`.
+Rounds 1 and 2 both have a full authoring→publish→timed-submit→scoring
+pipeline. Round 3 (prompt-refinement automation) is still stubbed —
+HR can already author/publish Round 3 scenarios (the draft→publish
+lifecycle is round-agnostic), but candidate-side submission and
+scoring return `501`. It's flagged with `TODO(round3)` comments in
+`backend/app/services/llm_service.py`, `backend/app/routers/hr.py`, and
+`backend/app/routers/candidate.py` — it needs a different shape than
+rounds 1/2 (conversational, not a structured-row form), so it's its own
+build rather than a copy of the round 1/2 pattern.
 
 Other things worth tackling as this grows past POC stage: Alembic
 migrations instead of `create_all`, moving the JWT out of a JS variable

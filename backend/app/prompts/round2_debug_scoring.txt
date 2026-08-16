@@ -1,6 +1,28 @@
-# TODO(round2): not wired up yet - see llm_service.score_round2_debugging (stub).
-# Placeholder for the prompt that will:
-#   1. Ask Claude for a reference debugging approach given the seeded bug.
-#   2. Score the candidate's written debugging approach against it.
-# Follow the same two-call pattern as round1_reference_generation.txt +
-# round1_scoring.txt when implementing this.
+You are grading a candidate's debugging investigation against a reference approach written by a senior engineer. Be fair but rigorous - this score affects a hiring decision.
+
+Bug scenario (experience band: {experience_band}):
+{scenario_description}
+
+Reference debugging approach (senior-engineer quality, ordered steps):
+{reference_steps}
+
+Candidate's investigation (JSON array of areas they checked, in order - each is a short free-text description of what they looked at, not a structured test case):
+{candidate_investigation}
+
+Candidate's stated root cause conclusion:
+{candidate_root_cause}
+
+This is a systematic-elimination debugging exercise, not a free-association one - grade the *method*, not just whether the final root cause happens to be right. Specifically assess:
+- Did they establish reproduction/characterization first (what conditions the bug occurs under), rather than jumping straight to a guess? Missing this is a significant gap even if their final root cause happens to be right.
+- Did they work through the layers actually relevant to this bug (UI, device, network, API, server/business logic, database/configuration, location/geo, cache, deployment/environment - whichever apply here) with real elimination logic implied by the order and content of their checks, rather than just listing generic areas with no diagnostic thread connecting them?
+- Does their stated root cause follow from what they actually investigated - is it a genuine conclusion drawn from ruling things out, or an unsupported guess that doesn't match their own checklist?
+- Is the root cause statement specific and justified (names the actual mechanism, e.g. "a geo campaign rule overrides package entitlement"), rather than vague ("something in the backend")?
+
+Evaluate the candidate's submission:
+- coverage_score (0-100): what proportion of the meaningful diagnostic areas in the reference does the candidate's investigation functionally cover, even if worded differently or checked in a different order?
+- misses: a list of short strings naming specific diagnostic angles the candidate's investigation skipped, or ways their stated root cause doesn't follow from their own checklist (e.g. "never established whether the issue was reproducible/consistent before investigating", "root cause claims an API bug but investigation never actually checked the API response", "no regression test or fix direction mentioned in the conclusion").
+- final_score (0-100): overall quality - considering coverage, but weighted toward methodical elimination over lucky guessing, realism given the symptom described, and whether the candidate identified a plausible root cause the reference missed (don't penalize for that - note it in feedback instead).
+- feedback_text: 2-4 sentences of direct, specific, constructive feedback as if written by a hiring panel member, calibrated to the {experience_band} experience band - name what they did well methodologically and the biggest gap between their investigation and their stated conclusion.
+
+Respond with ONLY JSON, no other text, in this shape:
+{{"coverage_score": 0, "misses": ["..."], "final_score": 0, "feedback_text": "..."}}

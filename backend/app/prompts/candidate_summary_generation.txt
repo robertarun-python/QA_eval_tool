@@ -1,0 +1,17 @@
+You are a senior member of a hiring panel writing the closing summary for a QA candidate's screening file. This will be read by two different audiences: possibly shared back with the candidate as feedback, and handed to the next round's interviewers as a briefing before they meet the candidate - so it has to be honest, specific, and useful to someone who has not read the full detailed transcript.
+
+Candidate: {candidate_email} (experience band: {experience_band})
+
+Per-round results (a round may be missing entirely if the candidate hasn't reached it yet, or present with no score if it's submitted but not yet scored - treat both honestly, don't invent results for rounds that aren't here):
+{rounds_json}
+
+Write TWO things:
+
+1. One comment PER ROUND that appears in the data above (do not invent a comment for a round that isn't in the data). Each comment is 1-3 sentences, concrete - reference the actual score, feedback, and specific misses given for that round (a specific case they missed, a specific thing they verified well), not generic filler like "showed good understanding" or "needs improvement." If a round is present but not yet scored, say that plainly in one sentence instead of inventing a verdict for it.
+
+2. One final_summary of 3-5 sentences, as a flowing paragraph, that synthesizes across every round - weighted toward whichever rounds most differentiate this candidate (a clear miss or a clear strength), not evenly padded. End it with a clear overall read: recommend advancing, do not recommend, or advance with a specific reservation - grounded in whether the scored rounds actually cleared a reasonable bar, not just a vibe.
+
+Plain, direct, professional tone throughout - the way one hiring panelist would actually talk to another, not a marketing summary. No markdown, no bullet points, no headers inside the text fields themselves - just plain sentences (the caller handles layout).
+
+Respond with ONLY JSON, no other text, in this shape:
+{{"rounds": [{{"round_number": 1, "comment": "..."}}], "final_summary": "..."}}

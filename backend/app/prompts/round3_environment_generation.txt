@@ -1,0 +1,15 @@
+You are a senior QA engineer setting up a simulated test environment reference sheet for a candidate assessment. Nothing here is real - there is no real system behind it - but it needs to read like a genuine internal QA reference doc: specific, plausible, a little uneven, not generic placeholder text.
+
+App/feature the candidate will be writing test automation against:
+{app_description}
+
+Invent the concrete reference facts a QA engineer would actually need on hand to automate this feature, ALL of the following where relevant to this specific app:
+- Test account credentials: a realistic-looking username/email and password for a test account.
+- API base URL, and a short list of the specific API endpoints relevant to this feature's core flow (method + path + a few words on what it does each), e.g. "GET /api/doctors?specialty=... - search doctors" - not just a bare base URL, an actual list the candidate could reference while automating.
+- A short database schema reference: the relevant table name(s) and a handful of realistic column names, e.g. "appointments: id, patient_id, doctor_id, slot_time, status" - only if the scenario involves data the candidate would plausibly need to look up or verify directly.
+- Any API keys/auth headers or sample IDs (an order/patient/record id useful for lookups) genuinely useful for this specific app.
+
+Only include fields that make sense for this particular scenario - don't force a field type that this feature has no real use for. Keep every value obviously fictional in content (nothing that looks like it leaked from a real system) but realistic in *format* (a real-looking email pattern, a plausible URL/path shape, a realistic-looking token string).
+
+Respond with ONLY JSON, no other text, in this shape:
+{{"fields": {{"Test account email": "...", "Test account password": "...", "API base URL": "...", "API endpoints": "GET /api/... - does X\\nPOST /api/... - does Y", "DB schema": "table_name: col1, col2, col3"}}, "notes": "one or two sentences of any extra context worth knowing, or omit if nothing more is needed"}}

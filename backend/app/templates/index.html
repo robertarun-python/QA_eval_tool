@@ -3,82 +3,114 @@
 <head>
   <meta charset="UTF-8" />
   <title>QA Eval Tool</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v={{ style_css_version }}" />
 </head>
 <body>
-  <header>
-    <strong>QA Eval Tool</strong>
-    <span id="who" class="muted"></span>
-  </header>
-  <main>
 
-    <!-- Logged out: login only. Accounts are seeded (app/seed.py) - no signup. -->
-    <section id="auth-panel" class="panel">
+  <!-- Logged out: a plain centered login screen, no app chrome yet. -->
+  <div class="auth-screen" id="auth-screen">
+    <section class="auth-card">
+      <div class="auth-brand">
+        <div class="brand-mark">QA</div>
+        <div class="brand-text"><strong>QA Eval Tool</strong><span>Screening Console</span></div>
+      </div>
       <p class="muted">Sign in with the account HR gave you.</p>
-      <div class="row">
-        <input id="email" type="email" placeholder="email" />
-        <input id="password" type="password" placeholder="password" />
+      <div class="field-group">
+        <input id="email" type="email" placeholder="Email" />
+        <input id="password" type="password" placeholder="Password" />
       </div>
-      <div class="row">
-        <button onclick="login()">Log in</button>
-      </div>
-      <p id="auth-error" class="muted"></p>
+      <button class="btn-block" onclick="login()">Log in</button>
+      <p id="auth-error" class="error-text"></p>
     </section>
+  </div>
 
-    <!-- HR view -->
-    <section id="hr-panel" class="panel-group hidden">
+  <!-- Logged in: persistent left rail + topbar + content, same shell for HR and candidate. -->
+  <div class="app-shell hidden" id="app-shell">
+    <aside class="app-rail">
+      <div class="rail-brand">
+        <div class="brand-mark">QA</div>
+        <div class="brand-text"><strong>QA Eval Tool</strong><span>Screening Console</span></div>
+      </div>
 
-      <div class="panel">
-        <h3>Create a scenario</h3>
-        <div class="row">
-          <select id="s-round">
-            <option value="1">Round 1 - Manual test cases</option>
-            <option value="2">Round 2 - Debugging</option>
-          </select>
-          <select id="s-band">
-            <option value="0-7">0-7 years</option>
-            <option value="7+">7+ years</option>
-          </select>
-          <input id="s-time-limit" type="number" min="1" value="30" style="width:6rem" />
-          <span class="muted">min limit</span>
+      <nav class="rail-nav" id="hr-round-nav"></nav>
+      <nav class="rail-nav" id="candidate-round-nav"></nav>
+
+      <div class="rail-footer">
+        <div class="rail-user" id="who"></div>
+        <button class="btn-ghost btn-block" onclick="logout()">Log out</button>
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <header class="app-topbar">
+        <div>
+          <div class="eyebrow" id="page-eyebrow"></div>
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle" class="muted"></p>
         </div>
-        <div class="row">
-          <input id="s-title" placeholder="Scenario title" style="flex:1" />
-        </div>
-        <textarea id="s-desc" placeholder="Describe the feature/system the candidate should write test cases for..."></textarea>
-        <div class="row">
-          <button onclick="createScenario()">Create &amp; generate reference</button>
-        </div>
-        <p id="hr-create-status" class="muted"></p>
-      </div>
+      </header>
 
-      <div class="panel">
-        <h3>Scenarios</h3>
-        <div id="scenario-list"></div>
-      </div>
+      <main class="app-content">
 
-      <div id="scenario-detail" class="panel hidden"></div>
+        <!-- HR view -->
+        <section id="hr-panel" class="hidden">
 
-      <div class="panel">
-        <h3>Candidates</h3>
-        <div id="candidates-table"></div>
-      </div>
+          <div id="hr-page-rounds">
+            <div class="card-grid">
+              <div class="panel card">
+                <h3>Create a scenario</h3>
+                <p id="hr-round-context" class="muted"></p>
+                <div class="field-row">
+                  <select id="s-band">
+                    <option value="0-7">0-7 years</option>
+                    <option value="7+">7+ years</option>
+                  </select>
+                  <div class="field-inline">
+                    <input id="s-time-limit" type="number" min="1" value="30" />
+                    <span class="muted">min limit</span>
+                  </div>
+                </div>
+                <input id="s-title" placeholder="Scenario title" oninput="updateCreateBtnState()" />
+                <textarea id="s-desc" placeholder="Describe the feature/system the candidate should write test cases for..." oninput="updateCreateBtnState()"></textarea>
+                <button id="s-create-btn" class="btn-block" onclick="createScenario()" disabled>Create &amp; generate reference</button>
+                <p id="hr-create-status" class="muted"></p>
+              </div>
 
-      <div id="candidate-detail" class="panel hidden"></div>
+              <div class="panel card">
+                <h3>Scenarios</h3>
+                <div id="scenario-list"></div>
+              </div>
+            </div>
 
-    </section>
+            <div id="scenario-detail" class="panel hidden"></div>
 
-    <!-- Candidate view -->
-    <section id="candidate-panel" class="panel-group hidden">
-      <div id="round-view" class="panel"></div>
-      <div class="panel">
-        <h3>My results</h3>
-        <div id="my-submissions"></div>
-      </div>
-    </section>
+            <div class="panel">
+              <h3>Screening history</h3>
+              <p class="muted">Every scenario in this round that's actually been put in front of candidates, and how it performed - use this before writing a new one, so you're not repeating a question that's already too easy, too hard, or ambiguous.</p>
+              <div id="history-list"></div>
+            </div>
+          </div>
 
-  </main>
+          <div id="hr-page-candidates" class="hidden">
+            <div class="panel">
+              <h3>Candidates</h3>
+              <p class="muted">All rounds, all candidates.</p>
+              <div id="candidates-table"></div>
+            </div>
+            <div id="candidate-detail" class="panel hidden"></div>
+          </div>
 
-  <script src="/static/app.js"></script>
+        </section>
+
+        <!-- Candidate view -->
+        <section id="candidate-panel" class="hidden">
+          <div id="round-view" class="panel"></div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v={{ app_js_version }}"></script>
 </body>
 </html>

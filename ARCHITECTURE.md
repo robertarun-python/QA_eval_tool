@@ -103,9 +103,13 @@ scores
   id, submission_id, coverage_score, misses_json, final_score,
   feedback_text, raw_llm_response_json, created_at
 
-conversation_turns   -- Round 3 only: the prompt-refinement dialogue
-  id, submission_id, turn_number, candidate_prompt, model_response,
+round3_test_cases   -- Round 3 only: the candidate's own, self-titled
+  id, submission_id, title (nullable), draft_prompt (autosave target),
   created_at
+
+conversation_turns   -- Round 3 only: the prompt-refinement dialogue,
+  id, submission_id, test_case_id, turn_number, candidate_prompt,        -- scoped to one test case
+  model_response, created_at
 ```
 
 ## Round mechanics (from the design notes)
@@ -120,17 +124,50 @@ conversation_turns   -- Round 3 only: the prompt-refinement dialogue
   scores the candidate's rows against the *same* reference that was
   published (not a fresh generation — see `scoring_service.score_round1`)
   for coverage, misses, and a final score.
-- **Round 2 — debugging.** HR preloads a bug. Candidate writes how they'd
-  debug it. Claude compares against a human-quality reference debugging
-  answer and scores it. *(Stubbed in this pass — see below. Scenario
-  authoring/publishing already works for round 2; only the candidate-side
-  submit/score pipeline is missing.)*
-- **Round 3 — prompt-driven test automation.** Candidate must get Claude
-  to produce 6 automated test cases (2 UI, 2 API, 2 DB) via conversation.
-  Claude is deliberately instructed to hold back to ~60% correctness on
-  each turn (wrong status codes, partial coverage, etc.) so the
-  candidate has to notice and refine their prompts. The quality of *that
-  refinement conversation* is itself the thing being scored. *(Stubbed.)*
+- **Round 2 — debugging.** HR preloads a bug report as free text (the
+  same `description` field every round uses — no separate structured
+  fields for symptom/package/etc., see `prompts/round2_reference_generation.txt`).
+  Claude generates a reference debugging approach: reproduce/characterize
+  the issue, eliminate the layers actually relevant to that bug (UI,
+  device, network, API, server/business logic, database/config,
+  location/geo rules, cache, deployment — whichever apply) with concrete
+  rule-in/rule-out evidence per step, converge on 1-2 justified root
+  causes, then a fix and regression tests. The candidate's own answer
+  shape is deliberately *not* the same as the reference: a short
+  repeatable list of investigation areas (one free-text field each -
+  what they checked, what they found) plus a single closing "possible
+  root cause" statement, not test-case-style rows (see
+  `schemas.Round2SubmissionCreate`). On submit, Claude scores that
+  investigation + conclusion against the published reference for
+  coverage, misses, and a final score, weighted toward methodical
+  elimination over a lucky guess, and toward whether the stated root
+  cause actually follows from what was investigated (see
+  `prompts/round2_debug_scoring.txt`, `scoring_service.score_round2_investigation`).
+  One-shot, not conversational — the candidate writes their full
+  investigation in one sitting, there's no back-and-forth clue reveal.
+- **Round 3 — prompt-driven test automation.** Candidate automates their
+  own Round 1 test cases by directing Claude through conversation,
+  writing as many self-titled test cases as they judge the scenario
+  needs (no fixed UI/API/DB category or count assigned to them - picking
+  what's worth testing is itself part of what's assessed). Each message
+  autosaves as a draft per test case (survives switching tabs and a page
+  refresh) until it's actually sent. Nothing really executes - Claude
+  invents an execution trace (plain-English steps, each pass/fail/
+  partial, plus an "observed result") in the same call, deliberately
+  correct only ~60% of the time, preferring a quiet contradiction in the
+  observed result over an outright crash. No code is ever shown to the
+  candidate (see `schemas.Round3ExecutionStep`) - the candidate reasons
+  from what a manual tester would see, not from reading an
+  implementation, so coding fluency can't substitute for automation
+  judgment. HR gets an auto-generated "Test environment" reference sheet
+  (fictional credentials, API base URL, ...) per scenario, shown to
+  every candidate alongside the description (`Scenario.environment_json`,
+  same generate/review/regenerate/publish-gate lifecycle as `reference_json`
+  for rounds 1/2 - see `llm_service.generate_round3_environment`). One
+  holistic score per submission, weighted toward methodical verification
+  (catching the assistant's flaws, not just accepting the first answer)
+  and independent breadth of judgment about what to test (see
+  `prompts/round3_scoring.txt`).
 
 Both bands (0-7 years / 7+ years) reuse the same round logic; the
 difference is which scenario is published for a candidate's band and how
@@ -141,17 +178,14 @@ prompt files), not separate code paths.
 ## What's built in this pass vs. stubbed
 
 Built end-to-end: seeded auth (1 HR + 3 candidates, no signup), HR
-scenario authoring with draft→publish lifecycle and reference
-review/regenerate/hand-edit, round-gating, a server-authoritative
-per-round timer with client auto-submit, Round 1's full flow (start →
-structured submit → LLM scoring against the published reference → HR
-dashboard + per-candidate drill-down report).
-
-Stubbed (routes exist and return `501` for candidate-side submit/score,
-but HR can already author/publish scenarios for round 2): Round 2 and
-Round 3 candidate flows. These are flagged with `# TODO(round2)` /
-`# TODO(round3)` comments and are the natural next things to build — each
-is its own vertical slice, same pattern as Round 1.
+scenario authoring with draft→publish lifecycle and reference/
+environment review/regenerate/hand-edit, round-gating, a
+server-authoritative per-round timer with client auto-submit, all three
+rounds' full flow (start → submit → LLM scoring → HR dashboard +
+per-candidate drill-down report), and a screening-history dashboard
+aggregating clear rate and common misses per scenario (round-agnostic —
+covers rounds 1 and 2 today; round 3's conversational shape doesn't fit
+the same misses-pattern aggregation).
 
 ## Folder layout
 

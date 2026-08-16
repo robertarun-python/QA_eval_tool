@@ -9,7 +9,7 @@ Write a reference set of test cases a strong QA engineer at the {experience_band
 - Each test case: a short title, preconditions (if any), steps, expected result, a priority, and a type.
 - priority is one of: High, Medium, Low.
 - type is one of: Positive, Negative, Boundary, Edge - and your set of cases should include a realistic mix, not all Positive.
-- Aim for the number and depth of cases a real engineer at this level would produce in a focused 30-45 minute session - don't pad with trivial duplicates.
+- Aim for the number and depth of cases a real engineer at this level would produce in a focused {time_limit_minutes}-minute session - don't pad with trivial duplicates, and don't generate more than someone could realistically write by hand in that time (roughly 1 case per 1.5-2 minutes is a reasonable ceiling).
 
 Respond with ONLY a JSON array, no other text, in this shape:
 [

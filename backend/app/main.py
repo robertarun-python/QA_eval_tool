@@ -30,7 +30,17 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 @app.get("/")
 def index(request: Request):
     """Minimal login + dashboard UI. All real logic lives behind the JSON API above."""
-    return templates.TemplateResponse("index.html", {"request": request})
+    # Each static asset's own mtime as a cache-busting query param - no
+    # build step here, so without this a browser that already cached the
+    # old file keeps running/rendering it after an edit until a hard
+    # refresh forces a re-fetch.
+    app_js_version = int((BASE_DIR / "static" / "app.js").stat().st_mtime)
+    style_css_version = int((BASE_DIR / "static" / "style.css").stat().st_mtime)
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "app_js_version": app_js_version,
+        "style_css_version": style_css_version,
+    })
 
 
 @app.get("/health")
