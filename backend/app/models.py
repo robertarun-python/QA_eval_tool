@@ -56,6 +56,13 @@ class User(Base):
 
 class Scenario(Base):
     __tablename__ = "scenarios"
+    # Without this, SQLite reuses a deleted row's id for the next insert
+    # whenever that row held the current max id (its default rowid
+    # behavior, not an SQLAlchemy quirk) - since scenarios.id is used to
+    # pick "the most recent one" (list_scenarios), a recycled id would
+    # sort as older than it really is. This forces ids to only ever
+    # increase, matching a DELETE-capable table's actual needs.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id = Column(Integer, primary_key=True)
     round_number = Column(Integer, nullable=False)  # 1, 2, or 3

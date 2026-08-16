@@ -92,6 +92,25 @@ def test_scenario_list_shows_live_plus_one_in_progress_draft(client, monkeypatch
     assert next(s for s in matching if s["id"] == draft["id"])["status"] == "draft"
 
 
+def test_deleted_scenario_id_is_never_reused(client, monkeypatch):
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+
+    def create(title):
+        return client.post(
+            "/hr/scenarios",
+            json={"round_number": 1, "title": title, "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+            headers=_auth(hr_token),
+        ).json()
+
+    first = create("First")
+    client.delete(f"/hr/scenarios/{first['id']}", headers=_auth(hr_token))  # frees up the highest id
+    second = create("Second")
+
+    assert second["id"] > first["id"]  # not recycled, even though first's id was the current max
+
+
 def test_can_delete_a_draft_but_not_a_published_scenario(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     published = _publish_scenario(client, hr_token, monkeypatch)

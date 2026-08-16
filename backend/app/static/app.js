@@ -122,7 +122,7 @@ async function loadScenarios() {
   }
   list.innerHTML = scenarios.map((s) => `
     <div class="row list-row">
-      <span class="badge badge-${s.status}">${s.status}</span>
+      <span class="badge badge-${s.status}">${statusLabel(s.status)}</span>
       <span>Round ${s.round_number} · ${s.experience_band}</span>
       <strong style="flex:1">${escapeHtml(s.title)}</strong>
       <button onclick="openScenarioDetail(${s.id})">Review</button>
@@ -155,7 +155,8 @@ async function openScenarioDetail(id) {
 
   const isDraft = scenario.status === "draft";
   box.innerHTML = `
-    <h3>#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${scenario.status}</span></h3>
+    <h3>#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${statusLabel(scenario.status)}</span></h3>
+    ${scenario.status === "published" ? `<p class="muted">This is the one scenario Round ${scenario.round_number} / ${scenario.experience_band} candidates currently see.</p>` : ""}
     <p class="muted">Round ${scenario.round_number} · ${scenario.experience_band} · ${scenario.time_limit_minutes} min limit</p>
     <p>${escapeHtml(scenario.description)}</p>
     <h4>Reference answer ${isDraft ? "(review before publishing)" : ""}</h4>
@@ -205,8 +206,24 @@ async function saveReferenceEdit(id) {
   }
 }
 
+function statusLabel(status) {
+  if (status === "published") return "LIVE - candidates see this";
+  if (status === "draft") return "draft";
+  return status;
+}
+
 async function publishScenario(id) {
   const statusEl = document.getElementById("scenario-detail-status");
+  const scenario = await api(`/hr/scenarios/${id}`);
+  const scenarios = await api("/hr/scenarios");
+  const currentlyLive = scenarios.find((s) =>
+    s.status === "published" && s.round_number === scenario.round_number && s.experience_band === scenario.experience_band
+  );
+  const warning = currentlyLive
+    ? `This will replace "${currentlyLive.title}" as the live Round ${scenario.round_number} / ${scenario.experience_band} scenario - candidates will only see the new one from now on. Continue?`
+    : `Make this the live Round ${scenario.round_number} / ${scenario.experience_band} scenario? Candidates will see it immediately.`;
+  if (!confirm(warning)) return;
+
   try {
     await api(`/hr/scenarios/${id}/publish`, { method: "POST" });
     loadScenarios();
