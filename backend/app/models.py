@@ -39,14 +39,6 @@ class RoundStatus(str, enum.Enum):
     # forever. See scoring_service.score_submission_in_background and
     # Submission.scoring_error.
     scoring_failed = "scoring_failed"
-    # Candidate switched tabs/apps during a timed round and chose "Exit
-    # test" from the forced-choice popup (see routers/candidate.py's
-    # /round/{n}/abandon and app.js's tab-switch guard) rather than
-    # submitting what they had. Terminal, like scored/scoring_failed -
-    # _max_completed_round only advances on submitted/scored, so an
-    # abandoned round leaves the candidate stuck there; it is not a
-    # scoring outcome, just an early exit.
-    abandoned = "abandoned"
 
 
 class ScenarioStatus(str, enum.Enum):
@@ -164,11 +156,11 @@ class Submission(Base):
     # retry or manual override.
     scoring_error = Column(Text, nullable=True)
     # Anti-cheating: one ISO timestamp appended per detected tab-switch/
-    # focus-loss during this round (see app.js's tab-switch guard and
-    # POST /candidate/round/{n}/tab-switch) - logged the instant it's
-    # detected, independent of which button the candidate then picks on
-    # the forced-choice popup, so even "closed the tab entirely" leaves a
-    # trace. HR-visible only (see tab_switch_count below / SubmissionReportOut).
+    # focus-loss during this round - purely passive logging (see app.js's
+    # tab-switch guard and POST /candidate/round/{n}/tab-switch), same
+    # pattern real assessment platforms use rather than interrupting the
+    # candidate mid-round. HR-visible only (see tab_switch_count below /
+    # SubmissionReportOut).
     tab_switch_events_json = Column(JSON, nullable=True)
 
     candidate = relationship("User", back_populates="submissions")

@@ -107,7 +107,19 @@ def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: 
 
 def _generate_reference(scenario: Scenario, db: Session) -> None:
     """Synchronous on purpose: HR is actively waiting to review this
-    (unlike candidate-facing scoring, which runs in the background)."""
+    (unlike candidate-facing scoring, which runs in the background).
+    Nothing here is committed until the very end (see db.commit() below),
+    so a failure partway through (malformed LLM JSON, a shape that
+    doesn't match the target schema, a network/API error) just leaves the
+    scenario's reference fields unset rather than corrupting anything -
+    HR sees a clean error and can hit "Regenerate" to retry."""
+    try:
+        _generate_reference_unsafe(scenario, db)
+    except Exception:
+        raise HTTPException(502, "Reference generation failed - try again.")
+
+
+def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
     if scenario.round_number == 1:
         scenario.reference_json = llm_service.generate_round1_reference(
             scenario_description=scenario.description,

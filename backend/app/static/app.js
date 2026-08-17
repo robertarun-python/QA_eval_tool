@@ -32,7 +32,6 @@ let userEmail = null; // resolved fresh from GET /auth/me every session load - s
 let currentRound = 1;       // which round's content is showing right now (candidate view)
 let candidateUnlockedRound = 1; // the one round a candidate is allowed into - see refreshCandidateNav()
 let candidateCompletedRounds = [];
-let candidateAbandonedRounds = []; // rounds ended early via the tab-switch guard's "Exit test" (see refreshCandidateNav)
 let currentHRRound = 1;     // which round's scenarios/history HR is authoring/reviewing right now
 let hrPage = "rounds";      // "rounds" (author/review), "candidates" (results dashboard), or "settings"
 let candidateSummaryData = null;        // last-generated { round_comments, final_summary } (see generateCandidateSummary) - reused by the PDF download so it doesn't cost a second LLM call
@@ -49,6 +48,30 @@ function authHeaders() {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 }
 
+// FastAPI/Pydantic's 422 response shape is {detail: [{loc, msg, type}, ...]}
+// - a LIST of error objects, not a string. `new Error(thatList)` used to
+// get passed straight through, and stringifying an array of objects in
+// a template/textContent assignment silently produces "[object Object],
+// [object Object]" instead of anything a candidate can act on. This
+// turns that same list into "Row 2 - expected result: field required"
+// style text; a plain string detail (every other error in this app)
+// passes through unchanged.
+function apiErrorMessage(data, fallback) {
+  const detail = data && data.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail.map((d) => {
+      if (typeof d === "string") return d;
+      const loc = Array.isArray(d.loc) ? d.loc : [];
+      const rowIndex = loc.find((seg) => typeof seg === "number");
+      const field = [...loc].reverse().find((seg) => typeof seg === "string" && seg !== "body");
+      const label = field ? (rowIndex !== undefined ? `Row ${rowIndex + 1} - ${field}` : field) : null;
+      return label ? `${label}: ${d.msg}` : (d.msg || "Invalid input");
+    }).join("; ");
+  }
+  return fallback;
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: authHeaders(), ...opts });
   if (res.status === 401) {
@@ -60,7 +83,7 @@ async function api(path, opts = {}) {
   }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error((data && data.detail) || `Request failed (${res.status})`);
+    throw new Error(apiErrorMessage(data, `Request failed (${res.status})`));
   }
   return data;
 }
@@ -82,7 +105,7 @@ async function login() {
   });
   const data = await res.json();
   if (!res.ok) {
-    document.getElementById("auth-error").textContent = data.detail || "Something went wrong";
+    document.getElementById("auth-error").textContent = apiErrorMessage(data, "Something went wrong");
     return;
   }
   token = data.access_token;
@@ -588,7 +611,7 @@ async function uploadCandidates() {
       body: formData,
     });
     const result = await res.json();
-    if (!res.ok) throw new Error(result.detail || "Upload failed");
+    if (!res.ok) throw new Error(apiErrorMessage(result, "Upload failed"));
 
     const rows = result.rows.map((r) => `
       <tr>
@@ -617,7 +640,7 @@ async function uploadCandidates() {
 
 function roundStatusCell(r) {
   const flag = r.tab_switch_count > 0
-    ? ` <span class="badge badge-fail" title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">${r.tab_switch_count} exit${r.tab_switch_count === 1 ? "" : "s"}</span>`
+    ? ` <span class="badge badge-fail" title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">${r.tab_switch_count}x tab switch</span>`
     : "";
   if (r.final_score != null) {
     const cls = r.final_score >= passingScoreForRound(r.round_number) ? "score-good" : "score-bad";
@@ -1010,20 +1033,12 @@ async function refreshCandidateNav() {
   candidateCompletedRounds = submissions
     .filter((s) => s.status === "submitted" || s.status === "scored")
     .map((s) => s.round_number);
-  // Abandoned (see RoundStatus.abandoned / the tab-switch guard's "Exit
-  // test" choice) isn't "completed" - _max_completed_round on the server
-  // never advances past it, so nextRound below naturally lands back on
-  // this same round every time, same as it does for scoring_failed.
-  // This is only tracked separately for the nav label below.
-  candidateAbandonedRounds = submissions
-    .filter((s) => s.status === "abandoned")
-    .map((s) => s.round_number);
   const nextRound = [1, 2, 3].find((n) => !candidateCompletedRounds.includes(n));
   renderCandidateRoundNav();
 
   if (nextRound === undefined) {
     currentRound = 0; // nothing in the nav is "active" once everything's submitted
-    disarmTabGuard(); // defensive - loadRound (which also does this) isn't reached on this branch
+    disarmTabGuard(); // defensive - loadRound (which also disarms) isn't reached on this branch
     renderCandidateRoundNav();
     document.getElementById("round-view").innerHTML = `
       <h3>All rounds complete</h3>
@@ -1042,9 +1057,8 @@ function renderCandidateRoundNav() {
     <div class="rail-section-label">Assessment</div>
     ${[1, 2, 3].map((n) => {
       const done = candidateCompletedRounds.includes(n);
-      const abandoned = candidateAbandonedRounds.includes(n);
-      const isUnlocked = n === candidateUnlockedRound && !done && !abandoned;
-      const note = done ? "Submitted" : abandoned ? "Exited early" : n === candidateUnlockedRound ? "In progress" : "Locked";
+      const isUnlocked = n === candidateUnlockedRound && !done;
+      const note = done ? "Submitted" : n === candidateUnlockedRound ? "In progress" : "Locked";
       return `
         <button class="nav-btn ${n === currentRound ? "active" : ""}" ${isUnlocked ? "" : "disabled"} onclick="loadRound(${n})">
           <span class="nav-chip">${n}</span>
@@ -1066,7 +1080,7 @@ function renderCandidateRoundNav() {
 async function loadRound(n) {
   currentRound = n;
   stopTimer();
-  disarmTabGuard(); // any previous round's timer/modal is gone regardless of which branch below runs next
+  disarmTabGuard();
   renderCandidateRoundNav();
   const box = document.getElementById("round-view");
   let state;
@@ -1091,11 +1105,6 @@ function renderRoundView(box, n, state) {
     // Only reachable via a stale nav click (disabled buttons prevent it
     // normally) - a neutral landing, no status/score wording at all.
     box.innerHTML = `<h3>Round ${n}: ${escapeHtml(scenario.title)}</h3><p class="muted">You've already submitted this round.</p>`;
-    return;
-  }
-
-  if (submission && submission.status === "abandoned") {
-    box.innerHTML = `<h3>Round ${n}: ${escapeHtml(scenario.title)}</h3><p class="muted">You exited this round early after switching away from the test. It can't be resumed.</p>`;
     return;
   }
 
@@ -1230,26 +1239,28 @@ function collectInvestigationRows() {
     .filter((r) => r.area);
 }
 
-async function doSubmitRound2Investigation(statusElId = "submit-status") {
-  stopTimer();
-  const statusEl = document.getElementById(statusElId);
+async function doSubmitRound2Investigation() {
+  // Timer/guard only stop once the submit actually goes through below - a
+  // validation failure here means the round is still very much in
+  // progress and must keep counting down with the guard still armed.
+  const statusEl = document.getElementById("submit-status");
   const investigation = collectInvestigationRows();
   const root_cause = document.getElementById("inv-root-cause").value.trim();
   if (investigation.length === 0) {
-    if (statusEl) statusEl.textContent = "Add at least one investigation row before submitting.";
-    return false;
+    statusEl.textContent = "Add at least one investigation row before submitting.";
+    return;
   }
   if (!root_cause) {
-    if (statusEl) statusEl.textContent = "Fill in the Possible Root Cause box before submitting.";
-    return false;
+    statusEl.textContent = "Fill in the Possible Root Cause box before submitting.";
+    return;
   }
   try {
     await api("/candidate/round/2/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
+    stopTimer();
+    disarmTabGuard();
     refreshCandidateNav();
-    return true;
   } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
-    return false;
+    statusEl.textContent = e.message;
   }
 }
 
@@ -1419,6 +1430,7 @@ function renderRound3Layout(box) {
     <p id="timer" class="timer"></p>
     <div id="round3-tabs" class="row" style="margin-bottom:0.4rem"></div>
     <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
+    ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
     <div id="round3-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
       <button class="btn-block" onclick="round3Submit()">Submit Round 3</button>
@@ -1563,17 +1575,18 @@ async function round3SendMessage() {
   }
 }
 
-async function round3Submit(statusElId = "round3-status") {
-  stopTimer();
-  const statusEl = document.getElementById(statusElId);
+async function round3Submit() {
+  const statusEl = document.getElementById("round3-status");
   try {
     await api("/candidate/round/3/submit", { method: "POST" });
+    stopTimer();
+    disarmTabGuard();
     round3DraftBuffer = {};
     refreshCandidateNav();
-    return true;
   } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
-    return false;
+    // e.g. "Create at least one test case before submitting." - the
+    // round is still in progress, so the timer/guard must stay engaged.
+    statusEl.textContent = e.message;
   }
 }
 
@@ -1616,23 +1629,38 @@ function collectRows() {
     .filter((r) => r.title.trim() || r.steps.trim());
 }
 
-async function doSubmitRound1(statusElId = "submit-status") {
-  stopTimer();
-  const statusEl = document.getElementById(statusElId);
+async function doSubmitRound1() {
+  const statusEl = document.getElementById("submit-status");
   const content = collectRows();
   if (content.length === 0) {
-    if (statusEl) statusEl.textContent = "Add at least one row before submitting.";
-    return false;
+    statusEl.textContent = "Add at least one row before submitting.";
+    return;
+  }
+  // collectRows() only drops rows with NEITHER title nor steps filled in
+  // (an unused blank row) - a row with just one of the required fields
+  // typed in would otherwise reach the server, which requires title,
+  // steps, AND expected result (see schemas.TestCaseRow) and rejects it.
+  // Catch that here with a specific message instead of a round trip.
+  const incompleteIndex = content.findIndex((r) => !r.title.trim() || !r.steps.trim() || !r.expected_result.trim());
+  if (incompleteIndex !== -1) {
+    const r = content[incompleteIndex];
+    const missing = [
+      !r.title.trim() && "Title",
+      !r.steps.trim() && "Steps",
+      !r.expected_result.trim() && "Expected result",
+    ].filter(Boolean);
+    statusEl.textContent = `Row ${incompleteIndex + 1} is missing: ${missing.join(", ")}.`;
+    return;
   }
   try {
     await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
+    stopTimer();
+    disarmTabGuard();
     // No results screen - scoring happens in the background on HR's
     // side; the candidate just moves on to whatever's unlocked next.
     refreshCandidateNav();
-    return true;
   } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
-    return false;
+    statusEl.textContent = e.message;
   }
 }
 
@@ -1643,7 +1671,7 @@ function startTimer(deadlineMs, onExpire, roundNumber) {
     const remaining = deadlineMs - Date.now();
     if (remaining <= 0) {
       stopTimer();
-      disarmTabGuard(); // nothing meaningful left to "exit" from once auto-submit takes over
+      disarmTabGuard(); // time's up is a hard boundary regardless of whether auto-submit below succeeds
       onExpire();
       return;
     }
@@ -1655,123 +1683,142 @@ function startTimer(deadlineMs, onExpire, roundNumber) {
   timerHandle = setInterval(tick, 1000);
 }
 
+// Deliberately does NOT touch the tab-switch guard - see disarmTabGuard,
+// called separately (and only) at points where a round genuinely ends:
+// a successful submit, the timer naturally expiring, navigating to a
+// different round, or logging out. A validation failure inside a submit
+// attempt (e.g. "add a row first") means the round is still very much
+// in progress, so the guard/fullscreen must stay engaged through that -
+// this used to also exit fullscreen on every submit *attempt*,
+// regardless of whether it actually succeeded, which is why "Submit"
+// with an empty form looked like it silently disabled the guard.
 function stopTimer() {
-  // Deliberately does NOT disarm the tab-switch guard (see below) - this
-  // also runs at the top of doSubmitRound1/doSubmitRound2Investigation
-  // when they're called FROM inside the guard's own forced-choice modal
-  // (see tabGuardSubmitNow), and a validation failure there (e.g. "add a
-  // row first") needs the modal + its status line to stay on screen for
-  // the candidate to read, not vanish along with the timer.
   if (timerHandle) {
     clearInterval(timerHandle);
     timerHandle = null;
   }
 }
 
-// ---- Anti-cheating: tab-switch / focus-loss guard (candidate rounds
-// only - armed exactly while a round's timer is running, see startTimer/
-// stopTimer above) ----
+// ---- Anti-cheating: fullscreen-enforced tab-switch guard (candidate
+// rounds only - armed exactly while a round's timer is running, see
+// startTimer/stopTimer above) ----
 //
-// Detection only, on two fronts:
-//  - A browser can neither block Alt+Tab/opening a new tab nor see what's
-//    on it, so this can't literally stop someone consulting AI elsewhere.
-//  - A hidden/unfocused tab can't render anything at all, so the popup
-//    below can't visibly appear the instant the candidate leaves - only
-//    the instant they come back to this tab. The violation itself is
-//    still logged the moment it's detected (POST .../tab-switch),
-//    independent of that visual delay and of whatever the candidate
-//    picks once they're back - even closing the tab outright leaves a
-//    trace. The document.title swap below is a best-effort nudge to
-//    surface it sooner (visible in the tab strip even before switching
-//    back), not a fix for the underlying constraint.
-let tabGuardActive = false;    // true only while a round's timer is running
-let tabGuardRound = null;      // which round number is currently being guarded
-let tabGuardModalOpen = false; // guards against re-triggering while the forced-choice popup is already up
-let tabGuardOriginalTitle = null;
+// No website can literally block Alt+Tab or a tab switch - that's a
+// deliberate browser/OS boundary, not a gap in this code (see MDN's
+// Fullscreen API docs). What real lockdown-style exam tools actually do
+// (TestInvite, ClassMarker, and others) is require fullscreen and react
+// the INSTANT it's exited - exiting fullscreen is a same-tab event that
+// fires while the page is still rendering, unlike visibilitychange/blur
+// which only fire once the tab is already hidden. Escape, Alt+Tab, and
+// switching browser tabs all trigger a fullscreenchange in current
+// browsers, so this is the closest thing to "catch it as it happens"
+// that's actually possible on the web - a prior attempt using only
+// visibilitychange/blur could only ever react once the candidate
+// returned, which wasn't convincing as a deterrent.
+let fsGuardArmed = false;  // true only while a round's timer is running
+let fsGuardRound = null;   // which round number is currently being watched
+let fsGuardActive = false; // true once requestFullscreen() actually succeeded for this round - if false, falls back to passive logging below
 
-function armTabGuard(roundNumber) {
-  disarmTabGuard(); // clear any stale state/overlay left over from a previous round first
-  tabGuardActive = true;
-  tabGuardRound = roundNumber;
+async function armTabGuard(roundNumber) {
+  fsGuardArmed = true;
+  fsGuardRound = roundNumber;
+  fsGuardActive = false;
+  if (document.fullscreenEnabled) {
+    try {
+      await document.documentElement.requestFullscreen();
+      fsGuardActive = true;
+    } catch (e) {
+      // Denied, or not allowed in this context - fall back to passive
+      // logging rather than leaving the candidate with no guard at all.
+    }
+  }
 }
 
 function disarmTabGuard() {
-  tabGuardActive = false;
-  tabGuardRound = null;
-  tabGuardModalOpen = false;
-  if (tabGuardOriginalTitle !== null) {
-    document.title = tabGuardOriginalTitle;
-    tabGuardOriginalTitle = null;
-  }
-  const overlay = document.getElementById("tab-guard-overlay");
-  if (overlay) overlay.remove();
+  fsGuardArmed = false;
+  fsGuardRound = null;
+  fsGuardActive = false;
+  removeFsOverlay();
+  const toast = document.getElementById("tab-switch-toast");
+  if (toast) toast.remove();
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 
-function handleTabGuardTrigger() {
-  if (!tabGuardActive || tabGuardModalOpen || role !== "candidate") return;
-  tabGuardModalOpen = true;
-  const roundNumber = tabGuardRound;
+function logTabSwitch(roundNumber) {
+  if (role !== "candidate") return;
   api(`/candidate/round/${roundNumber}/tab-switch`, { method: "POST" }).catch(() => {});
-  tabGuardOriginalTitle = document.title;
-  document.title = "Return to the test!";
-  showTabGuardModal(roundNumber);
 }
 
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) handleTabGuardTrigger();
+document.addEventListener("fullscreenchange", () => {
+  if (!fsGuardArmed || !fsGuardActive) return;
+  if (document.fullscreenElement) {
+    removeFsOverlay();
+  } else {
+    logTabSwitch(fsGuardRound);
+    showFsOverlay(fsGuardRound);
+  }
 });
-window.addEventListener("blur", handleTabGuardTrigger);
 
-function showTabGuardModal(roundNumber) {
+function showFsOverlay(roundNumber) {
+  if (document.getElementById("fs-guard-overlay")) return;
   const overlay = document.createElement("div");
-  overlay.id = "tab-guard-overlay";
+  overlay.id = "fs-guard-overlay";
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-box">
-      <h3>You left the test</h3>
-      <p>Switching tabs or windows during a timed round is logged and visible to HR. Choose how to continue.</p>
-      <div class="row">
-        <button onclick="tabGuardResume()">Resume test</button>
-        <button class="btn-ghost" onclick="tabGuardSubmitNow(${roundNumber})">Submit current progress</button>
-        <button class="btn-ghost" onclick="tabGuardExit(${roundNumber})">Exit test</button>
-      </div>
-      <p id="tab-guard-status" class="muted"></p>
+      <h3>Fullscreen required</h3>
+      <p>This round must be taken in fullscreen. Leaving it has been logged and is visible to HR.</p>
+      <button onclick="reenterFullscreen()">Return to fullscreen</button>
     </div>
   `;
   document.body.appendChild(overlay);
 }
 
-function tabGuardResume() {
-  // Stays armed (still the same round, timer keeps running underneath -
-  // see startTimer/stopTimer) - just closes the popup and lets the
-  // candidate keep going. The violation stays logged regardless; this
-  // only decides what happens to the round, not whether HR sees it.
-  tabGuardModalOpen = false;
-  if (tabGuardOriginalTitle !== null) {
-    document.title = tabGuardOriginalTitle;
-    tabGuardOriginalTitle = null;
-  }
-  const overlay = document.getElementById("tab-guard-overlay");
+function removeFsOverlay() {
+  const overlay = document.getElementById("fs-guard-overlay");
   if (overlay) overlay.remove();
 }
 
-async function tabGuardSubmitNow(roundNumber) {
-  let ok = false;
-  if (roundNumber === 1) ok = await doSubmitRound1("tab-guard-status");
-  else if (roundNumber === 2) ok = await doSubmitRound2Investigation("tab-guard-status");
-  else ok = await round3Submit("tab-guard-status");
-  if (ok) disarmTabGuard();
+function reenterFullscreen() {
+  document.documentElement.requestFullscreen().catch(() => {});
 }
 
-async function tabGuardExit(roundNumber) {
-  const statusEl = document.getElementById("tab-guard-status");
-  try {
-    await api(`/candidate/round/${roundNumber}/abandon`, { method: "POST" });
-    disarmTabGuard();
-    refreshCandidateNav();
-  } catch (e) {
-    if (statusEl) statusEl.textContent = e.message;
+// Fallback for browsers/contexts where fullscreen enforcement isn't
+// available at all (fsGuardActive stays false) - same passive log +
+// dismissible toast as before, so there's still some signal instead of
+// no guard whatsoever.
+let tabSwitchPending = false;
+
+document.addEventListener("visibilitychange", () => {
+  if (fsGuardArmed && !fsGuardActive && document.hidden && !tabSwitchPending) {
+    tabSwitchPending = true;
+    logTabSwitch(fsGuardRound);
   }
+});
+window.addEventListener("blur", () => {
+  if (fsGuardArmed && !fsGuardActive && !tabSwitchPending) {
+    tabSwitchPending = true;
+    logTabSwitch(fsGuardRound);
+  }
+});
+window.addEventListener("focus", () => {
+  if (!tabSwitchPending) return;
+  tabSwitchPending = false;
+  showTabSwitchToast();
+});
+
+function showTabSwitchToast() {
+  const existing = document.getElementById("tab-switch-toast");
+  if (existing) existing.remove();
+  const toast = document.createElement("div");
+  toast.id = "tab-switch-toast";
+  toast.className = "toast";
+  toast.innerHTML = `
+    <span>You switched away from this test - it's been logged and is visible to HR.</span>
+    <button class="toast-dismiss" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 6000);
 }
 
 function escapeHtml(str) {

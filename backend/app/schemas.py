@@ -253,7 +253,7 @@ class RoundStateOut(BaseModel):
 
 class CandidateRoundSummary(BaseModel):
     round_number: int
-    status: str  # "not_started" | "in_progress" | "submitted" | "scored" | "scoring_failed" | "abandoned"
+    status: str  # "not_started" | "in_progress" | "submitted" | "scored" | "scoring_failed"
     final_score: Optional[int] = None
     # Surfaced here too (not just the drill-down report) so it's visible
     # on the first screen HR sees - see Submission.tab_switch_count.

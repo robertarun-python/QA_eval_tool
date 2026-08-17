@@ -280,6 +280,87 @@ def test_round3_turn_is_scoped_to_its_test_case_with_no_turn_cap(client, monkeyp
     assert res.json()["turn_number"] == 1
 
 
+def test_round3_turn_rejects_a_malformed_llm_response_without_corrupting_state(client, monkeypatch):
+    """A response that's valid JSON but doesn't match Round3TurnResponse
+    (wrong-case status, missing observed_result) used to sail past the
+    only check in round3_respond (isinstance(result, dict)), get
+    persisted, and then permanently 500 every later read of this
+    candidate's round 3 state - including the very next one the frontend
+    makes after sending this same message. Patching _call_claude (the
+    lowest-level seam) rather than round3_respond itself, so this
+    actually exercises the real parsing + validation path."""
+    import json
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", headers=_auth(cand_token))
+    tc = _create_round3_test_case(client, cand_token, title="Login happy path")
+
+    bad_response = json.dumps({
+        "response_text": "Here's what happened.",
+        "steps": [{"description": "Did a thing", "status": "pass"}],
+        "status": "Pass",  # schema requires exactly "pass"/"fail"/"partial"
+        # observed_result missing entirely
+    })
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: bad_response)
+
+    res = client.post(
+        "/candidate/round/3/turn",
+        json={"test_case_id": tc["id"], "candidate_prompt": "Try logging in"},
+        headers=_auth(cand_token),
+    )
+    assert res.status_code == 502
+    assert "trouble responding" in res.json()["detail"]
+
+    # Nothing was persisted - state is still readable and empty, not
+    # permanently broken.
+    state = client.get("/candidate/round/3/state", headers=_auth(cand_token))
+    assert state.status_code == 200
+    assert state.json()["turns"] == []
+
+    # A retry with a well-formed response just works.
+    monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
+    res = client.post(
+        "/candidate/round/3/turn",
+        json={"test_case_id": tc["id"], "candidate_prompt": "Try logging in"},
+        headers=_auth(cand_token),
+    )
+    assert res.status_code == 201
+
+
+def test_round3_environment_generation_rejects_malformed_shape(client, monkeypatch):
+    """Same class of gap as the turn-response one above, one step earlier
+    in the pipeline: generate_round3_environment only checked for a
+    'fields' key, not that it actually matched Round3EnvironmentOut
+    (fields: dict[str, str]) - a nested object as a field value is valid
+    JSON but the wrong shape, and used to only fail once a candidate's
+    Round3StateOut read hit it live."""
+    import json
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    bad_response = json.dumps({"fields": {"API base URL": {"nested": "not a string"}}})
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: bad_response)
+
+    res = client.post(
+        "/hr/scenarios",
+        json={"round_number": 3, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        headers=_auth(hr_token),
+    )
+    assert res.status_code == 502
+
+    # No half-populated scenario left behind (same rollback-on-failure
+    # behavior as test_round3_ui_mockup_failure_also_prevents_scenario_from_being_usable).
+    res = client.get("/hr/scenarios", headers=_auth(hr_token))
+    assert res.json() == []
+
+
 def test_round3_draft_autosave_round_trips_and_is_ownership_checked(client, monkeypatch):
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))

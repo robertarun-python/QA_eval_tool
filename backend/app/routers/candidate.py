@@ -292,16 +292,27 @@ def round3_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candid
     ]
     turn_number = len(existing_turns) + 1
 
-    response = llm_service.round3_respond(
-        test_case_title=test_case.title or "",
-        environment=scenario.environment_json,
-        scenario_instructions=scenario.description,
-        round1_context=round1_context.model_dump(),
-        conversation_so_far=conversation_so_far,
-        candidate_prompt=payload.candidate_prompt,
-        assistance_pct=config["assistance_pct"],
-        turn_number=turn_number,
-    )
+    # Called synchronously in the request path (unlike round 1/2/3 scoring,
+    # which run as a background task) - a bad response here (malformed
+    # JSON, an API error, or a shape that doesn't match Round3TurnResponse
+    # - see llm_service.round3_respond) must never reach db.add() below.
+    # Nothing has been persisted yet at this point, so this is a clean,
+    # retryable failure for the candidate - not the stuck-forever state a
+    # persisted-then-invalid turn used to cause on every later read of
+    # this candidate's round 3 state.
+    try:
+        response = llm_service.round3_respond(
+            test_case_title=test_case.title or "",
+            environment=scenario.environment_json,
+            scenario_instructions=scenario.description,
+            round1_context=round1_context.model_dump(),
+            conversation_so_far=conversation_so_far,
+            candidate_prompt=payload.candidate_prompt,
+            assistance_pct=config["assistance_pct"],
+            turn_number=turn_number,
+        )
+    except Exception:
+        raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
     turn = ConversationTurn(
         submission_id=submission.id,
@@ -447,14 +458,13 @@ def submit_round(
 @router.post("/round/{round_number}/tab-switch", status_code=204)
 def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Fire-and-forget telemetry from app.js's tab-switch guard: the
-    candidate left this tab/app while a round's timer was running. Logged
-    the instant it's detected, before the candidate picks anything on the
-    forced-choice popup that follows - so even closing the tab outright
-    still leaves a trace for HR (see Submission.tab_switch_events_json).
-    Silently a no-op if there's nothing in-progress to attach it to (the
-    round may have already ended by the time this request lands) - this
-    is a logging side-channel, not something that should ever block or
-    error out on the candidate."""
+    candidate left this tab/app while a round's timer was running. Purely
+    passive, same as how real assessment platforms handle this (see
+    app.js's tab-switch guard) - never blocks the candidate or interrupts
+    the round, just logs it for HR to see later (Submission.
+    tab_switch_events_json). Silently a no-op if there's nothing
+    in-progress to attach it to (the round may have already ended by the
+    time this request lands)."""
     if round_number not in (1, 2, 3):
         raise HTTPException(400, "round_number must be 1, 2, or 3")
     scenario = _live_scenario(db, round_number, candidate)
@@ -475,32 +485,6 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     events.append(datetime.utcnow().isoformat())
     submission.tab_switch_events_json = events
     db.commit()
-
-
-@router.post("/round/{round_number}/abandon", response_model=SubmissionOut)
-def abandon_round(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    """The "Exit test" choice on the tab-switch guard's forced-choice
-    popup - ends the round without scoring it (unlike a real submit) and
-    the candidate cannot resume it or restart it themselves (see
-    RoundStatus.abandoned; only an HR-triggered candidate reset clears
-    this, same as any other terminal round outcome)."""
-    if round_number not in (1, 2, 3):
-        raise HTTPException(400, "round_number must be 1, 2, or 3")
-    scenario = _live_scenario(db, round_number, candidate)
-    if scenario is None:
-        raise HTTPException(404, "No published scenario for this round.")
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
-    if submission is None or submission.status != RoundStatus.in_progress:
-        raise HTTPException(400, "This round isn't in progress - nothing to abandon.")
-
-    submission.status = RoundStatus.abandoned
-    db.commit()
-    db.refresh(submission)
-    return submission
 
 
 @router.get("/submissions", response_model=list[SubmissionOut])

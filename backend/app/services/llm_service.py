@@ -9,8 +9,10 @@ import json
 from pathlib import Path
 
 import anthropic
+from pydantic import ValidationError
 
 from ..config import settings
+from ..schemas import Round3TurnResponse, Round3EnvironmentOut, Round3UiMockupOut
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -180,9 +182,19 @@ def generate_round3_environment(app_description: str) -> dict:
     )
     raw = _call_claude(prompt)
     result = _parse_json_response(raw)
-    if not isinstance(result, dict) or "fields" not in result:
-        raise ValueError(f"Expected a JSON object with a 'fields' key, got: {result!r}")
-    return result
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the test environment, got: {type(result)}")
+    # Validated (not just "has a fields key") - Round3EnvironmentOut is
+    # only enforced at read time on ScenarioPublicOut/Round3StateOut, so
+    # an unvalidated shape mismatch here (e.g. a non-string field value)
+    # would sail through db.commit() in hr.py and only surface as a
+    # broken candidate-facing read later. HR's own ScenarioOut uses a
+    # loose dict, so this doesn't affect HR's own preview either way -
+    # it's purely about not shipping a bad shape live.
+    try:
+        return Round3EnvironmentOut.model_validate(result).model_dump()
+    except ValidationError as e:
+        raise ValueError(f"Test environment response didn't match the expected shape: {e}") from e
 
 
 def generate_round3_ui_mockup(app_description: str) -> dict:
@@ -199,9 +211,12 @@ def generate_round3_ui_mockup(app_description: str) -> dict:
     )
     raw = _call_claude(prompt)
     result = _parse_json_response(raw)
-    if not isinstance(result, dict) or "screens" not in result:
-        raise ValueError(f"Expected a JSON object with a 'screens' key, got: {result!r}")
-    return result
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the UI mockup, got: {type(result)}")
+    try:
+        return Round3UiMockupOut.model_validate(result).model_dump()
+    except ValidationError as e:
+        raise ValueError(f"UI mockup response didn't match the expected shape: {e}") from e
 
 
 def round3_respond(
@@ -230,7 +245,22 @@ def round3_respond(
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
-    return result
+    # Validated against Round3TurnResponse's exact shape (status must be
+    # literally "pass"/"fail"/"partial", steps/observed_result required)
+    # before this ever reaches the caller - candidate.py's round3_turn
+    # persists whatever this returns immediately, and every later read of
+    # that candidate's round 3 state is response_model=Round3StateOut,
+    # which validates just as strictly. An unvalidated shape mismatch
+    # here used to sail straight into the database, permanently 500ing
+    # every future read of that candidate's transcript - including the
+    # very next one the frontend makes after sending this message - with
+    # no way for the candidate to recover mid-assessment. Raising here
+    # instead makes a bad turn a retryable failure, the same as malformed
+    # JSON already is, rather than a silent, permanent one.
+    try:
+        return Round3TurnResponse.model_validate(result).model_dump()
+    except ValidationError as e:
+        raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
 
 
 def score_round3_conversation(round1_context: dict, test_cases: list[dict], assistance_pct: int) -> dict:

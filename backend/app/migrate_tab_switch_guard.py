@@ -1,10 +1,8 @@
 """
-Migration for the candidate-side tab-switch/focus-loss anti-cheating guard
-(see models.py: RoundStatus.abandoned, Submission.tab_switch_events_json).
-`Base.metadata.create_all()` only creates missing tables, so the existing
-submissions table needs an explicit ALTER for its new column. RoundStatus
-gaining a new enum member needs no migration - SQLite stores it as plain
-TEXT, not a DB-level CHECK constraint.
+Migration for the candidate-side tab-switch/focus-loss anti-cheating log
+(see models.py: Submission.tab_switch_events_json). `Base.metadata.
+create_all()` only creates missing tables, so the existing submissions
+table needs an explicit ALTER for its new column.
 
 Idempotent - checks column presence first, so it's safe to run more than
 once.

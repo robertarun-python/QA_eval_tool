@@ -663,8 +663,42 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   background: var(--surface);
 }
 
-/* Tab-switch guard's forced-choice popup (see app.js) - deliberately has
-   no close/dismiss affordance other than the two buttons inside it. */
+/* Tab-switch guard's passive notice (see app.js's showTabSwitchToast) -
+   non-blocking, dismissible, auto-fades - never sits in front of or
+   interrupts the round the candidate's working on. */
+.toast {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 28rem;
+  background: var(--panel);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 0.75rem 1rem;
+  font-size: 0.87rem;
+  color: var(--text-dim);
+}
+.toast-dismiss {
+  background: none;
+  border: none;
+  box-shadow: none;
+  padding: 0 0.25rem;
+  color: var(--muted);
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.toast-dismiss:hover { background: none; color: var(--text); box-shadow: none; }
+
+/* Fullscreen-guard's blocking overlay (see app.js's showFsOverlay) -
+   covers the whole round until the candidate clicks back into
+   fullscreen; deliberately has no dismiss affordance other than that
+   one button. */
 .modal-overlay {
   position: fixed;
   inset: 0;
