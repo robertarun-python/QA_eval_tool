@@ -475,6 +475,8 @@ def upload_candidates(file: UploadFile = File(...), db: Session = Depends(get_db
     ones are reported and skipped, so one bad row doesn't block the rest
     of the file - see candidate_upload_service.process_upload_rows."""
     content = file.file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(400, "File is too large (max 5MB) - this should only ever be a plain list of emails and exam dates.")
     try:
         rows = candidate_upload_service.parse_upload_rows(file.filename or "", content)
     except Exception as e:

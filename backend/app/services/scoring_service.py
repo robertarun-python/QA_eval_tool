@@ -107,9 +107,17 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     scenario = submission.scenario
     config = {**llm_service.DEFAULT_ROUND3_CONFIG, **(scenario.config_json or {})}
 
+    # archived.is_(False) matters for a re-applied candidate (see
+    # CandidateAppearance) - without it, a candidate with more than one
+    # round 1 submission (current + an old, archived one from a prior
+    # cycle) could get scored against the WRONG scenario's title/
+    # description/rows, since .first() with no ordering has no guarantee
+    # of picking the current one. _round1_context_for (used for the live
+    # round 3 UI) already filters this correctly - this lookup, used at
+    # final scoring time, was the one place that didn't.
     round1_submission = (
         db.query(Submission)
-        .filter(Submission.user_id == submission.user_id, Submission.round_number == 1)
+        .filter(Submission.user_id == submission.user_id, Submission.round_number == 1, Submission.archived.is_(False))
         .first()
     )
     round1_context = {

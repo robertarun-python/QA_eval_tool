@@ -127,8 +127,12 @@ class Submission(Base):
     __tablename__ = "submissions"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False)
+    # index=True on both - nearly every candidate-facing query filters on
+    # one of these (start_round, submit_round, _live_scenario lookups,
+    # _max_completed_round, HR's per-candidate report), and SQLite doesn't
+    # auto-index foreign keys the way some other DBs do.
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    scenario_id = Column(Integer, ForeignKey("scenarios.id"), nullable=False, index=True)
     round_number = Column(Integer, nullable=False)
     # Structured content (list of test-case row dicts for round 1) rather
     # than free text - see schemas.TestCaseRow. JSON works over SQLite
@@ -229,7 +233,7 @@ class Round3TestCase(Base):
     __tablename__ = "round3_test_cases"
 
     id = Column(Integer, primary_key=True)
-    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
     title = Column(String, nullable=True)
     # Autosave target for the candidate's in-progress, unsent message -
     # see candidate.py's PATCH /round/3/test-case/{id}/draft. Cleared
@@ -250,8 +254,8 @@ class ConversationTurn(Base):
     __tablename__ = "conversation_turns"
 
     id = Column(Integer, primary_key=True)
-    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False)
-    test_case_id = Column(Integer, ForeignKey("round3_test_cases.id"), nullable=False)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    test_case_id = Column(Integer, ForeignKey("round3_test_cases.id"), nullable=False, index=True)
     # 1-indexed *within this test case*, not global across the submission -
     # keeps "turn cap per test case" a plain count query and each test
     # case's transcript independently orderable.
@@ -283,7 +287,7 @@ class CandidateAppearance(Base):
     __tablename__ = "candidate_appearances"
 
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     email = Column(String, nullable=False)  # snapshot of the uploaded row, not a live FK to User.email
     exam_date = Column(DateTime, nullable=False)
     is_current = Column(Boolean, nullable=False, default=True)

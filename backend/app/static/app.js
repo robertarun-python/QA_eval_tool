@@ -1768,7 +1768,11 @@ function showFsOverlay(roundNumber) {
     <div class="modal-box">
       <h3>Fullscreen required</h3>
       <p>This round must be taken in fullscreen. Leaving it has been logged and is visible to HR.</p>
-      <button onclick="reenterFullscreen()">Return to fullscreen</button>
+      <div class="row">
+        <button onclick="reenterFullscreen()">Return to fullscreen</button>
+        <button class="btn-ghost" onclick="continueWithoutFullscreen()">Continue without fullscreen</button>
+      </div>
+      <p id="fs-guard-status" class="muted"></p>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -1780,7 +1784,25 @@ function removeFsOverlay() {
 }
 
 function reenterFullscreen() {
-  document.documentElement.requestFullscreen().catch(() => {});
+  // Browsers throttle repeated requestFullscreen() calls in a short
+  // window as anti-annoyance protection - a candidate who taps Escape a
+  // few times quickly can trigger that, and this call silently rejecting
+  // used to leave them stuck behind the overlay with literally no way
+  // forward (no Submit, no Exit, nothing). "Continue without fullscreen"
+  // below is the guaranteed way out regardless of what this does.
+  document.documentElement.requestFullscreen().catch(() => {
+    const statusEl = document.getElementById("fs-guard-status");
+    if (statusEl) statusEl.textContent = "Couldn't re-enter fullscreen - try again, or continue without it below.";
+  });
+}
+
+function continueWithoutFullscreen() {
+  // Drops to the same passive logging used when fullscreen was never
+  // available in the first place (see the visibilitychange/blur
+  // listeners below) - still logged and visible to HR, just no longer
+  // blocking. The round is never held hostage by a browser quirk.
+  fsGuardActive = false;
+  removeFsOverlay();
 }
 
 // Fallback for browsers/contexts where fullscreen enforcement isn't

@@ -27,7 +27,14 @@ def _get_client() -> anthropic.Anthropic:
                 "ANTHROPIC_API_KEY is not set. Copy .env.example to .env "
                 "and fill in a real key from console.anthropic.com."
             )
-        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        # Explicit timeout, not the SDK's default (several minutes) - two
+        # call sites run synchronously in the request path (round3_turn,
+        # which a candidate is actively waiting on mid-assessment, and
+        # HR's _generate_reference) and both now fail cleanly on an
+        # ERROR (see the try/except wrapping at each call site), but
+        # without this a slow response just hangs the request with no
+        # feedback for however long the default allows.
+        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=30.0)
     return _client
 
 

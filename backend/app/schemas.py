@@ -435,7 +435,11 @@ class Round3DraftUpdate(BaseModel):
 
 class Round3TurnCreate(BaseModel):
     test_case_id: int
-    candidate_prompt: str
+    # min_length=1 for the same reason every other candidate-input field
+    # has it (TestCaseRow, Round2InvestigationRow, Round2SubmissionCreate.
+    # root_cause) - a client-side check alone doesn't stop a direct API
+    # call from sending an empty prompt and burning an LLM call on it.
+    candidate_prompt: str = Field(min_length=1)
 
 
 class Round3TurnOut(BaseModel):
