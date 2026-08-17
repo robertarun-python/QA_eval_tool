@@ -1004,6 +1004,18 @@ function renderHistoryCard(h) {
     ? `<p class="muted">No scored submissions yet - nothing to pattern-match on.</p>`
     : `<ul>${h.common_misses.map((m) => `<li>${escapeHtml(m.text)} <span class="muted">- ${m.count} candidate${m.count === 1 ? "" : "s"}</span></li>`).join("")}</ul>`;
 
+  // Round 1 only - empty for round 2/3 scenarios (see
+  // ConceptCoverageAverage). Shows where candidates against THIS
+  // scenario, in aggregate, are weakest/strongest by category - distinct
+  // from the per-candidate breakdown on renderScoreBlock.
+  const coverageAverages = (h.concept_coverage_averages || []).length === 0 ? "" : `
+    <h5>Average coverage by type</h5>
+    <p>${h.concept_coverage_averages.map((c) => {
+      const cls = c.avg_pct >= 75 ? "score-good" : c.avg_pct < 40 ? "score-bad" : "";
+      return `<span class="${cls}">${escapeHtml(c.category)} ${c.avg_pct}%</span>`;
+    }).join(" · ")}</p>
+  `;
+
   return `
     <div class="panel-inset">
       <h4>
@@ -1020,6 +1032,7 @@ function renderHistoryCard(h) {
       </p>
       <h5>Most commonly missed</h5>
       ${missesList}
+      ${coverageAverages}
     </div>
   `;
 }

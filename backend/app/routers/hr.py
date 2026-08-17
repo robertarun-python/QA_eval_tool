@@ -29,7 +29,7 @@ from ..models import (
 )
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
-    CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern,
+    CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern, ConceptCoverageAverage,
     Round3TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
@@ -554,6 +554,11 @@ def _gather_candidate_rounds(candidate: User, db: Session) -> list[dict]:
                 "feedback_text": submission.score.feedback_text,
                 "misses": submission.score.misses_json or [],
             })
+            # Round 1 only (see models.Score.concept_coverage_json) - []
+            # for rounds 2/3, in which case the key is omitted entirely so
+            # the summary prompt doesn't have to special-case an empty list.
+            if submission.score.concept_coverage_json:
+                entry["concept_coverage"] = submission.score.concept_coverage_json
         rounds.append(entry)
     return rounds
 
@@ -721,6 +726,28 @@ def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_h
             for text, count in misses_counter.most_common(10)
         ]
 
+        # Round 1 only (see models.Score.concept_coverage_json) - empty
+        # for round 2/3 scenarios, which never populate that column.
+        # Averaged as a percentage (covered/total), not raw counts, since
+        # different candidates' reference sets could in principle have a
+        # different total per category - a straight count average would
+        # be misleading if that ever happens.
+        category_pcts: dict[str, list[float]] = {}
+        for s in scored:
+            for c in (s.score.concept_coverage_json or []):
+                total = c.get("total") or 0
+                if total <= 0:
+                    continue
+                category_pcts.setdefault(c.get("category", "Unknown"), []).append(c.get("covered", 0) / total * 100)
+        _CATEGORY_ORDER = ["Positive", "Negative", "Boundary", "Edge"]
+        concept_coverage_averages = [
+            ConceptCoverageAverage(category=cat, avg_pct=round(sum(pcts) / len(pcts), 1), sample_count=len(pcts))
+            for cat, pcts in sorted(
+                category_pcts.items(),
+                key=lambda kv: (_CATEGORY_ORDER.index(kv[0]) if kv[0] in _CATEGORY_ORDER else len(_CATEGORY_ORDER), kv[0]),
+            )
+        ]
+
         dates = [s.started_at or s.created_at for s in submissions]
 
         out.append(ScenarioHistoryOut(
@@ -739,6 +766,7 @@ def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_h
             cleared_pct=round(len(cleared) / len(scored) * 100, 1) if scored else None,
             passing_score=round_passing_score,
             common_misses=common_misses,
+            concept_coverage_averages=concept_coverage_averages,
         ))
 
     return sorted(out, key=lambda h: h.last_used_at or datetime.min, reverse=True)

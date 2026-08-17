@@ -505,6 +505,17 @@ class MissPattern(BaseModel):
     count: int
 
 
+class ConceptCoverageAverage(BaseModel):
+    """One test-case category (Positive/Negative/Boundary/Edge), averaged
+    across every scored Round 1 submission against this scenario - see
+    scenario_history() in routers/hr.py. avg_pct is None only if no
+    scored submission reported this category at all (e.g. the current
+    reference set happens to have zero cases of it)."""
+    category: str
+    avg_pct: Optional[float] = None
+    sample_count: int
+
+
 class ScenarioHistoryOut(BaseModel):
     scenario_id: int
     round_number: int
@@ -521,3 +532,6 @@ class ScenarioHistoryOut(BaseModel):
     cleared_pct: Optional[float] = None  # None until at least one submission is scored
     passing_score: int
     common_misses: list[MissPattern]
+    # Round 1 only - empty for round 2/3 scenarios, which have no
+    # concept_coverage data to average (see ConceptCoverageAverage).
+    concept_coverage_averages: list[ConceptCoverageAverage] = Field(default_factory=list)
