@@ -43,10 +43,14 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./qa_eval.db"
     claude_model: str = "claude-sonnet-4-5"
 
-    # A submission's final_score at or above this "clears" the round -
-    # single source of truth so the History dashboard's cleared/not-cleared
-    # split always matches whatever threshold the UI's score-good/score-bad
-    # styling implies. Was an implicit 70 hardcoded in the frontend only.
+    # Seed-default only now, not read anywhere at request time: the
+    # migration (migrate_bulk_candidates.py) uses this once to populate
+    # the initial models.AppSettings row's per-round/final passing
+    # scores. After that, HR edits the real, runtime-effective values
+    # through the Settings page (GET/PUT /hr/settings) - deliberately
+    # moved out of here because per-round thresholds need to be
+    # self-serve changeable by HR without a server restart, which a
+    # .env value can never be.
     passing_score: int = 70
 
     # How much clock/network slack a submit gets past a round's own

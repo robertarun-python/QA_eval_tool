@@ -17,22 +17,27 @@ its dedicated endpoints.
 from collections import Counter
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File
 from fpdf import FPDF
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, ScenarioStatus, Submission, RoundStatus, ExperienceBand, Role
+from ..models import (
+    User, Scenario, ScenarioStatus, Submission, Score, RoundStatus, ExperienceBand, Role, AppSettings,
+    CandidateAppearance,
+)
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
     CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern,
     Round3TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
-    CandidateRoundComment,
+    CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
+    BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
+from ..services import candidate_upload_service
+from ..services.scoring_service import score_submission_in_background
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -42,6 +47,35 @@ VALID_BANDS = (ExperienceBand.junior.value, ExperienceBand.senior.value)
 # headings, so a small local copy (not worth a shared-constants file
 # across two different languages) is the pragmatic choice.
 ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 3: "Conversational"}
+
+
+def get_settings(db: Session) -> AppSettings:
+    """Get-or-create accessor for the AppSettings singleton row (id=1) -
+    normally created by migrate_bulk_candidates.py, but this is a safety
+    net for a DB that skipped that migration (e.g. a fresh create_all()
+    without ever running it)."""
+    app_settings = db.get(AppSettings, 1)
+    if app_settings is None:
+        app_settings = AppSettings(id=1)
+        db.add(app_settings)
+        db.commit()
+        db.refresh(app_settings)
+    return app_settings
+
+
+@router.get("/settings", response_model=AppSettingsOut)
+def get_app_settings(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    return get_settings(db)
+
+
+@router.put("/settings", response_model=AppSettingsOut)
+def update_app_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    app_settings = get_settings(db)
+    for field, value in payload.model_dump().items():
+        setattr(app_settings, field, value)
+    db.commit()
+    db.refresh(app_settings)
+    return app_settings
 
 
 @router.post("/scenarios", response_model=ScenarioOut, status_code=201)
@@ -272,43 +306,53 @@ def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = 
 
 # ---- Candidate results dashboard ----
 
+def _build_candidate_summary(candidate: User) -> CandidateSummaryOut:
+    """Shared by list_candidates and set_candidate_band (which returns
+    the one candidate it just updated, in the same shape)."""
+    # Only the current cycle's submissions - a reset candidate's old,
+    # archived ones must not appear as if they were still active (see
+    # Submission.archived / CandidateAppearance).
+    current_submissions = [s for s in candidate.submissions if not s.archived]
+    submissions_by_round = {s.round_number: s for s in current_submissions}
+    rounds = []
+    aggregate_score = None
+    for round_number in (1, 2, 3):
+        submission = submissions_by_round.get(round_number)
+        if submission is None:
+            status = "not_started"
+            final_score = None
+        else:
+            status = submission.status.value
+            final_score = submission.score.final_score if submission.score else None
+        if final_score is not None:
+            aggregate_score = (aggregate_score or 0) + final_score
+        tab_switch_count = submission.tab_switch_count if submission else 0
+        rounds.append(CandidateRoundSummary(
+            round_number=round_number, status=status, final_score=final_score, tab_switch_count=tab_switch_count,
+        ))
+
+    current_appearance = next((a for a in candidate.appearances if a.is_current), None)
+    return CandidateSummaryOut(
+        id=candidate.id,
+        email=candidate.email,
+        experience_band=candidate.experience_band.value if candidate.experience_band else None,
+        rounds=rounds,
+        exam_date=current_appearance.exam_date if current_appearance else None,
+        aggregate_score=aggregate_score,
+        reapplied_within_window=current_appearance.reapplied_within_window if current_appearance else False,
+    )
+
+
 @router.get("/candidates", response_model=list[CandidateSummaryOut])
 def list_candidates(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     candidates = db.query(User).filter(User.role == Role.candidate).order_by(User.email).all()
-    out = []
-    for candidate in candidates:
-        submissions_by_round = {s.round_number: s for s in candidate.submissions}
-        rounds = []
-        for round_number in (1, 2, 3):
-            submission = submissions_by_round.get(round_number)
-            if submission is None:
-                status = "not_started"
-                final_score = None
-            else:
-                status = submission.status.value
-                final_score = submission.score.final_score if submission.score else None
-            rounds.append(CandidateRoundSummary(round_number=round_number, status=status, final_score=final_score))
-        out.append(CandidateSummaryOut(
-            id=candidate.id,
-            email=candidate.email,
-            experience_band=candidate.experience_band.value if candidate.experience_band else None,
-            rounds=rounds,
-        ))
-    return out
+    return [_build_candidate_summary(c) for c in candidates]
 
 
-@router.get("/candidates/{candidate_id}/report", response_model=list[SubmissionReportOut])
-def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """All submissions (with scores where available) for one candidate, across all rounds."""
-    candidate = db.get(User, candidate_id)
-    if candidate is None or candidate.role != Role.candidate:
-        raise HTTPException(404, "Candidate not found")
-    submissions = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate_id)
-        .order_by(Submission.round_number)
-        .all()
-    )
+def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionReportOut]:
+    """Shared by the current-cycle report and the past-appearance report
+    (see candidate_report / appearance_report below) - same shape either
+    way, just a different submissions queryset feeding it."""
     out = []
     for s in submissions:
         report = SubmissionReportOut.model_validate(s)
@@ -322,6 +366,154 @@ def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User 
             ]
         out.append(report)
     return out
+
+
+@router.get("/candidates/{candidate_id}/report", response_model=list[SubmissionReportOut])
+def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """All submissions (with scores where available) for one candidate's
+    CURRENT cycle, across all rounds. A past, archived cycle's report is
+    GET /candidates/{id}/appearances/{appearance_id}/report instead."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+    submissions = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate_id, Submission.archived.is_(False))
+        .order_by(Submission.round_number)
+        .all()
+    )
+    return _build_submission_reports(submissions)
+
+
+@router.post("/submissions/{submission_id}/retry-scoring", response_model=SubmissionReportOut)
+def retry_scoring(submission_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """The lightweight recovery path for a submission stuck at
+    scoring_failed (see scoring_service.score_submission_in_background) -
+    re-runs the same scoring call synchronously (HR clicks it and waits a
+    few seconds, like "Regenerate reference" already works), for the
+    common case where the failure was transient and a second attempt
+    just works. If it isn't - see PATCH .../score below for the manual path."""
+    submission = db.get(Submission, submission_id)
+    if submission is None:
+        raise HTTPException(404, "Submission not found")
+    if submission.status != RoundStatus.scoring_failed:
+        raise HTTPException(400, f"This submission is {submission.status.value}, not scoring_failed - nothing to retry.")
+
+    score_submission_in_background(submission_id)
+    db.refresh(submission)
+    return _build_submission_reports([submission])[0]
+
+
+@router.patch("/submissions/{submission_id}/score", response_model=SubmissionReportOut)
+def override_score(submission_id: int, payload: ScoreOverrideRequest, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """HR correcting or hand-entering a score - the human-in-the-loop
+    escape hatch this app didn't have before: works whether a Score
+    already exists (an LLM score HR disagrees with - the LLM's real
+    number is preserved in original_final_score, only on the FIRST
+    override) or not (a submission stuck at scoring_failed that HR wants
+    to score by hand rather than retry)."""
+    submission = db.get(Submission, submission_id)
+    if submission is None:
+        raise HTTPException(404, "Submission not found")
+
+    score = submission.score
+    if score is None:
+        score = Score(submission_id=submission.id, original_final_score=None)
+        db.add(score)
+    elif score.overridden_by_user_id is None:
+        # First override - preserve the LLM's real original score before
+        # it gets overwritten below. A second/third override must NOT
+        # re-copy final_score here, or it would clobber the true
+        # original with a previous override's value.
+        score.original_final_score = score.final_score
+
+    score.final_score = payload.final_score
+    if payload.feedback_text is not None:
+        score.feedback_text = payload.feedback_text
+    score.overridden_by_user_id = hr.id
+    score.override_note = payload.override_note
+    score.overridden_at = datetime.utcnow()
+
+    submission.status = RoundStatus.scored
+    submission.scoring_error = None
+    db.commit()
+    db.refresh(submission)
+    return _build_submission_reports([submission])[0]
+
+
+@router.patch("/candidates/{candidate_id}/band", response_model=CandidateSummaryOut)
+def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Bulk upload deliberately doesn't set a band (see the upload
+    endpoint below) - HR sets it here afterward, once per candidate."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+    candidate.experience_band = ExperienceBand(payload.experience_band)
+    db.commit()
+    db.refresh(candidate)
+    return _build_candidate_summary(candidate)
+
+
+@router.post("/candidates/upload", response_model=BulkUploadResult)
+def upload_candidates(file: UploadFile = File(...), db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Bulk-creates (or resets, for a re-applying email - see
+    candidate_upload_service._reset_and_archive) candidate logins from an
+    uploaded .xlsx or .txt file of email,exam_date rows. Partial success:
+    valid rows are processed and committed as they're reached, invalid
+    ones are reported and skipped, so one bad row doesn't block the rest
+    of the file - see candidate_upload_service.process_upload_rows."""
+    content = file.file.read()
+    try:
+        rows = candidate_upload_service.parse_upload_rows(file.filename or "", content)
+    except Exception as e:
+        raise HTTPException(400, f"Couldn't read this file: {e}")
+    if not rows:
+        raise HTTPException(400, "No rows found in this file.")
+
+    app_settings = get_settings(db)
+    return candidate_upload_service.process_upload_rows(db, rows, app_settings)
+
+
+@router.get("/candidates/{candidate_id}/appearances", response_model=list[CandidateAppearanceOut])
+def candidate_appearances(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Every upload cycle for this candidate, current and archived - see
+    models.CandidateAppearance. Most recent first."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+
+    out = []
+    for appearance in sorted(candidate.appearances, key=lambda a: a.created_at, reverse=True):
+        cycle_submissions = [s for s in candidate.submissions if s.appearance_id == appearance.id]
+        scores = [s.score.final_score for s in cycle_submissions if s.score and s.score.final_score is not None]
+        aggregate_score = sum(scores) if scores else None
+        out.append(CandidateAppearanceOut(
+            id=appearance.id, exam_date=appearance.exam_date, is_current=appearance.is_current,
+            reapplied_within_window=appearance.reapplied_within_window, created_at=appearance.created_at,
+            aggregate_score=aggregate_score,
+        ))
+    return out
+
+
+@router.get("/candidates/{candidate_id}/appearances/{appearance_id}/report", response_model=list[SubmissionReportOut])
+def appearance_report(candidate_id: int, appearance_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Same shape as candidate_report, but for one specific past (or
+    current) cycle - HR's "Past appearances" drill-down in the candidate
+    detail panel reuses the exact same rendering as the live report."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+    appearance = db.get(CandidateAppearance, appearance_id)
+    if appearance is None or appearance.user_id != candidate_id:
+        raise HTTPException(404, "Appearance not found")
+
+    submissions = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate_id, Submission.appearance_id == appearance_id)
+        .order_by(Submission.round_number)
+        .all()
+    )
+    return _build_submission_reports(submissions)
 
 
 def _gather_candidate_rounds(candidate: User, db: Session) -> list[dict]:
@@ -477,6 +669,7 @@ def candidate_summary_pdf(
 
 @router.get("/history", response_model=list[ScenarioHistoryOut])
 def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    app_settings = get_settings(db)
     scenarios = (
         db.query(Scenario)
         .join(Submission, Submission.scenario_id == Scenario.id)
@@ -486,10 +679,20 @@ def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_h
 
     out = []
     for scenario in scenarios:
+        # Per-round passing score, not one global number - a round's own
+        # bar is what should decide whether a submission against it
+        # cleared (see AppSettings; this used to read the single global
+        # settings.passing_score for every round alike).
+        round_passing_score = getattr(app_settings, f"round{scenario.round_number}_passing_score")
+        # scenario_history is a question-quality metric ("does this
+        # scenario discriminate well across everyone who's ever attempted
+        # it"), not a candidate-status metric - deliberately NOT filtered
+        # on Submission.archived, unlike the candidate-facing dashboard
+        # queries in list_candidates/_gather_candidate_rounds.
         submissions = scenario.submissions
         scored = [s for s in submissions if s.status == RoundStatus.scored and s.score is not None]
         pending = [s for s in submissions if s.status == RoundStatus.submitted]
-        cleared = [s for s in scored if (s.score.final_score or 0) >= settings.passing_score]
+        cleared = [s for s in scored if (s.score.final_score or 0) >= round_passing_score]
 
         # Grouped by exact text, not summarized by another LLM call: the
         # scoring LLM already names each gap in its own words per
@@ -520,7 +723,7 @@ def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_h
             cleared_count=len(cleared),
             not_cleared_count=len(scored) - len(cleared),
             cleared_pct=round(len(cleared) / len(scored) * 100, 1) if scored else None,
-            passing_score=settings.passing_score,
+            passing_score=round_passing_score,
             common_misses=common_misses,
         ))
 

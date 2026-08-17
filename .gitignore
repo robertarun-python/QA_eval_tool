@@ -16,3 +16,6 @@ _to_delete/
 # Personal scratch notes - as of writing this contains a live API key
 # in plaintext. Never track this; move the key to .env instead.
 QA tool info.txt
+
+# Generated report output (HR's candidate-summary PDF export), not source.
+*-summary.pdf

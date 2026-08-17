@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, Submission, RoundStatus, ConversationTurn, Round3TestCase
+from ..models import User, Scenario, Submission, RoundStatus, ConversationTurn, Round3TestCase, CandidateAppearance
 from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
     Round1ContextOut, Round3StateOut, Round3TurnCreate, Round3TurnOut,
@@ -20,7 +20,7 @@ from ..schemas import (
 )
 from ..dependencies import require_candidate
 from ..services import llm_service
-from ..services.scoring_service import score_round1_submission, score_round2_investigation, score_round3_submission
+from ..services.scoring_service import score_submission_in_background
 
 # The one round still on the generic row-based /round/{round_number}/submit
 # endpoint below. Rounds 2 and 3 each have their own dedicated submit
@@ -48,16 +48,35 @@ def _live_scenario(db: Session, round_number: int, candidate: User) -> Scenario 
 
 
 def _max_completed_round(db: Session, candidate: User) -> int:
-    """Highest round number the candidate has submitted (or scored). 0 if none yet."""
+    """Highest round number the candidate has submitted (or scored) in
+    their CURRENT cycle. 0 if none yet. Excludes archived submissions
+    (see Submission.archived) - a reset candidate's old, already-scored
+    rounds must not keep round-gating from unlocking round 1 again."""
     completed = (
         db.query(Submission.round_number)
         .filter(
             Submission.user_id == candidate.id,
             Submission.status.in_([RoundStatus.submitted, RoundStatus.scored]),
+            Submission.archived.is_(False),
         )
         .all()
     )
     return max((r for (r,) in completed), default=0)
+
+
+def _current_appearance_id(db: Session, candidate: User) -> int | None:
+    """The candidate's current CandidateAppearance id, if they have one
+    (only bulk-uploaded candidates do - see credential_service.py /
+    candidate_upload_service.py). Tagged onto every new Submission so
+    HR's "past appearances" drill-down can group a cycle's work - see
+    routers/hr.py's appearance_report. None for the 3 seeded accounts,
+    which is fine: their submissions were never grouped by appearance."""
+    appearance = (
+        db.query(CandidateAppearance)
+        .filter(CandidateAppearance.user_id == candidate.id, CandidateAppearance.is_current.is_(True))
+        .first()
+    )
+    return appearance.id if appearance else None
 
 
 def _require_round_unlocked(round_number: int, db: Session, candidate: User) -> None:
@@ -105,7 +124,7 @@ def submit_round2(
 
     submission = (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
         .first()
     )
     if submission is None:
@@ -114,6 +133,7 @@ def submit_round2(
         submission = Submission(
             user_id=candidate.id, scenario_id=scenario.id, round_number=2,
             started_at=datetime.utcnow(),
+            appearance_id=_current_appearance_id(db, candidate),
         )
         db.add(submission)
     elif submission.status != RoundStatus.in_progress:
@@ -129,20 +149,8 @@ def submit_round2(
     db.commit()
     db.refresh(submission)
 
-    background_tasks.add_task(_score_round2_in_background, submission.id)
+    background_tasks.add_task(score_submission_in_background, submission.id)
     return submission
-
-
-def _score_round2_in_background(submission_id: int):
-    from ..database import SessionLocal  # local import: avoid circular import at module load
-
-    db = SessionLocal()
-    try:
-        submission = db.get(Submission, submission_id)
-        if submission is not None:
-            score_round2_investigation(db, submission)
-    finally:
-        db.close()
 
 
 # ---- Round 3 (conversational, open-ended: the candidate creates their
@@ -167,7 +175,7 @@ def _round3_config(scenario: Scenario) -> dict:
 def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
     round1_submission = (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.round_number == 1)
+        .filter(Submission.user_id == candidate.id, Submission.round_number == 1, Submission.archived.is_(False))
         .first()
     )
     # Round gating guarantees this exists by the time round 3 is
@@ -188,7 +196,7 @@ def _round3_scenario_and_submission(candidate: User, db: Session) -> tuple[Scena
         raise HTTPException(404, "No published scenario for round 3 yet - check back once HR has published one.")
     submission = (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
         .first()
     )
     if submission is None:
@@ -333,20 +341,8 @@ def round3_submit(
     db.commit()
     db.refresh(submission)
 
-    background_tasks.add_task(_score_round3_in_background, submission.id)
+    background_tasks.add_task(score_submission_in_background, submission.id)
     return submission
-
-
-def _score_round3_in_background(submission_id: int):
-    from ..database import SessionLocal  # local import: avoid circular import at module load
-
-    db = SessionLocal()
-    try:
-        submission = db.get(Submission, submission_id)
-        if submission is not None:
-            score_round3_submission(db, submission)
-    finally:
-        db.close()
 
 
 @router.get("/round/{round_number}", response_model=RoundStateOut)
@@ -361,7 +357,7 @@ def get_round(round_number: int, db: Session = Depends(get_db), candidate: User 
 
     submission = (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
         .first()
     )
     return RoundStateOut(scenario=scenario, submission=submission)
@@ -379,7 +375,7 @@ def start_round(round_number: int, db: Session = Depends(get_db), candidate: Use
 
     existing = (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
         .first()
     )
     if existing is not None:
@@ -391,6 +387,7 @@ def start_round(round_number: int, db: Session = Depends(get_db), candidate: Use
         round_number=round_number,
         status=RoundStatus.in_progress,
         started_at=datetime.utcnow(),
+        appearance_id=_current_appearance_id(db, candidate),
     )
     db.add(submission)
     db.commit()
@@ -416,7 +413,7 @@ def submit_round(
 
     submission = (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
         .first()
     )
     if submission is None:
@@ -425,6 +422,7 @@ def submit_round(
         submission = Submission(
             user_id=candidate.id, scenario_id=scenario.id, round_number=round_number,
             started_at=datetime.utcnow(),
+            appearance_id=_current_appearance_id(db, candidate),
         )
         db.add(submission)
     elif submission.status != RoundStatus.in_progress:
@@ -441,28 +439,78 @@ def submit_round(
     # the response is sent so the candidate isn't stuck on a spinner, and
     # so the next round is unlocked immediately (see plan: don't block
     # round progression on background scoring).
-    background_tasks.add_task(_score_round1_in_background, submission.id)
+    background_tasks.add_task(score_submission_in_background, submission.id)
 
     return submission
 
 
-def _score_round1_in_background(submission_id: int):
-    from ..database import SessionLocal  # local import: avoid circular import at module load
+@router.post("/round/{round_number}/tab-switch", status_code=204)
+def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """Fire-and-forget telemetry from app.js's tab-switch guard: the
+    candidate left this tab/app while a round's timer was running. Logged
+    the instant it's detected, before the candidate picks anything on the
+    forced-choice popup that follows - so even closing the tab outright
+    still leaves a trace for HR (see Submission.tab_switch_events_json).
+    Silently a no-op if there's nothing in-progress to attach it to (the
+    round may have already ended by the time this request lands) - this
+    is a logging side-channel, not something that should ever block or
+    error out on the candidate."""
+    if round_number not in (1, 2, 3):
+        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    scenario = _live_scenario(db, round_number, candidate)
+    if scenario is None:
+        return
+    submission = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+    if submission is None or submission.status != RoundStatus.in_progress:
+        return
+    # A fresh list, not an in-place mutation of the loaded one - SQLAlchemy
+    # doesn't track in-place JSON-column mutations, so appending to the
+    # existing list and reassigning it (same object identity) can leave
+    # the row un-flushed. See migrate_tab_switch_guard.py.
+    events = list(submission.tab_switch_events_json or [])
+    events.append(datetime.utcnow().isoformat())
+    submission.tab_switch_events_json = events
+    db.commit()
 
-    db = SessionLocal()
-    try:
-        submission = db.get(Submission, submission_id)
-        if submission is not None:
-            score_round1_submission(db, submission)
-    finally:
-        db.close()
+
+@router.post("/round/{round_number}/abandon", response_model=SubmissionOut)
+def abandon_round(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """The "Exit test" choice on the tab-switch guard's forced-choice
+    popup - ends the round without scoring it (unlike a real submit) and
+    the candidate cannot resume it or restart it themselves (see
+    RoundStatus.abandoned; only an HR-triggered candidate reset clears
+    this, same as any other terminal round outcome)."""
+    if round_number not in (1, 2, 3):
+        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    scenario = _live_scenario(db, round_number, candidate)
+    if scenario is None:
+        raise HTTPException(404, "No published scenario for this round.")
+    submission = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+    if submission is None or submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round isn't in progress - nothing to abandon.")
+
+    submission.status = RoundStatus.abandoned
+    db.commit()
+    db.refresh(submission)
+    return submission
 
 
 @router.get("/submissions", response_model=list[SubmissionOut])
 def my_submissions(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    # Current cycle only - a re-applying candidate's old, archived
+    # submissions are HR's history to see (see hr.py's appearances
+    # endpoints), not something the candidate encounters again themselves.
     return (
         db.query(Submission)
-        .filter(Submission.user_id == candidate.id)
+        .filter(Submission.user_id == candidate.id, Submission.archived.is_(False))
         .order_by(Submission.created_at.desc())
         .all()
     )

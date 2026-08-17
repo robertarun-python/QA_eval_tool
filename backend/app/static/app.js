@@ -12,13 +12,19 @@
 // identical maps (HR_ROUND_LABELS and ROUND_TITLES) defined separately.
 const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 3: "Conversational" };
 
-// Mirrors config.py's `passing_score` setting on the backend - there's
-// no shared-schema/codegen step between the Python backend and this
-// plain JS frontend, so this is the one place on this side that needs
-// to be kept in sync if that setting ever changes. Every score-good/
-// score-bad styling decision in this file reads from here, not a
-// hardcoded "70", so there's only one spot to update.
-const PASSING_SCORE = 70;
+// Runtime-editable per-round/final passing scores (see HR's Settings
+// page, GET/PUT /hr/settings) - fetched once on HR login into
+// appSettings below and used by every score-good/score-bad styling
+// decision in this file via passingScoreForRound(), rather than one
+// hardcoded global number (that used to be the case; per-round
+// thresholds need this to be dynamic, HR-editable data, not a constant).
+let appSettings = null;
+
+function passingScoreForRound(roundNumber) {
+  // 70 is a defensive fallback only (e.g. a call site rendering before
+  // appSettings has loaded) - the real value always comes from the server.
+  return (appSettings && appSettings[`round${roundNumber}_passing_score`]) ?? 70;
+}
 
 let token = sessionStorage.getItem("qa_eval_token");
 let role = sessionStorage.getItem("qa_eval_role");
@@ -26,10 +32,12 @@ let userEmail = null; // resolved fresh from GET /auth/me every session load - s
 let currentRound = 1;       // which round's content is showing right now (candidate view)
 let candidateUnlockedRound = 1; // the one round a candidate is allowed into - see refreshCandidateNav()
 let candidateCompletedRounds = [];
+let candidateAbandonedRounds = []; // rounds ended early via the tab-switch guard's "Exit test" (see refreshCandidateNav)
 let currentHRRound = 1;     // which round's scenarios/history HR is authoring/reviewing right now
-let hrPage = "rounds";      // "rounds" (author/review) or "candidates" (results dashboard)
+let hrPage = "rounds";      // "rounds" (author/review), "candidates" (results dashboard), or "settings"
 let candidateSummaryData = null;        // last-generated { round_comments, final_summary } (see generateCandidateSummary) - reused by the PDF download so it doesn't cost a second LLM call
 let candidateDetailSubmissions = [];    // the currently-open candidate's submissions (see openCandidateDetail) - lets generateCandidateSummary label each round comment with its real title/score
+let currentCandidateDetailId = null;    // which candidate's detail panel is open - lets retryScoring/saveScoreOverride re-render the panel they're inside after a successful action
 let timerHandle = null;
 let rowCount = 0;
 let round3State = null;           // last-fetched Round3StateOut, refreshed after every turn/test-case creation
@@ -60,14 +68,17 @@ async function api(path, opts = {}) {
 // ---- Auth ----
 
 async function login() {
-  const email = document.getElementById("email").value;
+  // Field id is still "email" (the input just accepts either an email
+  // or a bulk-uploaded candidate's plain username now - see
+  // credential_service.py) - only the wire key sent to the server changed.
+  const identifier = document.getElementById("email").value;
   const password = document.getElementById("password").value;
   document.getElementById("auth-error").textContent = "";
 
   const res = await fetch("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -83,6 +94,7 @@ async function login() {
 
 function logout() {
   stopTimer();
+  disarmTabGuard();
   sessionStorage.removeItem("qa_eval_token");
   sessionStorage.removeItem("qa_eval_role");
   token = null;
@@ -135,6 +147,7 @@ function onLoggedIn() {
     loadScenarios();
     loadCandidates();
     loadHistory();
+    loadAppSettings();
   } else {
     document.getElementById("candidate-panel").classList.remove("hidden");
     refreshCandidateNav();
@@ -170,16 +183,26 @@ function renderHRRoundNav() {
         <span class="nav-btn-note">Results dashboard</span>
       </span>
     </button>
+    <button class="nav-btn ${hrPage === "settings" ? "active" : ""}" onclick="selectHRPage('settings')">
+      <span class="nav-chip">S</span>
+      <span class="nav-btn-copy">
+        <span class="nav-btn-label">Settings</span>
+        <span class="nav-btn-note">Pass criteria</span>
+      </span>
+    </button>
   `;
 
   document.getElementById("hr-page-rounds").classList.toggle("hidden", hrPage !== "rounds");
   document.getElementById("hr-page-candidates").classList.toggle("hidden", hrPage !== "candidates");
+  document.getElementById("hr-page-settings").classList.toggle("hidden", hrPage !== "settings");
 
   if (hrPage === "rounds") {
     setPageHeader("HR Console", `Round ${currentHRRound} · ${ROUND_LABELS[currentHRRound]}`, "Author, review, and publish scenarios for this round.");
     document.getElementById("hr-round-context").textContent = `Now creating for Round ${currentHRRound} (${ROUND_LABELS[currentHRRound]}).`;
-  } else {
+  } else if (hrPage === "candidates") {
     setPageHeader("HR Console", "Candidates", "Every candidate's progress and results, across all rounds.");
+  } else {
+    setPageHeader("HR Console", "Settings", "Pass criteria and re-application handling - HR-editable, applies immediately.");
   }
 }
 
@@ -195,6 +218,39 @@ function selectHRRound(n) {
 function selectHRPage(page) {
   hrPage = page;
   renderHRRoundNav();
+}
+
+// ---- Settings (runtime-editable pass criteria - see GET/PUT /hr/settings) ----
+
+async function loadAppSettings() {
+  appSettings = await api("/hr/settings");
+  document.getElementById("set-round1").value = appSettings.round1_passing_score;
+  document.getElementById("set-round2").value = appSettings.round2_passing_score;
+  document.getElementById("set-round3").value = appSettings.round3_passing_score;
+  document.getElementById("set-final").value = appSettings.final_passing_score;
+  document.getElementById("set-window").value = appSettings.reapplication_window_months;
+}
+
+async function saveAppSettings() {
+  const statusEl = document.getElementById("settings-status");
+  const payload = {
+    round1_passing_score: Number(document.getElementById("set-round1").value),
+    round2_passing_score: Number(document.getElementById("set-round2").value),
+    round3_passing_score: Number(document.getElementById("set-round3").value),
+    final_passing_score: Number(document.getElementById("set-final").value),
+    reapplication_window_months: Number(document.getElementById("set-window").value),
+  };
+  try {
+    appSettings = await api("/hr/settings", { method: "PUT", body: JSON.stringify(payload) });
+    statusEl.textContent = "Saved.";
+    // Score-good/score-bad styling elsewhere (Candidates table, detail
+    // panel) reads appSettings live on next render, but anything already
+    // on screen right now was rendered against the old thresholds -
+    // refresh it so it doesn't look stale.
+    if (document.getElementById("candidates-table")) loadCandidates();
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
 }
 
 // Disabled by default (see the `disabled` attribute in index.html) until
@@ -477,13 +533,21 @@ async function loadCandidates() {
   box.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Candidate</th><th>Band</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th></th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Aggregate</th><th></th></tr></thead>
         <tbody>
           ${candidates.map((c) => `
             <tr>
-              <td>${escapeHtml(c.email)}</td>
-              <td>${c.experience_band || ""}</td>
+              <td>${escapeHtml(c.email)} ${c.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}</td>
+              <td>
+                <select onchange="setCandidateBand(${c.id}, this.value)">
+                  <option value="" ${!c.experience_band ? "selected" : ""}>-</option>
+                  <option value="0-7" ${c.experience_band === "0-7" ? "selected" : ""}>0-7 years</option>
+                  <option value="7+" ${c.experience_band === "7+" ? "selected" : ""}>7+ years</option>
+                </select>
+              </td>
+              <td>${c.exam_date ? formatDate(c.exam_date) : "-"}</td>
               ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
+              <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 210) ? "score-good" : "score-bad"}">${c.aggregate_score}/300</strong>` : `<span class="muted">-</span>`}</td>
               <td><button onclick="openCandidateDetail(${c.id})">View</button></td>
             </tr>
           `).join("")}
@@ -493,12 +557,178 @@ async function loadCandidates() {
   `;
 }
 
-function roundStatusCell(r) {
-  if (r.final_score != null) {
-    const cls = r.final_score >= PASSING_SCORE ? "score-good" : "score-bad";
-    return `<span class="${cls}">${r.final_score}/100</span>`;
+async function setCandidateBand(id, band) {
+  if (!band) return;
+  try {
+    await api(`/hr/candidates/${id}/band`, { method: "PATCH", body: JSON.stringify({ experience_band: band }) });
+    loadCandidates();
+  } catch (e) {
+    alert(e.message);
+    loadCandidates(); // revert the select to whatever the server actually has
   }
-  return `<span class="muted">${r.status.replace("_", " ")}</span>`;
+}
+
+async function uploadCandidates() {
+  const input = document.getElementById("upload-file");
+  const resultEl = document.getElementById("upload-result");
+  if (!input.files.length) {
+    resultEl.innerHTML = `<p class="muted">Choose a file first.</p>`;
+    return;
+  }
+  resultEl.innerHTML = `<p class="muted">Uploading...</p>`;
+  const formData = new FormData();
+  formData.append("file", input.files[0]);
+  try {
+    // Not api() on purpose - a multipart body must not have a
+    // Content-Type header set manually (the browser sets its own with
+    // the correct boundary), but authHeaders() always includes one.
+    const res = await fetch("/hr/candidates/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.detail || "Upload failed");
+
+    const rows = result.rows.map((r) => `
+      <tr>
+        <td>${r.row_number}</td>
+        <td>${escapeHtml(r.email || "-")}</td>
+        <td><span class="badge badge-${r.status === "error" ? "fail" : "pass"}">${r.status}</span></td>
+        <td>${r.username ? escapeHtml(r.username) : ""}</td>
+        <td class="muted">${r.error ? escapeHtml(r.error) : ""}</td>
+      </tr>
+    `).join("");
+    resultEl.innerHTML = `
+      <p>${result.created_count} created, ${result.reset_count} reset, ${result.error_count} error${result.error_count === 1 ? "" : "s"}.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Username</th><th>Error</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+    input.value = "";
+    loadCandidates();
+  } catch (e) {
+    resultEl.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function roundStatusCell(r) {
+  const flag = r.tab_switch_count > 0
+    ? ` <span class="badge badge-fail" title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">${r.tab_switch_count} exit${r.tab_switch_count === 1 ? "" : "s"}</span>`
+    : "";
+  if (r.final_score != null) {
+    const cls = r.final_score >= passingScoreForRound(r.round_number) ? "score-good" : "score-bad";
+    return `<span class="${cls}">${r.final_score}/100</span>${flag}`;
+  }
+  return `<span class="muted">${r.status.replace("_", " ")}</span>${flag}`;
+}
+
+// Shared by the live candidate-detail view and the "Past appearances"
+// drill-down (viewAppearance) - same per-round rendering either way, fed
+// either the current cycle's submissions or one specific past cycle's.
+function renderSubmissionsPanels(submissions) {
+  if (submissions.length === 0) return `<p class="muted">No submissions in this cycle.</p>`;
+  return submissions.map((s) => `
+    <div class="panel-inset">
+      <h4>Round ${s.round_number} - ${s.scenario ? escapeHtml(s.scenario.title) : ""} <span class="badge">${s.status}</span>
+        ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDate).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
+      </h4>
+      ${renderScoreBlock(s)}
+      ${s.round_number === 3 ? renderRound3Report(s)
+        : s.round_number === 2 ? renderRound2Report(s)
+        : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
+    </div>
+  `).join("");
+}
+
+// Three states, not two - see models.RoundStatus.scoring_failed and
+// hr.py's retry-scoring/score-override endpoints (the human-in-the-loop
+// escape hatch this app didn't have before).
+function renderScoreBlock(s) {
+  if (s.status === "scoring_failed") {
+    return `
+      <div class="panel-inset" style="border-color: var(--bad)">
+        <p><strong class="score-bad">Scoring failed</strong></p>
+        <p class="muted">${escapeHtml(s.scoring_error || "Unknown error.")}</p>
+        <div class="row">
+          <button onclick="retryScoring(${s.id})">Retry scoring</button>
+          <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Score manually</button>
+        </div>
+        <p id="score-status-${s.id}" class="muted"></p>
+        <div id="override-form-${s.id}"></div>
+      </div>
+    `;
+  }
+  if (s.score) {
+    const passed = s.score.final_score >= passingScoreForRound(s.round_number);
+    return `
+      <p>Final score: <strong class="${passed ? "score-good" : "score-bad"}">${s.score.final_score}/100</strong> · Coverage: ${s.score.coverage_score}/100
+        ${s.score.overridden_by_hr ? `<span class="badge">Overridden by HR - LLM originally said ${s.score.original_final_score}/100</span>` : ""}
+      </p>
+      <p>${escapeHtml(s.score.feedback_text || "")}</p>
+      <p class="muted">Missed: ${(s.score.misses_json || []).map(escapeHtml).join(", ") || "none noted"}</p>
+      ${s.score.overridden_by_hr ? `<p class="muted">Override note: ${escapeHtml(s.score.override_note || "")}</p>` : ""}
+      <div class="row">
+        <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Override score</button>
+      </div>
+      <p id="score-status-${s.id}" class="muted"></p>
+      <div id="override-form-${s.id}"></div>
+    `;
+  }
+  return `<p class="muted">Not scored yet.</p>`;
+}
+
+function toggleScoreOverrideForm(submissionId) {
+  const el = document.getElementById(`override-form-${submissionId}`);
+  if (el.innerHTML) {
+    el.innerHTML = "";
+    return;
+  }
+  el.innerHTML = `
+    <div class="panel-inset">
+      <label class="muted">Final score (0-100)</label>
+      <input id="override-score-${submissionId}" type="number" min="0" max="100" />
+      <label class="muted">Feedback (optional - leave blank to keep as-is)</label>
+      <textarea id="override-feedback-${submissionId}"></textarea>
+      <label class="muted">Why is this being overridden? (required)</label>
+      <textarea id="override-note-${submissionId}"></textarea>
+      <button onclick="saveScoreOverride(${submissionId})">Save override</button>
+    </div>
+  `;
+}
+
+async function retryScoring(submissionId) {
+  const statusEl = document.getElementById(`score-status-${submissionId}`);
+  statusEl.textContent = "Retrying...";
+  try {
+    await api(`/hr/submissions/${submissionId}/retry-scoring`, { method: "POST" });
+    openCandidateDetail(currentCandidateDetailId);
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
+}
+
+async function saveScoreOverride(submissionId) {
+  const statusEl = document.getElementById(`score-status-${submissionId}`);
+  const final_score = Number(document.getElementById(`override-score-${submissionId}`).value);
+  const feedback_text = document.getElementById(`override-feedback-${submissionId}`).value.trim() || null;
+  const override_note = document.getElementById(`override-note-${submissionId}`).value.trim();
+  if (!override_note) {
+    statusEl.textContent = "Explain why this is being overridden before saving.";
+    return;
+  }
+  try {
+    await api(`/hr/submissions/${submissionId}/score`, {
+      method: "PATCH",
+      body: JSON.stringify({ final_score, feedback_text, override_note }),
+    });
+    openCandidateDetail(currentCandidateDetailId);
+  } catch (e) {
+    statusEl.textContent = e.message;
+  }
 }
 
 async function openCandidateDetail(id) {
@@ -507,28 +737,10 @@ async function openCandidateDetail(id) {
   box.classList.remove("hidden");
   candidateSummaryData = null;       // stale from whatever candidate was open before
   candidateDetailSubmissions = submissions; // so generateCandidateSummary can label each round's comment with its real title/score
-
-  if (submissions.length === 0) {
-    box.innerHTML = `<div class="empty-state">No submissions yet.</div>`;
-    return;
-  }
-
-  const rows = submissions.map((s) => `
-    <div class="panel-inset">
-      <h4>Round ${s.round_number} - ${s.scenario ? escapeHtml(s.scenario.title) : ""} <span class="badge">${s.status}</span></h4>
-      ${s.score ? `
-        <p>Final score: <strong class="${s.score.final_score >= PASSING_SCORE ? "score-good" : "score-bad"}">${s.score.final_score}/100</strong> · Coverage: ${s.score.coverage_score}/100</p>
-        <p>${escapeHtml(s.score.feedback_text || "")}</p>
-        <p class="muted">Missed: ${(s.score.misses_json || []).map(escapeHtml).join(", ") || "none noted"}</p>
-      ` : `<p class="muted">Not scored yet.</p>`}
-      ${s.round_number === 3 ? renderRound3Report(s)
-        : s.round_number === 2 ? renderRound2Report(s)
-        : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
-    </div>
-  `).join("");
+  currentCandidateDetailId = id;
 
   box.innerHTML = `
-    ${rows}
+    ${renderSubmissionsPanels(submissions)}
     <div class="panel-inset">
       <h4>Summary</h4>
       <p class="muted">A crisp, cross-round synthesis for feedback to the candidate or a briefing for the next round's interviewers.</p>
@@ -537,7 +749,50 @@ async function openCandidateDetail(id) {
       </div>
       <div id="candidate-summary-body"></div>
     </div>
+    <div class="panel-inset">
+      <h4>Past appearances</h4>
+      <p class="muted">Every previous upload cycle for this candidate - re-applying resets their current attempt but keeps the old one here.</p>
+      <div id="appearances-list"></div>
+      <div id="appearance-detail"></div>
+    </div>
   `;
+  loadAppearances(id);
+}
+
+async function loadAppearances(candidateId) {
+  const listEl = document.getElementById("appearances-list");
+  const appearances = await api(`/hr/candidates/${candidateId}/appearances`);
+  if (appearances.length === 0) {
+    listEl.innerHTML = `<p class="muted">No upload history - this candidate wasn't created via bulk upload.</p>`;
+    return;
+  }
+  listEl.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Exam date</th><th>Status</th><th>Aggregate</th><th></th></tr></thead>
+        <tbody>
+          ${appearances.map((a) => `
+            <tr>
+              <td>${formatDate(a.exam_date)}</td>
+              <td>
+                ${a.is_current ? '<span class="badge badge-published">Current</span>' : '<span class="badge">Archived</span>'}
+                ${a.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}
+              </td>
+              <td>${a.aggregate_score != null ? `${a.aggregate_score}/300` : `<span class="muted">-</span>`}</td>
+              <td><button onclick="viewAppearance(${candidateId}, ${a.id})">View</button></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function viewAppearance(candidateId, appearanceId) {
+  const detailEl = document.getElementById("appearance-detail");
+  detailEl.innerHTML = `<p class="muted">Loading...</p>`;
+  const submissions = await api(`/hr/candidates/${candidateId}/appearances/${appearanceId}/report`);
+  detailEl.innerHTML = renderSubmissionsPanels(submissions);
 }
 
 async function generateCandidateSummary(id) {
@@ -551,8 +806,10 @@ async function generateCandidateSummary(id) {
       const submission = candidateDetailSubmissions.find((s) => s.round_number === rc.round_number);
       const label = ROUND_LABELS[rc.round_number] || `Round ${rc.round_number}`;
       const scoreNote = submission && submission.score
-        ? `<strong class="${submission.score.final_score >= PASSING_SCORE ? "score-good" : "score-bad"}">${submission.score.final_score}/100</strong>`
-        : `<span class="muted">not scored yet</span>`;
+        ? `<strong class="${submission.score.final_score >= passingScoreForRound(rc.round_number) ? "score-good" : "score-bad"}">${submission.score.final_score}/100</strong>`
+        : submission && submission.status === "scoring_failed"
+          ? `<span class="score-bad">scoring failed</span>`
+          : `<span class="muted">not scored yet</span>`;
       return `
         <div class="panel-inset">
           <h5>Round ${rc.round_number} - ${escapeHtml(label)} ${scoreNote}</h5>
@@ -753,11 +1010,20 @@ async function refreshCandidateNav() {
   candidateCompletedRounds = submissions
     .filter((s) => s.status === "submitted" || s.status === "scored")
     .map((s) => s.round_number);
+  // Abandoned (see RoundStatus.abandoned / the tab-switch guard's "Exit
+  // test" choice) isn't "completed" - _max_completed_round on the server
+  // never advances past it, so nextRound below naturally lands back on
+  // this same round every time, same as it does for scoring_failed.
+  // This is only tracked separately for the nav label below.
+  candidateAbandonedRounds = submissions
+    .filter((s) => s.status === "abandoned")
+    .map((s) => s.round_number);
   const nextRound = [1, 2, 3].find((n) => !candidateCompletedRounds.includes(n));
   renderCandidateRoundNav();
 
   if (nextRound === undefined) {
     currentRound = 0; // nothing in the nav is "active" once everything's submitted
+    disarmTabGuard(); // defensive - loadRound (which also does this) isn't reached on this branch
     renderCandidateRoundNav();
     document.getElementById("round-view").innerHTML = `
       <h3>All rounds complete</h3>
@@ -776,8 +1042,9 @@ function renderCandidateRoundNav() {
     <div class="rail-section-label">Assessment</div>
     ${[1, 2, 3].map((n) => {
       const done = candidateCompletedRounds.includes(n);
-      const isUnlocked = n === candidateUnlockedRound && !done;
-      const note = done ? "Submitted" : n === candidateUnlockedRound ? "In progress" : "Locked";
+      const abandoned = candidateAbandonedRounds.includes(n);
+      const isUnlocked = n === candidateUnlockedRound && !done && !abandoned;
+      const note = done ? "Submitted" : abandoned ? "Exited early" : n === candidateUnlockedRound ? "In progress" : "Locked";
       return `
         <button class="nav-btn ${n === currentRound ? "active" : ""}" ${isUnlocked ? "" : "disabled"} onclick="loadRound(${n})">
           <span class="nav-chip">${n}</span>
@@ -799,6 +1066,7 @@ function renderCandidateRoundNav() {
 async function loadRound(n) {
   currentRound = n;
   stopTimer();
+  disarmTabGuard(); // any previous round's timer/modal is gone regardless of which branch below runs next
   renderCandidateRoundNav();
   const box = document.getElementById("round-view");
   let state;
@@ -823,6 +1091,11 @@ function renderRoundView(box, n, state) {
     // Only reachable via a stale nav click (disabled buttons prevent it
     // normally) - a neutral landing, no status/score wording at all.
     box.innerHTML = `<h3>Round ${n}: ${escapeHtml(scenario.title)}</h3><p class="muted">You've already submitted this round.</p>`;
+    return;
+  }
+
+  if (submission && submission.status === "abandoned") {
+    box.innerHTML = `<h3>Round ${n}: ${escapeHtml(scenario.title)}</h3><p class="muted">You exited this round early after switching away from the test. It can't be resumed.</p>`;
     return;
   }
 
@@ -886,7 +1159,7 @@ function renderEntryForm(box, scenario, submission) {
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
     doSubmitRound1();
-  });
+  }, 1);
 }
 
 // Round 2: an investigation write-up, not test cases - a short repeatable
@@ -923,7 +1196,7 @@ function renderInvestigationForm(box, scenario, submission) {
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
     doSubmitRound2Investigation();
-  });
+  }, 2);
 }
 
 function addInvestigationRow() {
@@ -957,24 +1230,26 @@ function collectInvestigationRows() {
     .filter((r) => r.area);
 }
 
-async function doSubmitRound2Investigation() {
+async function doSubmitRound2Investigation(statusElId = "submit-status") {
   stopTimer();
-  const statusEl = document.getElementById("submit-status");
+  const statusEl = document.getElementById(statusElId);
   const investigation = collectInvestigationRows();
   const root_cause = document.getElementById("inv-root-cause").value.trim();
   if (investigation.length === 0) {
-    statusEl.textContent = "Add at least one investigation row before submitting.";
-    return;
+    if (statusEl) statusEl.textContent = "Add at least one investigation row before submitting.";
+    return false;
   }
   if (!root_cause) {
-    statusEl.textContent = "Fill in the Possible Root Cause box before submitting.";
-    return;
+    if (statusEl) statusEl.textContent = "Fill in the Possible Root Cause box before submitting.";
+    return false;
   }
   try {
     await api("/candidate/round/2/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
     refreshCandidateNav();
+    return true;
   } catch (e) {
-    statusEl.textContent = e.message;
+    if (statusEl) statusEl.textContent = e.message;
+    return false;
   }
 }
 
@@ -1072,7 +1347,7 @@ async function renderRound3View(box) {
   if (!timerHandle) {
     const submission = round3State.submission;
     const deadline = new Date(submission.started_at + "Z").getTime() + round3State.scenario.time_limit_minutes * 60 * 1000;
-    startTimer(deadline, round3AutoSubmit);
+    startTimer(deadline, round3AutoSubmit, 3);
   }
 }
 
@@ -1081,13 +1356,20 @@ async function round3AutoSubmit() {
   if (timerEl) timerEl.textContent = "Time's up - submitting automatically...";
   try {
     await api("/candidate/round/3/submit", { method: "POST" });
+    round3DraftBuffer = {};
+    refreshCandidateNav();
   } catch (e) {
     // Most likely cause: time ran out before the candidate ever sent a
-    // single message - nothing to auto-submit in that case, just let
-    // refreshCandidateNav reflect wherever they actually got to.
+    // single message, so there's nothing to submit - the server rejects
+    // it every time (see _require_within_time_limit), and the deadline
+    // that got us here doesn't change on retry. Show that plainly and
+    // stop HERE rather than calling refreshCandidateNav(): that would
+    // reload this same still-expired round, whose timer fires
+    // immediately again, calling this function again - an infinite
+    // "flickering" reload loop that was hammering /submit with repeat
+    // 400s until the candidate's tab was closed.
+    if (timerEl) timerEl.textContent = "Time's up - nothing was submitted (no messages were sent in any test case).";
   }
-  round3DraftBuffer = {};
-  refreshCandidateNav();
 }
 
 function renderRound3Layout(box) {
@@ -1281,14 +1563,17 @@ async function round3SendMessage() {
   }
 }
 
-async function round3Submit() {
-  const statusEl = document.getElementById("round3-status");
+async function round3Submit(statusElId = "round3-status") {
+  stopTimer();
+  const statusEl = document.getElementById(statusElId);
   try {
     await api("/candidate/round/3/submit", { method: "POST" });
     round3DraftBuffer = {};
     refreshCandidateNav();
+    return true;
   } catch (e) {
-    statusEl.textContent = e.message;
+    if (statusEl) statusEl.textContent = e.message;
+    return false;
   }
 }
 
@@ -1331,30 +1616,34 @@ function collectRows() {
     .filter((r) => r.title.trim() || r.steps.trim());
 }
 
-async function doSubmitRound1() {
+async function doSubmitRound1(statusElId = "submit-status") {
   stopTimer();
-  const statusEl = document.getElementById("submit-status");
+  const statusEl = document.getElementById(statusElId);
   const content = collectRows();
   if (content.length === 0) {
-    statusEl.textContent = "Add at least one row before submitting.";
-    return;
+    if (statusEl) statusEl.textContent = "Add at least one row before submitting.";
+    return false;
   }
   try {
     await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
     // No results screen - scoring happens in the background on HR's
     // side; the candidate just moves on to whatever's unlocked next.
     refreshCandidateNav();
+    return true;
   } catch (e) {
-    statusEl.textContent = e.message;
+    if (statusEl) statusEl.textContent = e.message;
+    return false;
   }
 }
 
-function startTimer(deadlineMs, onExpire) {
+function startTimer(deadlineMs, onExpire, roundNumber) {
   const timerEl = document.getElementById("timer");
+  armTabGuard(roundNumber);
   function tick() {
     const remaining = deadlineMs - Date.now();
     if (remaining <= 0) {
       stopTimer();
+      disarmTabGuard(); // nothing meaningful left to "exit" from once auto-submit takes over
       onExpire();
       return;
     }
@@ -1367,9 +1656,121 @@ function startTimer(deadlineMs, onExpire) {
 }
 
 function stopTimer() {
+  // Deliberately does NOT disarm the tab-switch guard (see below) - this
+  // also runs at the top of doSubmitRound1/doSubmitRound2Investigation
+  // when they're called FROM inside the guard's own forced-choice modal
+  // (see tabGuardSubmitNow), and a validation failure there (e.g. "add a
+  // row first") needs the modal + its status line to stay on screen for
+  // the candidate to read, not vanish along with the timer.
   if (timerHandle) {
     clearInterval(timerHandle);
     timerHandle = null;
+  }
+}
+
+// ---- Anti-cheating: tab-switch / focus-loss guard (candidate rounds
+// only - armed exactly while a round's timer is running, see startTimer/
+// stopTimer above) ----
+//
+// Detection only, on two fronts:
+//  - A browser can neither block Alt+Tab/opening a new tab nor see what's
+//    on it, so this can't literally stop someone consulting AI elsewhere.
+//  - A hidden/unfocused tab can't render anything at all, so the popup
+//    below can't visibly appear the instant the candidate leaves - only
+//    the instant they come back to this tab. The violation itself is
+//    still logged the moment it's detected (POST .../tab-switch),
+//    independent of that visual delay and of whatever the candidate
+//    picks once they're back - even closing the tab outright leaves a
+//    trace. The document.title swap below is a best-effort nudge to
+//    surface it sooner (visible in the tab strip even before switching
+//    back), not a fix for the underlying constraint.
+let tabGuardActive = false;    // true only while a round's timer is running
+let tabGuardRound = null;      // which round number is currently being guarded
+let tabGuardModalOpen = false; // guards against re-triggering while the forced-choice popup is already up
+let tabGuardOriginalTitle = null;
+
+function armTabGuard(roundNumber) {
+  disarmTabGuard(); // clear any stale state/overlay left over from a previous round first
+  tabGuardActive = true;
+  tabGuardRound = roundNumber;
+}
+
+function disarmTabGuard() {
+  tabGuardActive = false;
+  tabGuardRound = null;
+  tabGuardModalOpen = false;
+  if (tabGuardOriginalTitle !== null) {
+    document.title = tabGuardOriginalTitle;
+    tabGuardOriginalTitle = null;
+  }
+  const overlay = document.getElementById("tab-guard-overlay");
+  if (overlay) overlay.remove();
+}
+
+function handleTabGuardTrigger() {
+  if (!tabGuardActive || tabGuardModalOpen || role !== "candidate") return;
+  tabGuardModalOpen = true;
+  const roundNumber = tabGuardRound;
+  api(`/candidate/round/${roundNumber}/tab-switch`, { method: "POST" }).catch(() => {});
+  tabGuardOriginalTitle = document.title;
+  document.title = "Return to the test!";
+  showTabGuardModal(roundNumber);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) handleTabGuardTrigger();
+});
+window.addEventListener("blur", handleTabGuardTrigger);
+
+function showTabGuardModal(roundNumber) {
+  const overlay = document.createElement("div");
+  overlay.id = "tab-guard-overlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box">
+      <h3>You left the test</h3>
+      <p>Switching tabs or windows during a timed round is logged and visible to HR. Choose how to continue.</p>
+      <div class="row">
+        <button onclick="tabGuardResume()">Resume test</button>
+        <button class="btn-ghost" onclick="tabGuardSubmitNow(${roundNumber})">Submit current progress</button>
+        <button class="btn-ghost" onclick="tabGuardExit(${roundNumber})">Exit test</button>
+      </div>
+      <p id="tab-guard-status" class="muted"></p>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function tabGuardResume() {
+  // Stays armed (still the same round, timer keeps running underneath -
+  // see startTimer/stopTimer) - just closes the popup and lets the
+  // candidate keep going. The violation stays logged regardless; this
+  // only decides what happens to the round, not whether HR sees it.
+  tabGuardModalOpen = false;
+  if (tabGuardOriginalTitle !== null) {
+    document.title = tabGuardOriginalTitle;
+    tabGuardOriginalTitle = null;
+  }
+  const overlay = document.getElementById("tab-guard-overlay");
+  if (overlay) overlay.remove();
+}
+
+async function tabGuardSubmitNow(roundNumber) {
+  let ok = false;
+  if (roundNumber === 1) ok = await doSubmitRound1("tab-guard-status");
+  else if (roundNumber === 2) ok = await doSubmitRound2Investigation("tab-guard-status");
+  else ok = await round3Submit("tab-guard-status");
+  if (ok) disarmTabGuard();
+}
+
+async function tabGuardExit(roundNumber) {
+  const statusEl = document.getElementById("tab-guard-status");
+  try {
+    await api(`/candidate/round/${roundNumber}/abandon`, { method: "POST" });
+    disarmTabGuard();
+    refreshCandidateNav();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
   }
 }
 

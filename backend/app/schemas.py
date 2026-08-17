@@ -10,16 +10,22 @@ the DB layer.
 from datetime import datetime
 from typing import Optional, Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---- Auth ----
 #
-# No signup schema: accounts are seeded (see app/seed.py), not
+# No signup schema: accounts are seeded (see app/seed.py) or bulk-uploaded
+# by HR (see routers/hr.py's upload endpoint, credential_service.py), not
 # self-registered. Login is the only auth endpoint.
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Deliberately a plain string, not EmailStr: HR/seeded accounts log in
+    # with their email, but bulk-uploaded candidates log in with a plain
+    # username (their email's local part - not itself a valid email
+    # shape), so this field has to accept either. auth.py's login looks
+    # this up against both User.email and User.username.
+    identifier: str = Field(min_length=1)
     password: str
 
 
@@ -37,6 +43,31 @@ class MeOut(BaseModel):
     signed in when this was added would never have had."""
     email: str
     role: str
+
+
+# ---- Runtime-editable app settings (HR's Settings page - see
+# routers/hr.py's GET/PUT /hr/settings, models.AppSettings). Deliberately
+# separate from config.py's env-sourced Settings, which needs a server
+# restart to change and holds deployment-level things (secrets, DB URL),
+# not business rules HR should be able to self-serve. ----
+
+class AppSettingsOut(BaseModel):
+    round1_passing_score: int
+    round2_passing_score: int
+    round3_passing_score: int
+    final_passing_score: int
+    reapplication_window_months: int
+
+    class Config:
+        from_attributes = True
+
+
+class AppSettingsUpdate(BaseModel):
+    round1_passing_score: int = Field(ge=0, le=100)
+    round2_passing_score: int = Field(ge=0, le=100)
+    round3_passing_score: int = Field(ge=0, le=100)
+    final_passing_score: int = Field(ge=0, le=300)
+    reapplication_window_months: int = Field(ge=1)
 
 
 # ---- Test case rows. Round 1's candidate submissions AND both round
@@ -136,9 +167,26 @@ class ScoreOut(BaseModel):
     misses_json: list
     final_score: Optional[int]
     feedback_text: Optional[str]
+    # Human-override audit trail (see hr.py's PATCH /submissions/{id}/score) -
+    # always present, all null/false until HR ever touches this score.
+    original_final_score: Optional[int] = None
+    overridden_by_hr: bool = False
+    override_note: Optional[str] = None
+    overridden_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class ScoreOverrideRequest(BaseModel):
+    """HR correcting or hand-entering a score - either to fix an LLM
+    score they disagree with, or to manually score a submission stuck at
+    scoring_failed. override_note is required (not just recommended):
+    this is the human-accountability record for a number that gates a
+    hiring decision, so it should never be silent."""
+    final_score: int = Field(ge=0, le=100)
+    feedback_text: Optional[str] = None
+    override_note: str = Field(min_length=1)
 
 
 class SubmissionOut(BaseModel):
@@ -173,6 +221,25 @@ class SubmissionReportOut(SubmissionOut):
     score: Optional[ScoreOut] = None
     test_cases: Optional[list["Round3TestCaseOut"]] = None
     conversation_turns: Optional[list["Round3TurnOut"]] = None
+    # Set when status == "scoring_failed" (see models.RoundStatus) - the
+    # error from the failed background scoring attempt, so HR can see
+    # why instead of a submission just looking stuck.
+    scoring_error: Optional[str] = None
+    # Anti-cheating (see models.Submission.tab_switch_events_json /
+    # routers/candidate.py's tab-switch guard endpoints) - HR-facing only,
+    # same tier as scoring_error above. tab_switch_count is a computed
+    # property, not a DB column; the field name below mirrors the ORM
+    # attribute name, same convention as ScoreOut.misses_json.
+    tab_switch_count: int = 0
+    tab_switch_events_json: list[datetime] = Field(default_factory=list)
+
+    # The DB column is nullable (most submissions never trigger this) -
+    # coerce None to [] rather than requiring every read site to know
+    # that, same shape either way for the frontend.
+    @field_validator("tab_switch_events_json", mode="before")
+    @classmethod
+    def _default_events(cls, v):
+        return v or []
 
 
 class RoundStateOut(BaseModel):
@@ -186,8 +253,11 @@ class RoundStateOut(BaseModel):
 
 class CandidateRoundSummary(BaseModel):
     round_number: int
-    status: str  # "not_started" | "in_progress" | "submitted" | "scored"
+    status: str  # "not_started" | "in_progress" | "submitted" | "scored" | "scoring_failed" | "abandoned"
     final_score: Optional[int] = None
+    # Surfaced here too (not just the drill-down report) so it's visible
+    # on the first screen HR sees - see Submission.tab_switch_count.
+    tab_switch_count: int = 0
 
 
 class CandidateSummaryOut(BaseModel):
@@ -195,6 +265,48 @@ class CandidateSummaryOut(BaseModel):
     email: str
     experience_band: Optional[str]
     rounds: list[CandidateRoundSummary]
+    # Populated only for bulk-uploaded candidates (see CandidateAppearance)
+    # - None for the 3 seeded accounts, which never went through upload.
+    exam_date: Optional[datetime] = None
+    aggregate_score: Optional[int] = None  # sum of the 3 rounds' final_score, out of 300 - None until at least one is scored
+    reapplied_within_window: bool = False
+
+
+# ---- Bulk candidate upload (see routers/hr.py's POST /candidates/upload,
+# credential_service.py) ----
+
+class BulkUploadRowResult(BaseModel):
+    row_number: int
+    email: Optional[str] = None
+    status: Literal["created", "reset", "error"]
+    username: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BulkUploadResult(BaseModel):
+    created_count: int
+    reset_count: int
+    error_count: int
+    rows: list[BulkUploadRowResult]
+
+
+class CandidateBandUpdate(BaseModel):
+    experience_band: Literal["0-7", "7+"]
+
+
+# ---- Candidate appearance history (see routers/hr.py's
+# /candidates/{id}/appearances[/...]) ----
+
+class CandidateAppearanceOut(BaseModel):
+    id: int
+    exam_date: datetime
+    is_current: bool
+    reapplied_within_window: bool
+    created_at: datetime
+    aggregate_score: Optional[int] = None
+
+    class Config:
+        from_attributes = True
 
 
 # ---- Cross-round candidate summary (HR's candidate-detail view -

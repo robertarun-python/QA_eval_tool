@@ -16,7 +16,7 @@
       </div>
       <p class="muted">Sign in with the account HR gave you.</p>
       <div class="field-group">
-        <input id="email" type="email" placeholder="Email" />
+        <input id="email" type="text" placeholder="Email or username" />
         <input id="password" type="password" placeholder="Password" />
       </div>
       <button class="btn-block" onclick="login()">Log in</button>
@@ -93,11 +93,39 @@
 
           <div id="hr-page-candidates" class="hidden">
             <div class="panel">
+              <h3>Upload candidates</h3>
+              <p class="muted">Excel (.xlsx) or plain text (.txt), two columns: email, exam date (YYYY-MM-DD). Logins are generated automatically - see the results below after uploading.</p>
+              <div class="row">
+                <input id="upload-file" type="file" accept=".xlsx,.txt" />
+                <button onclick="uploadCandidates()">Upload</button>
+              </div>
+              <div id="upload-result"></div>
+            </div>
+
+            <div class="panel">
               <h3>Candidates</h3>
               <p class="muted">All rounds, all candidates.</p>
               <div id="candidates-table"></div>
             </div>
             <div id="candidate-detail" class="panel hidden"></div>
+          </div>
+
+          <div id="hr-page-settings" class="hidden">
+            <div class="panel card">
+              <h3>Pass criteria</h3>
+              <p class="muted">Changes apply immediately across the app - no restart needed.</p>
+              <div class="field-row">
+                <div class="field-inline"><input id="set-round1" type="number" min="0" max="100" /><span class="muted">Round 1 pass score</span></div>
+                <div class="field-inline"><input id="set-round2" type="number" min="0" max="100" /><span class="muted">Round 2 pass score</span></div>
+                <div class="field-inline"><input id="set-round3" type="number" min="0" max="100" /><span class="muted">Round 3 pass score</span></div>
+              </div>
+              <div class="field-row">
+                <div class="field-inline"><input id="set-final" type="number" min="0" max="300" /><span class="muted">Final pass score (out of 300)</span></div>
+                <div class="field-inline"><input id="set-window" type="number" min="1" /><span class="muted">Re-application window (months)</span></div>
+              </div>
+              <button onclick="saveAppSettings()">Save</button>
+              <p id="settings-status" class="muted"></p>
+            </div>
           </div>
 
         </section>

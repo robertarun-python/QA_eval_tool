@@ -12,6 +12,26 @@ from ..models import Submission, Score, RoundStatus
 from . import llm_service
 
 
+def _get_or_create_score(db: Session, submission: Submission) -> Score:
+    """A retry (see routers/hr.py's retry-scoring) re-runs one of the
+    scorer functions below against a submission that may already have a
+    Score row (e.g. HR hand-scored it after an earlier failure, then
+    retried anyway) - reuse that row instead of inserting a second one
+    and violating scores.submission_id's uniqueness constraint. A fresh
+    real LLM score also isn't an HR override anymore, so clear any
+    override audit fields the reused row was carrying."""
+    score = submission.score
+    if score is None:
+        score = Score(submission_id=submission.id)
+        db.add(score)
+    else:
+        score.original_final_score = None
+        score.overridden_by_user_id = None
+        score.override_note = None
+        score.overridden_at = None
+    return score
+
+
 def score_round1_submission(db: Session, submission: Submission) -> Score:
     """Round 1: candidate's structured test-case rows vs. the scenario's
     HR-approved reference rows - same shape on both sides."""
@@ -32,16 +52,13 @@ def score_round1_submission(db: Session, submission: Submission) -> Score:
         candidate_submission=candidate_submission,
     )
 
-    score = Score(
-        submission_id=submission.id,
-        coverage_score=result.get("coverage_score"),
-        misses_json=result.get("misses", []),
-        final_score=result.get("final_score"),
-        feedback_text=result.get("feedback_text"),
-        raw_llm_response_json={"reference_rows": reference_rows, "scoring": result},
-    )
+    score = _get_or_create_score(db, submission)
+    score.coverage_score = result.get("coverage_score")
+    score.misses_json = result.get("misses", [])
+    score.final_score = result.get("final_score")
+    score.feedback_text = result.get("feedback_text")
+    score.raw_llm_response_json = {"reference_rows": reference_rows, "scoring": result}
     submission.status = RoundStatus.scored
-    db.add(score)
     db.commit()
     db.refresh(score)
     return score
@@ -68,16 +85,13 @@ def score_round2_investigation(db: Session, submission: Submission) -> Score:
         candidate_root_cause=candidate_root_cause,
     )
 
-    score = Score(
-        submission_id=submission.id,
-        coverage_score=result.get("coverage_score"),
-        misses_json=result.get("misses", []),
-        final_score=result.get("final_score"),
-        feedback_text=result.get("feedback_text"),
-        raw_llm_response_json={"reference_rows": reference_rows, "scoring": result},
-    )
+    score = _get_or_create_score(db, submission)
+    score.coverage_score = result.get("coverage_score")
+    score.misses_json = result.get("misses", [])
+    score.final_score = result.get("final_score")
+    score.feedback_text = result.get("feedback_text")
+    score.raw_llm_response_json = {"reference_rows": reference_rows, "scoring": result}
     submission.status = RoundStatus.scored
-    db.add(score)
     db.commit()
     db.refresh(score)
     return score
@@ -121,16 +135,57 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
         assistance_pct=config["assistance_pct"],
     )
 
-    score = Score(
-        submission_id=submission.id,
-        coverage_score=result.get("coverage_score"),
-        misses_json=result.get("misses", []),
-        final_score=result.get("final_score"),
-        feedback_text=result.get("feedback_text"),
-        raw_llm_response_json={"round1_context": round1_context, "test_cases": test_cases_payload, "scoring": result},
-    )
+    score = _get_or_create_score(db, submission)
+    score.coverage_score = result.get("coverage_score")
+    score.misses_json = result.get("misses", [])
+    score.final_score = result.get("final_score")
+    score.feedback_text = result.get("feedback_text")
+    score.raw_llm_response_json = {"round1_context": round1_context, "test_cases": test_cases_payload, "scoring": result}
     submission.status = RoundStatus.scored
-    db.add(score)
     db.commit()
     db.refresh(score)
     return score
+
+
+_SCORERS = {
+    1: score_round1_submission,
+    2: score_round2_investigation,
+    3: score_round3_submission,
+}
+
+
+def score_submission_in_background(submission_id: int) -> None:
+    """The one entry point every submit endpoint's BackgroundTasks call
+    and HR's retry-scoring endpoint (routers/hr.py) both go through -
+    consolidates what used to be three near-identical, exception-unsafe
+    _score_roundN_in_background functions in routers/candidate.py.
+
+    Never lets a failed LLM call strand a submission at status="submitted"
+    forever with nothing to show for it: on any exception (a bad LLM
+    response, a network blip, a rate limit, ...) the submission moves to
+    scoring_failed with the error message attached, visible to HR, who
+    can retry (call this function again) or score it manually (see
+    hr.py's PATCH /submissions/{id}/score)."""
+    from ..database import SessionLocal  # local import: avoid circular import at module load
+
+    db = SessionLocal()
+    try:
+        submission = db.get(Submission, submission_id)
+        if submission is None:
+            return
+        scorer = _SCORERS.get(submission.round_number)
+        if scorer is None:
+            return
+        # Clear any stale error from a previous failed attempt before
+        # trying again - a successful retry must not leave old error
+        # text sitting next to a fresh, real score.
+        submission.scoring_error = None
+        try:
+            scorer(db, submission)
+        except Exception as e:
+            db.rollback()  # discard any half-formed pending changes (e.g. a Score added but not yet committed) before recording the failure
+            submission.status = RoundStatus.scoring_failed
+            submission.scoring_error = str(e)[:2000]
+            db.commit()
+    finally:
+        db.close()

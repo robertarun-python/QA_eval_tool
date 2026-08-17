@@ -32,6 +32,21 @@ class RoundStatus(str, enum.Enum):
     in_progress = "in_progress"
     submitted = "submitted"
     scored = "scored"
+    # The background scoring call raised (a bad LLM response, a network
+    # blip, a rate limit, ...) - distinct from `submitted` (still normal,
+    # awaiting the background task) so a real failure is visible to HR
+    # instead of leaving the submission looking like it's just pending
+    # forever. See scoring_service.score_submission_in_background and
+    # Submission.scoring_error.
+    scoring_failed = "scoring_failed"
+    # Candidate switched tabs/apps during a timed round and chose "Exit
+    # test" from the forced-choice popup (see routers/candidate.py's
+    # /round/{n}/abandon and app.js's tab-switch guard) rather than
+    # submitting what they had. Terminal, like scored/scoring_failed -
+    # _max_completed_round only advances on submitted/scored, so an
+    # abandoned round leaves the candidate stuck there; it is not a
+    # scoring outcome, just an early exit.
+    abandoned = "abandoned"
 
 
 class ScenarioStatus(str, enum.Enum):
@@ -44,6 +59,12 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, index=True, nullable=False)
+    # NULL for HR/seeded accounts, which still log in by email - only
+    # bulk-uploaded candidates (see credential_service.py) get one, so
+    # they can log in with a plain username instead of their full email.
+    # SQLite's UNIQUE index permits multiple NULLs, which is exactly what
+    # letting every non-bulk account leave this unset needs.
+    username = Column(String, unique=True, index=True, nullable=True)
     password_hash = Column(String, nullable=False)
     role = Column(Enum(Role), nullable=False)
     # NULL for HR users - the band only matters for candidates.
@@ -51,6 +72,10 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     submissions = relationship("Submission", back_populates="candidate")
+    appearances = relationship(
+        "CandidateAppearance", back_populates="user",
+        order_by="CandidateAppearance.created_at",
+    )
 
 
 class Scenario(Base):
@@ -123,10 +148,36 @@ class Submission(Base):
     # server-side so a page refresh can't reset the candidate's clock.
     started_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Re-application handling (see CandidateAppearance): a reset moves
+    # every one of the candidate's current submissions to archived=True
+    # rather than deleting them, so a fresh attempt doesn't collide with
+    # the old one in the many `.first()` lookups across candidate.py that
+    # otherwise assume "one submission per (user, scenario)" - every one
+    # of those needs `archived == False` in its filter. appearance_id is
+    # purely for grouping a cycle's submissions in HR's history drill-down,
+    # not read by any gating logic.
+    archived = Column(Boolean, nullable=False, default=False)
+    appearance_id = Column(Integer, ForeignKey("candidate_appearances.id"), nullable=True)
+    # Set when status becomes scoring_failed (see RoundStatus) - the
+    # exception message from the failed attempt, capped in length by
+    # scoring_service before it's written here. Cleared on a successful
+    # retry or manual override.
+    scoring_error = Column(Text, nullable=True)
+    # Anti-cheating: one ISO timestamp appended per detected tab-switch/
+    # focus-loss during this round (see app.js's tab-switch guard and
+    # POST /candidate/round/{n}/tab-switch) - logged the instant it's
+    # detected, independent of which button the candidate then picks on
+    # the forced-choice popup, so even "closed the tab entirely" leaves a
+    # trace. HR-visible only (see tab_switch_count below / SubmissionReportOut).
+    tab_switch_events_json = Column(JSON, nullable=True)
 
     candidate = relationship("User", back_populates="submissions")
     scenario = relationship("Scenario", back_populates="submissions")
     score = relationship("Score", back_populates="submission", uselist=False)
+
+    @property
+    def tab_switch_count(self) -> int:
+        return len(self.tab_switch_events_json or [])
     # created_at, not turn_number: turn_number resets per test case (see
     # ConversationTurn), so ordering by it alone would interleave test
     # cases. created_at is monotonic regardless, which is what "the
@@ -156,8 +207,25 @@ class Score(Base):
     feedback_text = Column(Text, nullable=True)
     raw_llm_response_json = Column(JSON, default=dict)  # full LLM output, for auditing
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Human-override audit trail (see hr.py's PATCH /submissions/{id}/score).
+    # original_final_score is set once, on the FIRST override only, and
+    # never touched again after that - it's always the LLM's real
+    # original number even if HR overrides more than once. NULL means
+    # this score has never been overridden (or never had an LLM score to
+    # begin with - see the scoring_failed + manual-score path).
+    original_final_score = Column(Integer, nullable=True)
+    overridden_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    override_note = Column(Text, nullable=True)
+    overridden_at = Column(DateTime, nullable=True)
 
     submission = relationship("Submission", back_populates="score")
+
+    @property
+    def overridden_by_hr(self) -> bool:
+        """Computed, not a column - schemas.ScoreOut reads this via
+        from_attributes. HR only needs the fact that a human touched
+        this score, not the raw user id."""
+        return self.overridden_by_user_id is not None
 
 
 class Round3TestCase(Base):
@@ -210,3 +278,46 @@ class ConversationTurn(Base):
 
     submission = relationship("Submission", back_populates="conversation_turns")
     test_case = relationship("Round3TestCase", back_populates="turns")
+
+
+class CandidateAppearance(Base):
+    """One row per bulk-upload event for a candidate (see
+    routers/hr.py's upload endpoint and credential_service.py) - the
+    source of truth for both the re-application window check and HR's
+    "past appearances" history view. Exactly one row per user has
+    is_current=True at any time; re-uploading an existing email flips
+    the old one to False and inserts a new current one, archiving that
+    user's submissions in the same operation (see Submission.archived)."""
+    __tablename__ = "candidate_appearances"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    email = Column(String, nullable=False)  # snapshot of the uploaded row, not a live FK to User.email
+    exam_date = Column(DateTime, nullable=False)
+    is_current = Column(Boolean, nullable=False, default=True)
+    # Whether THIS appearance followed the previous one within
+    # Settings.reapplication_window_months - computed once at upload
+    # time, not recomputed later, so it stays historically accurate even
+    # if the window setting changes afterward.
+    reapplied_within_window = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="appearances")
+
+
+class AppSettings(Base):
+    """Singleton row (id is always 1) holding the runtime-editable
+    settings HR can change through the UI without a server restart -
+    deliberately separate from config.py's Settings, which is
+    env-sourced, deployment-level, and requires a restart to change (see
+    that file's docstring for the split). See routers/hr.py's
+    get_settings() for the get-or-create-singleton accessor."""
+    __tablename__ = "app_settings"
+
+    id = Column(Integer, primary_key=True)
+    round1_passing_score = Column(Integer, nullable=False, default=70)
+    round2_passing_score = Column(Integer, nullable=False, default=70)
+    round3_passing_score = Column(Integer, nullable=False, default=70)
+    final_passing_score = Column(Integer, nullable=False, default=210)  # out of 300 (sum of the three rounds)
+    reapplication_window_months = Column(Integer, nullable=False, default=6)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

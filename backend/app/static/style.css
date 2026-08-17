@@ -662,3 +662,27 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   font-size: 0.87rem;
   background: var(--surface);
 }
+
+/* Tab-switch guard's forced-choice popup (see app.js) - deliberately has
+   no close/dismiss affordance other than the two buttons inside it. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(5, 6, 9, 0.72);
+  backdrop-filter: blur(2px);
+}
+.modal-box {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--panel);
+  border: 1px solid var(--bad);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 1.5rem;
+}
+.modal-box h3 { color: var(--bad); }

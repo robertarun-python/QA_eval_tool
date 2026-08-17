@@ -97,7 +97,7 @@ _REFERENCE_GENERATOR_BY_ROUND = {
 
 
 def _login(client, email, password):
-    return client.post("/auth/login", json={"email": email, "password": password}).json()["access_token"]
+    return client.post("/auth/login", json={"identifier": email, "password": password}).json()["access_token"]
 
 
 def _auth(token):
