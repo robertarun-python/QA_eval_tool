@@ -29,9 +29,13 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+class LoginResponse(BaseModel):
+    """The JWT itself now travels only as an httpOnly cookie (see
+    routers/auth.py's Set-Cookie on /auth/login), never in this JSON body -
+    returning it here too would let any injected script just read it off
+    the fetch response, defeating the point of httpOnly. `role` is still
+    useful in the body so the frontend can route to the right view
+    immediately after login without a second round trip to /auth/me."""
     role: str
 
 

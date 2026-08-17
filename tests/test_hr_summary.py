@@ -30,10 +30,10 @@ def test_summary_requires_at_least_one_submission(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)  # account exists, never starts anything
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
 
-    res = client.post(f"/hr/candidates/{candidate_id}/summary", headers=_auth(hr_token))
+    res = client.post(f"/hr/candidates/{candidate_id}/summary", cookies=_auth(hr_token))
     assert res.status_code == 400
 
 
@@ -52,21 +52,24 @@ def test_summary_generated_and_downloadable_as_pdf(client, monkeypatch):
     scenario = _publish_scenario(client, hr_token, monkeypatch, title="Checkout flow")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
-        lambda **kwargs: {"coverage_score": 80, "misses": ["empty cart"], "final_score": 75, "feedback_text": "Solid."},
+        lambda **kwargs: {
+            "coverage_score": 80, "misses": ["empty cart"], "final_score": 75, "feedback_text": "Solid.",
+            "concept_coverage": [{"category": "Boundary", "total": 1, "covered": 0, "notes": "Missed empty cart."}],
+        },
     )
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    client.post("/candidate/round/1/start", headers=_auth(cand_token))
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
     client.post(
         "/candidate/round/1/submit",
         json={"content": [{"title": "Add item", "steps": "...", "expected_result": "..."}]},
-        headers=_auth(cand_token),
+        cookies=_auth(cand_token),
     )
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
 
-    res = client.post(f"/hr/candidates/{candidate_id}/summary", headers=_auth(hr_token))
+    res = client.post(f"/hr/candidates/{candidate_id}/summary", cookies=_auth(hr_token))
     assert res.status_code == 200
     body = res.json()
     assert body["candidate_email"] == CANDIDATE1_EMAIL
@@ -82,12 +85,16 @@ def test_summary_generated_and_downloadable_as_pdf(client, monkeypatch):
     assert rounds[0]["round_number"] == 1
     assert rounds[0]["final_score"] == 75
     assert rounds[0]["misses"] == ["empty cart"]
+    # Per-category coverage (see _gather_candidate_rounds) is passed
+    # through to the summary prompt too, so it can call out strengths/
+    # weaknesses by name.
+    assert rounds[0]["concept_coverage"] == [{"category": "Boundary", "total": 1, "covered": 0, "notes": "Missed empty cart."}]
     assert rounds[0]["scenario_title"] == "Checkout flow"
 
     res = client.post(
         f"/hr/candidates/{candidate_id}/summary/pdf",
         json={"round_comments": body["round_comments"], "final_summary": body["final_summary"]},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     )
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/pdf"

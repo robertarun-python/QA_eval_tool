@@ -1,9 +1,13 @@
 // Minimal vanilla-JS frontend. No build step, no framework - talks to
-// the FastAPI JSON API with plain fetch() calls. The token lives in
-// sessionStorage (survives a refresh, clears when the tab closes) -
-// explicit logout is the only way out otherwise. A production version
-// would move this to an httpOnly cookie instead (sessionStorage is
-// still readable by any injected script, same as localStorage).
+// the FastAPI JSON API with plain fetch() calls. The session token lives
+// in an httpOnly cookie set by POST /auth/login (see routers/auth.py) -
+// this JS file never sees the raw token at all, so an XSS injection
+// can't read it out of sessionStorage/localStorage the way it could
+// before. Every fetch() below is same-origin, so the browser attaches
+// that cookie automatically; nothing here needs to build an
+// Authorization header. "Am I logged in" is resolved by asking the
+// server (GET /auth/me) on page load, not by checking local state - see
+// the bootstrap call at the bottom of this file.
 
 // ---- Shared constants ----
 //
@@ -26,8 +30,7 @@ function passingScoreForRound(roundNumber) {
   return (appSettings && appSettings[`round${roundNumber}_passing_score`]) ?? 70;
 }
 
-let token = sessionStorage.getItem("qa_eval_token");
-let role = sessionStorage.getItem("qa_eval_role");
+let role = null;       // resolved from GET /auth/me on every session load - see loadWhoAmI() / the bootstrap call at the bottom of this file
 let userEmail = null; // resolved fresh from GET /auth/me every session load - see loadWhoAmI()
 let currentRound = 1;       // which round's content is showing right now (candidate view)
 let candidateUnlockedRound = 1; // the one round a candidate is allowed into - see refreshCandidateNav()
@@ -44,8 +47,8 @@ let round3ViewedTestCaseId = null; // which test case tab is showing
 let round3DraftBuffer = {};        // { testCaseId: latestTypedText } - instant, in-memory, survives tab switches with zero latency
 let round3DraftTimers = {};        // { testCaseId: setTimeout handle } - debounced PATCH to the server
 
-function authHeaders() {
-  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+function jsonHeaders() {
+  return { "Content-Type": "application/json" };
 }
 
 // FastAPI/Pydantic's 422 response shape is {detail: [{loc, msg, type}, ...]}
@@ -73,9 +76,9 @@ function apiErrorMessage(data, fallback) {
 }
 
 async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: authHeaders(), ...opts });
+  const res = await fetch(path, { headers: jsonHeaders(), ...opts });
   if (res.status === 401) {
-    // The stored token is missing/expired (sessions last 12h) - the
+    // The session cookie is missing/expired (sessions last 12h) - the
     // server no longer recognizes it, so there's nothing useful left to
     // do but send the user back to login rather than fail silently.
     logout();
@@ -108,19 +111,27 @@ async function login() {
     document.getElementById("auth-error").textContent = apiErrorMessage(data, "Something went wrong");
     return;
   }
-  token = data.access_token;
+  // The actual session token isn't in this response body at all - it
+  // arrived as an httpOnly Set-Cookie header on the response above,
+  // which this fetch() already accepted (same-origin). role is all the
+  // body carries now, just enough to route to the right view immediately.
   role = data.role;
-  sessionStorage.setItem("qa_eval_token", token);
-  sessionStorage.setItem("qa_eval_role", role);
   onLoggedIn();
 }
 
-function logout() {
+async function logout() {
   stopTimer();
   disarmTabGuard();
-  sessionStorage.removeItem("qa_eval_token");
-  sessionStorage.removeItem("qa_eval_role");
-  token = null;
+  // JS can't clear an httpOnly cookie itself - a real request is the
+  // only way. Not api() here: if the cookie's already expired this would
+  // 401 and api() would call logout() again on that 401, recursing. Best-
+  // effort either way - local UI state below gets cleared regardless of
+  // whether this call actually succeeds.
+  try {
+    await fetch("/auth/logout", { method: "POST" });
+  } catch (e) {
+    // ignored - see comment above
+  }
   role = null;
   userEmail = null;
   document.getElementById("hr-panel").classList.add("hidden");
@@ -143,10 +154,10 @@ function renderWho() {
   `;
 }
 
-// Resolved from the server on every session load (fresh login AND a
-// page reload that restores an already-signed-in session from
-// sessionStorage) rather than trusted from whatever was last typed into
-// the login form - a tab that was already signed in before this existed
+// Resolved from the server on every session load (fresh login AND a page
+// reload that restores an already-signed-in session via the httpOnly
+// cookie) rather than trusted from whatever was last typed into the
+// login form - a tab that was already signed in before this existed
 // would otherwise show a blank identity forever, since it never went
 // through the login form again to capture it.
 async function loadWhoAmI() {
@@ -604,10 +615,11 @@ async function uploadCandidates() {
   try {
     // Not api() on purpose - a multipart body must not have a
     // Content-Type header set manually (the browser sets its own with
-    // the correct boundary), but authHeaders() always includes one.
+    // the correct boundary), but jsonHeaders() always includes one. No
+    // auth header needed either way now - the session cookie attaches to
+    // this same-origin fetch automatically.
     const res = await fetch("/hr/candidates/upload", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
     const result = await res.json();
@@ -874,7 +886,7 @@ async function downloadCandidateSummaryPdf(id, email) {
   // would fail on this endpoint's binary PDF response.
   const res = await fetch(`/hr/candidates/${id}/summary/pdf`, {
     method: "POST",
-    headers: authHeaders(),
+    headers: jsonHeaders(),
     body: JSON.stringify({
       round_comments: candidateSummaryData.round_comments,
       final_summary: candidateSummaryData.final_summary,
@@ -1875,15 +1887,26 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// Entry point - deliberately the last thing in the file. A returning
-// user's stored token auto-logs them back in immediately on page load,
-// which calls straight into renderHRRoundNav()/renderCandidateRoundNav()
-// (via onLoggedIn) - those reference `const`s declared further up this
-// file (ROUND_LABELS and others). const/let bindings exist in a
-// "temporal dead zone" until their own declaration line has run, so
-// this trigger must come after every such declaration, not before it -
-// otherwise it only breaks for auto-login (a fresh manual login via the
-// button always runs after the whole script has finished loading).
-if (token && role) {
-  onLoggedIn();
-}
+// Entry point - deliberately the last thing in the file. JS can't read
+// the httpOnly session cookie itself to know whether a returning user is
+// still signed in, so this asks the server (GET /auth/me) instead - a
+// valid cookie resolves it and logs the user straight back in, same as
+// the old sessionStorage-based check used to, just via a real round trip
+// instead of a synchronous local read. Deliberately last in the file for
+// the same reason the old check was: it calls straight into
+// renderHRRoundNav()/renderCandidateRoundNav() (via onLoggedIn), which
+// reference `const`s declared further up this file (ROUND_LABELS and
+// others) - those are in a "temporal dead zone" until their own
+// declaration line has run.
+(async function bootstrapSession() {
+  try {
+    const me = await fetch("/auth/me");
+    if (!me.ok) return; // no valid session cookie - stay on the login screen
+    const data = await me.json();
+    role = data.role;
+    userEmail = data.email;
+    onLoggedIn();
+  } catch (e) {
+    // Network error on page load - stay on the login screen, same as a 401.
+  }
+})();

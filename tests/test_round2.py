@@ -23,7 +23,7 @@ def test_round2_scenario_creation_generates_reference(client, monkeypatch):
     res = client.post(
         "/hr/scenarios",
         json={"round_number": 2, "title": "Off-by-one in pagination", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 20},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     )
     assert res.status_code == 201
     assert res.json()["reference_json"] == FAKE_REFERENCE
@@ -32,7 +32,7 @@ def test_round2_scenario_creation_generates_reference(client, monkeypatch):
 def test_round2_locked_until_round1_submitted(client, monkeypatch):
     _publish_scenario(client, _login(client, HR_EMAIL, HR_PASSWORD), monkeypatch, round_number=2)
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    res = client.get("/candidate/round/2", headers=_auth(cand_token))
+    res = client.get("/candidate/round/2", cookies=_auth(cand_token))
     assert res.status_code == 403
 
 
@@ -48,12 +48,12 @@ def test_round2_submit_requires_investigation_and_root_cause(client, monkeypatch
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Race condition in checkout")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    client.post("/candidate/round/1/start", headers=_auth(cand_token))
-    client.post("/candidate/round/1/submit", json={"content": [{"title": "Case", "steps": "...", "expected_result": "..."}]}, headers=_auth(cand_token))
-    client.post("/candidate/round/2/start", headers=_auth(cand_token))
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "Case", "steps": "...", "expected_result": "..."}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     # Missing required fields entirely - schema validation, not app logic.
-    res = client.post("/candidate/round/2/submit", json={"investigation": []}, headers=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", json={"investigation": []}, cookies=_auth(cand_token))
     assert res.status_code == 422
 
 
@@ -74,46 +74,46 @@ def test_round2_submission_scored_via_background_task(client, monkeypatch):
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     # Clear round 1 first - round 2 is gated behind it.
-    client.post("/candidate/round/1/start", headers=_auth(cand_token))
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
     client.post(
         "/candidate/round/1/submit",
         json={"content": [{"title": "Case", "steps": "...", "expected_result": "..."}]},
-        headers=_auth(cand_token),
+        cookies=_auth(cand_token),
     )
 
-    res = client.get("/candidate/round/2", headers=_auth(cand_token))
+    res = client.get("/candidate/round/2", cookies=_auth(cand_token))
     assert res.status_code == 200
     assert res.json()["scenario"]["title"] == "Race condition in checkout"
 
-    client.post("/candidate/round/2/start", headers=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     res = client.post(
         "/candidate/round/2/submit",
         json={"investigation": FAKE_INVESTIGATION, "root_cause": FAKE_ROOT_CAUSE},
-        headers=_auth(cand_token),
+        cookies=_auth(cand_token),
     )
     assert res.status_code == 201
     submission_id = res.json()["id"]
     assert res.json()["content"]["root_cause"] == FAKE_ROOT_CAUSE
 
-    res = client.get("/candidate/submissions", headers=_auth(cand_token))
+    res = client.get("/candidate/submissions", cookies=_auth(cand_token))
     scored = next(s for s in res.json() if s["id"] == submission_id)
     assert scored["status"] == "scored"
     assert "score" not in scored  # same candidate-facing rule as round 1
 
     # HR dashboard reflects the round 2 result.
-    res = client.get("/hr/candidates", headers=_auth(hr_token))
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
     candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
     round2 = next(r for r in candidate_row["rounds"] if r["round_number"] == 2)
     assert round2["final_score"] == 65
 
     # And the report includes the investigation + root cause for HR's review.
-    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", headers=_auth(hr_token))
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
     report_round2 = next(s for s in res.json() if s["round_number"] == 2)
     assert report_round2["content"]["investigation"] == FAKE_INVESTIGATION
     assert report_round2["content"]["root_cause"] == FAKE_ROOT_CAUSE
 
     # And the history dashboard picks up round 2 the same way it does round 1.
-    res = client.get("/hr/history", headers=_auth(hr_token))
+    res = client.get("/hr/history", cookies=_auth(hr_token))
     entry = next(h for h in res.json() if h["round_number"] == 2)
     assert entry["title"] == "Race condition in checkout"
     assert entry["scored_count"] == 1
@@ -138,11 +138,11 @@ def test_round3_dedicated_submit_endpoint_is_reached_not_the_generic_one(client,
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    client.post("/candidate/round/1/start", headers=_auth(cand_token))
-    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, headers=_auth(cand_token))
-    client.post("/candidate/round/2/start", headers=_auth(cand_token))
-    client.post("/candidate/round/2/submit", json={"investigation": FAKE_INVESTIGATION, "root_cause": FAKE_ROOT_CAUSE}, headers=_auth(cand_token))
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": FAKE_INVESTIGATION, "root_cause": FAKE_ROOT_CAUSE}, cookies=_auth(cand_token))
 
-    res = client.post("/candidate/round/3/submit", headers=_auth(cand_token))
+    res = client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
     assert res.status_code == 404
     assert "published scenario" in res.json()["detail"]

@@ -97,11 +97,24 @@ _REFERENCE_GENERATOR_BY_ROUND = {
 
 
 def _login(client, email, password):
-    return client.post("/auth/login", json={"identifier": email, "password": password}).json()["access_token"]
+    # The token now travels only as an httpOnly Set-Cookie header (see
+    # routers/auth.py), not in the JSON body - res.cookies reads what
+    # that specific response set, independent of the shared TestClient's
+    # persistent cookie jar (which would only ever hold ONE session at a
+    # time, whichever login happened most recently - useless for tests
+    # that log in as HR and a candidate in the same test and need both
+    # tokens usable afterward).
+    res = client.post("/auth/login", json={"identifier": email, "password": password})
+    return res.cookies["qa_eval_token"]
 
 
 def _auth(token):
-    return {"Authorization": f"Bearer {token}"}
+    # Passed as `cookies=` (not `headers=`) at every call site - httpx
+    # merges an explicit per-request `cookies=` on top of the client's
+    # jar for that one request, so this reliably acts as "this specific
+    # user" even when the shared client's jar holds a different, more
+    # recently-logged-in user's cookie.
+    return {"qa_eval_token": token}
 
 
 def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Login form"):
@@ -112,9 +125,9 @@ def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7",
     scenario = client.post(
         "/hr/scenarios",
         json={"round_number": round_number, "title": title, "description": "desc", "experience_band": band, "time_limit_minutes": 30},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     ).json()
-    client.post(f"/hr/scenarios/{scenario['id']}/publish", headers=_auth(hr_token))
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
     return scenario
 
 
@@ -131,9 +144,9 @@ def _publish_round3_scenario(client, hr_token, monkeypatch, band="0-7", title="A
     scenario = client.post(
         "/hr/scenarios",
         json={"round_number": 3, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     ).json()
-    client.post(f"/hr/scenarios/{scenario['id']}/publish", headers=_auth(hr_token))
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
     return scenario
 
 
@@ -141,5 +154,5 @@ def _create_round3_test_case(client, token, title=None):
     return client.post(
         "/candidate/round/3/test-case",
         json={"title": title},
-        headers=_auth(token),
+        cookies=_auth(token),
     ).json()

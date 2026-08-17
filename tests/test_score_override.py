@@ -12,16 +12,16 @@ from .conftest import (
 
 
 def _submit_round1(client, cand_token):
-    client.post("/candidate/round/1/start", headers=_auth(cand_token))
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
     return client.post(
         "/candidate/round/1/submit",
         json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
-        headers=_auth(cand_token),
+        cookies=_auth(cand_token),
     )
 
 
 def _get_submission_id(client, hr_token, candidate_id, round_number=1):
-    report = client.get(f"/hr/candidates/{candidate_id}/report", headers=_auth(hr_token)).json()
+    report = client.get(f"/hr/candidates/{candidate_id}/report", cookies=_auth(hr_token)).json()
     return next(s for s in report if s["round_number"] == round_number)["id"]
 
 
@@ -38,10 +38,10 @@ def test_scoring_failure_is_surfaced_not_stranded(client, monkeypatch):
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _submit_round1(client, cand_token)
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
 
-    report = client.get(f"/hr/candidates/{candidate_id}/report", headers=_auth(hr_token)).json()
+    report = client.get(f"/hr/candidates/{candidate_id}/report", cookies=_auth(hr_token)).json()
     submission = next(s for s in report if s["round_number"] == 1)
     assert submission["status"] == "scoring_failed"
     assert submission["score"] is None
@@ -61,7 +61,7 @@ def test_retry_scoring_recovers_from_a_transient_failure(client, monkeypatch):
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _submit_round1(client, cand_token)
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
     submission_id = _get_submission_id(client, hr_token, candidate_id)
 
@@ -70,7 +70,7 @@ def test_retry_scoring_recovers_from_a_transient_failure(client, monkeypatch):
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 85, "misses": [], "final_score": 85, "feedback_text": "ok"},
     )
-    res = client.post(f"/hr/submissions/{submission_id}/retry-scoring", headers=_auth(hr_token))
+    res = client.post(f"/hr/submissions/{submission_id}/retry-scoring", cookies=_auth(hr_token))
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "scored"
@@ -90,11 +90,11 @@ def test_retry_scoring_requires_scoring_failed_status(client, monkeypatch):
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _submit_round1(client, cand_token)
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
     submission_id = _get_submission_id(client, hr_token, candidate_id)
 
-    res = client.post(f"/hr/submissions/{submission_id}/retry-scoring", headers=_auth(hr_token))
+    res = client.post(f"/hr/submissions/{submission_id}/retry-scoring", cookies=_auth(hr_token))
     assert res.status_code == 400  # already scored, nothing to retry
 
 
@@ -108,14 +108,14 @@ def test_manual_override_on_a_failed_submission_creates_a_score(client, monkeypa
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _submit_round1(client, cand_token)
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
     submission_id = _get_submission_id(client, hr_token, candidate_id)
 
     res = client.patch(
         f"/hr/submissions/{submission_id}/score",
         json={"final_score": 72, "feedback_text": "Scored by hand after a repeated LLM failure.", "override_note": "LLM kept failing on malformed JSON; scored manually from the transcript."},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     )
     assert res.status_code == 200
     body = res.json()
@@ -140,7 +140,7 @@ def test_manual_override_preserves_original_score_across_multiple_overrides(clie
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _submit_round1(client, cand_token)
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
     submission_id = _get_submission_id(client, hr_token, candidate_id)
 
@@ -148,7 +148,7 @@ def test_manual_override_preserves_original_score_across_multiple_overrides(clie
     res = client.patch(
         f"/hr/submissions/{submission_id}/score",
         json={"final_score": 80, "override_note": "LLM missed that the candidate did cover the boundary case."},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     )
     assert res.json()["score"]["original_final_score"] == 60
     assert res.json()["score"]["final_score"] == 80
@@ -157,7 +157,7 @@ def test_manual_override_preserves_original_score_across_multiple_overrides(clie
     res = client.patch(
         f"/hr/submissions/{submission_id}/score",
         json={"final_score": 90, "override_note": "On reflection, this deserves full marks."},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     )
     assert res.json()["score"]["original_final_score"] == 60
     assert res.json()["score"]["final_score"] == 90
@@ -175,32 +175,32 @@ def test_override_note_is_required_and_score_is_range_validated(client, monkeypa
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _submit_round1(client, cand_token)
 
-    candidates = client.get("/hr/candidates", headers=_auth(hr_token)).json()
+    candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == CANDIDATE1_EMAIL)["id"]
     submission_id = _get_submission_id(client, hr_token, candidate_id)
 
-    res = client.patch(f"/hr/submissions/{submission_id}/score", json={"final_score": 80}, headers=_auth(hr_token))
+    res = client.patch(f"/hr/submissions/{submission_id}/score", json={"final_score": 80}, cookies=_auth(hr_token))
     assert res.status_code == 422  # missing override_note
 
     res = client.patch(
         f"/hr/submissions/{submission_id}/score",
         json={"final_score": 150, "override_note": "x"},
-        headers=_auth(hr_token),
+        cookies=_auth(hr_token),
     )
     assert res.status_code == 422  # out of range
 
 
 def test_override_and_retry_endpoints_require_hr(client, monkeypatch):
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    assert client.post("/hr/submissions/1/retry-scoring", headers=_auth(cand_token)).status_code == 403
+    assert client.post("/hr/submissions/1/retry-scoring", cookies=_auth(cand_token)).status_code == 403
     assert client.patch(
-        "/hr/submissions/1/score", json={"final_score": 50, "override_note": "x"}, headers=_auth(cand_token)
+        "/hr/submissions/1/score", json={"final_score": 50, "override_note": "x"}, cookies=_auth(cand_token)
     ).status_code == 403
 
 
 def test_override_endpoints_404_for_nonexistent_submission(client):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    assert client.post("/hr/submissions/999999/retry-scoring", headers=_auth(hr_token)).status_code == 404
+    assert client.post("/hr/submissions/999999/retry-scoring", cookies=_auth(hr_token)).status_code == 404
     assert client.patch(
-        "/hr/submissions/999999/score", json={"final_score": 50, "override_note": "x"}, headers=_auth(hr_token)
+        "/hr/submissions/999999/score", json={"final_score": 50, "override_note": "x"}, cookies=_auth(hr_token)
     ).status_code == 404

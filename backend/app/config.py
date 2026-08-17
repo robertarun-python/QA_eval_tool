@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 12  # 12 hour session
+    # The login cookie's Secure attribute (see routers/auth.py) - False
+    # for local dev over plain http://127.0.0.1:8000 (the documented
+    # setup), since a Secure cookie is dropped by the browser over a
+    # non-https connection. Set true via .env for any real deployment,
+    # which should be running behind https.
+    cookie_secure: bool = False
 
     database_url: str = "sqlite:///./qa_eval.db"
     claude_model: str = "claude-sonnet-4-5"
