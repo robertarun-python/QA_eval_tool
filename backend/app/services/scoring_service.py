@@ -5,11 +5,26 @@ is "what do we do with the answer" - easier to unit test scoring logic
 without mocking the Anthropic client every time.
 """
 import json
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from ..models import Submission, Score, RoundStatus
 from . import llm_service
+
+
+def _apply_provenance(score: Score, result: dict) -> None:
+    """Pops _provenance off the raw LLM result (see llm_service.py's
+    _scoring_provenance) and writes it onto the Score row, so it never
+    ends up duplicated inside raw_llm_response_json too. Missing/empty
+    when the caller is a test that monkeypatches llm_service's scoring
+    function directly (bypassing the real prompt-loading/API call this
+    comes from) - that's fine, these columns are all nullable."""
+    provenance = result.pop("_provenance", None) or {}
+    score.scoring_model = provenance.get("model")
+    score.scoring_prompt_file = provenance.get("prompt_file")
+    score.scoring_prompt_hash = provenance.get("prompt_hash")
+    score.scored_at = datetime.utcnow()
 
 
 def _get_or_create_score(db: Session, submission: Submission) -> Score:
@@ -53,8 +68,10 @@ def score_round1_submission(db: Session, submission: Submission) -> Score:
     )
 
     score = _get_or_create_score(db, submission)
+    _apply_provenance(score, result)
     score.coverage_score = result.get("coverage_score")
     score.misses_json = result.get("misses", [])
+    score.concept_coverage_json = result.get("concept_coverage", [])
     score.final_score = result.get("final_score")
     score.feedback_text = result.get("feedback_text")
     score.raw_llm_response_json = {"reference_rows": reference_rows, "scoring": result}
@@ -86,6 +103,7 @@ def score_round2_investigation(db: Session, submission: Submission) -> Score:
     )
 
     score = _get_or_create_score(db, submission)
+    _apply_provenance(score, result)
     score.coverage_score = result.get("coverage_score")
     score.misses_json = result.get("misses", [])
     score.final_score = result.get("final_score")
@@ -144,6 +162,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     )
 
     score = _get_or_create_score(db, submission)
+    _apply_provenance(score, result)
     score.coverage_score = result.get("coverage_score")
     score.misses_json = result.get("misses", [])
     score.final_score = result.get("final_score")

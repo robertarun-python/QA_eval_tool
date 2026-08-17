@@ -670,6 +670,17 @@ function renderSubmissionsPanels(submissions) {
 // Three states, not two - see models.RoundStatus.scoring_failed and
 // hr.py's retry-scoring/score-override endpoints (the human-in-the-loop
 // escape hatch this app didn't have before).
+function conceptCoverageLine(items) {
+  // Round 1 only (see models.Score.concept_coverage_json) - empty for
+  // rounds 2/3, and for any score predating this column.
+  if (!items || items.length === 0) return "";
+  const parts = items.map((c) => {
+    const cls = c.covered === 0 ? "score-bad" : c.covered < c.total ? "" : "score-good";
+    return `<span class="${cls}" title="${escapeHtml(c.notes || "")}">${escapeHtml(c.category)} ${c.covered}/${c.total}</span>`;
+  });
+  return `<p class="muted">Coverage by type: ${parts.join(" · ")}</p>`;
+}
+
 function renderScoreBlock(s) {
   if (s.status === "scoring_failed") {
     return `
@@ -693,7 +704,9 @@ function renderScoreBlock(s) {
       </p>
       <p>${escapeHtml(s.score.feedback_text || "")}</p>
       <p class="muted">Missed: ${(s.score.misses_json || []).map(escapeHtml).join(", ") || "none noted"}</p>
+      ${conceptCoverageLine(s.score.concept_coverage_json)}
       ${s.score.overridden_by_hr ? `<p class="muted">Override note: ${escapeHtml(s.score.override_note || "")}</p>` : ""}
+      ${s.score.scoring_model ? `<p class="muted">Scored with ${escapeHtml(s.score.scoring_model)} · prompt ${escapeHtml(s.score.scoring_prompt_hash || "")}</p>` : ""}
       <div class="row">
         <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Override score</button>
       </div>

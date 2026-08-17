@@ -165,6 +165,9 @@ class Round2SubmissionCreate(BaseModel):
 class ScoreOut(BaseModel):
     coverage_score: Optional[int]
     misses_json: list
+    # Round 1 only - see models.Score.concept_coverage_json. Empty list
+    # for rounds 2/3.
+    concept_coverage_json: list = Field(default_factory=list)
     final_score: Optional[int]
     feedback_text: Optional[str]
     # Human-override audit trail (see hr.py's PATCH /submissions/{id}/score) -
@@ -173,9 +176,26 @@ class ScoreOut(BaseModel):
     overridden_by_hr: bool = False
     override_note: Optional[str] = None
     overridden_at: Optional[datetime] = None
+    # Provenance (see models.Score) - which model/prompt-version produced
+    # this score. None for scores predating this column or entered purely
+    # by hand (see the scoring_failed + manual-override path).
+    scoring_model: Optional[str] = None
+    scoring_prompt_file: Optional[str] = None
+    scoring_prompt_hash: Optional[str] = None
+    scored_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+    # concept_coverage_json is a newly-added column (see
+    # migrate_concept_coverage.py) - an ALTER TABLE backfills existing
+    # rows with NULL, not [], since the SQLAlchemy column default only
+    # applies to new INSERTs. Same coercion as SubmissionReportOut's
+    # tab_switch_events_json below, for the same reason.
+    @field_validator("concept_coverage_json", mode="before")
+    @classmethod
+    def _default_concept_coverage(cls, v):
+        return v or []
 
 
 class ScoreOverrideRequest(BaseModel):

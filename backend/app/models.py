@@ -199,6 +199,16 @@ class Score(Base):
     submission_id = Column(Integer, ForeignKey("submissions.id"), unique=True, nullable=False)
     coverage_score = Column(Integer, nullable=True)  # 0-100
     misses_json = Column(JSON, default=list)         # list of missed cases/points
+    # Round 1 only (empty list for rounds 2/3, which have no reference
+    # type-tagging to group by - see round1_scoring.txt): per-category
+    # breakdown [{category, total, covered, notes}, ...] grouped by the
+    # reference set's existing Positive/Negative/Boundary/Edge tagging
+    # (see round1_reference_generation.txt). Additive alongside
+    # misses_json, never a replacement - misses_json stays a flat list of
+    # plain strings because hr.py's scenario_history() groups it by exact
+    # text match across candidates (see that function's docstring), which
+    # a restructured shape would break.
+    concept_coverage_json = Column(JSON, default=list)
     final_score = Column(Integer, nullable=True)      # 0-100
     feedback_text = Column(Text, nullable=True)
     raw_llm_response_json = Column(JSON, default=dict)  # full LLM output, for auditing
@@ -213,6 +223,20 @@ class Score(Base):
     overridden_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     override_note = Column(Text, nullable=True)
     overridden_at = Column(DateTime, nullable=True)
+    # Provenance (see llm_service.py's _prompt_hash / scoring_service.py's
+    # _apply_provenance) - which model and which content-version of the
+    # scoring prompt actually produced this score. Prompts are plain
+    # hand-editable .txt files by design (see ARCHITECTURE.md), so a
+    # score from last week may not match what today's prompt file would
+    # produce; this is what makes "why did this candidate get 76"
+    # answerable after the fact instead of only right after scoring.
+    # All nullable: a score created before this column existed, or one
+    # that's purely HR-hand-entered (never had a real LLM call), has none
+    # of this.
+    scoring_model = Column(String, nullable=True)
+    scoring_prompt_file = Column(String, nullable=True)
+    scoring_prompt_hash = Column(String, nullable=True)
+    scored_at = Column(DateTime, nullable=True)
 
     submission = relationship("Submission", back_populates="score")
 

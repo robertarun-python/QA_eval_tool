@@ -14,6 +14,11 @@ Evaluate the candidate's submission:
 - misses: a list of short strings naming specific scenarios/categories the candidate missed (e.g. "boundary case: empty input", "negative case: invalid auth token").
 - final_score (0-100): overall quality, considering coverage but also clarity, realism, and whether the candidate found anything the reference missed (don't penalize for that - note it in feedback instead).
 - feedback_text: 2-4 sentences of direct, specific, constructive feedback as if written by a hiring panel member, calibrated to the {experience_band} experience band.
+- concept_coverage: a breakdown of how well the candidate covered each test-case category actually PRESENT in the reference set above (the reference cases are already tagged Positive/Negative/Boundary/Edge - group by that). One entry per category that has at least one reference case in it - omit a category entirely if the reference set has zero cases of that type, rather than reporting a misleading 0/0. For each category present:
+  - category: the exact category name (Positive, Negative, Boundary, or Edge).
+  - total: how many reference cases fall in that category.
+  - covered: how many of those the candidate's submission functionally addresses (judge by what the candidate's title/steps/expected_result actually test, not by any category label - the candidate's own submission has no type field to read).
+  - notes: one short phrase on what's strong or missing in that category specifically.
 
 Respond with ONLY JSON, no other text, in this shape:
-{{"coverage_score": 0, "misses": ["..."], "final_score": 0, "feedback_text": "..."}}
+{{"coverage_score": 0, "misses": ["..."], "final_score": 0, "feedback_text": "...", "concept_coverage": [{{"category": "Positive", "total": 0, "covered": 0, "notes": "..."}}]}}

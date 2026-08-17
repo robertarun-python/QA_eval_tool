@@ -5,6 +5,7 @@ routers: (1) one place to change models/retry logic later, (2) prompts
 live in text files under app/prompts/, loaded here, so the actual
 wording is easy to find and edit without touching Python.
 """
+import hashlib
 import json
 from pathlib import Path
 
@@ -40,6 +41,20 @@ def _get_client() -> anthropic.Anthropic:
 
 def _load_prompt(filename: str) -> str:
     return (PROMPTS_DIR / filename).read_text(encoding="utf-8")
+
+
+def _prompt_hash(prompt_text: str) -> str:
+    """Short, content-based version tag for a prompt file - not mtime
+    (doesn't survive a copy/redeploy) and not a fixed version number
+    (prompts are hand-edited .txt files with no versioning workflow of
+    their own, see ARCHITECTURE.md). Truncated to 12 hex chars: this is
+    for a human glancing at "which prompt scored this", not cryptographic
+    collision resistance."""
+    return hashlib.sha256(prompt_text.encode("utf-8")).hexdigest()[:12]
+
+
+def _scoring_provenance(prompt_file: str, prompt_text: str) -> dict:
+    return {"model": settings.claude_model, "prompt_file": prompt_file, "prompt_hash": _prompt_hash(prompt_text)}
 
 
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
@@ -87,7 +102,8 @@ def score_round1_submission(
     reference_cases: list[dict],
     candidate_submission: str,
 ) -> dict:
-    prompt = _load_prompt("round1_scoring.txt").format(
+    prompt_text = _load_prompt("round1_scoring.txt")
+    prompt = prompt_text.format(
         scenario_description=scenario_description,
         experience_band=experience_band,
         reference_cases=json.dumps(reference_cases, indent=2),
@@ -97,6 +113,7 @@ def score_round1_submission(
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result["_provenance"] = _scoring_provenance("round1_scoring.txt", prompt_text)
     return result
 
 
@@ -132,7 +149,8 @@ def score_round2_submission(
     candidate_investigation: list[dict],
     candidate_root_cause: str,
 ) -> dict:
-    prompt = _load_prompt("round2_debug_scoring.txt").format(
+    prompt_text = _load_prompt("round2_debug_scoring.txt")
+    prompt = prompt_text.format(
         scenario_description=scenario_description,
         experience_band=experience_band,
         reference_steps=json.dumps(reference_steps, indent=2),
@@ -143,6 +161,7 @@ def score_round2_submission(
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result["_provenance"] = _scoring_provenance("round2_debug_scoring.txt", prompt_text)
     return result
 
 
@@ -271,7 +290,8 @@ def round3_respond(
 
 
 def score_round3_conversation(round1_context: dict, test_cases: list[dict], assistance_pct: int) -> dict:
-    prompt = _load_prompt("round3_scoring.txt").format(
+    prompt_text = _load_prompt("round3_scoring.txt")
+    prompt = prompt_text.format(
         round1_scenario_title=round1_context["scenario_title"],
         round1_scenario_description=round1_context["scenario_description"],
         round1_submitted_rows=json.dumps(round1_context["submitted_rows"], indent=2),
@@ -282,6 +302,7 @@ def score_round3_conversation(round1_context: dict, test_cases: list[dict], assi
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result["_provenance"] = _scoring_provenance("round3_scoring.txt", prompt_text)
     return result
 
 
