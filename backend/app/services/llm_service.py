@@ -289,6 +289,40 @@ def round3_respond(
         raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
 
 
+# Trial feature (see routers/candidate.py's GET /round/3/turn/{id}/code): an
+# on-demand, candidate-facing rendering of an already-completed turn as a
+# code snippet, in a language the candidate picks. Deliberately generated
+# from the turn's OWN already-recorded steps/observed_result rather than
+# fresh - this can only re-describe what's already visible in the trace,
+# never decide or reveal anything new. The one rule that matters more than
+# realism: round3_code_snippet.txt forbids any assertion or pass/fail logic
+# in the generated code, since an assertion would tell the candidate
+# whether something is correct before they've verified it themselves - the
+# entire judgment this round exists to test. Isolated on purpose (its own
+# prompt file, no persistence, no effect on scoring) so it's easy to remove
+# if it turns out to still leak too much in practice.
+def generate_round3_code_snippet(test_case_title: str, steps: list[dict], observed_result: str, language: str) -> str:
+    prompt = _load_prompt("round3_code_snippet.txt").format(
+        test_case_title=test_case_title or "(untitled test case)",
+        steps_json=json.dumps(steps, indent=2),
+        observed_result=observed_result,
+        language=language,
+    )
+    raw = _call_claude(prompt, max_tokens=1024)
+    text = raw.strip()
+    if text.startswith("```"):
+        # Strip an accidental code fence and optional language tag on the
+        # first line, despite being told not to use one - models sometimes
+        # add it out of habit.
+        text = text[3:]
+        first_newline = text.find("\n")
+        if first_newline != -1 and len(text[:first_newline].split()) <= 1:
+            text = text[first_newline + 1:]
+        if text.rstrip().endswith("```"):
+            text = text.rstrip()[:-3]
+    return text.strip()
+
+
 def score_round3_conversation(round1_context: dict, test_cases: list[dict], assistance_pct: int) -> dict:
     prompt_text = _load_prompt("round3_scoring.txt")
     prompt = prompt_text.format(

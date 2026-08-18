@@ -16,11 +16,34 @@ from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
     Round1ContextOut, Round3StateOut, Round3TurnCreate, Round3TurnOut,
     Round3TestCaseCreate, Round3TestCaseOut, Round3DraftUpdate, Round3EnvironmentOut,
-    Round3UiMockupOut, Round2SubmissionCreate,
+    Round3UiMockupOut, Round2SubmissionCreate, Round3CodeSnippetOut, ExpireRoundPayload,
 )
 from ..dependencies import require_candidate
 from ..services import llm_service
 from ..services.scoring_service import score_submission_in_background
+
+ROUND3_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
+
+_VALID_PRIORITIES = ("High", "Medium", "Low")
+_VALID_TYPES = ("Positive", "Negative", "Boundary", "Edge")
+
+
+def _sanitize_expired_round1_row(row: dict) -> dict:
+    """Round 1 content coming through /expire skips TestCaseRow's
+    min_length validation on purpose (see ExpireRoundPayload) - a
+    timed-out round must close with whatever's there, blank fields
+    included, not get rejected for being incomplete. Still coerced to
+    the same shape/types the rest of the app (scoring, HR's report view)
+    expects, so a stray non-string or invalid literal from a malformed
+    direct API call can't reach either of those."""
+    return {
+        "title": str(row.get("title") or ""),
+        "preconditions": str(row.get("preconditions") or ""),
+        "steps": str(row.get("steps") or ""),
+        "expected_result": str(row.get("expected_result") or ""),
+        "priority": row.get("priority") if row.get("priority") in _VALID_PRIORITIES else "Medium",
+        "type": row.get("type") if row.get("type") in _VALID_TYPES else "Positive",
+    }
 
 # The one round still on the generic row-based /round/{round_number}/submit
 # endpoint below. Rounds 2 and 3 each have their own dedicated submit
@@ -330,6 +353,36 @@ def round3_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candid
     return turn
 
 
+@router.get("/round/3/turn/{turn_id}/code", response_model=Round3CodeSnippetOut)
+def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """Trial feature: an on-demand, candidate-facing rendering of an
+    already-completed turn as a code snippet, in a language the candidate
+    picks. Generated fresh each call (see llm_service.
+    generate_round3_code_snippet) from that turn's OWN already-recorded
+    steps/observed_result, never persisted - this can only re-describe
+    what's already visible in the transcript, never reveal anything new,
+    and carries no scoring weight. Deliberately isolated from the rest of
+    round 3 so it's easy to remove if it doesn't hold up."""
+    _require_round_unlocked(3, db, candidate)
+    if language not in ROUND3_CODE_LANGUAGES:
+        raise HTTPException(400, f"language must be one of: {', '.join(ROUND3_CODE_LANGUAGES)}")
+    _, submission = _round3_scenario_and_submission(candidate, db)
+    turn = db.get(ConversationTurn, turn_id)
+    if turn is None or turn.submission_id != submission.id:
+        raise HTTPException(404, "No such turn on this submission.")
+
+    try:
+        code = llm_service.generate_round3_code_snippet(
+            test_case_title=turn.test_case.title,
+            steps=turn.model_response.get("steps", []),
+            observed_result=turn.model_response.get("observed_result", ""),
+            language=language,
+        )
+    except Exception:
+        raise HTTPException(502, "Couldn't generate a code snippet just now - try again.")
+    return Round3CodeSnippetOut(language=language, code=code)
+
+
 @router.post("/round/3/submit", response_model=SubmissionOut, status_code=201)
 def round3_submit(
     background_tasks: BackgroundTasks,
@@ -485,6 +538,67 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     events.append(datetime.utcnow().isoformat())
     submission.tab_switch_events_json = events
     db.commit()
+
+
+@router.post("/round/{round_number}/expire", response_model=SubmissionOut)
+def expire_round(
+    round_number: int,
+    payload: ExpireRoundPayload,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    candidate: User = Depends(require_candidate),
+):
+    """The frontend's guaranteed fallback once a round's timer hits zero:
+    it always tries a real submit first (see app.js's doSubmitRound1/
+    doSubmitRound2Investigation/round3AutoSubmit with force=true), and
+    only calls this if that attempt failed - empty/incomplete content
+    that a normal submit would correctly reject, or the rare case of
+    losing a race against _require_within_time_limit. Either way the
+    round has to end here, as a real submission: whatever draft content
+    the candidate had (possibly none at all) gets saved as-is and the
+    round moves to "submitted" exactly like a normal submit, so it's
+    scored and the next round unlocks. A candidate must never be left
+    staring at an expired timer with no way forward - that includes the
+    case where nothing was ever written; "didn't attempt it" is a scoring
+    outcome, not a reason to strand the round. Requires the deadline to
+    have genuinely passed server-side, not just claimed by the client, so
+    this can't be used to skip a round early."""
+    if round_number not in (1, 2, 3):
+        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    scenario = _live_scenario(db, round_number, candidate)
+    if scenario is None:
+        raise HTTPException(404, "No published scenario for this round.")
+    submission = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+    if submission is None or submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round isn't in progress - nothing to expire.")
+    if submission.started_at is not None:
+        deadline = submission.started_at + timedelta(minutes=scenario.time_limit_minutes)
+        if datetime.utcnow() < deadline:
+            raise HTTPException(400, "This round's time limit hasn't passed yet.")
+
+    if round_number == 1:
+        submission.content = [_sanitize_expired_round1_row(r) for r in payload.content]
+    elif round_number == 2:
+        submission.content = {
+            "investigation": [
+                {"area": str(r.get("area") or "")} for r in payload.investigation if str(r.get("area") or "").strip()
+            ],
+            "root_cause": payload.root_cause or "",
+        }
+    # Round 3 has no content field to set here - its state already lives
+    # in round3_test_cases/conversation_turns, whatever exists (including
+    # none) is what gets scored.
+
+    submission.status = RoundStatus.submitted
+    db.commit()
+    db.refresh(submission)
+
+    background_tasks.add_task(score_submission_in_background, submission.id)
+    return submission
 
 
 @router.get("/submissions", response_model=list[SubmissionOut])

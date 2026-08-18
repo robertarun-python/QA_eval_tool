@@ -174,6 +174,21 @@ class Round2SubmissionCreate(BaseModel):
     root_cause: str = Field(min_length=1)
 
 
+# ---- Round timeout auto-close ----
+#
+# Deliberately permissive, unlike SubmissionCreate/Round2SubmissionCreate
+# above: those exist to stop a candidate who still has time from wasting
+# their one submit on empty/incomplete work. Once the timer has actually
+# hit zero the opposite rule applies - whatever's there (even nothing)
+# must still close the round out and unlock the next one, never leave the
+# candidate stuck. See candidate.py's POST /round/{n}/expire.
+
+class ExpireRoundPayload(BaseModel):
+    content: list[dict] = []          # round 1 rows, as collected client-side
+    investigation: list[dict] = []    # round 2
+    root_cause: str = ""              # round 2
+
+
 class ScoreOut(BaseModel):
     coverage_score: Optional[int]
     misses_json: list
@@ -489,6 +504,16 @@ class Round3TurnOut(BaseModel):
         # a field name here, not a real conflict, so silence the warning
         # rather than rename a column that mirrors the DB schema.
         protected_namespaces = ()
+
+
+class Round3CodeSnippetOut(BaseModel):
+    """Trial feature (see routers/candidate.py's GET /round/3/turn/{id}/code,
+    llm_service.generate_round3_code_snippet) - an on-demand, candidate-
+    facing rendering of an already-completed turn as code, in a language
+    the candidate picks. Not persisted anywhere and has no effect on
+    scoring - purely a rendering of what's already in the transcript."""
+    language: str
+    code: str
 
 
 class Round3StateOut(BaseModel):

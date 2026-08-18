@@ -8,6 +8,7 @@ test_round1.py/test_round2.py: never a real Claude call.
 from .conftest import (
     HR_EMAIL, HR_PASSWORD,
     CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD,  # 0-7 band
+    CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD,  # 0-7 band, different account for ownership checks
     _login, _auth, _publish_scenario, _publish_round3_scenario, _create_round3_test_case,
     FAKE_ENVIRONMENT, FAKE_UI_MOCKUP,
 )
@@ -479,3 +480,97 @@ def test_round3_full_session_scored_and_visible_to_hr(client, monkeypatch):
         by_test_case.setdefault(t["test_case_id"], []).append(t)
     assert len(by_test_case[tc1["id"]]) == 2
     assert len(by_test_case[tc2["id"]]) == 1
+
+
+# ---- Trial feature: on-demand code-snippet rendering of a turn (see
+# candidate.py's GET /round/3/turn/{id}/code, llm_service.
+# generate_round3_code_snippet) ----
+
+def test_round3_code_snippet_generates_for_the_owner(client, monkeypatch):
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+    tc = _create_round3_test_case(client, cand_token, title="Login happy path")
+    turn = client.post(
+        "/candidate/round/3/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
+    ).json()
+
+    captured = {}
+
+    def _fake_snippet(**kwargs):
+        captured.update(kwargs)
+        return "driver.get('https://example.test/login')\n# ... captures what was observed, no assertions"
+
+    monkeypatch.setattr(llm_service, "generate_round3_code_snippet", _fake_snippet)
+
+    res = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token))
+    assert res.status_code == 200
+    body = res.json()
+    assert body["language"] == "python"
+    assert "driver.get" in body["code"]
+    # Generated from the turn's OWN already-recorded trace, not fresh input.
+    assert captured["steps"] == FAKE_TURN_RESPONSE["steps"]
+    assert captured["observed_result"] == FAKE_TURN_RESPONSE["observed_result"]
+    assert captured["language"] == "python"
+
+
+def test_round3_code_snippet_rejects_invalid_language_and_foreign_turn(client, monkeypatch):
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand1_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand1_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand1_token))
+    tc = _create_round3_test_case(client, cand1_token, title="Login happy path")
+    turn = client.post(
+        "/candidate/round/3/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand1_token)
+    ).json()
+
+    # Invalid language.
+    res = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=cobol", cookies=_auth(cand1_token))
+    assert res.status_code == 400
+
+    # A different candidate, with round 3 unlocked in their own right, still
+    # can't fetch candidate 1's turn as code - isolates the ownership check
+    # from the round-gating check (which would also block an un-unlocked
+    # candidate2, but for the wrong reason).
+    cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
+    _complete_round1_and_2(client, cand2_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand2_token))
+    res = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=python", cookies=_auth(cand2_token))
+    assert res.status_code == 404
+
+    # Nonexistent turn.
+    res = client.get("/candidate/round/3/turn/999999/code?language=python", cookies=_auth(cand1_token))
+    assert res.status_code == 404
+
+
+def test_generate_round3_code_snippet_strips_accidental_code_fences(monkeypatch):
+    """The prompt tells the model not to wrap the snippet in markdown code
+    fences, but models sometimes do it anyway out of habit - this is the
+    one part of the feature that's deterministic Python, not LLM judgment,
+    so it gets a direct unit test rather than going through the API."""
+    from app.services import llm_service
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: "```python\ndriver.get('https://x')\nprint(driver.title)\n```")
+    code = llm_service.generate_round3_code_snippet(
+        test_case_title="Login happy path",
+        steps=[{"description": "Navigated to the login page", "status": "pass"}],
+        observed_result="The login page loaded.",
+        language="python",
+    )
+    assert code == "driver.get('https://x')\nprint(driver.title)"
+    assert "```" not in code
