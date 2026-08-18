@@ -139,6 +139,197 @@ def test_can_delete_a_draft_but_not_a_published_scenario(client, monkeypatch):
     assert draft["id"] not in [s["id"] for s in res.json()]
 
 
+def test_updating_one_scenarios_time_limit_never_touches_another(client, monkeypatch):
+    """Regression for a real reported bug: HR changing one round's time
+    limit appeared to change every round's - traced to app.js's create-
+    scenario form fields never being reset when switching rounds, not a
+    backend issue, but this locks in that PATCH itself has always been
+    correctly scoped to exactly the scenario_id in the URL."""
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    draft_a = client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Draft A", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        cookies=_auth(hr_token),
+    ).json()
+    draft_b = client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Draft B", "description": "desc", "experience_band": "7+", "time_limit_minutes": 30},
+        cookies=_auth(hr_token),
+    ).json()
+
+    res = client.patch(f"/hr/scenarios/{draft_a['id']}", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["time_limit_minutes"] == 45
+
+    # draft_b is completely untouched.
+    all_scenarios = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
+    b_after = next(s for s in all_scenarios if s["id"] == draft_b["id"])
+    assert b_after["time_limit_minutes"] == 30
+
+
+def test_time_limit_can_be_changed_on_a_live_published_scenario(client, monkeypatch):
+    """The real-world case that matters: HR adjusting the duration of the
+    scenario candidates are actually taking right now, not an unpublished
+    draft. Unlike title/description/reference_json (see update_scenario),
+    the time limit has its own endpoint specifically because it's safe to
+    change after publish - it doesn't invalidate anything a candidate was
+    already scored against."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch)
+    # _publish_scenario returns the pre-publish creation response, not a
+    # re-fetch - confirm the actual current state via a fresh read rather
+    # than trusting that stale dict for status/is_live.
+    fresh = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
+    current = next(s for s in fresh if s["id"] == published["id"])
+    assert current["status"] == "published"
+    assert current["is_live"] is True  # first scenario for a round+band goes live automatically
+
+    res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["time_limit_minutes"] == 45
+    assert res.json()["status"] == "published"  # unaffected - still not editable via the draft-only endpoint
+
+    # Reflected wherever the scenario is read from, including what a
+    # candidate would actually see.
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    state = client.get("/candidate/round/1", cookies=_auth(cand_token)).json()
+    assert state["scenario"]["time_limit_minutes"] == 45
+
+    # The draft-only edit endpoint still correctly refuses this same
+    # published scenario - the new endpoint is additive, not a bypass of
+    # that rule for the other fields.
+    res = client.patch(f"/hr/scenarios/{published['id']}", json={"title": "Sneaky rename"}, cookies=_auth(hr_token))
+    assert res.status_code == 400
+
+
+def test_time_limit_is_blocked_while_a_candidate_is_mid_round(client, monkeypatch):
+    """A deadline shifting while someone's clock is already running isn't
+    something they could reasonably plan around - unlike the "safe to
+    change anytime" case above, this must be blocked outright, not just
+    take effect live."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch)
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+
+    res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 409
+    assert "1 candidate is" in res.json()["detail"]
+
+    # The time limit genuinely didn't change.
+    fresh = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
+    assert next(s for s in fresh if s["id"] == published["id"])["time_limit_minutes"] == 30
+
+    # Once they submit, HR is free to change it again.
+    client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
+        cookies=_auth(cand_token),
+    )
+    res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["time_limit_minutes"] == 45
+
+
+def test_time_limit_blocked_on_a_different_round_of_the_same_band_mid_assessment(client, monkeypatch):
+    """A candidate actively taking round 1 could reach round 2 or 3
+    within the same sitting - changing THOSE rounds' time limits while
+    round 1 is still running is just as much a live change-out-from-under
+    them as editing round 1 itself. The block has to cover the whole
+    band, not just the exact scenario a candidate happens to be on."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Round 1 scenario")
+    round2 = _publish_scenario(client, hr_token, monkeypatch, round_number=2, band="0-7", title="Round 2 scenario")
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+
+    res = client.patch(f"/hr/scenarios/{round2['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 409
+    assert "1 candidate is" in res.json()["detail"]
+
+    fresh = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
+    assert next(s for s in fresh if s["id"] == round2["id"])["time_limit_minutes"] == 30
+
+
+def test_time_limit_allowed_between_rounds_of_the_same_band(client, monkeypatch):
+    """Once a candidate has submitted round 1 and hasn't started round 2
+    yet, no clock is actively running for them - HR can edit again even
+    though they're still mid-assessment overall."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Round 1 scenario")
+    round2 = _publish_scenario(client, hr_token, monkeypatch, round_number=2, band="0-7", title="Round 2 scenario")
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
+        cookies=_auth(cand_token),
+    )
+
+    res = client.patch(f"/hr/scenarios/{round2['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["time_limit_minutes"] == 45
+
+
+def test_time_limit_not_blocked_by_a_different_bands_in_progress_candidate(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    junior = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Junior scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="7+", title="Senior scenario")
+    # CANDIDATE1 is seeded in band "0-7" - see conftest.
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+
+    senior_scenarios = [s for s in client.get("/hr/scenarios", cookies=_auth(hr_token)).json() if s["experience_band"] == "7+"]
+    res = client.patch(f"/hr/scenarios/{senior_scenarios[0]['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["time_limit_minutes"] == 45
+
+
+def test_time_limit_endpoint_validates_minimum_and_scenario_existence(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch)
+
+    res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 0}, cookies=_auth(hr_token))
+    assert res.status_code == 422
+    res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": -5}, cookies=_auth(hr_token))
+    assert res.status_code == 422
+    res = client.patch("/hr/scenarios/999999/time-limit", json={"time_limit_minutes": 30}, cookies=_auth(hr_token))
+    assert res.status_code == 404
+
+
+def test_time_limit_endpoint_requires_hr(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch)
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(cand_token))
+    assert res.status_code == 403
+
+
+def test_time_limit_edit_requires_at_least_one_minute_and_draft_status(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    published = _publish_scenario(client, hr_token, monkeypatch)
+
+    # Can't edit a published scenario's time limit.
+    res = client.patch(f"/hr/scenarios/{published['id']}", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 400
+
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+    draft = client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Draft", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        cookies=_auth(hr_token),
+    ).json()
+
+    res = client.patch(f"/hr/scenarios/{draft['id']}", json={"time_limit_minutes": 0}, cookies=_auth(hr_token))
+    assert res.status_code == 400
+    res = client.patch(f"/hr/scenarios/{draft['id']}", json={"time_limit_minutes": -5}, cookies=_auth(hr_token))
+    assert res.status_code == 400
+
+
 def test_candidate_round_never_exposes_reference_answer(client, monkeypatch):
     # The reference answer is the answer key - it must never reach a
     # candidate's response, even though HR's own view of the same

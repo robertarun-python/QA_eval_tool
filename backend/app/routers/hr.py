@@ -33,6 +33,7 @@ from ..schemas import (
     Round3TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
+    ScenarioTimeLimitUpdate,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
@@ -184,6 +185,56 @@ def update_scenario(scenario_id: int, payload: ScenarioUpdate, db: Session = Dep
     if payload.reference_json is not None:
         scenario.reference_json = [row.model_dump() for row in payload.reference_json]
 
+    db.commit()
+    db.refresh(scenario)
+    return scenario
+
+
+@router.patch("/scenarios/{scenario_id}/time-limit", response_model=ScenarioOut)
+def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Unlike title/description/reference_json (see update_scenario above,
+    gated by _get_draft_scenario_or_404), the time limit is allowed to
+    change regardless of draft/published/live status - it doesn't
+    retroactively invalidate anything a candidate was already scored
+    against. What it must NOT do is change out from under a candidate
+    who's actively mid-assessment right now - a deadline shifting while
+    someone's clock is already running isn't something they could
+    reasonably plan around, and it lets HR make exam-integrity-relevant
+    changes (e.g. shortening a round because a question turned out too
+    easy) without a mid-flight instance leaking the fact that something
+    just changed.
+
+    Scoped to the whole band, not just this one scenario: a candidate who's
+    actively taking round 1 could reach round 2 or 3 within the same
+    sitting, so editing THOSE rounds' time limits mid-round-1 is just as
+    much a live change-out-from-under-them as editing round 1 itself would
+    be. Blocked while ANY candidate in this band has an in_progress
+    submission on ANY round - not just this one - deferred only until
+    they finish that round (or it times out), not until their whole
+    assessment is done; between rounds, with no clock actively running,
+    edits are allowed again."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+
+    in_progress_count = (
+        db.query(Submission)
+        .join(Scenario, Submission.scenario_id == Scenario.id)
+        .filter(
+            Scenario.experience_band == scenario.experience_band,
+            Submission.status == RoundStatus.in_progress,
+            Submission.archived.is_(False),
+        )
+        .count()
+    )
+    if in_progress_count > 0:
+        raise HTTPException(
+            409,
+            f"Can't change any round's time limit right now - {in_progress_count} candidate{'s are' if in_progress_count != 1 else ' is'} "
+            f"actively taking a round in this band. Try again once they finish that round (or between rounds).",
+        )
+
+    scenario.time_limit_minutes = payload.time_limit_minutes
     db.commit()
     db.refresh(scenario)
     return scenario

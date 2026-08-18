@@ -113,6 +113,14 @@ class ScenarioUpdate(BaseModel):
     reference_json: Optional[list[TestCaseRow]] = None
 
 
+class ScenarioTimeLimitUpdate(BaseModel):
+    """See hr.py's PATCH /scenarios/{id}/time-limit - unlike everything in
+    ScenarioUpdate above, this is allowed regardless of draft/published
+    status, so it has its own narrow endpoint rather than going through
+    _get_draft_scenario_or_404."""
+    time_limit_minutes: int = Field(ge=1)
+
+
 class ScenarioPublicOut(BaseModel):
     """Candidate-facing scenario shape - deliberately excludes
     reference_json. That's the answer key; it must never reach a
