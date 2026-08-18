@@ -178,6 +178,7 @@ function onLoggedIn() {
   if (role === "hr") {
     document.getElementById("hr-panel").classList.remove("hidden");
     renderHRRoundNav();
+    loadLiveScenarioWidget();
     loadScenarios();
     loadCandidates();
     loadHistory();
@@ -245,8 +246,86 @@ function selectHRRound(n) {
   hrPage = "rounds";
   renderHRRoundNav();
   document.getElementById("scenario-detail").classList.add("hidden");
+  resetCreateScenarioForm();
+  loadLiveScenarioWidget();
   loadScenarios();
   loadHistory();
+}
+
+// Standalone, always-visible time-limit editor for whichever scenario(s)
+// are actually live for the current round - deliberately independent of
+// openScenarioDetail's much larger render (title/description/reference/
+// environment/mockups, all wrapped in the draft/published logic there).
+// Exists because "find the live scenario in the list, click Review,
+// scroll to the time field" turned out to not be a path HR reliably
+// found - this needs zero clicks beyond typing a number and hitting Save.
+async function loadLiveScenarioWidget() {
+  const box = document.getElementById("live-scenario-list");
+  let scenarios;
+  try {
+    scenarios = (await api("/hr/scenarios")).filter((s) => s.round_number === currentHRRound && s.is_live);
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
+  if (scenarios.length === 0) {
+    box.innerHTML = `<p class="muted">No live scenario yet for Round ${currentHRRound} - publish one below and mark it live for screening.</p>`;
+    return;
+  }
+  box.innerHTML = scenarios.map((s) => `
+    <div class="panel-inset">
+      <p><strong>${escapeHtml(s.title)}</strong> <span class="badge badge-published">LIVE</span> · ${s.experience_band}</p>
+      <div class="row" style="align-items:center">
+        <div class="field-inline">
+          <input id="live-time-limit-${s.id}" type="number" min="1" value="${s.time_limit_minutes}" />
+          <span class="muted">min limit</span>
+        </div>
+        <button onclick="saveLiveTimeLimit(${s.id})">Save</button>
+      </div>
+      <p id="live-time-status-${s.id}" class="muted"></p>
+    </div>
+  `).join("");
+}
+
+async function saveLiveTimeLimit(id) {
+  const statusEl = document.getElementById(`live-time-status-${id}`);
+  const inputEl = document.getElementById(`live-time-limit-${id}`);
+  const value = Number(inputEl.value);
+  statusEl.className = "muted";
+  if (!Number.isInteger(value) || value < 1) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Must be a whole number of minutes, at least 1.";
+    return;
+  }
+  try {
+    await api(`/hr/scenarios/${id}/time-limit`, { method: "PATCH", body: JSON.stringify({ time_limit_minutes: value }) });
+    statusEl.textContent = "Saved.";
+  } catch (e) {
+    // The save was rejected - the input still shows the value the HR
+    // typed, which would look like it took effect even though nothing
+    // was persisted. Snap it back to what's actually live so a blocked
+    // change can't be mistaken for a successful one.
+    inputEl.value = inputEl.defaultValue;
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  }
+}
+
+// The "Create a scenario" fields are one static, always-mounted form
+// (see index.html) shared by all three rounds - createScenario() reads
+// whatever's currently in them, tagged with whichever round is selected
+// at that moment (currentHRRound). Switching rounds used to leave
+// whatever HR had typed sitting there untouched, so a time limit (or
+// band, or half-written title/description) set while looking at one
+// round would silently carry over and get used for a scenario created
+// under a completely different round - not a shared value in the
+// database, just a stale, easy-to-miss leftover in a shared input.
+function resetCreateScenarioForm() {
+  document.getElementById("s-band").value = "0-7";
+  document.getElementById("s-time-limit").value = "30";
+  document.getElementById("s-title").value = "";
+  document.getElementById("s-desc").value = "";
+  updateCreateBtnState();
 }
 
 function selectHRPage(page) {
@@ -410,6 +489,7 @@ async function moveToScreening(id) {
   }
   loadScenarios(); // re-render either way: reflects the real is_live state, undoing the radio click if cancelled/failed
   loadHistory(); // LIVE badge there can change too
+  loadLiveScenarioWidget(); // which scenario shows here can change too
 }
 
 async function openScenarioDetail(id) {
@@ -423,6 +503,16 @@ async function openScenarioDetail(id) {
     return;
   }
   box.classList.remove("hidden");
+  // Everything below this point (through the box.innerHTML assignment
+  // near the end of this function) used to be outside any try/catch -
+  // the fetch above was covered, but a template-construction error
+  // anywhere in the render itself (a malformed field on this particular
+  // scenario, for instance) would throw silently: box.innerHTML would
+  // simply never get set, leaving whatever was there before on screen
+  // (blank, or the previous scenario's panel) with no visible sign
+  // anything went wrong. Wrapping the whole render closes that blind
+  // spot - a real error now shows up as text instead of nothing at all.
+  try {
 
   // Round 1's reference is test cases (priority/type are meaningful);
   // round 2's is an ordered debugging sequence (they're not - see
@@ -445,7 +535,14 @@ async function openScenarioDetail(id) {
   box.innerHTML = `
     <h3>#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${statusLabel(scenario.status)}</span>${scenario.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</h3>
     ${scenario.is_live ? `<p class="muted">This is the one scenario Round ${scenario.round_number} / ${scenario.experience_band} candidates currently see.</p>` : ""}
-    <p class="muted">Round ${scenario.round_number} · ${scenario.experience_band} · ${scenario.time_limit_minutes} min limit</p>
+    <p class="muted">Round ${scenario.round_number} · ${scenario.experience_band}</p>
+    <div class="row" style="align-items:center">
+      <div class="field-inline">
+        <input id="time-limit-edit" type="number" min="1" value="${scenario.time_limit_minutes}" />
+        <span class="muted">min limit</span>
+      </div>
+      <button class="btn-ghost" onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
+    </div>
     <p class="scenario-description">${escapeHtml(scenario.description)}</p>
     ${isRound3 ? `
       <div class="hint-box">Round 3 has no fixed test-case reference to review - each candidate automates their own Round 1 answer, open-endedly (no fixed category or count), so there's nothing to approve there. This description is the instructions candidates see. The assistance level (60% helpfulness) currently uses a sensible default, not per-scenario configuration.</div>
@@ -494,6 +591,9 @@ async function openScenarioDetail(id) {
     ` : ""}
     <p id="scenario-detail-status" class="muted"></p>
   `;
+  } catch (e) {
+    box.innerHTML = `<p class="muted">Couldn't render this scenario's detail view: ${escapeHtml(e.message)}. Check the browser console for more, and try a hard refresh (Ctrl+Shift+R) in case this page is running an old cached version.</p>`;
+  }
 }
 
 async function regenerateReference(id) {
@@ -517,9 +617,43 @@ async function saveReferenceEdit(id) {
   try {
     const reference_json = JSON.parse(document.getElementById("ref-json-edit").value);
     await api(`/hr/scenarios/${id}`, { method: "PATCH", body: JSON.stringify({ reference_json }) });
-    openScenarioDetail(id);
+    // openScenarioDetail rebuilds this whole panel (including a fresh,
+    // empty #scenario-detail-status) - the confirmation has to be set
+    // AFTER it finishes, not before, or the rebuild wipes it unseen.
+    await openScenarioDetail(id);
+    document.getElementById("scenario-detail-status").textContent = "Saved.";
   } catch (e) {
     statusEl.textContent = e.message.includes("JSON") ? "Invalid JSON - check the syntax." : e.message;
+  }
+}
+
+async function saveTimeLimitEdit(id) {
+  // Its own endpoint, not the draft-only PATCH /hr/scenarios/{id} used
+  // for title/description/reference edits - the time limit is allowed to
+  // change on a published/live scenario too (see hr.py's
+  // update_scenario_time_limit), which is exactly the case that matters
+  // in practice: adjusting the duration of the scenario candidates are
+  // actually taking right now, not just an unpublished draft.
+  const statusEl = document.getElementById("scenario-detail-status");
+  const inputEl = document.getElementById("time-limit-edit");
+  const value = Number(inputEl.value);
+  statusEl.className = "muted";
+  if (!Number.isInteger(value) || value < 1) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Time limit must be a whole number of minutes, at least 1.";
+    return;
+  }
+  try {
+    await api(`/hr/scenarios/${id}/time-limit`, { method: "PATCH", body: JSON.stringify({ time_limit_minutes: value }) });
+    await openScenarioDetail(id);
+    document.getElementById("scenario-detail-status").textContent = "Saved.";
+  } catch (e) {
+    // Rejected (e.g. blocked while a candidate is mid-round) - snap the
+    // input back to the real live value so the number HR typed doesn't
+    // sit there looking like it was accepted when nothing was saved.
+    inputEl.value = inputEl.defaultValue;
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
   }
 }
 
@@ -544,6 +678,7 @@ async function publishScenario(id) {
   try {
     await api(`/hr/scenarios/${id}/publish`, { method: "POST" });
     loadScenarios();
+    loadLiveScenarioWidget(); // this publish may have just made a scenario live
     openScenarioDetail(id);
   } catch (e) {
     statusEl.textContent = e.message;
@@ -1147,16 +1282,59 @@ function renderRoundView(box, n, state) {
   }
 
   if (!submission) {
+    if (n === 3) {
+      // No Start button here at all - the briefing modal below is the
+      // only way in, appearing the instant this round is opened. Its own
+      // "Got it - Start Round 3" button is what actually starts the
+      // round (see confirmStartRound3) - reading this costs no time
+      // either way, since the timer only starts on that click.
+      box.innerHTML = `
+        <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
+        <p class="scenario-description">${escapeHtml(scenario.description)}</p>
+        <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
+      `;
+      showRound3Intro();
+      return;
+    }
+    // Same pattern as round 3: no separate Start button - the briefing
+    // modal appears the instant the round is opened, and its own button
+    // is what actually starts the timer.
     box.innerHTML = `
       <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
       <p class="scenario-description">${escapeHtml(scenario.description)}</p>
-      <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting when you click Start.</p>
-      <button onclick="startRound(${n})">Start</button>
+      <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
     `;
+    showRoundIntro(n, scenario.time_limit_minutes);
     return;
   }
 
   renderRoundEntry(n, box, scenario, submission);
+}
+
+function showRoundIntro(n, timeLimitMinutes) {
+  const overlay = document.createElement("div");
+  overlay.id = "round-intro-overlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box neutral">
+      <h3>Before you start Round ${n}</h3>
+      <ul>
+        <li>You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</li>
+        <li>If time runs out, whatever you've written gets submitted automatically as it stands.</li>
+        <li>Finished earlier? Submit yourself and move straight to the next round - no need to wait out the clock.</li>
+      </ul>
+      <div class="row">
+        <button onclick="confirmStartRound(${n})">Got it - Start Round ${n}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function confirmStartRound(n) {
+  const overlay = document.getElementById("round-intro-overlay");
+  if (overlay) overlay.remove();
+  startRound(n);
 }
 
 async function startRound(n) {
@@ -1164,6 +1342,44 @@ async function startRound(n) {
   const state = await api(`/candidate/round/${n}`);
   const box = document.getElementById("round-view");
   renderRoundEntry(n, box, state.scenario, submission);
+}
+
+// One-time briefing before round 3's timer starts - shown instead of an
+// immediate Start, since round 3's format (prompt-driven, an
+// intentionally imperfect assistant, no fixed checklist) isn't
+// self-explanatory the way rounds 1/2's plain forms are. Reading this
+// doesn't cost any time - the timer only starts once startRound(3) is
+// actually called, from confirmStartRound3 below. Deliberately no
+// specifics on how often or how the assistant gets things wrong - that's
+// what the round is testing; this only sets expectations, not answers.
+function showRound3Intro() {
+  const overlay = document.createElement("div");
+  overlay.id = "round3-intro-overlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box neutral">
+      <h3>Before you start Round 3</h3>
+      <ul>
+        <li>You'll see the test cases you wrote in Round 1 - use them as your starting point.</li>
+        <li>For each one, describe what to test to an AI assistant. It will simulate running it and tell you what it did and what it observed - no code involved.</li>
+        <li>You'll also have a test environment reference (sample data, credentials, API/DB details) and reference app screens alongside the scenario - use them as your source of truth when describing what to test.</li>
+        <li>Want to test something beyond what you wrote in Round 1? Go ahead - you're not limited to those. Add as many extra test cases as you think the scenario needs.</li>
+        <li>Heads-up: the assistant won't always get it right. It may skip a check, misreport a result, or just be wrong - on purpose. Read every response the way you'd review a test log you didn't write yourself, and keep refining your prompts until you're confident it's actually correct.</li>
+        <li>What's scored: real coverage of the scenario - testing it from more than one distinct angle, not settling for just a couple of similar test cases - combined with how carefully you verify each one.</li>
+        <li>Your timer starts the moment you click below.</li>
+      </ul>
+      <div class="row">
+        <button onclick="confirmStartRound3()">Got it - Start Round 3</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function confirmStartRound3() {
+  const overlay = document.getElementById("round3-intro-overlay");
+  if (overlay) overlay.remove();
+  startRound(3);
 }
 
 // Each round's candidate-facing shape is genuinely different now: round
@@ -1191,6 +1407,7 @@ function renderEntryForm(box, scenario, submission) {
     <div class="table-scroll">
       <table>
         <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th><th></th></tr></thead>
+        <tbody>${exampleTestCaseRowHtml()}</tbody>
         <tbody id="tc-rows"></tbody>
       </table>
     </div>
@@ -1205,7 +1422,7 @@ function renderEntryForm(box, scenario, submission) {
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
-    doSubmitRound1();
+    doSubmitRound1(true);
   }, 1);
 }
 
@@ -1223,6 +1440,9 @@ function renderInvestigationForm(box, scenario, submission) {
     <div class="table-scroll">
       <table>
         <thead><tr><th>SI.No</th><th>Investigation area</th><th></th></tr></thead>
+        <tbody>
+          <tr class="example-row"><td class="tc-no">Ex</td><td>Checked the application logs around the time of the issue for related error messages (format only, not a hint for this scenario)</td><td></td></tr>
+        </tbody>
         <tbody id="inv-rows"></tbody>
       </table>
     </div>
@@ -1231,6 +1451,7 @@ function renderInvestigationForm(box, scenario, submission) {
     </div>
     <h4>Possible Root Cause</h4>
     <p class="muted">What you investigated, which areas you eliminated, and your conclusion.</p>
+    <p class="muted example-note">Example format: "The [component] shows [incorrect behavior] when [condition]. Ruled out [alternative cause] because [reason]. Root cause is [cause], confirmed by [evidence]."</p>
     <textarea id="inv-root-cause"></textarea>
     <div class="row">
       <button onclick="doSubmitRound2Investigation()">Submit</button>
@@ -1242,7 +1463,7 @@ function renderInvestigationForm(box, scenario, submission) {
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
-    doSubmitRound2Investigation();
+    doSubmitRound2Investigation(true);
   }, 2);
 }
 
@@ -1277,20 +1498,25 @@ function collectInvestigationRows() {
     .filter((r) => r.area);
 }
 
-async function doSubmitRound2Investigation() {
+async function doSubmitRound2Investigation(force = false) {
   // Timer/guard only stop once the submit actually goes through below - a
   // validation failure here means the round is still very much in
   // progress and must keep counting down with the guard still armed.
   const statusEl = document.getElementById("submit-status");
   const investigation = collectInvestigationRows();
   const root_cause = document.getElementById("inv-root-cause").value.trim();
-  if (investigation.length === 0) {
-    statusEl.textContent = "Add at least one investigation row before submitting.";
-    return;
-  }
-  if (!root_cause) {
-    statusEl.textContent = "Fill in the Possible Root Cause box before submitting.";
-    return;
+  // force (the timer just hit zero) skips these - they exist to help a
+  // candidate who still has time avoid wasting their one submit, not to
+  // block the round from ever closing once time is actually up.
+  if (!force) {
+    if (investigation.length === 0) {
+      statusEl.textContent = "Add at least one investigation row before submitting.";
+      return;
+    }
+    if (!root_cause) {
+      statusEl.textContent = "Fill in the Possible Root Cause box before submitting.";
+      return;
+    }
   }
   try {
     await api("/candidate/round/2/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
@@ -1298,6 +1524,13 @@ async function doSubmitRound2Investigation() {
     disarmTabGuard();
     refreshCandidateNav();
   } catch (e) {
+    if (force) {
+      // Nothing submittable even now, or the server's own deadline check
+      // beat this attempt - the round still has to end, saving whatever's
+      // here. See forceExpireRound.
+      await forceExpireRound(2, { investigation, root_cause });
+      return;
+    }
     statusEl.textContent = e.message;
   }
 }
@@ -1337,6 +1570,30 @@ function renderExecutionSteps(steps) {
       `).join("")}
     </ol>
   `;
+}
+
+// Trial feature (see candidate.py's GET /round/3/turn/{id}/code) - an
+// on-demand rendering of an already-completed turn as code, in whichever
+// language the candidate picks. Cached client-side per (turn, language)
+// so re-picking a language already viewed doesn't re-call the LLM.
+let round3CodeCache = {};
+
+async function showRound3Code(turnId) {
+  const lang = document.getElementById(`code-lang-${turnId}`).value;
+  const container = document.getElementById(`code-snippet-${turnId}`);
+  const cacheKey = `${turnId}:${lang}`;
+  if (round3CodeCache[cacheKey]) {
+    container.innerHTML = `<pre class="code-snippet">${escapeHtml(round3CodeCache[cacheKey])}</pre>`;
+    return;
+  }
+  container.innerHTML = `<p class="muted">Generating...</p>`;
+  try {
+    const result = await api(`/candidate/round/3/turn/${turnId}/code?language=${lang}`);
+    round3CodeCache[cacheKey] = result.code;
+    container.innerHTML = `<pre class="code-snippet">${escapeHtml(result.code)}</pre>`;
+  } catch (e) {
+    container.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+  }
 }
 
 // Shared by the candidate's round 3 view and HR's scenario detail -
@@ -1406,19 +1663,45 @@ async function round3AutoSubmit() {
   try {
     await api("/candidate/round/3/submit", { method: "POST" });
     round3DraftBuffer = {};
+    stopTimer();
+    disarmTabGuard();
     refreshCandidateNav();
   } catch (e) {
     // Most likely cause: time ran out before the candidate ever sent a
-    // single message, so there's nothing to submit - the server rejects
-    // it every time (see _require_within_time_limit), and the deadline
-    // that got us here doesn't change on retry. Show that plainly and
-    // stop HERE rather than calling refreshCandidateNav(): that would
-    // reload this same still-expired round, whose timer fires
-    // immediately again, calling this function again - an infinite
-    // "flickering" reload loop that was hammering /submit with repeat
-    // 400s until the candidate's tab was closed.
-    if (timerEl) timerEl.textContent = "Time's up - nothing was submitted (no messages were sent in any test case).";
+    // single message, so there's nothing to submit (see
+    // _require_within_time_limit's 400) - forceExpireRound closes the
+    // round regardless, so it's safe to call refreshCandidateNav()
+    // afterward now: the submission is no longer in_progress by the time
+    // that reload happens, so it won't re-trigger this same function -
+    // this used to be exactly that infinite "flickering" loop (repeat
+    // 400s until the candidate's tab was closed) before expire existed;
+    // the fix is closing the round for real, not just avoiding the reload.
+    await forceExpireRound(3);
   }
+}
+
+// Shared by all three rounds' auto-submit-on-expiry paths (see
+// doSubmitRound1/doSubmitRound2Investigation's force=true, and
+// round3AutoSubmit's catch above) - the guaranteed way a round closes
+// once its timer hits zero and a real submit wasn't possible (empty/
+// incomplete content, or losing a race against the server's own deadline
+// check). Whatever draft content the candidate had (round is passed in
+// via `body`, may be empty) is saved as-is and the round is finalized as
+// a real submission - see candidate.py's POST /round/{n}/expire. A
+// candidate who ran out of time having written nothing still has to move
+// on to the next round, not get stuck here.
+async function forceExpireRound(roundNumber, body = {}) {
+  try {
+    await api(`/candidate/round/${roundNumber}/expire`, { method: "POST", body: JSON.stringify(body) });
+  } catch (e) {
+    // Nothing more to do client-side if even this fails (e.g. a network
+    // blip) - the candidate stays on this screen, but at least the timer
+    // display already says time's up rather than claiming to still be
+    // "submitting automatically."
+  }
+  stopTimer();
+  disarmTabGuard();
+  refreshCandidateNav();
 }
 
 function renderRound3Layout(box) {
@@ -1469,6 +1752,10 @@ function renderRound3Layout(box) {
     <div id="round3-tabs" class="row" style="margin-bottom:0.4rem"></div>
     <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
     ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
+    <div class="panel-inset example-row" style="margin-bottom:0.85rem">
+      <p class="muted" style="margin-bottom:0.3rem"><strong>Example (format only, not a hint for this scenario):</strong></p>
+      <p class="muted" style="margin:0">Test case title: "Verify login with valid credentials" - then a first message to the assistant like "Log in with the test account credentials and tell me what happened."</p>
+    </div>
     <div id="round3-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
       <button class="btn-block" onclick="round3Submit()">Submit Round 3</button>
@@ -1546,6 +1833,16 @@ function renderRound3TestCaseBody() {
           <span class="badge badge-${t.model_response.status}">${t.model_response.status}</span>
           ${escapeHtml(t.model_response.observed_result)}
         </div>
+        <div class="row" style="margin-top:0.6rem">
+          <select id="code-lang-${t.id}">
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+            <option value="javascript">JavaScript</option>
+            <option value="typescript">TypeScript</option>
+          </select>
+          <button class="btn-ghost" onclick="showRound3Code(${t.id})">View as code</button>
+        </div>
+        <div id="code-snippet-${t.id}"></div>
       </div>
     `).join("");
 
@@ -1628,6 +1925,26 @@ async function round3Submit() {
   }
 }
 
+// A generic, non-editable format example shown right above the
+// candidate's own rows - deliberately a universal "login" example rather
+// than anything drawn from the actual scenario, so it illustrates the
+// expected shape of an answer without hinting at what to test in THIS
+// scenario. Lives in its own <tbody>, outside #tc-rows, so collectRows()
+// (which only queries within #tc-rows) never picks it up - nothing extra
+// needed to keep it out of what gets submitted.
+function exampleTestCaseRowHtml() {
+  return `
+    <tr class="example-row">
+      <td class="tc-no">Ex</td>
+      <td>Verify login with valid credentials</td>
+      <td>User has a registered account</td>
+      <td>1. Open the login page. 2. Enter a valid username and password. 3. Click "Login".</td>
+      <td>User is redirected to the home/dashboard screen and a welcome message is shown.</td>
+      <td></td>
+    </tr>
+  `;
+}
+
 function addRow() {
   const id = rowCount++;
   const tbody = document.getElementById("tc-rows");
@@ -1667,28 +1984,38 @@ function collectRows() {
     .filter((r) => r.title.trim() || r.steps.trim());
 }
 
-async function doSubmitRound1() {
+async function doSubmitRound1(force = false) {
   const statusEl = document.getElementById("submit-status");
   const content = collectRows();
-  if (content.length === 0) {
-    statusEl.textContent = "Add at least one row before submitting.";
-    return;
-  }
-  // collectRows() only drops rows with NEITHER title nor steps filled in
-  // (an unused blank row) - a row with just one of the required fields
-  // typed in would otherwise reach the server, which requires title,
-  // steps, AND expected result (see schemas.TestCaseRow) and rejects it.
-  // Catch that here with a specific message instead of a round trip.
-  const incompleteIndex = content.findIndex((r) => !r.title.trim() || !r.steps.trim() || !r.expected_result.trim());
-  if (incompleteIndex !== -1) {
-    const r = content[incompleteIndex];
-    const missing = [
-      !r.title.trim() && "Title",
-      !r.steps.trim() && "Steps",
-      !r.expected_result.trim() && "Expected result",
-    ].filter(Boolean);
-    statusEl.textContent = `Row ${incompleteIndex + 1} is missing: ${missing.join(", ")}.`;
-    return;
+  // force (the timer just hit zero) skips these checks entirely - they
+  // exist to help a candidate who still has time avoid wasting their one
+  // submit, not to block the round from ever closing once time is up.
+  // They used to run unconditionally, which silently blocked the
+  // auto-submit path too: an empty or incomplete row at zero meant
+  // nothing was ever sent, and every later attempt hit the same wall -
+  // the round just stayed on screen forever with an expired timer.
+  if (!force) {
+    if (content.length === 0) {
+      statusEl.textContent = "Add at least one row before submitting.";
+      return;
+    }
+    // collectRows() only drops rows with NEITHER title nor steps filled
+    // in (an unused blank row) - a row with just one of the required
+    // fields typed in would otherwise reach the server, which requires
+    // title, steps, AND expected result (see schemas.TestCaseRow) and
+    // rejects it. Catch that here with a specific message instead of a
+    // round trip.
+    const incompleteIndex = content.findIndex((r) => !r.title.trim() || !r.steps.trim() || !r.expected_result.trim());
+    if (incompleteIndex !== -1) {
+      const r = content[incompleteIndex];
+      const missing = [
+        !r.title.trim() && "Title",
+        !r.steps.trim() && "Steps",
+        !r.expected_result.trim() && "Expected result",
+      ].filter(Boolean);
+      statusEl.textContent = `Row ${incompleteIndex + 1} is missing: ${missing.join(", ")}.`;
+      return;
+    }
   }
   try {
     await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
@@ -1698,6 +2025,14 @@ async function doSubmitRound1() {
     // side; the candidate just moves on to whatever's unlocked next.
     refreshCandidateNav();
   } catch (e) {
+    if (force) {
+      // Nothing submittable even now (empty, or a row missing a required
+      // field), or the server's own deadline check beat this attempt -
+      // the round still has to end, saving whatever's here. See
+      // forceExpireRound.
+      await forceExpireRound(1, { content });
+      return;
+    }
     statusEl.textContent = e.message;
   }
 }
@@ -1716,6 +2051,7 @@ function startTimer(deadlineMs, onExpire, roundNumber) {
     const mins = Math.floor(remaining / 60000);
     const secs = Math.floor((remaining % 60000) / 1000);
     timerEl.textContent = `Time remaining: ${mins}:${String(secs).padStart(2, "0")}`;
+    timerEl.classList.toggle("timer-critical", remaining <= 5 * 60 * 1000);
   }
   tick();
   timerHandle = setInterval(tick, 1000);
