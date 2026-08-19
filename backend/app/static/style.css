@@ -532,6 +532,94 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 
 /* Trial "View as code" rendering (see app.js's showRound3Code) - a
    read-only snippet, not an editor. */
+/* Round 3: prompt | result | code side by side, per turn - see
+   renderRound3TestCaseBody. Prompt starts narrower than result/code
+   (which routinely carry a full execution trace or a code snippet), but
+   all three widths are draggable via the two 6px .round3-col-resizer
+   tracks between them - see round3StartColResize. The --r3c* custom
+   properties are set on the document root (not here) so a resize made
+   once persists across every re-render; the fallback values below only
+   matter before the candidate has dragged anything yet, or if this is
+   somehow read before app.js's own default-setting call runs.
+   align-items:start keeps each pane sized to its own content instead of
+   the grid stretching all three to match the tallest one, which would
+   otherwise fight the manual height-resize below. Collapses to stacked,
+   resizers included, below the same breakpoint the rest of the app
+   already uses for narrow viewports. */
+.round3-turn-grid {
+  display: grid;
+  grid-template-columns: var(--r3c1, 0.65fr) 6px var(--r3c2, 1.5fr) 6px var(--r3c3, 1.5fr);
+  align-items: start;
+  gap: 0.5rem;
+  margin-bottom: 0.85rem;
+}
+.round3-pane { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
+.round3-pane-label {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.5rem;
+}
+/* The draggable divider itself - a comfortable 6px hit area with a
+   slim 2px line centered inside it, so it's easy to grab without
+   looking wide/heavy at rest. Highlights on hover/drag as the only
+   affordance that it's interactive - there's no other visual cue that
+   these tracks aren't just decorative gaps. */
+.round3-col-resizer {
+  align-self: stretch;
+  width: 6px;
+  cursor: col-resize;
+  position: relative;
+}
+.round3-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background-color 0.15s var(--ease);
+}
+.round3-col-resizer:hover::after { background: var(--accent); }
+/* Drag the bottom-right corner to grow any one pane independently - the
+   native browser resize handle, not a custom-built splitter, so it needs
+   no extra JS and behaves the way every other resizable textarea on the
+   web already does. overflow:auto is required for `resize` to take
+   effect at all and keeps long content scrollable within whatever height
+   is currently set instead of pushing the layout around. flex-shrink:0
+   matters here: this is a flex child (see .round3-pane above), and
+   without it the flex layout can recompute/override a manually-resized
+   height on the next re-render instead of respecting it. The diagonal
+   hash mark is a custom-drawn affordance, not decoration for its own
+   sake - the native resize grip a browser draws here is small and
+   low-contrast enough on a dark background to go unnoticed entirely,
+   which is exactly what happened before this was added. */
+.round3-pane-body {
+  overflow: auto;
+  resize: vertical;
+  flex-shrink: 0;
+  min-height: 5.5rem;
+  max-height: 34rem;
+  padding-bottom: 0.9rem;
+  background-image: linear-gradient(
+    135deg,
+    transparent 0 6px, var(--muted) 6px 8px, transparent 8px 10px,
+    var(--muted) 10px 12px, transparent 12px 14px,
+    var(--muted) 14px 16px, transparent 16px
+  );
+  background-position: bottom right;
+  background-repeat: no-repeat;
+  background-size: 16px 16px;
+}
+@media (max-width: 860px) {
+  .round3-turn-grid { grid-template-columns: 1fr; }
+  .round3-pane-body { resize: none; max-height: none; background-image: none; }
+  .round3-col-resizer { display: none; }
+}
+
 .code-snippet {
   background: var(--bg);
   border: 1px solid var(--border);
@@ -677,22 +765,57 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
 /* Round 3's auto-generated reference UI screens - a static, schematic
    wireframe (never real markup/CSS from the LLM - see app.js's
    renderMockupScreens). Deliberately plain/sketch-like so it reads
-   honestly as a reference, not a polished replica of a real screen. */
+   honestly as a reference, not a polished replica of a real screen -
+   but "schematic" doesn't have to mean "everything stacked one per
+   line with no visual structure." A thin window-chrome bar (dots + a
+   fake address pill) makes it read as an actual browser window; the
+   body below flows elements in a wrapping row instead of a single
+   column, so short controls sit side by side and the whole thing takes
+   noticeably less vertical space. */
 .mockup-details summary { font-size: inherit; }
 .mockup-screen {
-  border: 1px dashed var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 1rem;
   margin-bottom: 0.6rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
   background: var(--surface);
+  overflow: hidden;
+}
+.mockup-screen-chrome {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.75rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-soft);
+}
+.mockup-screen-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+.mockup-screen-url {
+  flex: 1;
+  margin-left: 0.3rem;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 0.22rem 0.75rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mockup-screen-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.6rem 0.9rem;
+  padding: 1rem;
 }
 .mockup-el { font-size: 0.85rem; color: var(--text-dim); }
-.mockup-el-label, .mockup-el-text { color: var(--muted); }
+/* A label/standalone text block reads as a section heading or status
+   message, not a control - forcing it onto its own line (flex-basis
+   100% inside the wrapping row above) keeps it from blending into the
+   buttons/inputs that follow it. */
+.mockup-el-label, .mockup-el-text { flex-basis: 100%; color: var(--muted); font-weight: 600; }
 .mockup-el-button {
-  align-self: flex-start;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -700,11 +823,17 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   font-weight: 600;
   color: var(--text);
 }
-.mockup-el-link { color: var(--accent); text-decoration: underline; align-self: flex-start; }
-.mockup-el-input { display: flex; flex-direction: column; gap: 0.2rem; }
-.mockup-el-caption { color: var(--muted); font-size: 0.78rem; }
+.mockup-el-link { color: var(--accent); text-decoration: underline; align-self: center; }
+.mockup-el-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 220px;
+}
+.mockup-el-caption { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
 .mockup-el-box {
-  display: block;
+  flex: 1;
+  min-width: 0;
   height: 1.6rem;
   max-width: 16rem;
   border: 1px solid var(--border);

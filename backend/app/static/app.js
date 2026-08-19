@@ -120,6 +120,19 @@ async function login() {
 }
 
 async function logout() {
+  // A nudge, not a block - matches how the tab-switch guard already
+  // treats this class of problem (log/discourage, never trap the
+  // candidate with no way out). Logging out doesn't stop the round's
+  // clock or score whatever's there yet either way (see
+  // scoring_service.close_expired_submissions) - it just ends the
+  // session, so this is purely about avoiding an accidental click, not
+  // enforcing anything.
+  if (timerHandle && !confirm(
+    "You have an active timed round in progress. Logging out won't stop your timer or let you resume it - " +
+    "your time keeps running either way. Log out anyway?"
+  )) {
+    return;
+  }
   stopTimer();
   resetTopbarTimer();
   disarmTabGuard();
@@ -542,7 +555,7 @@ async function openScenarioDetail(id) {
         <input id="time-limit-edit" type="number" min="1" value="${scenario.time_limit_minutes}" />
         <span class="muted">min limit</span>
       </div>
-      <button class="btn-ghost" onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
+      <button onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
     </div>
     <p class="scenario-description">${escapeHtml(scenario.description)}</p>
     ${isRound3 ? `
@@ -796,11 +809,14 @@ function roundStatusCell(r) {
   const flag = r.tab_switch_count > 0
     ? ` <span class="badge badge-fail" title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">${r.tab_switch_count}x tab switch</span>`
     : "";
+  const autoClosedFlag = r.auto_closed_reason
+    ? ` <span class="badge badge-draft" title="${escapeHtml(r.auto_closed_reason)}">Auto-closed</span>`
+    : "";
   if (r.final_score != null) {
     const cls = r.final_score >= passingScoreForRound(r.round_number) ? "score-good" : "score-bad";
-    return `<span class="${cls}">${r.final_score}/100</span>${flag}`;
+    return `<span class="${cls}">${r.final_score}/100</span>${flag}${autoClosedFlag}`;
   }
-  return `<span class="muted">${r.status.replace("_", " ")}</span>${flag}`;
+  return `<span class="muted">${r.status.replace("_", " ")}</span>${flag}${autoClosedFlag}`;
 }
 
 // Shared by the live candidate-detail view and the "Past appearances"
@@ -812,6 +828,7 @@ function renderSubmissionsPanels(submissions) {
     <div class="panel-inset">
       <h4>Round ${s.round_number} - ${s.scenario ? escapeHtml(s.scenario.title) : ""} <span class="badge">${s.status}</span>
         ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDate).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
+        ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeHtml(s.auto_closed_reason)}">Auto-closed</span>` : ""}
       </h4>
       ${renderScoreBlock(s)}
       ${s.round_number === 3 ? renderRound3Report(s)
@@ -947,6 +964,11 @@ async function openCandidateDetail(id) {
     </div>
   `;
   loadAppearances(id);
+  // The candidates table above can easily be long enough that this panel
+  // renders off-screen - clicking "View" filled it in, but nothing
+  // visibly happened until the HR user thought to scroll down and find
+  // it. Bring it into view instead of leaving that to chance.
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function loadAppearances(candidateId) {
@@ -1387,7 +1409,8 @@ function showRound3Intro() {
         <li>You'll also have a test environment reference (sample data, credentials, API/DB details) and reference app screens alongside the scenario - use them as your source of truth when describing what to test.</li>
         <li>Want to test something beyond what you wrote in Round 1? Go ahead - you're not limited to those. Add as many extra test cases as you think the scenario needs.</li>
         <li>Heads-up: the assistant won't always get it right. It may skip a check, misreport a result, or just be wrong - on purpose. Read every response the way you'd review a test log you didn't write yourself, and keep refining your prompts until you're confident it's actually correct.</li>
-        <li>What's scored: real coverage of the scenario - testing it from more than one distinct angle, not settling for just a couple of similar test cases - combined with how carefully you verify each one.</li>
+        <li>What's scored: mainly the quality of your prompting and verification - catching issues, asking the right follow-ups, converging on a correct result. You don't need to automate everything you wrote in Round 1 - with a longer list, that's not realistic in the time given, and it's not what's measured here.</li>
+        <li>Automating across more than one area - UI, API, DB, end-to-end - earns extra credit, but it's a bonus on top of doing a few well, not a requirement.</li>
         <li>Your timer starts the moment you click below.</li>
       </ul>
       <div class="row">
@@ -1596,11 +1619,32 @@ function renderExecutionSteps(steps) {
   `;
 }
 
-// Trial feature (see candidate.py's GET /round/3/turn/{id}/code) - an
-// on-demand rendering of an already-completed turn as code, in whichever
-// language the candidate picks. Cached client-side per (turn, language)
-// so re-picking a language already viewed doesn't re-call the LLM.
+// Trial feature (see candidate.py's GET /round/3/turn/{id}/code) - shown
+// automatically for whichever ONE language the candidate currently has
+// selected (round3DefaultLanguage, remembered across turns so it isn't
+// re-picked every time) - not all four languages per turn, which would
+// multiply the LLM calls behind every single message. Switching to a
+// different language for one turn is still just a click away via that
+// turn's own dropdown, generated on demand at that point.
+//
+// Cached client-side per (turn, language) as a fast path (skips even the
+// network round-trip within this page load); the server persists the
+// same thing per turn (see candidate.py), so a reload or a language
+// switch back to one already viewed never re-calls the LLM either way -
+// the exact same code shows every time, not a different roll.
 let round3CodeCache = {};
+let round3DefaultLanguage = "python";
+const ROUND3_CODE_LANGUAGE_OPTIONS = [
+  ["python", "Python"],
+  ["java", "Java"],
+  ["javascript", "JavaScript"],
+  ["typescript", "TypeScript"],
+];
+
+async function round3OnLanguageChange(turnId) {
+  round3DefaultLanguage = document.getElementById(`code-lang-${turnId}`).value;
+  await showRound3Code(turnId);
+}
 
 async function showRound3Code(turnId) {
   const lang = document.getElementById(`code-lang-${turnId}`).value;
@@ -1636,13 +1680,32 @@ function renderMockupScreens(mockup, idPrefix) {
     </button>
   `).join("");
 
+  // Window "chrome" (dots + a fake address-bar pill showing the screen
+  // name) is purely decorative - it's what turns "a dashed box of
+  // stacked labels" into something that actually reads as a browser
+  // window a tester would have open, without pretending to be a real
+  // screenshot. Elements below flow in a wrapping row (see .mockup-
+  // screen-body) instead of one per line, so short controls like a
+  // button next to a link sit side by side - labels/standalone text
+  // still force their own line (a section heading shouldn't blend into
+  // the controls next to it), input fields lay their caption beside the
+  // box instead of above it. Both save real vertical space over the
+  // one-element-per-line version this replaces.
   const panels = screens.map((screen, i) => `
     <div class="mockup-screen ${i === 0 ? "" : "hidden"}" id="${idPrefix}-screen-${i}">
-      ${screen.elements.map((el) => `
-        <div class="mockup-el mockup-el-${el.type}">
-          ${el.type === "input" ? `<span class="mockup-el-caption">${escapeHtml(el.text)}</span><span class="mockup-el-box"></span>` : escapeHtml(el.text)}
-        </div>
-      `).join("")}
+      <div class="mockup-screen-chrome">
+        <span class="mockup-screen-dot"></span>
+        <span class="mockup-screen-dot"></span>
+        <span class="mockup-screen-dot"></span>
+        <span class="mockup-screen-url">${escapeHtml(screen.name)}</span>
+      </div>
+      <div class="mockup-screen-body">
+        ${screen.elements.map((el) => `
+          <div class="mockup-el mockup-el-${el.type}">
+            ${el.type === "input" ? `<span class="mockup-el-caption">${escapeHtml(el.text)}</span><span class="mockup-el-box"></span>` : escapeHtml(el.text)}
+          </div>
+        `).join("")}
+      </div>
     </div>
   `).join("");
 
@@ -1807,7 +1870,7 @@ function renderRound3Tabs() {
 
   document.getElementById("round3-tabs").innerHTML = `
     ${tabs}
-    <button class="btn-ghost" onclick="round3CreateTestCase()">+ New test case</button>
+    <button onclick="round3CreateTestCase()">+ New test case</button>
   `;
 }
 
@@ -1845,27 +1908,54 @@ function renderRound3TestCaseBody() {
 
   const turns = s.turns.filter((t) => t.test_case_id === tcId);
 
+  const languageOptionsHtml = (turnId) => ROUND3_CODE_LANGUAGE_OPTIONS.map(([value, label]) =>
+    `<option value="${value}" ${round3DefaultLanguage === value ? "selected" : ""}>${label}</option>`
+  ).join("");
+
+  // Three panes per turn, side by side (prompt | result | code) instead
+  // of stacked in one column - code used to be a click away behind a
+  // "View as code" button at the bottom; it's the same information a
+  // candidate needs to correct a wrong response, so it's shown right
+  // alongside the prompt/result that produced it, not buried below.
+  // Column WIDTHS are draggable via the two .round3-col-resizer bars
+  // (see round3StartColResize) - a real split-pane divider, not just
+  // native per-pane resize, since "make the code pane bigger" means
+  // taking width away from its neighbors, which CSS `resize` alone can't
+  // do. The widths are shared across every turn row (applied as CSS
+  // custom properties on the document root - see round3ApplyColWidths),
+  // so dragging once resizes all of them together, not just this row.
   const transcriptHtml = turns.length === 0
     ? `<div class="empty-state">No messages yet in this test case - describe what you want automated to get started.</div>`
     : turns.map((t) => `
-      <div class="panel-inset">
-        <p><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
-        <p>${escapeHtml(t.model_response.response_text)}</p>
-        ${renderExecutionSteps(t.model_response.steps)}
-        <div class="observed-box">
-          <span class="badge badge-${t.model_response.status}">${t.model_response.status}</span>
-          ${escapeHtml(t.model_response.observed_result)}
+      <div class="round3-turn-grid">
+        <div class="panel-inset round3-pane">
+          <p class="muted round3-pane-label">Prompt</p>
+          <div class="round3-pane-body">
+            <p>${escapeHtml(t.candidate_prompt)}</p>
+          </div>
         </div>
-        <div class="row" style="margin-top:0.6rem">
-          <select id="code-lang-${t.id}">
-            <option value="python">Python</option>
-            <option value="java">Java</option>
-            <option value="javascript">JavaScript</option>
-            <option value="typescript">TypeScript</option>
-          </select>
-          <button class="btn-ghost" onclick="showRound3Code(${t.id})">View as code</button>
+        <div class="round3-col-resizer" onmousedown="round3StartColResize(event, 'c1-c2')"></div>
+        <div class="panel-inset round3-pane">
+          <p class="muted round3-pane-label">Result</p>
+          <div class="round3-pane-body">
+            <p>${escapeHtml(t.model_response.response_text)}</p>
+            ${renderExecutionSteps(t.model_response.steps)}
+            <div class="observed-box">
+              <span class="badge badge-${t.model_response.status}">${t.model_response.status}</span>
+              ${escapeHtml(t.model_response.observed_result)}
+            </div>
+          </div>
         </div>
-        <div id="code-snippet-${t.id}"></div>
+        <div class="round3-col-resizer" onmousedown="round3StartColResize(event, 'c2-c3')"></div>
+        <div class="panel-inset round3-pane">
+          <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:0">
+            <p class="muted round3-pane-label" style="margin:0">Code</p>
+            <select id="code-lang-${t.id}" onchange="round3OnLanguageChange(${t.id})">${languageOptionsHtml(t.id)}</select>
+          </div>
+          <div class="round3-pane-body">
+            <div id="code-snippet-${t.id}"><p class="muted">Generating...</p></div>
+          </div>
+        </div>
       </div>
     `).join("");
 
@@ -1878,9 +1968,83 @@ function renderRound3TestCaseBody() {
   `;
 
   body.innerHTML = `
-    <div class="table-scroll" style="overflow:visible">${transcriptHtml}</div>
+    <div style="overflow:visible">${transcriptHtml}</div>
     ${composerHtml}
   `;
+
+  // Auto-generate/show code for the candidate's current default language -
+  // shown by default now, not gated behind a click. Cheap for anything
+  // already viewed (client cache, then the server's own persisted copy -
+  // see showRound3Code), so re-rendering this same list on every new
+  // message doesn't re-cost a call for turns already shown.
+  turns.forEach((t) => showRound3Code(t.id));
+  round3ApplyColWidths();
+}
+
+// Draggable column-width splitter for the three round3 panes (prompt |
+// result | code) - see the .round3-turn-grid markup above. Widths live
+// in fr units, same as the CSS grid-template-columns they drive, and
+// are applied as custom properties on the document root rather than on
+// #round3-test-case-body itself: that element's innerHTML gets replaced
+// wholesale on every re-render (a new message, switching test cases),
+// which would silently wipe an inline style set directly on it. The
+// root element is never destroyed that way, so a resize made once
+// keeps applying across every future re-render in this session.
+let round3ColFr = { c1: 0.65, c2: 1.5, c3: 1.5 };
+let round3ColResizeState = null;
+
+function round3ApplyColWidths() {
+  const root = document.documentElement.style;
+  root.setProperty("--r3c1", `${round3ColFr.c1}fr`);
+  root.setProperty("--r3c2", `${round3ColFr.c2}fr`);
+  root.setProperty("--r3c3", `${round3ColFr.c3}fr`);
+}
+
+function round3StartColResize(e, edge) {
+  // Below the breakpoint where the grid collapses to a single stacked
+  // column (see the media query in style.css), there's nothing
+  // meaningful to drag - matches disabling the height-resize there too.
+  if (window.innerWidth <= 860) return;
+  e.preventDefault();
+  const grid = e.currentTarget.closest(".round3-turn-grid");
+  const rect = grid.getBoundingClientRect();
+  const leftKey = edge === "c1-c2" ? "c1" : "c2";
+  const rightKey = edge === "c1-c2" ? "c2" : "c3";
+  const totalFr = round3ColFr.c1 + round3ColFr.c2 + round3ColFr.c3;
+  // Two 6px resizer tracks eat into the grid's width but carry no fr
+  // share of their own - excluded here so the fr<->pixel conversion
+  // below lines up with what the fr units actually control.
+  const pxPerFr = (rect.width - 12) / totalFr;
+  round3ColResizeState = { leftKey, rightKey, startX: e.clientX, startLeftFr: round3ColFr[leftKey], startRightFr: round3ColFr[rightKey], pxPerFr };
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  document.addEventListener("mousemove", round3OnColResizeMove);
+  document.addEventListener("mouseup", round3StopColResize);
+}
+
+function round3OnColResizeMove(e) {
+  if (!round3ColResizeState) return;
+  const { leftKey, rightKey, startX, startLeftFr, startRightFr, pxPerFr } = round3ColResizeState;
+  const deltaFr = (e.clientX - startX) / pxPerFr;
+  // Each pane keeps a floor of 0.35fr - narrow enough to clearly favor
+  // whichever pane the candidate is expanding, wide enough that the
+  // shrunk one doesn't disappear or make its content unreadable.
+  const MIN_FR = 0.35;
+  let newLeft = startLeftFr + deltaFr;
+  let newRight = startRightFr - deltaFr;
+  if (newLeft < MIN_FR) { newRight -= (MIN_FR - newLeft); newLeft = MIN_FR; }
+  if (newRight < MIN_FR) { newLeft -= (MIN_FR - newRight); newRight = MIN_FR; }
+  round3ColFr[leftKey] = Math.max(MIN_FR, newLeft);
+  round3ColFr[rightKey] = Math.max(MIN_FR, newRight);
+  round3ApplyColWidths();
+}
+
+function round3StopColResize() {
+  round3ColResizeState = null;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  document.removeEventListener("mousemove", round3OnColResizeMove);
+  document.removeEventListener("mouseup", round3StopColResize);
 }
 
 // Two-layer autosave: the in-memory buffer update is instant (this is
