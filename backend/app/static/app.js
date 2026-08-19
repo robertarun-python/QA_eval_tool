@@ -121,6 +121,7 @@ async function login() {
 
 async function logout() {
   stopTimer();
+  resetTopbarTimer();
   disarmTabGuard();
   // JS can't clear an httpOnly cookie itself - a real request is the
   // only way. Not api() here: if the cookie's already expired this would
@@ -1229,6 +1230,8 @@ async function refreshCandidateNav() {
 
   if (nextRound === undefined) {
     currentRound = 0; // nothing in the nav is "active" once everything's submitted
+    stopTimer(); // defensive - loadRound (which also stops it) isn't reached on this branch
+    resetTopbarTimer();
     disarmTabGuard(); // defensive - loadRound (which also disarms) isn't reached on this branch
     renderCandidateRoundNav();
     document.getElementById("round-view").innerHTML = `
@@ -1271,6 +1274,7 @@ function renderCandidateRoundNav() {
 async function loadRound(n) {
   currentRound = n;
   stopTimer();
+  resetTopbarTimer();
   disarmTabGuard();
   renderCandidateRoundNav();
   const box = document.getElementById("round-view");
@@ -1421,7 +1425,6 @@ function renderEntryForm(box, scenario, submission) {
   box.innerHTML = `
     <h3>Round 1: ${escapeHtml(scenario.title)}</h3>
     <p class="scenario-description">${escapeHtml(scenario.description)}</p>
-    <p id="timer" class="timer"></p>
     <div class="table-scroll">
       <table>
         <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th><th></th></tr></thead>
@@ -1454,7 +1457,6 @@ function renderInvestigationForm(box, scenario, submission) {
   box.innerHTML = `
     <h3>Round 2: ${escapeHtml(scenario.title)}</h3>
     <p class="scenario-description">${escapeHtml(scenario.description)}</p>
-    <p id="timer" class="timer"></p>
     <div class="table-scroll">
       <table>
         <thead><tr><th>SI.No</th><th>Investigation area</th><th></th></tr></thead>
@@ -1735,7 +1737,7 @@ function renderRound3Layout(box) {
   box.innerHTML = `
     <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
     <p class="scenario-description">${escapeHtml(s.scenario.description)}</p>
-    <details class="hint-box" open>
+    <details class="hint-box">
       <summary><strong>Automating your own Round 1 answer</strong> - "${escapeHtml(s.round1_context.scenario_title)}"</summary>
       <p>${escapeHtml(s.round1_context.scenario_description)}</p>
       <div class="table-scroll">
@@ -1756,7 +1758,7 @@ function renderRound3Layout(box) {
       </div>
     </details>
     ${envFields.length > 0 ? `
-      <details class="hint-box env-panel" open>
+      <details class="hint-box env-panel">
         <summary><strong>Test environment</strong></summary>
         <dl class="env-fields">
           ${envFields.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
@@ -1765,12 +1767,11 @@ function renderRound3Layout(box) {
       </details>
     ` : ""}
     ${s.ui_mockup ? `
-      <details class="hint-box mockup-details" open>
+      <details class="hint-box mockup-details">
         <summary><strong>Reference: App screens</strong></summary>
         ${renderMockupScreens(s.ui_mockup, "cand-mockup")}
       </details>
     ` : ""}
-    <p id="timer" class="timer"></p>
     <div id="round3-tabs" class="row" style="margin-bottom:0.4rem"></div>
     <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
     ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
@@ -2081,6 +2082,11 @@ async function doSubmitRound1(force = false) {
 
 function startTimer(deadlineMs, onExpire, roundNumber) {
   const timerEl = document.getElementById("timer");
+  // Lives in the sticky topbar, not inline in the round's own content -
+  // Round 3's reference panels alone run 900px+, so a timer buried in
+  // that flow could go unseen for a while on a scroll. Hidden by default
+  // (see index.html); shown only while a round is actually running.
+  timerEl.classList.remove("hidden");
   armTabGuard(roundNumber);
   function tick() {
     const remaining = deadlineMs - Date.now();
@@ -2113,6 +2119,21 @@ function stopTimer() {
     clearInterval(timerHandle);
     timerHandle = null;
   }
+  // Deliberately does NOT hide/clear the topbar timer element here - a
+  // couple of call sites (the onExpire callbacks in renderEntryForm/
+  // renderInvestigationForm/round3AutoSubmit) call this and THEN set the
+  // timer's text to "Time's up - submitting automatically..." while the
+  // auto-submit request is in flight; hiding it here would make that
+  // message invisible. See resetTopbarTimer, called instead at the
+  // points where a round view actually finishes transitioning away
+  // (loadRound, the "all rounds complete" branch, logout).
+}
+
+function resetTopbarTimer() {
+  const timerEl = document.getElementById("timer");
+  timerEl.classList.add("hidden");
+  timerEl.classList.remove("timer-critical");
+  timerEl.textContent = "";
 }
 
 // ---- Anti-cheating: fullscreen-enforced tab-switch guard (candidate

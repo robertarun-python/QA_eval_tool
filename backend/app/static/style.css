@@ -12,6 +12,16 @@
   --accent: #5b8cff;
   --accent-strong: #4372e6;
   --accent-soft: rgba(91, 140, 255, 0.13);
+  /* Button-specific shades, darker than --accent: white text on --accent
+     itself is only 3.16:1, below WCAG AA's 4.5:1 for normal-size text -
+     even --accent-strong (4.39:1) falls just short. --accent-button is
+     darkened further to clear AA with real margin (4.65:1); --accent-
+     button-hover darker still for visible hover feedback (5.45:1).
+     --accent/--accent-strong stay as-is for borders, links, focus rings,
+     and nav highlights, which only need the looser 3:1 non-text
+     threshold. */
+  --accent-button: #406edf;
+  --accent-button-hover: #3a64ca;
   --good: #3ecf8e;
   --good-soft: rgba(62, 207, 142, 0.14);
   --bad: #f0616a;
@@ -264,7 +274,23 @@ p:empty { display: none; margin: 0; }
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-soft);
   padding: 1.35rem 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
 }
+
+/* On a timed round, the countdown lives here instead of inline in the
+   scrollable content below - Round 3's reference panels alone run
+   900px+, so a timer buried in that flow could go unseen for a while.
+   Pinned in the sticky topbar (see above), it stays visible regardless
+   of scroll position. Hidden outside an active round - see startTimer/
+   stopTimer in app.js. */
+/* Overrides .app-topbar p's muted color below (higher specificity via
+   the extra .timer class) - the countdown needs its own accent/critical
+   coloring, not the topbar's default muted paragraph color. */
+.app-topbar .timer { flex-shrink: 0; font-size: 1.2rem; color: var(--accent); }
 
 .app-topbar .eyebrow {
   font-size: 0.68rem;
@@ -574,8 +600,8 @@ textarea { min-height: 130px; resize: vertical; line-height: 1.5; }
 .field-inline input { width: 5.5rem; margin-bottom: 0; }
 
 button {
-  background: var(--accent);
-  border: 1px solid var(--accent);
+  background: var(--accent-button);
+  border: 1px solid var(--accent-button);
   color: white;
   cursor: pointer;
   width: auto;
@@ -586,7 +612,7 @@ button {
   transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.1s var(--ease), box-shadow 0.15s var(--ease);
 }
 
-button:hover { background: var(--accent-strong); border-color: var(--accent-strong); box-shadow: 0 4px 14px rgba(91, 140, 255, 0.28); }
+button:hover { background: var(--accent-button-hover); border-color: var(--accent-button-hover); box-shadow: 0 4px 14px rgba(91, 140, 255, 0.28); }
 button:active { transform: translateY(1px); }
 
 button:disabled {
