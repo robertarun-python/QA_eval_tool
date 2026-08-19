@@ -159,6 +159,17 @@ class Submission(Base):
     # scoring_service before it's written here. Cleared on a successful
     # retry or manual override.
     scoring_error = Column(Text, nullable=True)
+    # Set whenever a round is finalized WITHOUT the candidate clicking
+    # Submit - either POST /round/{n}/expire (their own browser's timer
+    # hit zero) or the server-side lazy-expiry check in
+    # scoring_service.close_expired_submissions (nobody's browser was
+    # ever there to call expire at all - closed tab, crash, logout,
+    # network loss). HR-visible only, alongside scoring_error/
+    # tab_switch_count - lets HR tell "candidate submitted normally"
+    # apart from "time simply ran out" at a glance, without changing
+    # what gets scored (still whatever content exists, same as any
+    # other submission).
+    auto_closed_reason = Column(Text, nullable=True)
     # Anti-cheating: one ISO timestamp appended per detected tab-switch/
     # focus-loss during this round - purely passive logging (see app.js's
     # tab-switch guard and POST /candidate/round/{n}/tab-switch), same
@@ -295,6 +306,16 @@ class ConversationTurn(Base):
     # pieces, it shouldn't have to parse a text blob to do that.
     model_response = Column(JSON, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Trial feature (see routers/candidate.py's GET .../turn/{id}/code) -
+    # {language: code}, populated lazily as each language is actually
+    # viewed. Kept separate from model_response above, not merged into
+    # it, for the same reason that field has no code of its own: this is
+    # an optional, on-demand re-rendering of an already-decided response,
+    # never itself part of what the candidate reasons from by default.
+    # Persisted (not just cached client-side) so revisiting a turn shows
+    # the SAME code every time rather than a different LLM roll, and so
+    # switching back to an already-viewed language costs nothing.
+    generated_code_json = Column(JSON, nullable=True)
 
     submission = relationship("Submission", back_populates="conversation_turns")
     test_case = relationship("Round3TestCase", back_populates="turns")

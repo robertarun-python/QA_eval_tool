@@ -38,7 +38,7 @@ from ..schemas import (
 from ..dependencies import require_hr
 from ..services import llm_service
 from ..services import candidate_upload_service
-from ..services.scoring_service import score_submission_in_background
+from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -163,6 +163,44 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
     db.refresh(scenario)
 
 
+def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
+    """Called right after a round1 scenario newly goes live (see
+    publish_scenario/move_to_screening below). If a round3 scenario is
+    ALSO currently live for the same band, its environment_json/
+    ui_mockup_json were grounded in whichever round1 scenario was live
+    at the moment IT was created or last regenerated (see
+    _generate_reference_unsafe above) - now stale, since a different
+    round1 scenario just took over. Left alone, every candidate in this
+    band would see round3 test data (credentials, API endpoints, screens)
+    describing a completely different app than the one their own round1
+    answer was actually about - a real, observed bug this fixes at the
+    source instead of requiring HR to remember to hit "Regenerate" on
+    round3 every time round1 rotates.
+
+    Best-effort: a failure here (LLM error, bad shape) must not block the
+    round1 publish/promotion that triggered it - HR still has the manual
+    Regenerate button on round3 as a fallback."""
+    if round1_scenario.round_number != 1:
+        return
+    live_round3 = db.query(Scenario).filter(
+        Scenario.round_number == 3,
+        Scenario.experience_band == round1_scenario.experience_band,
+        Scenario.is_live.is_(True),
+    ).first()
+    if live_round3 is None:
+        return
+    try:
+        live_round3.environment_json = llm_service.generate_round3_environment(
+            app_description=round1_scenario.description,
+        )
+        live_round3.ui_mockup_json = llm_service.generate_round3_ui_mockup(
+            app_description=round1_scenario.description,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 @router.post("/scenarios/{scenario_id}/regenerate-reference", response_model=ScenarioOut)
 def regenerate_reference(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     scenario = _get_draft_scenario_or_404(scenario_id, db)
@@ -212,12 +250,19 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
     submission on ANY round - not just this one - deferred only until
     they finish that round (or it times out), not until their whole
     assessment is done; between rounds, with no clock actively running,
-    edits are allowed again."""
+    edits are allowed again.
+
+    Before counting, lazily closes out anything that LOOKS in_progress
+    but has actually already run past its own deadline (see
+    scoring_service.close_expired_submissions) - otherwise a candidate
+    who abandoned a round (closed the tab, crashed, logged out, network
+    loss - anything, not just a deliberate logout) would block this
+    forever, since nothing else would ever go back and close it."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
 
-    in_progress_count = (
+    band_in_progress = (
         db.query(Submission)
         .join(Scenario, Submission.scenario_id == Scenario.id)
         .filter(
@@ -225,13 +270,23 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
             Submission.status == RoundStatus.in_progress,
             Submission.archived.is_(False),
         )
-        .count()
+        .all()
     )
-    if in_progress_count > 0:
+    close_expired_submissions(db, band_in_progress)
+    in_progress_emails = sorted({
+        s.candidate.email for s in band_in_progress if s.status == RoundStatus.in_progress
+    })
+    if in_progress_emails:
+        # Named by email, not just a count - "2 candidates" on its own
+        # gives HR no way to tell whether that's really a live exam in
+        # progress or, e.g., a test account left mid-round from earlier
+        # testing, without going and looking it up separately.
+        who = ", ".join(in_progress_emails)
         raise HTTPException(
             409,
-            f"Can't change any round's time limit right now - {in_progress_count} candidate{'s are' if in_progress_count != 1 else ' is'} "
-            f"actively taking a round in this band. Try again once they finish that round (or between rounds).",
+            f"Can't change any round's time limit right now - {who} "
+            f"{'are' if len(in_progress_emails) != 1 else 'is'} actively taking a round in this band. "
+            f"Try again once they finish that round (or between rounds).",
         )
 
     scenario.time_limit_minutes = payload.time_limit_minutes
@@ -275,6 +330,8 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
 
     db.commit()
     db.refresh(scenario)
+    if scenario.is_live:
+        _resync_round3_reference_for_band(scenario, db)
     return scenario
 
 
@@ -300,6 +357,7 @@ def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User 
     scenario.is_live = True
     db.commit()
     db.refresh(scenario)
+    _resync_round3_reference_for_band(scenario, db)
     return scenario
 
 
@@ -369,13 +427,18 @@ def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = 
 
 # ---- Candidate results dashboard ----
 
-def _build_candidate_summary(candidate: User) -> CandidateSummaryOut:
+def _build_candidate_summary(candidate: User, db: Session) -> CandidateSummaryOut:
     """Shared by list_candidates and set_candidate_band (which returns
     the one candidate it just updated, in the same shape)."""
     # Only the current cycle's submissions - a reset candidate's old,
     # archived ones must not appear as if they were still active (see
     # Submission.archived / CandidateAppearance).
     current_submissions = [s for s in candidate.submissions if not s.archived]
+    # Lazily close out anything that looks in_progress but has actually
+    # run past its own deadline (see scoring_service.
+    # close_expired_submissions) - otherwise this dashboard would keep
+    # showing an abandoned round as "in progress" indefinitely.
+    close_expired_submissions(db, current_submissions)
     submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     aggregate_score = None
@@ -390,8 +453,10 @@ def _build_candidate_summary(candidate: User) -> CandidateSummaryOut:
         if final_score is not None:
             aggregate_score = (aggregate_score or 0) + final_score
         tab_switch_count = submission.tab_switch_count if submission else 0
+        auto_closed_reason = submission.auto_closed_reason if submission else None
         rounds.append(CandidateRoundSummary(
-            round_number=round_number, status=status, final_score=final_score, tab_switch_count=tab_switch_count,
+            round_number=round_number, status=status, final_score=final_score,
+            tab_switch_count=tab_switch_count, auto_closed_reason=auto_closed_reason,
         ))
 
     current_appearance = next((a for a in candidate.appearances if a.is_current), None)
@@ -409,7 +474,7 @@ def _build_candidate_summary(candidate: User) -> CandidateSummaryOut:
 @router.get("/candidates", response_model=list[CandidateSummaryOut])
 def list_candidates(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     candidates = db.query(User).filter(User.role == Role.candidate).order_by(User.email).all()
-    return [_build_candidate_summary(c) for c in candidates]
+    return [_build_candidate_summary(c, db) for c in candidates]
 
 
 def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionReportOut]:
@@ -445,6 +510,7 @@ def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User 
         .order_by(Submission.round_number)
         .all()
     )
+    close_expired_submissions(db, submissions)
     return _build_submission_reports(submissions)
 
 
@@ -514,7 +580,7 @@ def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, db: Sess
     candidate.experience_band = ExperienceBand(payload.experience_band)
     db.commit()
     db.refresh(candidate)
-    return _build_candidate_summary(candidate)
+    return _build_candidate_summary(candidate, db)
 
 
 @router.post("/candidates/upload", response_model=BulkUploadResult)

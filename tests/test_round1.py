@@ -217,7 +217,8 @@ def test_time_limit_is_blocked_while_a_candidate_is_mid_round(client, monkeypatc
 
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 409
-    assert "1 candidate is" in res.json()["detail"]
+    assert CANDIDATE1_EMAIL in res.json()["detail"]
+    assert " is actively taking" in res.json()["detail"]
 
     # The time limit genuinely didn't change.
     fresh = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
@@ -248,7 +249,8 @@ def test_time_limit_blocked_on_a_different_round_of_the_same_band_mid_assessment
 
     res = client.patch(f"/hr/scenarios/{round2['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 409
-    assert "1 candidate is" in res.json()["detail"]
+    assert CANDIDATE1_EMAIL in res.json()["detail"]
+    assert " is actively taking" in res.json()["detail"]
 
     fresh = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
     assert next(s for s in fresh if s["id"] == round2["id"])["time_limit_minutes"] == 30

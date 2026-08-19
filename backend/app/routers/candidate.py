@@ -20,7 +20,7 @@ from ..schemas import (
 )
 from ..dependencies import require_candidate
 from ..services import llm_service
-from ..services.scoring_service import score_submission_in_background
+from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 ROUND3_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
 
@@ -74,7 +74,18 @@ def _max_completed_round(db: Session, candidate: User) -> int:
     """Highest round number the candidate has submitted (or scored) in
     their CURRENT cycle. 0 if none yet. Excludes archived submissions
     (see Submission.archived) - a reset candidate's old, already-scored
-    rounds must not keep round-gating from unlocking round 1 again."""
+    rounds must not keep round-gating from unlocking round 1 again.
+
+    Deliberately does NOT lazily close expired submissions itself (see
+    scoring_service.close_expired_submissions) - this is called by
+    _require_round_unlocked, which every round endpoint checks first,
+    including the write endpoints (submit_round, submit_round2,
+    round3_submit, start_round). Closing an expired submission there
+    would risk discarding a real, in-flight submit payload for that
+    exact round the instant it arrived even slightly late - the correct
+    rejection for that is _require_within_time_limit's own 400, not a
+    silent auto-close-with-empty-content underneath it. The lazy check
+    only ever runs from read-only paths - see get_round below."""
     completed = (
         db.query(Submission.round_number)
         .filter(
@@ -357,12 +368,18 @@ def round3_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candid
 def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Trial feature: an on-demand, candidate-facing rendering of an
     already-completed turn as a code snippet, in a language the candidate
-    picks. Generated fresh each call (see llm_service.
-    generate_round3_code_snippet) from that turn's OWN already-recorded
-    steps/observed_result, never persisted - this can only re-describe
-    what's already visible in the transcript, never reveal anything new,
-    and carries no scoring weight. Deliberately isolated from the rest of
-    round 3 so it's easy to remove if it doesn't hold up."""
+    picks. Generated from that turn's OWN already-recorded steps/
+    observed_result - this can only re-describe what's already visible
+    in the transcript, never reveal anything new, and carries no scoring
+    weight. Deliberately isolated from the rest of round 3 so it's easy
+    to remove if it doesn't hold up.
+
+    Persisted per (turn, language) in ConversationTurn.generated_code_json
+    rather than generated fresh every call - the LLM isn't deterministic,
+    so without this, revisiting the same turn could show meaningfully
+    different code each time, which is confusing for something meant to
+    just be a fixed re-rendering of a decision already made. Also means
+    switching back to an already-viewed language costs nothing."""
     _require_round_unlocked(3, db, candidate)
     if language not in ROUND3_CODE_LANGUAGES:
         raise HTTPException(400, f"language must be one of: {', '.join(ROUND3_CODE_LANGUAGES)}")
@@ -370,6 +387,10 @@ def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
     turn = db.get(ConversationTurn, turn_id)
     if turn is None or turn.submission_id != submission.id:
         raise HTTPException(404, "No such turn on this submission.")
+
+    cached = (turn.generated_code_json or {}).get(language)
+    if cached is not None:
+        return Round3CodeSnippetOut(language=language, code=cached)
 
     try:
         code = llm_service.generate_round3_code_snippet(
@@ -380,6 +401,9 @@ def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
         )
     except Exception:
         raise HTTPException(502, "Couldn't generate a code snippet just now - try again.")
+
+    turn.generated_code_json = {**(turn.generated_code_json or {}), language: code}
+    db.commit()
     return Round3CodeSnippetOut(language=language, code=code)
 
 
@@ -413,6 +437,21 @@ def round3_submit(
 def get_round(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     if round_number not in (1, 2, 3):
         raise HTTPException(400, "round_number must be 1, 2, or 3")
+
+    # Lazily close out any of this candidate's abandoned-and-expired
+    # submissions before checking round-gating below - unlike the write
+    # endpoints (see _max_completed_round's docstring for why they don't
+    # do this), a GET is read-only, so there's no in-flight payload this
+    # could ever clobber. Runs first so an earlier round abandoned past
+    # its deadline doesn't keep blocking access to a later one forever -
+    # see scoring_service.close_expired_submissions.
+    current = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.archived.is_(False))
+        .all()
+    )
+    close_expired_submissions(db, current)
+
     _require_round_unlocked(round_number, db, candidate)
 
     scenario = _live_scenario(db, round_number, candidate)
@@ -594,6 +633,7 @@ def expire_round(
     # none) is what gets scored.
 
     submission.status = RoundStatus.submitted
+    submission.auto_closed_reason = "Time limit reached without a manual submit"
     db.commit()
     db.refresh(submission)
 

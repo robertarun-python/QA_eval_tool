@@ -522,6 +522,49 @@ def test_round3_code_snippet_generates_for_the_owner(client, monkeypatch):
     assert captured["language"] == "python"
 
 
+def test_round3_code_snippet_is_persisted_not_regenerated_on_repeat_views(client, monkeypatch):
+    """The LLM isn't deterministic - without server-side persistence,
+    revisiting the same turn's code (or switching back to a language
+    already viewed) could show meaningfully different code each time,
+    which defeats the point of it being a stable re-rendering of one
+    already-made decision. A second call for the same (turn, language)
+    must return the exact same code without calling the LLM again."""
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+    tc = _create_round3_test_case(client, cand_token, title="Login happy path")
+    turn = client.post(
+        "/candidate/round/3/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
+    ).json()
+
+    call_count = {"n": 0}
+
+    def _fake_snippet(**kwargs):
+        call_count["n"] += 1
+        return f"# generated version {call_count['n']}"
+
+    monkeypatch.setattr(llm_service, "generate_round3_code_snippet", _fake_snippet)
+
+    first = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token)).json()
+    second = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token)).json()
+    assert first["code"] == second["code"] == "# generated version 1"
+    assert call_count["n"] == 1  # the LLM was only ever called once
+
+    # A different language for the SAME turn is a genuinely separate
+    # generation - not served from the python cache entry.
+    third = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=java", cookies=_auth(cand_token)).json()
+    assert third["code"] == "# generated version 2"
+    assert call_count["n"] == 2
+
+
 def test_round3_code_snippet_rejects_invalid_language_and_foreign_turn(client, monkeypatch):
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
@@ -574,3 +617,44 @@ def test_generate_round3_code_snippet_strips_accidental_code_fences(monkeypatch)
     )
     assert code == "driver.get('https://x')\nprint(driver.title)"
     assert "```" not in code
+
+
+def test_round3_reference_resyncs_when_round1_scenario_changes(client, monkeypatch):
+    """Real bug this fixes: round3's environment/mockup are grounded in
+    whichever round1 scenario is live AT GENERATION TIME (see hr.py's
+    _generate_reference_unsafe) - a one-time snapshot, not a live link.
+    If HR later promotes a different round1 scenario for the same band,
+    round3's reference must be regenerated automatically, or every
+    candidate would see test data describing a completely different app
+    than the one their own round1 answer was actually about."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="First app")
+    # _publish_round3_scenario monkeypatches generate_round3_environment/
+    # ui_mockup itself for round3's own creation - the call-tracking mock
+    # below is installed AFTER, so it only observes what happens next.
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch, band="0-7")
+
+    calls = []
+
+    def fake_env(**kwargs):
+        calls.append(kwargs.get("app_description"))
+        return {"fields": {"call number": str(len(calls))}, "notes": ""}
+
+    monkeypatch.setattr(llm_service, "generate_round3_environment", fake_env)
+    monkeypatch.setattr(llm_service, "generate_round3_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+
+    # A second round1 scenario for the same band, published but not yet
+    # promoted live (the first one is still live) - no resync should
+    # fire just from publishing it.
+    second_round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Second app")
+    assert len(calls) == 0  # still not live - no resync yet
+
+    # Promoting it live is what triggers the resync.
+    res = client.post(f"/hr/scenarios/{second_round1['id']}/move-to-screening", cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert len(calls) == 1
+
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["environment_json"]["fields"]["call number"] == "1"

@@ -272,6 +272,9 @@ class SubmissionReportOut(SubmissionOut):
     # error from the failed background scoring attempt, so HR can see
     # why instead of a submission just looking stuck.
     scoring_error: Optional[str] = None
+    # Set whenever a round closed WITHOUT the candidate clicking Submit -
+    # see models.Submission.auto_closed_reason. None for a normal submit.
+    auto_closed_reason: Optional[str] = None
     # Anti-cheating (see models.Submission.tab_switch_events_json /
     # routers/candidate.py's tab-switch guard endpoints) - HR-facing only,
     # same tier as scoring_error above. tab_switch_count is a computed
@@ -305,6 +308,8 @@ class CandidateRoundSummary(BaseModel):
     # Surfaced here too (not just the drill-down report) so it's visible
     # on the first screen HR sees - see Submission.tab_switch_count.
     tab_switch_count: int = 0
+    # Same reasoning - see Submission.auto_closed_reason.
+    auto_closed_reason: Optional[str] = None
 
 
 class CandidateSummaryOut(BaseModel):

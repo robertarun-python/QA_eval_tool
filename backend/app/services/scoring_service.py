@@ -5,7 +5,7 @@ is "what do we do with the answer" - easier to unit test scoring logic
 without mocking the Anthropic client every time.
 """
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
@@ -216,3 +216,62 @@ def score_submission_in_background(submission_id: int) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def close_expired_submissions(db: Session, submissions: list[Submission]) -> list[Submission]:
+    """The server-side counterpart to POST /round/{n}/expire (routers/
+    candidate.py), for when nobody's browser was ever there to call it -
+    a closed tab, a crash, a logout, network loss, anything. That
+    endpoint only fires because the candidate's OWN timer hit zero while
+    their page was open; if they're simply gone, their submission would
+    otherwise sit at in_progress forever, with nothing to ever close it
+    out. Called lazily at the points where a stale in_progress submission
+    actually matters - HR's time-limit edit block, HR's candidate views,
+    the candidate's own round-gating checks if they ever come back - so
+    it self-heals the moment anything looks at it, no cron job needed.
+
+    Same principle as /expire: whatever content exists (possibly none,
+    since nothing server-side ever saw draft rows a candidate never
+    submitted for rounds 1/2) becomes the final submission, scored
+    normally - "didn't attempt it" is a scoring outcome, not a special
+    case. auto_closed_reason distinguishes this from a normal submit for
+    HR, without changing what gets scored.
+
+    Deliberately does NOT close the moment a candidate merely logs out -
+    see the design discussion this came from: the deadline is the one
+    consistent rule for every candidate regardless of *how* they became
+    unreachable, so logging out just ends their session, not the round -
+    they can still come back and finish within their original time."""
+    now = datetime.utcnow()
+    closed = []
+    for submission in submissions:
+        if submission.status != RoundStatus.in_progress or submission.started_at is None:
+            continue
+        scenario = submission.scenario
+        deadline = submission.started_at + timedelta(minutes=scenario.time_limit_minutes)
+        if now < deadline:
+            continue
+
+        if submission.round_number == 1:
+            submission.content = submission.content or []
+        elif submission.round_number == 2:
+            submission.content = submission.content or {"investigation": [], "root_cause": ""}
+        # Round 3 has no content field to set - its state already lives
+        # in round3_test_cases/conversation_turns, whatever exists
+        # (including none) is what gets scored.
+
+        submission.status = RoundStatus.submitted
+        submission.auto_closed_reason = "Time limit reached without a manual submit"
+        db.commit()
+        db.refresh(submission)
+        closed.append(submission)
+
+    # Scored after all of them are closed (not while looping/committing
+    # above) so one submission's LLM call can't leave the rest of this
+    # batch's DB state half-applied if it takes a while or fails funny -
+    # each score_submission_in_background call is already its own
+    # exception-safe, self-contained unit (own session, own commit).
+    for submission in closed:
+        score_submission_in_background(submission.id)
+
+    return closed
