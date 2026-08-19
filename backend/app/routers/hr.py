@@ -656,6 +656,10 @@ _SMART_TYPOGRAPHY = {
     "–": "-", "—": "-",   # – —
     "…": "...",                # …
     "•": "-",                  # •
+    # Currency symbols outside Latin-1's coverage - genuinely present in
+    # this app's own scenario data (e.g. the seeded doctor-appointment
+    # scenario's consultation fee), not just a hypothetical LLM quirk.
+    "₹": "Rs.", "€": "EUR", "£": "GBP",
     " ": " ",                  # non-breaking space
 }
 

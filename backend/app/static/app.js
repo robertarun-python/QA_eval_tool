@@ -697,8 +697,14 @@ async function deleteScenario(id) {
 }
 
 async function loadCandidates() {
-  const candidates = await api("/hr/candidates");
   const box = document.getElementById("candidates-table");
+  let candidates;
+  try {
+    candidates = await api("/hr/candidates");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
   box.innerHTML = `
     <div class="table-scroll">
       <table>
@@ -944,7 +950,13 @@ async function openCandidateDetail(id) {
 
 async function loadAppearances(candidateId) {
   const listEl = document.getElementById("appearances-list");
-  const appearances = await api(`/hr/candidates/${candidateId}/appearances`);
+  let appearances;
+  try {
+    appearances = await api(`/hr/candidates/${candidateId}/appearances`);
+  } catch (e) {
+    listEl.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
   if (appearances.length === 0) {
     listEl.innerHTML = `<p class="muted">No upload history - this candidate wasn't created via bulk upload.</p>`;
     return;
@@ -1131,8 +1143,14 @@ function renderRound2Report(s) {
 }
 
 async function loadHistory() {
-  const history = (await api("/hr/history")).filter((h) => h.round_number === currentHRRound);
   const box = document.getElementById("history-list");
+  let history;
+  try {
+    history = (await api("/hr/history")).filter((h) => h.round_number === currentHRRound);
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
   if (history.length === 0) {
     box.innerHTML = `<div class="empty-state">No Round ${currentHRRound} scenario has been attempted by a candidate yet.</div>`;
     return;
@@ -1413,7 +1431,7 @@ function renderEntryForm(box, scenario, submission) {
     </div>
     <div class="row">
       <button onclick="addRow()">+ Add row</button>
-      <button onclick="doSubmitRound1()">Submit</button>
+      <button id="round1-submit-btn" onclick="doSubmitRound1()">Submit</button>
     </div>
     <p id="submit-status" class="muted"></p>
   `;
@@ -1454,7 +1472,7 @@ function renderInvestigationForm(box, scenario, submission) {
     <p class="muted example-note">Example format: "The [component] shows [incorrect behavior] when [condition]. Ruled out [alternative cause] because [reason]. Root cause is [cause], confirmed by [evidence]."</p>
     <textarea id="inv-root-cause"></textarea>
     <div class="row">
-      <button onclick="doSubmitRound2Investigation()">Submit</button>
+      <button id="round2-submit-btn" onclick="doSubmitRound2Investigation()">Submit</button>
     </div>
     <p id="submit-status" class="muted"></p>
   `;
@@ -1503,6 +1521,8 @@ async function doSubmitRound2Investigation(force = false) {
   // validation failure here means the round is still very much in
   // progress and must keep counting down with the guard still armed.
   const statusEl = document.getElementById("submit-status");
+  const submitBtn = document.getElementById("round2-submit-btn");
+  if (submitBtn && submitBtn.disabled) return; // guards against a double-click firing two concurrent submits
   const investigation = collectInvestigationRows();
   const root_cause = document.getElementById("inv-root-cause").value.trim();
   // force (the timer just hit zero) skips these - they exist to help a
@@ -1518,6 +1538,7 @@ async function doSubmitRound2Investigation(force = false) {
       return;
     }
   }
+  if (submitBtn) submitBtn.disabled = true;
   try {
     await api("/candidate/round/2/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
     stopTimer();
@@ -1531,6 +1552,7 @@ async function doSubmitRound2Investigation(force = false) {
       await forceExpireRound(2, { investigation, root_cause });
       return;
     }
+    if (submitBtn) submitBtn.disabled = false;
     statusEl.textContent = e.message;
   }
 }
@@ -1850,7 +1872,7 @@ function renderRound3TestCaseBody() {
   const composerHtml = `
     <textarea id="round3-message" placeholder="What do you want the assistant to do or check next?" oninput="round3OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
     <div class="row">
-      <button onclick="round3SendMessage()">Send</button>
+      <button id="round3-send-btn" onclick="round3SendMessage()">Send</button>
     </div>
   `;
 
@@ -1888,11 +1910,21 @@ async function round3SendMessage() {
   const tcId = round3ViewedTestCaseId;
   const prompt = (round3DraftBuffer[tcId] || "").trim();
   const statusEl = document.getElementById("round3-status");
+  const sendBtn = document.getElementById("round3-send-btn");
+  // Guards against a double-click firing two concurrent /turn requests -
+  // without this, both could read the same "existing turns" count before
+  // either commits and independently compute the same turn_number,
+  // landing two turns with an identical number on the same test case
+  // (plus a wasted second LLM call). renderRound3TestCaseBody() below
+  // rebuilds this button fresh (enabled) on success; the catch path
+  // re-enables it explicitly since no re-render happens there.
+  if (sendBtn && sendBtn.disabled) return;
   if (!prompt) {
     statusEl.textContent = "Type a message first.";
     return;
   }
   statusEl.textContent = "Thinking...";
+  if (sendBtn) sendBtn.disabled = true;
   try {
     await api("/candidate/round/3/turn", {
       method: "POST",
@@ -1906,6 +1938,7 @@ async function round3SendMessage() {
     renderRound3Tabs();
     renderRound3TestCaseBody();
   } catch (e) {
+    if (sendBtn) sendBtn.disabled = false;
     statusEl.textContent = e.message;
   }
 }
@@ -1986,6 +2019,13 @@ function collectRows() {
 
 async function doSubmitRound1(force = false) {
   const statusEl = document.getElementById("submit-status");
+  const submitBtn = document.getElementById("round1-submit-btn");
+  // Guards against a double-click firing two concurrent submits (the
+  // second would just 400 on the server, but this avoids the confusing
+  // in-between state and a wasted round trip) - see the identical guard
+  // on round3SendMessage for the more consequential version of this bug
+  // (there it could create two conversation turns with the same number).
+  if (submitBtn && submitBtn.disabled) return;
   const content = collectRows();
   // force (the timer just hit zero) skips these checks entirely - they
   // exist to help a candidate who still has time avoid wasting their one
@@ -2017,6 +2057,7 @@ async function doSubmitRound1(force = false) {
       return;
     }
   }
+  if (submitBtn) submitBtn.disabled = true;
   try {
     await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
     stopTimer();
@@ -2033,6 +2074,7 @@ async function doSubmitRound1(force = false) {
       await forceExpireRound(1, { content });
       return;
     }
+    if (submitBtn) submitBtn.disabled = false;
     statusEl.textContent = e.message;
   }
 }
