@@ -1627,7 +1627,11 @@ function closeModalOverlay(id) {
   const overlay = document.getElementById(id);
   if (!overlay) return;
   overlay.classList.remove("modal-open");
-  setTimeout(() => overlay.remove(), 200);
+  // Tracked on the element itself so a re-open during this 200ms fade
+  // (see showFsOverlay) can cancel it - otherwise the delayed remove()
+  // still fires and deletes an overlay that was just reopened.
+  clearTimeout(overlay._closeTimeout);
+  overlay._closeTimeout = setTimeout(() => overlay.remove(), 200);
 }
 
 function showRoundIntro(n, timeLimitMinutes) {
@@ -2666,7 +2670,18 @@ document.addEventListener("fullscreenchange", () => {
 });
 
 function showFsOverlay(roundNumber) {
-  if (document.getElementById("fs-guard-overlay")) return;
+  // A rapid exit/re-enter/exit-fullscreen sequence can call this again
+  // while the previous overlay is still mid fade-out (see
+  // closeModalOverlay's 200ms delayed remove()) - reuse it and cancel
+  // that pending removal instead of silently no-op'ing, or the delayed
+  // remove() still fires afterward and deletes the overlay this call
+  // was supposed to guarantee is showing.
+  const existing = document.getElementById("fs-guard-overlay");
+  if (existing) {
+    clearTimeout(existing._closeTimeout);
+    existing.classList.add("modal-open");
+    return;
+  }
   const overlay = document.createElement("div");
   overlay.id = "fs-guard-overlay";
   overlay.className = "modal-overlay";

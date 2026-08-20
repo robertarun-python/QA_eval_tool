@@ -660,6 +660,39 @@ def test_round3_reference_resyncs_when_round1_scenario_changes(client, monkeypat
     assert fresh["environment_json"]["fields"]["call number"] == "1"
 
 
+def test_round3_resync_skipped_while_a_candidate_is_mid_round3(client, monkeypatch):
+    """Same "don't change the rules mid-conversation" guard every other
+    round3-config mutation already has (see _require_round3_not_in_progress)
+    must also apply here - promoting a new round1 scenario live is an
+    action about round 1, but it's exactly what triggers this resync, so
+    without the guard a candidate's environment/screens could silently
+    change out from under them mid-round-3."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="First app")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, band="0-7")
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch, band="0-7")
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+
+    calls = []
+    monkeypatch.setattr(llm_service, "generate_round3_environment", lambda **kwargs: calls.append(1) or {"fields": {}, "notes": ""})
+    monkeypatch.setattr(llm_service, "generate_round3_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+
+    second_round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Second app")
+    res = client.post(f"/hr/scenarios/{second_round1['id']}/move-to-screening", cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert len(calls) == 0  # resync must not run while candidate1 is mid-round-3
+
+    # Genuinely unchanged - not just "no new call happened to differ".
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["environment_json"] == FAKE_ENVIRONMENT
+    assert fresh["ui_mockup_json"] == FAKE_UI_MOCKUP
+
+
 def test_round3_config_can_be_changed_on_a_live_scenario(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     round3 = _publish_round3_scenario(client, hr_token, monkeypatch)

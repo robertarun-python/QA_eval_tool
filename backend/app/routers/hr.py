@@ -179,7 +179,16 @@ def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) ->
 
     Best-effort: a failure here (LLM error, bad shape) must not block the
     round1 publish/promotion that triggered it - HR still has the manual
-    Regenerate button on round3 as a fallback."""
+    Regenerate button on round3 as a fallback.
+
+    Also skipped (silently, same best-effort spirit) while any candidate
+    is actively mid-round-3 on that live scenario - same "don't change
+    the rules mid-conversation" guard as every other round3-config
+    mutation (see _require_round3_not_in_progress). This action is about
+    round 1, not round 3, but round 1 going live is exactly what
+    triggers this resync, so without the guard a candidate's
+    environment/screens could silently change out from under them
+    mid-conversation."""
     if round1_scenario.round_number != 1:
         return
     live_round3 = db.query(Scenario).filter(
@@ -188,6 +197,17 @@ def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) ->
         Scenario.is_live.is_(True),
     ).first()
     if live_round3 is None:
+        return
+    in_progress_count = (
+        db.query(Submission)
+        .filter(
+            Submission.scenario_id == live_round3.id,
+            Submission.status == RoundStatus.in_progress,
+            Submission.archived.is_(False),
+        )
+        .count()
+    )
+    if in_progress_count > 0:
         return
     try:
         live_round3.environment_json = llm_service.generate_round3_environment(
