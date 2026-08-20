@@ -565,6 +565,74 @@ def test_round3_code_snippet_is_persisted_not_regenerated_on_repeat_views(client
     assert call_count["n"] == 2
 
 
+def test_round3_code_snippet_rechecks_the_cache_after_acquiring_the_lock(client, monkeypatch):
+    """round3_turn_code's check-then-generate-then-persist sequence used
+    to have no locking, so two concurrent requests for the same (turn,
+    language) - e.g. the candidate opening the same turn's code view in
+    two tabs - could both see the cache empty and both call the LLM,
+    whichever commits last silently winning. Verified here with a
+    deterministic stand-in for the race rather than real threads: a
+    real thread-based version of this test was flaky, because this test
+    DB's shared single SQLite connection (StaticPool, needed so the
+    in-memory DB persists across sessions - see conftest.py) isn't safe
+    for genuinely concurrent multi-threaded access, independent of
+    whether the app's own locking is correct.
+
+    Simulates another request having already generated and committed a
+    value for this exact (turn, language) WHILE this request was
+    waiting to acquire _round3_code_lock, by writing it directly to the
+    DB as a side effect of entering the lock. The generator must then
+    never run - this is exactly the re-check round3_turn_code does
+    right after acquiring the lock (see its db.refresh(turn) call)."""
+    import app.database as database_module
+    from app.models import ConversationTurn
+    from app.routers import candidate as candidate_router
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+    tc = _create_round3_test_case(client, cand_token, title="Login happy path")
+    turn = client.post(
+        "/candidate/round/3/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
+    ).json()
+
+    real_lock = candidate_router._round3_code_lock(turn["id"])
+
+    class _LockThatSimulatesAConcurrentWriter:
+        def __enter__(self):
+            real_lock.acquire()
+            db = database_module.SessionLocal()
+            row = db.get(ConversationTurn, turn["id"])
+            row.generated_code_json = {"python": "# written by a 'concurrent' request"}
+            db.commit()
+            db.close()
+            return self
+
+        def __exit__(self, *exc):
+            real_lock.release()
+            return False
+
+    monkeypatch.setattr(candidate_router, "_round3_code_lock", lambda turn_id: _LockThatSimulatesAConcurrentWriter())
+
+    def _must_not_be_called(**kwargs):
+        raise AssertionError(
+            "generate_round3_code_snippet ran - the recheck under the lock should have found the cache already populated"
+        )
+
+    monkeypatch.setattr(llm_service, "generate_round3_code_snippet", _must_not_be_called)
+
+    res = client.get(f"/candidate/round/3/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token))
+    assert res.status_code == 200
+    assert res.json()["code"] == "# written by a 'concurrent' request"
+
+
 def test_round3_code_snippet_rejects_invalid_language_and_foreign_turn(client, monkeypatch):
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "round3_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))

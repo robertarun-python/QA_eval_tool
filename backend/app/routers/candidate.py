@@ -4,6 +4,7 @@ current round + the candidate's own band, start the timer, submit, and view
 past results. Rounds are gated - a candidate can't reach round N until
 round N-1 has been submitted.
 """
+import threading
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -23,6 +24,25 @@ from ..services import llm_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 ROUND3_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
+
+# Serializes the generate-then-persist section of round3_turn_code per
+# turn (see below) - two concurrent requests for the same (turn,
+# language), e.g. the candidate opening the same turn's code view in
+# two tabs, would otherwise both see the cache empty and both call the
+# LLM, and whichever commits last would silently overwrite the other's
+# cached code. One lock per turn_id (not a single global lock) so
+# unrelated turns/candidates never wait on each other.
+_round3_code_locks: dict[int, threading.Lock] = {}
+_round3_code_locks_guard = threading.Lock()
+
+
+def _round3_code_lock(turn_id: int) -> threading.Lock:
+    with _round3_code_locks_guard:
+        lock = _round3_code_locks.get(turn_id)
+        if lock is None:
+            lock = threading.Lock()
+            _round3_code_locks[turn_id] = lock
+        return lock
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
 _VALID_TYPES = ("Positive", "Negative", "Boundary", "Edge")
@@ -392,19 +412,28 @@ def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
     if cached is not None:
         return Round3CodeSnippetOut(language=language, code=cached)
 
-    try:
-        code = llm_service.generate_round3_code_snippet(
-            test_case_title=turn.test_case.title,
-            steps=turn.model_response.get("steps", []),
-            observed_result=turn.model_response.get("observed_result", ""),
-            language=language,
-        )
-    except Exception:
-        raise HTTPException(502, "Couldn't generate a code snippet just now - try again.")
+    with _round3_code_lock(turn_id):
+        # Another request for this exact turn may have generated and
+        # committed while we were waiting for the lock - re-read rather
+        # than trust the pre-lock snapshot above.
+        db.refresh(turn)
+        cached = (turn.generated_code_json or {}).get(language)
+        if cached is not None:
+            return Round3CodeSnippetOut(language=language, code=cached)
 
-    turn.generated_code_json = {**(turn.generated_code_json or {}), language: code}
-    db.commit()
-    return Round3CodeSnippetOut(language=language, code=code)
+        try:
+            code = llm_service.generate_round3_code_snippet(
+                test_case_title=turn.test_case.title,
+                steps=turn.model_response.get("steps", []),
+                observed_result=turn.model_response.get("observed_result", ""),
+                language=language,
+            )
+        except Exception:
+            raise HTTPException(502, "Couldn't generate a code snippet just now - try again.")
+
+        turn.generated_code_json = {**(turn.generated_code_json or {}), language: code}
+        db.commit()
+        return Round3CodeSnippetOut(language=language, code=code)
 
 
 @router.post("/round/3/submit", response_model=SubmissionOut, status_code=201)

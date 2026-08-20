@@ -61,6 +61,12 @@ class AppSettingsOut(BaseModel):
     round3_passing_score: int
     final_passing_score: int
     reapplication_window_months: int
+    # Read-only here - see config.py's round3_default_assistance_pct.
+    # Not part of AppSettingsUpdate below: it's an env-sourced,
+    # deployment-level fallback, not something HR edits through this
+    # form. Exposed purely so app.js's round3 settings card can read the
+    # real server default instead of hardcoding its own separate copy.
+    round3_default_assistance_pct: int
 
     class Config:
         from_attributes = True

@@ -22,6 +22,7 @@ from fpdf import FPDF
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..database import get_db
 from ..models import (
     User, Scenario, ScenarioStatus, Submission, Score, RoundStatus, ExperienceBand, Role, AppSettings,
@@ -64,9 +65,25 @@ def get_settings(db: Session) -> AppSettings:
     return app_settings
 
 
+def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
+    """AppSettingsOut mixes the DB-backed, HR-editable fields on
+    app_settings with config.py's round3_default_assistance_pct - a
+    separate, env-sourced, read-only fallback (see that schema's
+    docstring) - so it can't just be `return app_settings` like the rest
+    of this file's response_model endpoints."""
+    return AppSettingsOut(
+        round1_passing_score=app_settings.round1_passing_score,
+        round2_passing_score=app_settings.round2_passing_score,
+        round3_passing_score=app_settings.round3_passing_score,
+        final_passing_score=app_settings.final_passing_score,
+        reapplication_window_months=app_settings.reapplication_window_months,
+        round3_default_assistance_pct=settings.round3_default_assistance_pct,
+    )
+
+
 @router.get("/settings", response_model=AppSettingsOut)
 def get_app_settings(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    return get_settings(db)
+    return _app_settings_out(get_settings(db))
 
 
 @router.put("/settings", response_model=AppSettingsOut)
@@ -76,7 +93,7 @@ def update_app_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db
         setattr(app_settings, field, value)
     db.commit()
     db.refresh(app_settings)
-    return app_settings
+    return _app_settings_out(app_settings)
 
 
 @router.post("/scenarios", response_model=ScenarioOut, status_code=201)

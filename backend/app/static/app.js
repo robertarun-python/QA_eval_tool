@@ -721,7 +721,13 @@ async function loadRound3Settings() {
 }
 
 function renderRound3SettingsCard(scenario, groundedInTitle, bandLabel) {
-  const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || 60; // 60 mirrors config.py's round3_default_assistance_pct fallback
+  // 60 below is a defensive fallback only (e.g. this renders before
+  // appSettings has loaded) - the real default always comes from the
+  // server (see AppSettingsOut.round3_default_assistance_pct /
+  // config.py's round3_default_assistance_pct), same pattern as
+  // passingScoreForRound() above.
+  const serverDefault = (appSettings && appSettings.round3_default_assistance_pct) ?? 60;
+  const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || serverDefault;
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
       <h3>Round 3 - ${bandLabel} <span class="badge badge-published">LIVE</span></h3>
@@ -2749,9 +2755,15 @@ window.addEventListener("focus", () => {
   showTabSwitchToast();
 });
 
+// Tracks the current toast's pending auto-dismiss timer, so a later
+// toast (same element id, reused on every tab-switch) can never be cut
+// short by an earlier toast's timer that outlived a manual dismiss.
+let tabSwitchToastTimer = null;
+
 function showTabSwitchToast() {
   const existing = document.getElementById("tab-switch-toast");
   if (existing) existing.remove();
+  clearTimeout(tabSwitchToastTimer);
   const toast = document.createElement("div");
   toast.id = "tab-switch-toast";
   toast.className = "toast";
@@ -2761,10 +2773,11 @@ function showTabSwitchToast() {
   `;
   document.body.appendChild(toast);
   requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add("toast-open")));
-  setTimeout(dismissTabSwitchToast, 6000);
+  tabSwitchToastTimer = setTimeout(dismissTabSwitchToast, 6000);
 }
 
 function dismissTabSwitchToast() {
+  clearTimeout(tabSwitchToastTimer);
   const toast = document.getElementById("tab-switch-toast");
   if (!toast) return;
   toast.classList.remove("toast-open");

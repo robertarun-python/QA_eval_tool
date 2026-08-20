@@ -19,7 +19,25 @@ def test_default_settings_row_exists(client):
         "round3_passing_score": 70,
         "final_passing_score": 210,
         "reapplication_window_months": 6,
+        "round3_default_assistance_pct": 60,
     }
+
+
+def test_settings_exposes_the_round3_default_assistance_pct_read_only(client):
+    """See config.py's round3_default_assistance_pct - an env-sourced,
+    deployment-level fallback (not HR-editable through this form, unlike
+    the passing-score fields above), exposed here purely so the HR round3
+    settings card in app.js can read the real server default instead of
+    hardcoding its own separate copy of it."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    payload = {
+        "round1_passing_score": 60, "round2_passing_score": 80, "round3_passing_score": 75,
+        "final_passing_score": 200, "reapplication_window_months": 3,
+    }
+    res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    # Unaffected by the PUT - it isn't part of AppSettingsUpdate.
+    assert res.json()["round3_default_assistance_pct"] == 60
 
 
 def test_settings_round_trip(client):
@@ -33,10 +51,10 @@ def test_settings_round_trip(client):
     }
     res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
     assert res.status_code == 200
-    assert res.json() == payload
+    assert res.json() == {**payload, "round3_default_assistance_pct": 60}
 
     res = client.get("/hr/settings", cookies=_auth(hr_token))
-    assert res.json() == payload
+    assert res.json() == {**payload, "round3_default_assistance_pct": 60}
 
 
 def test_settings_reject_out_of_range_values(client):
