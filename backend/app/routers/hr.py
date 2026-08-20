@@ -33,7 +33,7 @@ from ..schemas import (
     Round3TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
-    ScenarioTimeLimitUpdate,
+    ScenarioTimeLimitUpdate, Round3ConfigUpdate, Round3InstructionsUpdate,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
@@ -203,7 +203,20 @@ def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) ->
 
 @router.post("/scenarios/{scenario_id}/regenerate-reference", response_model=ScenarioOut)
 def regenerate_reference(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    scenario = _get_draft_scenario_or_404(scenario_id, db)
+    """Draft-only for round 1/2 (see _get_draft_scenario_or_404) - their
+    reference is a fixed answer key candidates get scored against, so
+    regenerating it on a live scenario would be rewriting the ground
+    truth out from under whoever's already been scored. Round 3 has no
+    such answer key (its "reference" is just environment/screen flavor
+    text), and its scenarios go live immediately on creation (see
+    createRound3Scenario in app.js) rather than sitting as a draft
+    first, so it gets the same live-editable-but-blocked-mid-round
+    treatment as its other settings instead."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is not None and scenario.round_number == 3:
+        _require_round3_not_in_progress(scenario_id, db, "regenerate this round's environment & screens")
+    else:
+        scenario = _get_draft_scenario_or_404(scenario_id, db)
     _generate_reference(scenario, db)
     return scenario
 
@@ -290,6 +303,73 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
         )
 
     scenario.time_limit_minutes = payload.time_limit_minutes
+    db.commit()
+    db.refresh(scenario)
+    return scenario
+
+
+def _get_round3_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    if scenario.round_number != 3:
+        raise HTTPException(400, "This setting only applies to round 3 scenarios.")
+    return scenario
+
+
+def _require_round3_not_in_progress(scenario_id: int, db: Session, action: str) -> None:
+    """Shared by round3-config and round3-instructions below. Scoped to
+    this one exact scenario, not band-wide like the time-limit block:
+    both of these only ever affect round 3's own LLM calls, so a
+    candidate mid-round-1 or -2 hasn't touched this scenario's behavior
+    yet and isn't affected either way. Blocked because changing either
+    mid-conversation would mean that same candidate's later turns get
+    judged under different rules than their earlier ones - a fairness
+    problem regardless of timing."""
+    in_progress_count = (
+        db.query(Submission)
+        .filter(
+            Submission.scenario_id == scenario_id,
+            Submission.status == RoundStatus.in_progress,
+            Submission.archived.is_(False),
+        )
+        .count()
+    )
+    if in_progress_count > 0:
+        raise HTTPException(
+            409,
+            f"Can't {action} right now - {in_progress_count} candidate{'s are' if in_progress_count != 1 else ' is'} "
+            f"actively in this round. Changing it mid-conversation would judge them under different rules than they started with.",
+        )
+
+
+@router.patch("/scenarios/{scenario_id}/round3-config", response_model=ScenarioOut)
+def update_round3_config(scenario_id: int, payload: Round3ConfigUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """The one round3-specific tunable exposed to HR: how often the
+    simulated assistant gets things right per turn (see Round3ConfigUpdate
+    and llm_service.DEFAULT_ROUND3_CONFIG). Allowed regardless of draft/
+    published/live status, same reasoning as update_scenario_time_limit -
+    doesn't retroactively invalidate anything already scored."""
+    scenario = _get_round3_scenario_or_404(scenario_id, db)
+    _require_round3_not_in_progress(scenario_id, db, "change the assistant's accuracy")
+
+    scenario.config_json = {**(scenario.config_json or {}), "assistance_pct": payload.assistance_pct}
+    db.commit()
+    db.refresh(scenario)
+    return scenario
+
+
+@router.patch("/scenarios/{scenario_id}/round3-instructions", response_model=ScenarioOut)
+def update_round3_instructions(scenario_id: int, payload: Round3InstructionsUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Title/description on a round3 scenario, editable regardless of
+    status - unlike round1/2 (see ScenarioUpdate, draft-only), round 3
+    has no fixed reference answer gating a "review before publish" step,
+    so there's no equivalent reason to restrict this to drafts."""
+    scenario = _get_round3_scenario_or_404(scenario_id, db)
+    _require_round3_not_in_progress(scenario_id, db, "change this round's instructions")
+
+    scenario.title = payload.title
+    scenario.description = payload.description
     db.commit()
     db.refresh(scenario)
     return scenario

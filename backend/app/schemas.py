@@ -121,6 +121,29 @@ class ScenarioTimeLimitUpdate(BaseModel):
     time_limit_minutes: int = Field(ge=1)
 
 
+class Round3ConfigUpdate(BaseModel):
+    """See hr.py's PATCH /scenarios/{id}/round3-config - the one round3-
+    specific tunable exposed to HR: how often the simulated assistant
+    gets things right per turn (Scenario.config_json["assistance_pct"],
+    see llm_service.DEFAULT_ROUND3_CONFIG). Bounded away from the
+    extremes - 0% or 100% both defeat the exercise, since an assistant
+    that's always wrong or always right gives the candidate nothing
+    real to verify."""
+    assistance_pct: int = Field(ge=10, le=95)
+
+
+class Round3InstructionsUpdate(BaseModel):
+    """See hr.py's PATCH /scenarios/{id}/round3-instructions - editing
+    title/description on a round3 scenario regardless of status, same
+    reasoning and blocking as Round3ConfigUpdate above. Round 1/2 keep
+    title/description as draft-only edits (see ScenarioUpdate) because
+    they gate a fixed reference answer that's meaningful to review before
+    publishing; round 3 has no such reference, so there's no equivalent
+    reason to restrict this to drafts."""
+    title: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+
+
 class ScenarioPublicOut(BaseModel):
     """Candidate-facing scenario shape - deliberately excludes
     reference_json. That's the answer key; it must never reach a
@@ -149,6 +172,10 @@ class ScenarioOut(ScenarioPublicOut):
     # for direct candidate display rather than HR's raw-JSON review.
     environment_json: Optional[dict] = None
     ui_mockup_json: Optional[dict] = None
+    # Round 3 only in practice (round 1/2 scenarios never set anything
+    # here) - see Round3ConfigUpdate. HR-facing so the assistant-accuracy
+    # editor can show the current value; candidates never see this.
+    config_json: dict[str, Any] = {}
 
 
 # ---- Submissions / Round 1 ----

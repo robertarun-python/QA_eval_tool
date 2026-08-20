@@ -63,8 +63,8 @@
               <div id="live-scenario-list"></div>
             </div>
 
-            <div class="card-grid">
-              <div class="panel card">
+            <div class="card-grid" id="create-scenario-row">
+              <div class="panel card" id="create-scenario-panel">
                 <h3>Create a scenario</h3>
                 <p id="hr-round-context" class="muted"></p>
                 <div class="field-row">
@@ -73,8 +73,8 @@
                     <option value="7+">7+ years</option>
                   </select>
                   <div class="field-inline">
-                    <input id="s-time-limit" type="number" min="1" value="30" />
                     <span class="muted">min limit</span>
+                    <input id="s-time-limit" type="number" min="1" value="30" />
                   </div>
                 </div>
                 <input id="s-title" placeholder="Scenario title" oninput="updateCreateBtnState()" />
@@ -83,7 +83,7 @@
                 <p id="hr-create-status" class="muted"></p>
               </div>
 
-              <div class="panel card">
+              <div class="panel card" id="scenarios-list-panel">
                 <h3>Scenarios</h3>
                 <div id="scenario-list"></div>
               </div>
@@ -91,11 +91,18 @@
 
             <div id="scenario-detail" class="panel hidden"></div>
 
-            <div class="panel">
+            <div class="panel" id="screening-history-panel">
               <h3>Screening history</h3>
               <p class="muted">Every scenario in this round that's actually been put in front of candidates, and how it performed - use this before writing a new one, so you're not repeating a question that's already too easy, too hard, or ambiguous.</p>
               <div id="history-list"></div>
             </div>
+
+            <!-- Round 3 only (see selectHRRound/loadRound3Settings): no
+                 fixed reference answer to author/review/compare across
+                 versions, and only ever one meaningful configuration per
+                 band - the sections above don't map onto that, so round 3
+                 gets this single settings view instead of all of them. -->
+            <div id="round3-settings-panel" class="hidden"></div>
           </div>
 
           <div id="hr-page-candidates" class="hidden">
@@ -122,13 +129,13 @@
               <h3>Pass criteria</h3>
               <p class="muted">Changes apply immediately across the app - no restart needed.</p>
               <div class="field-row">
-                <div class="field-inline"><input id="set-round1" type="number" min="0" max="100" /><span class="muted">Round 1 pass score</span></div>
-                <div class="field-inline"><input id="set-round2" type="number" min="0" max="100" /><span class="muted">Round 2 pass score</span></div>
-                <div class="field-inline"><input id="set-round3" type="number" min="0" max="100" /><span class="muted">Round 3 pass score</span></div>
+                <div class="field-inline"><span class="muted">Round 1 pass score</span><input id="set-round1" type="number" min="0" max="100" /></div>
+                <div class="field-inline"><span class="muted">Round 2 pass score</span><input id="set-round2" type="number" min="0" max="100" /></div>
+                <div class="field-inline"><span class="muted">Round 3 pass score</span><input id="set-round3" type="number" min="0" max="100" /></div>
               </div>
               <div class="field-row">
-                <div class="field-inline"><input id="set-final" type="number" min="0" max="300" /><span class="muted">Final pass score (out of 300)</span></div>
-                <div class="field-inline"><input id="set-window" type="number" min="1" /><span class="muted">Re-application window (months)</span></div>
+                <div class="field-inline"><span class="muted">Final pass score (out of 300)</span><input id="set-final" type="number" min="0" max="300" /></div>
+                <div class="field-inline"><span class="muted">Re-application window (months)</span><input id="set-window" type="number" min="1" /></div>
               </div>
               <button onclick="saveAppSettings()">Save</button>
               <p id="settings-status" class="muted"></p>

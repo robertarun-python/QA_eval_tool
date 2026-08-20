@@ -75,6 +75,50 @@ function apiErrorMessage(data, fallback) {
   return fallback;
 }
 
+// HR-authored scenario descriptions are free text, and routinely include
+// a table pasted straight from Excel/Word - which arrives here as plain
+// tab-separated lines (e.g. "Feature\tWhat to verify\nLogin\tValid/invalid
+// login, mandatory fields\n..."). Rendered as plain pre-line text those
+// tabs collapse to a single space, so the "table" reads as one unreadable
+// run-on line per row. Any line containing a tab is treated as a table
+// row instead (first such line in a run becomes the header row); every
+// other line keeps the old pre-line paragraph treatment, so a scenario
+// that's just prose renders exactly as it did before.
+function formatScenarioDescription(description) {
+  const lines = (description || "").split("\n");
+  let html = "";
+  let textBuf = [];
+  let tableBuf = [];
+
+  function flushText() {
+    if (textBuf.length === 0) return;
+    html += `<p class="scenario-description">${escapeHtml(textBuf.join("\n"))}</p>`;
+    textBuf = [];
+  }
+  function flushTable() {
+    if (tableBuf.length === 0) return;
+    const rows = tableBuf.map((line) => line.split("\t").map((cell) => cell.trim()));
+    const [headerRow, ...bodyRows] = rows;
+    const thead = `<thead><tr>${headerRow.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${bodyRows.map((cells) => `<tr>${cells.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+    html += `<div class="table-scroll"><table>${thead}${tbody}</table></div>`;
+    tableBuf = [];
+  }
+
+  for (const line of lines) {
+    if (line.includes("\t")) {
+      flushText();
+      tableBuf.push(line);
+    } else {
+      flushTable();
+      textBuf.push(line);
+    }
+  }
+  flushText();
+  flushTable();
+  return html;
+}
+
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: jsonHeaders(), ...opts });
   if (res.status === 401) {
@@ -189,6 +233,12 @@ function onLoggedIn() {
   document.getElementById("app-shell").classList.remove("hidden");
   renderWho();
   loadWhoAmI();
+  // Only one of these two navs gets rendered below, based on role - but
+  // logging out doesn't clear either one, so without this, logging into
+  // a different role on the same page (no full reload) left the previous
+  // role's nav sitting in the DOM alongside the new one.
+  document.getElementById("hr-round-nav").innerHTML = "";
+  document.getElementById("candidate-round-nav").innerHTML = "";
   if (role === "hr") {
     document.getElementById("hr-panel").classList.remove("hidden");
     renderHRRoundNav();
@@ -259,11 +309,30 @@ function selectHRRound(n) {
   currentHRRound = n;
   hrPage = "rounds";
   renderHRRoundNav();
-  document.getElementById("scenario-detail").classList.add("hidden");
-  resetCreateScenarioForm();
-  loadLiveScenarioWidget();
-  loadScenarios();
-  loadHistory();
+  // Defensive reset, same panels closeScenarioDetail restores - if a
+  // scenario's detail was left open when HR switched rounds, its
+  // hidden/full-width state shouldn't follow them to a round they
+  // haven't opened anything in yet.
+  closeScenarioDetail();
+
+  const isRound3 = n === 3;
+  // Round 3 gets its own single settings view instead of the round1/2
+  // author/review/publish flow - see loadRound3Settings for why none of
+  // that maps onto round 3's actual shape (no fixed reference, no
+  // meaningfully different "versions" to browse or compare).
+  document.getElementById("live-scenario-panel").classList.toggle("hidden", isRound3);
+  document.getElementById("create-scenario-row").classList.toggle("hidden", isRound3);
+  document.getElementById("screening-history-panel").classList.toggle("hidden", isRound3);
+  document.getElementById("round3-settings-panel").classList.toggle("hidden", !isRound3);
+
+  if (isRound3) {
+    loadRound3Settings();
+  } else {
+    resetCreateScenarioForm();
+    loadLiveScenarioWidget();
+    loadScenarios();
+    loadHistory();
+  }
 }
 
 // Standalone, always-visible time-limit editor for whichever scenario(s)
@@ -291,8 +360,8 @@ async function loadLiveScenarioWidget() {
       <p><strong>${escapeHtml(s.title)}</strong> <span class="badge badge-published">LIVE</span> · ${s.experience_band}</p>
       <div class="row" style="align-items:center">
         <div class="field-inline">
-          <input id="live-time-limit-${s.id}" type="number" min="1" value="${s.time_limit_minutes}" />
           <span class="muted">min limit</span>
+          <input id="live-time-limit-${s.id}" type="number" min="1" value="${s.time_limit_minutes}" />
         </div>
         <button onclick="saveLiveTimeLimit(${s.id})">Save</button>
       </div>
@@ -517,6 +586,14 @@ async function openScenarioDetail(id) {
     return;
   }
   box.classList.remove("hidden");
+  // Reviewing one scenario isn't the moment to also be looking at
+  // "Create a scenario" or the round's whole screening history - hide
+  // both while the detail is open (restored by closeScenarioDetail
+  // below, or by switching rounds - see selectHRRound) so the Scenarios
+  // list isn't competing with two unrelated panels for attention.
+  document.getElementById("create-scenario-panel").classList.add("hidden");
+  document.getElementById("screening-history-panel").classList.add("hidden");
+  document.getElementById("scenarios-list-panel").classList.add("scenarios-list-panel-full");
   // Everything below this point (through the box.innerHTML assignment
   // near the end of this function) used to be outside any try/catch -
   // the fetch above was covered, but a template-construction error
@@ -545,58 +622,48 @@ async function openScenarioDetail(id) {
   `).join("");
 
   const isDraft = scenario.status === "draft";
-  const isRound3 = scenario.round_number === 3;
+  // Round 3 no longer routes through here at all (see loadRound3Settings/
+  // renderRound3SettingsCard) - it has no fixed reference to author/
+  // review/compare across versions the way round 1/2 do, so it gets its
+  // own dedicated settings panel instead of a "Review" flow into this one.
   box.innerHTML = `
-    <h3>#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${statusLabel(scenario.status)}</span>${scenario.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</h3>
+    <div class="row" style="align-items:center; justify-content:space-between">
+      <h3 style="margin:0">#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${statusLabel(scenario.status)}</span>${scenario.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</h3>
+      <button class="btn-ghost" onclick="closeScenarioDetail()">Close</button>
+    </div>
     ${scenario.is_live ? `<p class="muted">This is the one scenario Round ${scenario.round_number} / ${scenario.experience_band} candidates currently see.</p>` : ""}
     <p class="muted">Round ${scenario.round_number} · ${scenario.experience_band}</p>
-    <div class="row" style="align-items:center">
-      <div class="field-inline">
-        <input id="time-limit-edit" type="number" min="1" value="${scenario.time_limit_minutes}" />
-        <span class="muted">min limit</span>
-      </div>
-      <button onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
-    </div>
-    <p class="scenario-description">${escapeHtml(scenario.description)}</p>
-    ${isRound3 ? `
-      <div class="hint-box">Round 3 has no fixed test-case reference to review - each candidate automates their own Round 1 answer, open-endedly (no fixed category or count), so there's nothing to approve there. This description is the instructions candidates see. The assistance level (60% helpfulness) currently uses a sensible default, not per-scenario configuration.</div>
-      <h4>Test environment (auto-generated, shown to candidates)</h4>
-      ${scenario.environment_json ? `
-        <div class="hint-box env-panel">
-          <dl class="env-fields">
-            ${Object.entries(scenario.environment_json.fields || {}).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
-          </dl>
-          ${scenario.environment_json.notes ? `<p>${escapeHtml(scenario.environment_json.notes)}</p>` : ""}
-        </div>
-      ` : `<p class="muted">No test environment generated yet.</p>`}
-      <h4>Reference app screens (auto-generated, shown to candidates)</h4>
-      ${scenario.ui_mockup_json ? renderMockupScreens(scenario.ui_mockup_json, "hr-mockup") : `<p class="muted">No reference screens generated yet.</p>`}
-      ${isDraft ? `
-        <div class="row">
-          <button id="regenerate-btn" onclick="regenerateReference(${scenario.id})">Regenerate environment &amp; screens</button>
-        </div>
-      ` : ""}
+    ${scenario.is_live ? `
+      <p class="muted">Time limit is editable from the "Live scenario time limit" panel above - no need to repeat it here.</p>
     ` : `
-      <h4>Reference answer ${isDraft ? "(review before publishing)" : ""}</h4>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th>${showPriorityType ? "<th>Priority</th><th>Type</th>" : ""}</tr></thead>
-          <tbody>${refRows || `<tr><td colspan="${showPriorityType ? 7 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
-        </table>
-      </div>
-      ${isDraft ? `
-        <details>
-          <summary>Edit reference as JSON</summary>
-          <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || [], null, 2))}</textarea>
-          <div class="row">
-            <button onclick="saveReferenceEdit(${scenario.id})">Save edits</button>
-          </div>
-        </details>
-        <div class="row">
-          <button id="regenerate-btn" onclick="regenerateReference(${scenario.id})">Regenerate reference</button>
+      <div class="row" style="align-items:center">
+        <div class="field-inline">
+          <span class="muted">min limit</span>
+          <input id="time-limit-edit" type="number" min="1" value="${scenario.time_limit_minutes}" />
         </div>
-      ` : ""}
+        <button onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
+      </div>
     `}
+    ${formatScenarioDescription(scenario.description)}
+    <h4>Reference answer ${isDraft ? "(review before publishing)" : ""}</h4>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th>${showPriorityType ? "<th>Priority</th><th>Type</th>" : ""}</tr></thead>
+        <tbody>${refRows || `<tr><td colspan="${showPriorityType ? 7 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
+      </table>
+    </div>
+    ${isDraft ? `
+      <details>
+        <summary>Edit reference as JSON</summary>
+        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || [], null, 2))}</textarea>
+        <div class="row">
+          <button onclick="saveReferenceEdit(${scenario.id})">Save edits</button>
+        </div>
+      </details>
+      <div class="row">
+        <button id="regenerate-btn" onclick="regenerateReference(${scenario.id})">Regenerate reference</button>
+      </div>
+    ` : ""}
     ${isDraft ? `
       <div class="row">
         <button onclick="publishScenario(${scenario.id})">Publish</button>
@@ -607,6 +674,197 @@ async function openScenarioDetail(id) {
   `;
   } catch (e) {
     box.innerHTML = `<p class="muted">Couldn't render this scenario's detail view: ${escapeHtml(e.message)}. Check the browser console for more, and try a hard refresh (Ctrl+Shift+R) in case this page is running an old cached version.</p>`;
+  }
+}
+
+// Undoes the panel-hiding openScenarioDetail does above - restores
+// "Create a scenario" and "Screening history" once HR is done reviewing
+// this one scenario.
+function closeScenarioDetail() {
+  document.getElementById("scenario-detail").classList.add("hidden");
+  document.getElementById("create-scenario-panel").classList.remove("hidden");
+  document.getElementById("screening-history-panel").classList.remove("hidden");
+  document.getElementById("scenarios-list-panel").classList.remove("scenarios-list-panel-full");
+}
+
+// ---- Round 3 settings: one card per experience band, replacing the
+// round1/2-style Create-a-scenario/Scenarios-list/Screening-history flow
+// entirely (see selectHRRound). Round 3 has no fixed reference to
+// author, review, or compare across versions - each candidate automates
+// their own round 1 answer, and the environment/screens are auto-
+// generated, not HR-authored - so there's no "library of scenarios" to
+// browse the way round 1/2 genuinely have, and never more than one
+// meaningful configuration per band worth looking at.
+
+const ROUND3_BANDS = [["0-7", "0-7 years"], ["7+", "7+ years"]];
+
+async function loadRound3Settings() {
+  const box = document.getElementById("round3-settings-panel");
+  let allScenarios;
+  try {
+    allScenarios = await api("/hr/scenarios");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
+  // Only bands with an actual live scenario show anything at all - a
+  // band nobody's set up yet is simply not shown, full stop, not a
+  // "create one" prompt for a band that isn't even being screened right
+  // now (bootstrapping round 3 for a new band, if ever needed, is a
+  // direct API action, not a standing part of this page).
+  box.innerHTML = ROUND3_BANDS.map(([band, bandLabel]) => {
+    const liveScenario = allScenarios.find((s) => s.round_number === 3 && s.experience_band === band && s.is_live);
+    if (!liveScenario) return "";
+    const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === band && s.is_live);
+    return renderRound3SettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, bandLabel);
+  }).join("");
+}
+
+function renderRound3SettingsCard(scenario, groundedInTitle, bandLabel) {
+  const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || 60; // 60 mirrors config.py's round3_default_assistance_pct fallback
+  return `
+    <div class="panel card" style="margin-bottom:1.5rem">
+      <h3>Round 3 - ${bandLabel} <span class="badge badge-published">LIVE</span></h3>
+      <p class="muted">This is what Round 3 / ${scenario.experience_band} candidates currently see.</p>
+
+      <h4>Instructions</h4>
+      <p class="muted">What candidates read when they open this round.</p>
+      <input id="r3-title-${scenario.id}" value="${escapeHtml(scenario.title)}" />
+      <textarea id="r3-desc-${scenario.id}">${escapeHtml(scenario.description)}</textarea>
+      <div class="row">
+        <button onclick="saveRound3Instructions(${scenario.id})">Save instructions</button>
+      </div>
+
+      <h4>Time limit</h4>
+      <div class="row" style="align-items:center">
+        <div class="field-inline">
+          <span class="muted">min limit</span>
+          <input id="r3-time-limit-${scenario.id}" type="number" min="1" value="${scenario.time_limit_minutes}" />
+        </div>
+        <button onclick="saveRound3TimeLimit(${scenario.id})">Save</button>
+      </div>
+
+      <h4>Assistant accuracy</h4>
+      <p class="muted">How often the simulated assistant gets things right per turn - the rest of the time it confidently reports a flawed result, on purpose, for the candidate to catch. Lower means more planted issues; higher means fewer.</p>
+      <div class="row" style="align-items:center">
+        <div class="field-inline">
+          <span class="muted">% correct per turn</span>
+          <input id="round3-config-edit-${scenario.id}" type="number" min="10" max="95" value="${assistancePct}" />
+        </div>
+        <button onclick="saveRound3ConfigEdit(${scenario.id})">Save</button>
+      </div>
+
+      <h4>How this round works</h4>
+      <details class="hint-box">
+        <summary>Guardrails the assistant follows (for reference - not shown to candidates this way)</summary>
+        <ul style="margin:0.5rem 0 0; padding-left:1.2rem">
+          <li>Deliberately correct only ~${assistancePct}% of the time per turn (see above) - candidates are told this upfront.</li>
+          <li>Never shows real code by default - only plain-English steps and observed results. A candidate can optionally view a completed turn rendered as a code snippet, but that snippet never contains pass/fail judgments either.</li>
+          <li>Never states or hints which category (UI, API, DB, end-to-end) a candidate's test case falls into - that's for the candidate to reason out themselves.</li>
+          <li>Refuses to discuss other candidates, skip ahead to a result, or mark everything as passed without actually simulating it - regardless of how the request is framed.</li>
+        </ul>
+      </details>
+
+      <h4>Grounded in</h4>
+      <p class="muted">${groundedInTitle
+        ? `This round's test environment &amp; reference screens are auto-generated from <strong>${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live for this band. They resync automatically whenever a different round 1 scenario goes live here.`
+        : `No round 1 scenario is currently live for this band - the environment/screens below fell back to this scenario's own description instead. They'll resync automatically once one is published.`}</p>
+
+      <details>
+        <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>
+        ${scenario.environment_json ? `
+          <div class="hint-box env-panel">
+            <dl class="env-fields">
+              ${Object.entries(scenario.environment_json.fields || {}).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+            </dl>
+            ${scenario.environment_json.notes ? `<p>${escapeHtml(scenario.environment_json.notes)}</p>` : ""}
+          </div>
+        ` : `<p class="muted">No test environment generated yet.</p>`}
+        ${scenario.ui_mockup_json ? renderMockupScreens(scenario.ui_mockup_json, `hr-mockup-${scenario.id}`) : `<p class="muted">No reference screens generated yet.</p>`}
+        <div class="row">
+          <button id="r3-regen-btn-${scenario.id}" onclick="regenerateRound3Reference(${scenario.id})">Regenerate environment &amp; screens</button>
+        </div>
+      </details>
+
+      <p id="r3-status-${scenario.id}" class="muted"></p>
+    </div>
+  `;
+}
+
+async function saveRound3Instructions(id) {
+  const statusEl = document.getElementById(`r3-status-${id}`);
+  const title = document.getElementById(`r3-title-${id}`).value.trim();
+  const description = document.getElementById(`r3-desc-${id}`).value.trim();
+  statusEl.className = "muted";
+  if (!title || !description) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Title and instructions are both required.";
+    return;
+  }
+  try {
+    await api(`/hr/scenarios/${id}/round3-instructions`, { method: "PATCH", body: JSON.stringify({ title, description }) });
+    statusEl.textContent = "Saved.";
+  } catch (e) {
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  }
+}
+
+async function saveRound3TimeLimit(id) {
+  const statusEl = document.getElementById(`r3-status-${id}`);
+  const inputEl = document.getElementById(`r3-time-limit-${id}`);
+  const value = Number(inputEl.value);
+  statusEl.className = "muted";
+  if (!Number.isInteger(value) || value < 1) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Time limit must be a whole number of minutes, at least 1.";
+    return;
+  }
+  try {
+    await api(`/hr/scenarios/${id}/time-limit`, { method: "PATCH", body: JSON.stringify({ time_limit_minutes: value }) });
+    statusEl.textContent = "Saved.";
+  } catch (e) {
+    inputEl.value = inputEl.defaultValue;
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  }
+}
+
+async function saveRound3ConfigEdit(id) {
+  const statusEl = document.getElementById(`r3-status-${id}`);
+  const inputEl = document.getElementById(`round3-config-edit-${id}`);
+  const value = Number(inputEl.value);
+  statusEl.className = "muted";
+  if (!Number.isInteger(value) || value < 10 || value > 95) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Assistant accuracy must be a whole number between 10 and 95.";
+    return;
+  }
+  try {
+    await api(`/hr/scenarios/${id}/round3-config`, { method: "PATCH", body: JSON.stringify({ assistance_pct: value }) });
+    statusEl.textContent = "Saved.";
+  } catch (e) {
+    inputEl.value = inputEl.defaultValue;
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  }
+}
+
+async function regenerateRound3Reference(id) {
+  const statusEl = document.getElementById(`r3-status-${id}`);
+  const btn = document.getElementById(`r3-regen-btn-${id}`);
+  btn.disabled = true;
+  btn.textContent = "Regenerating...";
+  statusEl.className = "muted";
+  statusEl.textContent = "Regenerating (a few seconds)...";
+  try {
+    await api(`/hr/scenarios/${id}/regenerate-reference`, { method: "POST" });
+    loadRound3Settings();
+  } catch (e) {
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+    btn.disabled = false;
+    btn.textContent = "Regenerate environment & screens";
   }
 }
 
@@ -1334,7 +1592,7 @@ function renderRoundView(box, n, state) {
       // either way, since the timer only starts on that click.
       box.innerHTML = `
         <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
-        <p class="scenario-description">${escapeHtml(scenario.description)}</p>
+        ${formatScenarioDescription(scenario.description)}
         <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
       `;
       showRound3Intro();
@@ -1345,7 +1603,7 @@ function renderRoundView(box, n, state) {
     // is what actually starts the timer.
     box.innerHTML = `
       <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
-      <p class="scenario-description">${escapeHtml(scenario.description)}</p>
+      ${formatScenarioDescription(scenario.description)}
       <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
     `;
     showRoundIntro(n, scenario.time_limit_minutes);
@@ -1353,6 +1611,23 @@ function renderRoundView(box, n, state) {
   }
 
   renderRoundEntry(n, box, scenario, submission);
+}
+
+// Shared open/close for every full-screen modal-overlay (round intros,
+// the fullscreen guard) - appends first, then flips .modal-open a frame
+// later so the CSS transition actually has a "before" state to animate
+// from; closing reverses that and waits out the transition before
+// removing the node, so it fades instead of slamming away.
+function openModalOverlay(overlay) {
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add("modal-open")));
+}
+
+function closeModalOverlay(id) {
+  const overlay = document.getElementById(id);
+  if (!overlay) return;
+  overlay.classList.remove("modal-open");
+  setTimeout(() => overlay.remove(), 200);
 }
 
 function showRoundIntro(n, timeLimitMinutes) {
@@ -1372,12 +1647,11 @@ function showRoundIntro(n, timeLimitMinutes) {
       </div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  openModalOverlay(overlay);
 }
 
 function confirmStartRound(n) {
-  const overlay = document.getElementById("round-intro-overlay");
-  if (overlay) overlay.remove();
+  closeModalOverlay("round-intro-overlay");
   startRound(n);
 }
 
@@ -1418,12 +1692,11 @@ function showRound3Intro() {
       </div>
     </div>
   `;
-  document.body.appendChild(overlay);
+  openModalOverlay(overlay);
 }
 
 function confirmStartRound3() {
-  const overlay = document.getElementById("round3-intro-overlay");
-  if (overlay) overlay.remove();
+  closeModalOverlay("round3-intro-overlay");
   startRound(3);
 }
 
@@ -1447,7 +1720,7 @@ function renderEntryForm(box, scenario, submission) {
   rowCount = 0;
   box.innerHTML = `
     <h3>Round 1: ${escapeHtml(scenario.title)}</h3>
-    <p class="scenario-description">${escapeHtml(scenario.description)}</p>
+    ${formatScenarioDescription(scenario.description)}
     <div class="table-scroll">
       <table>
         <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th><th></th></tr></thead>
@@ -1479,7 +1752,7 @@ function renderInvestigationForm(box, scenario, submission) {
   rowCount = 0;
   box.innerHTML = `
     <h3>Round 2: ${escapeHtml(scenario.title)}</h3>
-    <p class="scenario-description">${escapeHtml(scenario.description)}</p>
+    ${formatScenarioDescription(scenario.description)}
     <div class="table-scroll">
       <table>
         <thead><tr><th>SI.No</th><th>Investigation area</th><th></th></tr></thead>
@@ -1664,6 +1937,27 @@ async function showRound3Code(turnId) {
   }
 }
 
+// A "label" element immediately followed by a "text" element is a
+// detail-view field (Title / The Great Gatsby), not two independent
+// headings - see renderMockupScreens below for why that distinction
+// matters. Any other element (including a label with no following
+// text, or two labels/texts that aren't adjacent) passes through
+// unchanged.
+function groupMockupElements(elements) {
+  const grouped = [];
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    const next = elements[i + 1];
+    if (el.type === "label" && next && next.type === "text") {
+      grouped.push({ kind: "field", label: el.text, value: next.text });
+      i++; // consumed both
+    } else {
+      grouped.push(el);
+    }
+  }
+  return grouped;
+}
+
 // Shared by the candidate's round 3 view and HR's scenario detail -
 // renders Round3UiMockupOut's structured screens (screen -> ordered
 // typed elements) as a static, schematic wireframe. Deliberately never
@@ -1686,11 +1980,17 @@ function renderMockupScreens(mockup, idPrefix) {
   // window a tester would have open, without pretending to be a real
   // screenshot. Elements below flow in a wrapping row (see .mockup-
   // screen-body) instead of one per line, so short controls like a
-  // button next to a link sit side by side - labels/standalone text
-  // still force their own line (a section heading shouldn't blend into
-  // the controls next to it), input fields lay their caption beside the
-  // box instead of above it. Both save real vertical space over the
-  // one-element-per-line version this replaces.
+  // button next to a link sit side by side - a genuinely standalone
+  // label/text (a section heading, a status message) still forces its
+  // own line so it doesn't blend into the controls next to it, input
+  // fields lay their caption beside the box instead of above it. A
+  // "label" element immediately followed by a "text" element (e.g.
+  // {label:"Title"}, {text:"The Great Gatsby"}) is a detail-view field,
+  // not two separate headings - a details/summary screen is routinely
+  // ALL such pairs back to back (see groupMockupElements below), and
+  // rendering each half as its own identically-styled full-width line
+  // read as a wall of disconnected, misaligned text. Merged into one
+  // compact "label: value" row instead.
   const panels = screens.map((screen, i) => `
     <div class="mockup-screen ${i === 0 ? "" : "hidden"}" id="${idPrefix}-screen-${i}">
       <div class="mockup-screen-chrome">
@@ -1700,7 +2000,12 @@ function renderMockupScreens(mockup, idPrefix) {
         <span class="mockup-screen-url">${escapeHtml(screen.name)}</span>
       </div>
       <div class="mockup-screen-body">
-        ${screen.elements.map((el) => `
+        ${groupMockupElements(screen.elements).map((el) => el.kind === "field" ? `
+          <div class="mockup-el mockup-el-field">
+            <span class="mockup-el-field-label">${escapeHtml(el.label)}</span>
+            <span class="mockup-el-field-value">${escapeHtml(el.value)}</span>
+          </div>
+        ` : `
           <div class="mockup-el mockup-el-${el.type}">
             ${el.type === "input" ? `<span class="mockup-el-caption">${escapeHtml(el.text)}</span><span class="mockup-el-box"></span>` : escapeHtml(el.text)}
           </div>
@@ -1799,7 +2104,7 @@ function renderRound3Layout(box) {
 
   box.innerHTML = `
     <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
-    <p class="scenario-description">${escapeHtml(s.scenario.description)}</p>
+    ${formatScenarioDescription(s.scenario.description)}
     <details class="hint-box">
       <summary><strong>Automating your own Round 1 answer</strong> - "${escapeHtml(s.round1_context.scenario_title)}"</summary>
       <p>${escapeHtml(s.round1_context.scenario_description)}</p>
@@ -2376,12 +2681,11 @@ function showFsOverlay(roundNumber) {
       <p id="fs-guard-status" class="muted"></p>
     </div>
   `;
-  document.body.appendChild(overlay);
+  openModalOverlay(overlay);
 }
 
 function removeFsOverlay() {
-  const overlay = document.getElementById("fs-guard-overlay");
-  if (overlay) overlay.remove();
+  closeModalOverlay("fs-guard-overlay");
 }
 
 function reenterFullscreen() {
@@ -2438,10 +2742,18 @@ function showTabSwitchToast() {
   toast.className = "toast";
   toast.innerHTML = `
     <span>You switched away from this test - it's been logged and is visible to HR.</span>
-    <button class="toast-dismiss" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>
+    <button class="toast-dismiss" onclick="dismissTabSwitchToast()" aria-label="Dismiss">&times;</button>
   `;
   document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 6000);
+  requestAnimationFrame(() => requestAnimationFrame(() => toast.classList.add("toast-open")));
+  setTimeout(dismissTabSwitchToast, 6000);
+}
+
+function dismissTabSwitchToast() {
+  const toast = document.getElementById("tab-switch-toast");
+  if (!toast) return;
+  toast.classList.remove("toast-open");
+  setTimeout(() => toast.remove(), 200);
 }
 
 function escapeHtml(str) {

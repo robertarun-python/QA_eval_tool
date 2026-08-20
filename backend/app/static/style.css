@@ -379,6 +379,11 @@ p:empty { display: none; margin: 0; }
   align-items: stretch;
   margin-bottom: 1.5rem;
 }
+/* While a scenario's detail is open (see openScenarioDetail), "Create a
+   scenario" hides so the Scenarios list isn't competing with two other
+   panels for attention - it takes the full row instead of sitting alone
+   in one column with an empty gap where Create used to be. */
+.scenarios-list-panel-full { grid-column: 1 / -1; }
 
 @media (max-width: 1000px) {
   .card-grid { grid-template-columns: 1fr; }
@@ -815,6 +820,21 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
    100% inside the wrapping row above) keeps it from blending into the
    buttons/inputs that follow it. */
 .mockup-el-label, .mockup-el-text { flex-basis: 100%; color: var(--muted); font-weight: 600; }
+/* A label immediately followed by a text element (see app.js's
+   groupMockupElements) is a detail-view field, not two headings - a
+   details/summary screen is routinely all such pairs back to back
+   (Title / The Great Gatsby, Author / F. Scott Fitzgerald, ...), and
+   rendering each half on its own identically-styled full-width line
+   read as a wall of disconnected, misaligned text. One compact row per
+   field instead, label muted/small, value in the normal reading color. */
+.mockup-el-field {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-basis: 100%;
+}
+.mockup-el-field-label { color: var(--muted); font-size: 0.76rem; font-weight: 600; flex-shrink: 0; }
+.mockup-el-field-value { color: var(--text-dim); }
 .mockup-el-button {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -858,7 +878,9 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   position: fixed;
   bottom: 1.25rem;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, 8px);
+  opacity: 0;
+  transition: transform 200ms var(--ease), opacity 200ms var(--ease);
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -872,6 +894,7 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   font-size: 0.87rem;
   color: var(--text-dim);
 }
+.toast.toast-open { transform: translate(-50%, 0); opacity: 1; }
 .toast-dismiss {
   background: none;
   border: none;
@@ -897,7 +920,10 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   padding: 1.25rem;
   background: rgba(5, 6, 9, 0.72);
   backdrop-filter: blur(2px);
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
 }
+.modal-overlay.modal-open { opacity: 1; }
 .modal-box {
   width: 100%;
   max-width: 26rem;
@@ -906,7 +932,11 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: 1.5rem;
+  transform: scale(0.96);
+  opacity: 0;
+  transition: transform 200ms var(--ease), opacity 200ms var(--ease);
 }
+.modal-overlay.modal-open .modal-box { transform: scale(1); opacity: 1; }
 .modal-box h3 { color: var(--bad); }
 
 /* Neutral variant - informational briefings (e.g. the round 3 pre-start
@@ -926,3 +956,10 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   line-height: 1.55;
 }
 .modal-box.neutral li:last-child { margin-bottom: 0; }
+
+/* Reduced motion: keep the opacity fade on modals/toasts (it aids
+   comprehension - something just appeared), drop the scale/slide. */
+@media (prefers-reduced-motion: reduce) {
+  .modal-box, .modal-overlay.modal-open .modal-box { transform: none; transition: opacity 150ms ease; }
+  .toast, .toast.toast-open { transform: translate(-50%, 0); transition: opacity 150ms ease; }
+}

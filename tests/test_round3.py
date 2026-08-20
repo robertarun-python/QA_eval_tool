@@ -658,3 +658,181 @@ def test_round3_reference_resyncs_when_round1_scenario_changes(client, monkeypat
 
     fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
     assert fresh["environment_json"]["fields"]["call number"] == "1"
+
+
+def test_round3_config_can_be_changed_on_a_live_scenario(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+    assert round3.get("id") is not None
+
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["config_json"] == {}  # nothing set yet - falls back to the global default elsewhere
+
+    res = client.patch(f"/hr/scenarios/{round3['id']}/round3-config", json={"assistance_pct": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["config_json"]["assistance_pct"] == 45
+
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["config_json"]["assistance_pct"] == 45
+
+
+def test_round3_config_blocked_while_a_candidate_is_mid_round3(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+
+    res = client.patch(f"/hr/scenarios/{round3['id']}/round3-config", json={"assistance_pct": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 409
+    assert CANDIDATE1_EMAIL in res.json()["detail"] or "1 candidate is" in res.json()["detail"]
+
+    # Genuinely unchanged.
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["config_json"] == {}
+
+
+def test_round3_config_not_blocked_by_a_different_round3_scenario(client, monkeypatch):
+    """Scoped to the exact scenario, not band-wide like the time-limit
+    block - a candidate mid-round-1 or -2 hasn't touched round 3's own
+    behavior at all yet, so it shouldn't block editing it."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))  # mid-round-1 only, never reached round 3
+
+    res = client.patch(f"/hr/scenarios/{round3['id']}/round3-config", json={"assistance_pct": 45}, cookies=_auth(hr_token))
+    assert res.status_code == 200
+
+
+def test_round3_config_validates_bounds_and_round_number(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+    round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="7+", title="A round 1 scenario")
+
+    res = client.patch(f"/hr/scenarios/{round3['id']}/round3-config", json={"assistance_pct": 5}, cookies=_auth(hr_token))
+    assert res.status_code == 422
+    res = client.patch(f"/hr/scenarios/{round3['id']}/round3-config", json={"assistance_pct": 99}, cookies=_auth(hr_token))
+    assert res.status_code == 422
+
+    res = client.patch(f"/hr/scenarios/{round1['id']}/round3-config", json={"assistance_pct": 50}, cookies=_auth(hr_token))
+    assert res.status_code == 400
+
+    res = client.patch("/hr/scenarios/999999/round3-config", json={"assistance_pct": 50}, cookies=_auth(hr_token))
+    assert res.status_code == 404
+
+
+def test_round3_config_requires_hr(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.patch(f"/hr/scenarios/{round3['id']}/round3-config", json={"assistance_pct": 50}, cookies=_auth(cand_token))
+    assert res.status_code == 403
+
+
+def test_round3_instructions_editable_regardless_of_status(client, monkeypatch):
+    """Unlike round1/2's title/description (draft-only, see
+    test_updating_one_scenarios_time_limit_never_touches_another and
+    friends in test_round1.py), round3 has no fixed reference answer
+    gating a review-before-publish step, so this is editable on the
+    live scenario directly."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["status"] == "published"
+    assert fresh["is_live"] is True
+
+    res = client.patch(
+        f"/hr/scenarios/{round3['id']}/round3-instructions",
+        json={"title": "New title", "description": "New instructions for the candidate."},
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 200
+    assert res.json()["title"] == "New title"
+    assert res.json()["description"] == "New instructions for the candidate."
+    assert res.json()["status"] == "published"  # unaffected
+
+
+def test_round3_instructions_blocked_while_a_candidate_is_mid_round3(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+
+    res = client.patch(
+        f"/hr/scenarios/{round3['id']}/round3-instructions",
+        json={"title": "New title", "description": "New instructions."},
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 409
+
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["title"] != "New title"
+
+
+def test_round3_instructions_validates_round_number_and_requires_hr(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+    round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="7+", title="A round 1 scenario")
+
+    res = client.patch(
+        f"/hr/scenarios/{round1['id']}/round3-instructions",
+        json={"title": "x", "description": "y"},
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 400
+
+    res = client.patch("/hr/scenarios/999999/round3-instructions", json={"title": "x", "description": "y"}, cookies=_auth(hr_token))
+    assert res.status_code == 404
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.patch(
+        f"/hr/scenarios/{round3['id']}/round3-instructions",
+        json={"title": "x", "description": "y"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 403
+
+
+def test_round3_regenerate_reference_works_on_a_live_scenario(client, monkeypatch):
+    """Round 1/2's regenerate-reference stays draft-only (it's rewriting
+    a fixed answer key candidates get scored against), but round 3
+    scenarios go live immediately on creation and have no such answer
+    key - this needs to work on the live scenario or it could never be
+    used again after creation."""
+    from app.services import llm_service
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    fresh = client.get(f"/hr/scenarios/{round3['id']}", cookies=_auth(hr_token)).json()
+    assert fresh["status"] == "published"
+
+    monkeypatch.setattr(llm_service, "generate_round3_environment", lambda **kwargs: {"fields": {"regenerated": "yes"}, "notes": ""})
+    res = client.post(f"/hr/scenarios/{round3['id']}/regenerate-reference", cookies=_auth(hr_token))
+    assert res.status_code == 200
+    assert res.json()["environment_json"]["fields"]["regenerated"] == "yes"
+
+
+def test_round3_regenerate_reference_blocked_while_a_candidate_is_mid_round3(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    round3 = _publish_round3_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, cand_token, monkeypatch)
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+
+    res = client.post(f"/hr/scenarios/{round3['id']}/regenerate-reference", cookies=_auth(hr_token))
+    assert res.status_code == 409
