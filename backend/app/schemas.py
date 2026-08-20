@@ -207,14 +207,17 @@ class Round2SubmissionCreate(BaseModel):
     root_cause: str = Field(min_length=1)
 
 
-# ---- Round timeout auto-close ----
+# ---- Round timeout auto-close / in-progress autosave ----
 #
 # Deliberately permissive, unlike SubmissionCreate/Round2SubmissionCreate
 # above: those exist to stop a candidate who still has time from wasting
-# their one submit on empty/incomplete work. Once the timer has actually
-# hit zero the opposite rule applies - whatever's there (even nothing)
-# must still close the round out and unlock the next one, never leave the
-# candidate stuck. See candidate.py's POST /round/{n}/expire.
+# their one submit on empty/incomplete work. Both /expire (once the
+# timer has actually hit zero) and /draft (periodic autosave while a
+# round is still genuinely in progress - the rounds 1/2 equivalent of
+# round 3's PATCH /round/3/test-case/{id}/draft) need the opposite rule:
+# whatever's there, even nothing, must be acceptable. Shared by both
+# rather than two near-identical schemas - see candidate.py's POST
+# /round/{n}/expire and PATCH /round/{n}/draft.
 
 class ExpireRoundPayload(BaseModel):
     content: list[dict] = []          # round 1 rows, as collected client-side

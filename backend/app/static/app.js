@@ -1724,7 +1724,38 @@ function renderRoundEntry(n, box, scenario, submission) {
   }
 }
 
+// Periodic autosave for rounds 1/2's whole-form in-progress content (see
+// candidate.py's PATCH /round/{n}/draft) - the same "so a crash/refresh
+// doesn't silently lose typed work while the timer keeps running"
+// guarantee round 3's test cases already have (see
+// ROUND3_DRAFT_DEBOUNCE_MS below), just for one whole-round form instead
+// of a per-test-case composer. Debounced so normal typing doesn't fire a
+// request per keystroke; best-effort (like round3FlushDraft) since the
+// DOM itself is always the source of truth for what's on screen right
+// now - a failed autosave only risks losing up to the debounce window's
+// worth of typing on an actual crash/refresh, never anything visible.
+const ROUND_DRAFT_DEBOUNCE_MS = 2000;
+let roundDraftTimer = null;
+
+function scheduleRoundDraftSave(roundNumber, buildPayload) {
+  clearTimeout(roundDraftTimer);
+  roundDraftTimer = setTimeout(() => flushRoundDraft(roundNumber, buildPayload), ROUND_DRAFT_DEBOUNCE_MS);
+}
+
+function flushRoundDraft(roundNumber, buildPayload) {
+  clearTimeout(roundDraftTimer);
+  roundDraftTimer = null;
+  api(`/candidate/round/${roundNumber}/draft`, {
+    method: "PATCH",
+    body: JSON.stringify(buildPayload()),
+  }).catch(() => {}); // best-effort - see comment above
+}
+
 // Round 1: repeatable test-case rows (title/preconditions/steps/expected_result).
+
+function round1DraftPayload() {
+  return { content: collectRows() };
+}
 
 function renderEntryForm(box, scenario, submission) {
   rowCount = 0;
@@ -1744,8 +1775,17 @@ function renderEntryForm(box, scenario, submission) {
     </div>
     <p id="submit-status" class="muted"></p>
   `;
-  addRow();
-  addRow();
+  // Resume from whatever was last autosaved server-side (see
+  // round1DraftPayload/save_round_draft) rather than always starting
+  // from two blank rows - a page refresh mid-round must not look like a
+  // fresh start.
+  const savedRows = Array.isArray(submission.content) ? submission.content : [];
+  if (savedRows.length > 0) {
+    savedRows.forEach((row) => addRow(row));
+  } else {
+    addRow();
+    addRow();
+  }
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
@@ -1757,6 +1797,13 @@ function renderEntryForm(box, scenario, submission) {
 // list of areas checked (SI.No + one free-text field each) plus a single
 // closing "Possible Root Cause" box where the candidate states what they
 // eliminated and what they concluded. See schemas.Round2SubmissionCreate.
+
+function round2DraftPayload() {
+  return {
+    investigation: collectInvestigationRows(),
+    root_cause: document.getElementById("inv-root-cause").value,
+  };
+}
 
 function renderInvestigationForm(box, scenario, submission) {
   rowCount = 0;
@@ -1778,14 +1825,27 @@ function renderInvestigationForm(box, scenario, submission) {
     <h4>Possible Root Cause</h4>
     <p class="muted">What you investigated, which areas you eliminated, and your conclusion.</p>
     <p class="muted example-note">Example format: "The [component] shows [incorrect behavior] when [condition]. Ruled out [alternative cause] because [reason]. Root cause is [cause], confirmed by [evidence]."</p>
-    <textarea id="inv-root-cause"></textarea>
+    <textarea id="inv-root-cause" oninput="scheduleRoundDraftSave(2, round2DraftPayload)"></textarea>
     <div class="row">
       <button id="round2-submit-btn" onclick="doSubmitRound2Investigation()">Submit</button>
     </div>
     <p id="submit-status" class="muted"></p>
   `;
-  addInvestigationRow();
-  addInvestigationRow();
+  // Resume from whatever was last autosaved server-side (see
+  // round2DraftPayload/save_round_draft) rather than always starting
+  // from two blank rows - a page refresh mid-round must not look like a
+  // fresh start.
+  const saved = submission.content && typeof submission.content === "object" ? submission.content : null;
+  const savedRows = saved && Array.isArray(saved.investigation) ? saved.investigation : [];
+  if (savedRows.length > 0) {
+    savedRows.forEach((row) => addInvestigationRow(row));
+  } else {
+    addInvestigationRow();
+    addInvestigationRow();
+  }
+  if (saved && saved.root_cause) {
+    document.getElementById("inv-root-cause").value = saved.root_cause;
+  }
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
@@ -1793,23 +1853,25 @@ function renderInvestigationForm(box, scenario, submission) {
   }, 2);
 }
 
-function addInvestigationRow() {
+function addInvestigationRow(initial = null) {
   const id = rowCount++;
   const tbody = document.getElementById("inv-rows");
   const tr = document.createElement("tr");
   tr.id = `inv-row-${id}`;
   tr.innerHTML = `
     <td class="inv-no"></td>
-    <td><textarea class="inv-area"></textarea></td>
+    <td><textarea class="inv-area" oninput="scheduleRoundDraftSave(2, round2DraftPayload)"></textarea></td>
     <td><button onclick="removeInvestigationRow('inv-row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
+  if (initial) tr.querySelector(".inv-area").value = initial.area || "";
   renumberInvestigationRows();
 }
 
 function removeInvestigationRow(rowId) {
   document.getElementById(rowId).remove();
   renumberInvestigationRows();
+  scheduleRoundDraftSave(2, round2DraftPayload); // removing a row must survive a refresh too, not just additions
 }
 
 function renumberInvestigationRows() {
@@ -2458,26 +2520,33 @@ function exampleTestCaseRowHtml() {
   `;
 }
 
-function addRow() {
+function addRow(initial = null) {
   const id = rowCount++;
   const tbody = document.getElementById("tc-rows");
   const tr = document.createElement("tr");
   tr.id = `row-${id}`;
   tr.innerHTML = `
     <td class="tc-no"></td>
-    <td><input class="tc-title" /></td>
-    <td><input class="tc-pre" /></td>
-    <td><textarea class="tc-steps"></textarea></td>
-    <td><textarea class="tc-expected"></textarea></td>
+    <td><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
+    <td><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
+    <td><textarea class="tc-steps" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
+    <td><textarea class="tc-expected" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
     <td><button onclick="removeRow('row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
+  if (initial) {
+    tr.querySelector(".tc-title").value = initial.title || "";
+    tr.querySelector(".tc-pre").value = initial.preconditions || "";
+    tr.querySelector(".tc-steps").value = initial.steps || "";
+    tr.querySelector(".tc-expected").value = initial.expected_result || "";
+  }
   renumberRows();
 }
 
 function removeRow(rowId) {
   document.getElementById(rowId).remove();
   renumberRows();
+  scheduleRoundDraftSave(1, round1DraftPayload); // removing a row must survive a refresh too, not just additions
 }
 
 function renumberRows() {

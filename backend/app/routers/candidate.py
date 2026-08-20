@@ -49,13 +49,14 @@ _VALID_TYPES = ("Positive", "Negative", "Boundary", "Edge")
 
 
 def _sanitize_expired_round1_row(row: dict) -> dict:
-    """Round 1 content coming through /expire skips TestCaseRow's
-    min_length validation on purpose (see ExpireRoundPayload) - a
-    timed-out round must close with whatever's there, blank fields
-    included, not get rejected for being incomplete. Still coerced to
-    the same shape/types the rest of the app (scoring, HR's report view)
-    expects, so a stray non-string or invalid literal from a malformed
-    direct API call can't reach either of those."""
+    """Round 1 content coming through /expire or /draft skips
+    TestCaseRow's min_length validation on purpose (see
+    ExpireRoundPayload) - a timed-out or in-progress round must save
+    whatever's there, blank fields included, not get rejected for being
+    incomplete. Still coerced to the same shape/types the rest of the
+    app (scoring, HR's report view) expects, so a stray non-string or
+    invalid literal from a malformed direct API call can't reach either
+    of those."""
     return {
         "title": str(row.get("title") or ""),
         "preconditions": str(row.get("preconditions") or ""),
@@ -605,6 +606,54 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     events = list(submission.tab_switch_events_json or [])
     events.append(datetime.utcnow().isoformat())
     submission.tab_switch_events_json = events
+    db.commit()
+
+
+@router.patch("/round/{round_number}/draft", status_code=204)
+def save_round_draft(
+    round_number: int,
+    payload: ExpireRoundPayload,
+    db: Session = Depends(get_db),
+    candidate: User = Depends(require_candidate),
+):
+    """Periodic autosave for rounds 1/2's in-progress content, the same
+    pattern round 3's test cases already have (see round3_save_draft
+    above) - so a crash, refresh, or network loss mid-round doesn't
+    silently lose typed-but-unsubmitted work while the timer keeps
+    counting down. Reuses ExpireRoundPayload's shape (deliberately
+    permissive - see its docstring), but unlike /expire below this never
+    touches submission.status or checks the deadline: only a real
+    Submit, or /expire once the deadline has genuinely passed, ever ends
+    the round. Round 3 has no equivalent here - it already autosaves per
+    test case instead (PATCH /round/3/test-case/{id}/draft), since it
+    has no single whole-round form the way rounds 1/2 do."""
+    if round_number not in (1, 2):
+        raise HTTPException(400, "round_number must be 1 or 2 - round 3 autosaves per test case, see PATCH /round/3/test-case/{id}/draft.")
+    _require_round_unlocked(round_number, db, candidate)
+    scenario = _live_scenario(db, round_number, candidate)
+    if scenario is None:
+        raise HTTPException(404, "No published scenario for this round.")
+    submission = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+    if submission is None or submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round isn't in progress - nothing to autosave.")
+
+    if round_number == 1:
+        submission.content = [_sanitize_expired_round1_row(r) for r in payload.content]
+    else:
+        # Unlike /expire below (which drops a row with no area filled in
+        # - a finalized answer should only keep what's genuinely there),
+        # this keeps every row exactly as typed, including a blank one
+        # mid-edit: a draft restore has to reproduce the exact editing
+        # state, not silently delete a row the candidate hasn't finished
+        # typing into yet.
+        submission.content = {
+            "investigation": [{"area": str(r.get("area") or "")} for r in payload.investigation],
+            "root_cause": payload.root_cause or "",
+        }
     db.commit()
 
 
