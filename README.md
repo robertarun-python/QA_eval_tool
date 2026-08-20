@@ -99,20 +99,19 @@ pytest ../tests
 
 ## What's next
 
-Rounds 1 and 2 both have a full authoring→publish→timed-submit→scoring
-pipeline. Round 3 (prompt-refinement automation) is still stubbed —
-HR can already author/publish Round 3 scenarios (the draft→publish
-lifecycle is round-agnostic), but candidate-side submission and
-scoring return `501`. It's flagged with `TODO(round3)` comments in
-`backend/app/services/llm_service.py`, `backend/app/routers/hr.py`, and
-`backend/app/routers/candidate.py` — it needs a different shape than
-rounds 1/2 (conversational, not a structured-row form), so it's its own
-build rather than a copy of the round 1/2 pattern.
+All three rounds now have a full authoring→publish→timed-submit→scoring
+pipeline, including Round 3's conversational prompt-driven automation —
+the candidate directs a deliberately-imperfect assistant through a chat
+per self-titled test case, an execution trace is simulated in the same
+call, and one holistic score is generated from the full transcript. See
+ARCHITECTURE.md's "Round mechanics" section for the full shape of all
+three rounds.
 
 Other things worth tackling as this grows past POC stage: Alembic
-migrations instead of `create_all`, moving the JWT out of a JS variable
-into an httpOnly cookie, autosaving a candidate's in-progress rows so a
-page refresh mid-round doesn't lose typed-but-unsubmitted work, and —
-once real concurrent HR/candidate usage shows up — swapping
-`DATABASE_URL` to Postgres (no code changes needed elsewhere, see
-ARCHITECTURE.md).
+migrations instead of the current stack of manual, order-dependent
+`migrate_*.py` scripts under `backend/app/`, autosaving a candidate's
+in-progress rows on rounds 1/2 the way Round 3's test cases already
+autosave a draft (so a page refresh mid-round doesn't lose
+typed-but-unsubmitted work), and — once real concurrent HR/candidate
+usage shows up — swapping `DATABASE_URL` to Postgres (no code changes
+needed elsewhere, see ARCHITECTURE.md).
