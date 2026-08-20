@@ -19,3 +19,8 @@ QA tool info.txt
 
 # Generated report output (HR's candidate-summary PDF export), not source.
 *-summary.pdf
+
+# Locally-installed third-party agent skill packages, not app code.
+backend/.claude/
+backend/.agents/
+backend/skills-lock.json
