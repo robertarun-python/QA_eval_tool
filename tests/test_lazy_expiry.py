@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 
 from .conftest import (
     HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD,
-    _login, _auth, _publish_scenario,
+    _login, _auth, _publish_scenario, _publish_round3_scenario,
 )
 
 
@@ -161,3 +161,181 @@ def test_a_normal_submit_has_no_auto_closed_reason(client, monkeypatch):
     c1 = next(c for c in report if c["email"] == CANDIDATE1_EMAIL)
     round1 = next(r for r in c1["rounds"] if r["round_number"] == 1)
     assert round1["auto_closed_reason"] is None
+
+
+def test_close_expired_submissions_schedules_scoring_as_a_background_task_not_inline(client, monkeypatch):
+    """close_expired_submissions must schedule each newly-closed
+    submission's scoring via BackgroundTasks, same as every submit
+    endpoint already does (submit_round/submit_round2/round3_submit/
+    expire_round) - not call score_submission_in_background directly.
+    Direct calls block whichever request happened to be the one that
+    lazily closed the submission (e.g. HR's /candidates dashboard, which
+    can lazily close several abandoned submissions in a single request)
+    on a real LLM call before the response can be sent."""
+    from fastapi import BackgroundTasks
+    import app.database as database_module
+    from app.models import Submission, User
+    from app.services import scoring_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch)
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    _set_started_at(1, minutes_ago=31)
+
+    called = []
+    monkeypatch.setattr(scoring_service, "score_submission_in_background", lambda sid: called.append(sid))
+
+    db = database_module.SessionLocal()
+    user = db.query(User).filter(User.email == CANDIDATE1_EMAIL).one()
+    submission = db.query(Submission).filter(Submission.round_number == 1, Submission.user_id == user.id).one()
+
+    background_tasks = BackgroundTasks()
+    scoring_service.close_expired_submissions(db, [submission], background_tasks)
+
+    assert called == [], "scoring must not run inline - it must be scheduled for after the response is sent"
+    assert len(background_tasks.tasks) == 1
+
+    db.close()
+
+
+def test_expired_round3_in_progress_submission_no_longer_blocks_round3_config_edit(client, monkeypatch):
+    """Same bug class as the time-limit block above, but for round 3's
+    own in-progress guard (_require_round3_not_in_progress) - it must
+    also lazily close an abandoned-past-deadline submission before
+    counting, or an abandoned round 3 candidate blocks HR from ever
+    editing that scenario's config again."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    published = _publish_round3_scenario(client, hr_token, monkeypatch)
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {
+        "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
+    })
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {
+        "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
+    })
+    monkeypatch.setattr(llm_service, "score_round3_conversation", lambda **kwargs: {
+        "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
+    })
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "Login works", "steps": "...", "expected_result": "..."}]},
+        cookies=_auth(cand_token),
+    )
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/2/submit",
+        json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
+        cookies=_auth(cand_token),
+    )
+    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+
+    res = client.patch(
+        f"/hr/scenarios/{published['id']}/round3-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
+    )
+    assert res.status_code == 409
+
+    _set_started_at(3, minutes_ago=31)
+
+    res = client.patch(
+        f"/hr/scenarios/{published['id']}/round3-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
+    )
+    assert res.status_code == 200
+    assert res.json()["config_json"]["assistance_pct"] == 80
+
+
+def test_expired_in_progress_submission_shows_correctly_in_appearance_report_not_stale(client, monkeypatch):
+    """appearance_report (HR's "Past appearances" drill-down) must lazily
+    close an abandoned-past-deadline submission the same way its sibling
+    candidate_report already does - otherwise it can show a stale
+    in_progress round for the exact same submission candidate_report
+    would already show correctly closed."""
+    from datetime import datetime as dt
+    import app.database as database_module
+    from app.models import CandidateAppearance, Submission, User
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch)
+    _stub_round1_scoring(monkeypatch)
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    _set_started_at(1, minutes_ago=31)
+
+    db = database_module.SessionLocal()
+    user = db.query(User).filter(User.email == CANDIDATE1_EMAIL).one()
+    appearance = CandidateAppearance(user_id=user.id, email=user.email, exam_date=dt.utcnow(), is_current=True)
+    db.add(appearance)
+    db.commit()
+    db.refresh(appearance)
+    submission = db.query(Submission).filter(Submission.round_number == 1, Submission.user_id == user.id).one()
+    submission.appearance_id = appearance.id
+    db.commit()
+    candidate_id, appearance_id = user.id, appearance.id
+    db.close()
+
+    # This same request's response reflects "submitted" rather than
+    # "scored" - close_expired_submissions scores via its own separate
+    # DB session (see score_submission_in_background), so this request's
+    # own session doesn't observe that write. A genuinely separate
+    # follow-up request does - see the fresh GET right below, same
+    # pattern as test_candidate_returning_after_the_deadline_sees_the_round_already_closed above.
+    res = client.get(
+        f"/hr/candidates/{candidate_id}/appearances/{appearance_id}/report", cookies=_auth(hr_token),
+    )
+    assert res.status_code == 200
+    round1 = next(r for r in res.json() if r["round_number"] == 1)
+    assert round1["status"] == "submitted"
+    assert round1["auto_closed_reason"] == "Time limit reached without a manual submit"
+
+    res = client.get(
+        f"/hr/candidates/{candidate_id}/appearances/{appearance_id}/report", cookies=_auth(hr_token),
+    )
+    round1 = next(r for r in res.json() if r["round_number"] == 1)
+    assert round1["status"] == "scored"
+
+
+def test_candidate_summary_reflects_lazily_closed_round_not_stale_in_progress(client, monkeypatch):
+    """_gather_candidate_rounds (feeding both the AI candidate summary and
+    the PDF export) must lazily close an abandoned-past-deadline
+    submission before reading its status, or HR's summary/PDF can
+    describe a round as still in_progress when every other HR view
+    already shows it correctly closed."""
+    import app.database as database_module
+    from app.models import User
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch)
+    _stub_round1_scoring(monkeypatch)
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    _set_started_at(1, minutes_ago=31)
+
+    captured = {}
+
+    def fake_summary(**kwargs):
+        captured["rounds"] = kwargs["rounds"]
+        return {"rounds": [], "final_summary": "ok"}
+
+    monkeypatch.setattr(llm_service, "generate_candidate_summary", fake_summary)
+
+    db = database_module.SessionLocal()
+    candidate_id = db.query(User).filter(User.email == CANDIDATE1_EMAIL).one().id
+    db.close()
+
+    # As in the appearance-report test above: this same request's own db
+    # session doesn't observe the background scoring session's commit, so
+    # it sees "submitted" here - a fresh follow-up request sees "scored".
+    res = client.post(f"/hr/candidates/{candidate_id}/summary", cookies=_auth(hr_token))
+    assert res.status_code == 200
+    round1 = next(r for r in captured["rounds"] if r["round_number"] == 1)
+    assert round1["status"] == "submitted"
+
+    res = client.post(f"/hr/candidates/{candidate_id}/summary", cookies=_auth(hr_token))
+    assert res.status_code == 200
+    round1 = next(r for r in captured["rounds"] if r["round_number"] == 1)
+    assert round1["status"] == "scored"

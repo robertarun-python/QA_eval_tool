@@ -17,7 +17,7 @@ its dedicated endpoints.
 from collections import Counter
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile, File
 from fpdf import FPDF
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -202,7 +202,7 @@ def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) ->
 
 
 @router.post("/scenarios/{scenario_id}/regenerate-reference", response_model=ScenarioOut)
-def regenerate_reference(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def regenerate_reference(scenario_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Draft-only for round 1/2 (see _get_draft_scenario_or_404) - their
     reference is a fixed answer key candidates get scored against, so
     regenerating it on a live scenario would be rewriting the ground
@@ -214,7 +214,7 @@ def regenerate_reference(scenario_id: int, db: Session = Depends(get_db), hr: Us
     treatment as its other settings instead."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is not None and scenario.round_number == 3:
-        _require_round3_not_in_progress(scenario_id, db, "regenerate this round's environment & screens")
+        _require_round3_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")
     else:
         scenario = _get_draft_scenario_or_404(scenario_id, db)
     _generate_reference(scenario, db)
@@ -242,7 +242,7 @@ def update_scenario(scenario_id: int, payload: ScenarioUpdate, db: Session = Dep
 
 
 @router.patch("/scenarios/{scenario_id}/time-limit", response_model=ScenarioOut)
-def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Unlike title/description/reference_json (see update_scenario above,
     gated by _get_draft_scenario_or_404), the time limit is allowed to
     change regardless of draft/published/live status - it doesn't
@@ -285,7 +285,7 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
         )
         .all()
     )
-    close_expired_submissions(db, band_in_progress)
+    close_expired_submissions(db, band_in_progress, background_tasks)
     in_progress_emails = sorted({
         s.candidate.email for s in band_in_progress if s.status == RoundStatus.in_progress
     })
@@ -317,7 +317,7 @@ def _get_round3_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
     return scenario
 
 
-def _require_round3_not_in_progress(scenario_id: int, db: Session, action: str) -> None:
+def _require_round3_not_in_progress(scenario_id: int, db: Session, background_tasks: BackgroundTasks, action: str) -> None:
     """Shared by round3-config and round3-instructions below. Scoped to
     this one exact scenario, not band-wide like the time-limit block:
     both of these only ever affect round 3's own LLM calls, so a
@@ -325,16 +325,25 @@ def _require_round3_not_in_progress(scenario_id: int, db: Session, action: str) 
     yet and isn't affected either way. Blocked because changing either
     mid-conversation would mean that same candidate's later turns get
     judged under different rules than their earlier ones - a fairness
-    problem regardless of timing."""
-    in_progress_count = (
+    problem regardless of timing.
+
+    Before counting, lazily closes out anything that LOOKS in_progress
+    but has actually already run past its own deadline (see
+    scoring_service.close_expired_submissions) - otherwise a candidate
+    who abandoned round 3 (closed the tab, crashed, logged out, network
+    loss) would block this forever, since nothing else would ever go
+    back and close it."""
+    in_progress = (
         db.query(Submission)
         .filter(
             Submission.scenario_id == scenario_id,
             Submission.status == RoundStatus.in_progress,
             Submission.archived.is_(False),
         )
-        .count()
+        .all()
     )
+    close_expired_submissions(db, in_progress, background_tasks)
+    in_progress_count = sum(1 for s in in_progress if s.status == RoundStatus.in_progress)
     if in_progress_count > 0:
         raise HTTPException(
             409,
@@ -344,14 +353,14 @@ def _require_round3_not_in_progress(scenario_id: int, db: Session, action: str) 
 
 
 @router.patch("/scenarios/{scenario_id}/round3-config", response_model=ScenarioOut)
-def update_round3_config(scenario_id: int, payload: Round3ConfigUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def update_round3_config(scenario_id: int, payload: Round3ConfigUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """The one round3-specific tunable exposed to HR: how often the
     simulated assistant gets things right per turn (see Round3ConfigUpdate
     and llm_service.DEFAULT_ROUND3_CONFIG). Allowed regardless of draft/
     published/live status, same reasoning as update_scenario_time_limit -
     doesn't retroactively invalidate anything already scored."""
     scenario = _get_round3_scenario_or_404(scenario_id, db)
-    _require_round3_not_in_progress(scenario_id, db, "change the assistant's accuracy")
+    _require_round3_not_in_progress(scenario_id, db, background_tasks, "change the assistant's accuracy")
 
     scenario.config_json = {**(scenario.config_json or {}), "assistance_pct": payload.assistance_pct}
     db.commit()
@@ -360,13 +369,13 @@ def update_round3_config(scenario_id: int, payload: Round3ConfigUpdate, db: Sess
 
 
 @router.patch("/scenarios/{scenario_id}/round3-instructions", response_model=ScenarioOut)
-def update_round3_instructions(scenario_id: int, payload: Round3InstructionsUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def update_round3_instructions(scenario_id: int, payload: Round3InstructionsUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Title/description on a round3 scenario, editable regardless of
     status - unlike round1/2 (see ScenarioUpdate, draft-only), round 3
     has no fixed reference answer gating a "review before publish" step,
     so there's no equivalent reason to restrict this to drafts."""
     scenario = _get_round3_scenario_or_404(scenario_id, db)
-    _require_round3_not_in_progress(scenario_id, db, "change this round's instructions")
+    _require_round3_not_in_progress(scenario_id, db, background_tasks, "change this round's instructions")
 
     scenario.title = payload.title
     scenario.description = payload.description
@@ -507,7 +516,7 @@ def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = 
 
 # ---- Candidate results dashboard ----
 
-def _build_candidate_summary(candidate: User, db: Session) -> CandidateSummaryOut:
+def _build_candidate_summary(candidate: User, db: Session, background_tasks: BackgroundTasks) -> CandidateSummaryOut:
     """Shared by list_candidates and set_candidate_band (which returns
     the one candidate it just updated, in the same shape)."""
     # Only the current cycle's submissions - a reset candidate's old,
@@ -518,7 +527,7 @@ def _build_candidate_summary(candidate: User, db: Session) -> CandidateSummaryOu
     # run past its own deadline (see scoring_service.
     # close_expired_submissions) - otherwise this dashboard would keep
     # showing an abandoned round as "in progress" indefinitely.
-    close_expired_submissions(db, current_submissions)
+    close_expired_submissions(db, current_submissions, background_tasks)
     submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     aggregate_score = None
@@ -552,9 +561,9 @@ def _build_candidate_summary(candidate: User, db: Session) -> CandidateSummaryOu
 
 
 @router.get("/candidates", response_model=list[CandidateSummaryOut])
-def list_candidates(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def list_candidates(background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     candidates = db.query(User).filter(User.role == Role.candidate).order_by(User.email).all()
-    return [_build_candidate_summary(c, db) for c in candidates]
+    return [_build_candidate_summary(c, db, background_tasks) for c in candidates]
 
 
 def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionReportOut]:
@@ -577,7 +586,7 @@ def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionR
 
 
 @router.get("/candidates/{candidate_id}/report", response_model=list[SubmissionReportOut])
-def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def candidate_report(candidate_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """All submissions (with scores where available) for one candidate's
     CURRENT cycle, across all rounds. A past, archived cycle's report is
     GET /candidates/{id}/appearances/{appearance_id}/report instead."""
@@ -590,7 +599,7 @@ def candidate_report(candidate_id: int, db: Session = Depends(get_db), hr: User 
         .order_by(Submission.round_number)
         .all()
     )
-    close_expired_submissions(db, submissions)
+    close_expired_submissions(db, submissions, background_tasks)
     return _build_submission_reports(submissions)
 
 
@@ -651,7 +660,7 @@ def override_score(submission_id: int, payload: ScoreOverrideRequest, db: Sessio
 
 
 @router.patch("/candidates/{candidate_id}/band", response_model=CandidateSummaryOut)
-def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Bulk upload deliberately doesn't set a band (see the upload
     endpoint below) - HR sets it here afterward, once per candidate."""
     candidate = db.get(User, candidate_id)
@@ -660,7 +669,7 @@ def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, db: Sess
     candidate.experience_band = ExperienceBand(payload.experience_band)
     db.commit()
     db.refresh(candidate)
-    return _build_candidate_summary(candidate, db)
+    return _build_candidate_summary(candidate, db, background_tasks)
 
 
 @router.post("/candidates/upload", response_model=BulkUploadResult)
@@ -707,7 +716,7 @@ def candidate_appearances(candidate_id: int, db: Session = Depends(get_db), hr: 
 
 
 @router.get("/candidates/{candidate_id}/appearances/{appearance_id}/report", response_model=list[SubmissionReportOut])
-def appearance_report(candidate_id: int, appearance_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def appearance_report(candidate_id: int, appearance_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Same shape as candidate_report, but for one specific past (or
     current) cycle - HR's "Past appearances" drill-down in the candidate
     detail panel reuses the exact same rendering as the live report."""
@@ -724,15 +733,27 @@ def appearance_report(candidate_id: int, appearance_id: int, db: Session = Depen
         .order_by(Submission.round_number)
         .all()
     )
+    # Lazily close out anything that looks in_progress but has actually
+    # run past its own deadline (see scoring_service.
+    # close_expired_submissions) - same as candidate_report above, so
+    # this drill-down for the current cycle can't show a stale
+    # in_progress round that candidate_report would already show closed.
+    close_expired_submissions(db, submissions, background_tasks)
     return _build_submission_reports(submissions)
 
 
-def _gather_candidate_rounds(candidate: User, db: Session) -> list[dict]:
+def _gather_candidate_rounds(candidate: User, db: Session, background_tasks: BackgroundTasks) -> list[dict]:
     """Per-round data for whichever rounds this candidate has actually
     reached - feeds both the LLM summary and the PDF's round table.
     A round the candidate hasn't started yet is omitted entirely rather
     than included as an empty stub, so the summary prompt (and the PDF)
     only ever sees rounds that are genuinely in progress or further."""
+    # Lazily close out anything that looks in_progress but has actually
+    # run past its own deadline (see scoring_service.
+    # close_expired_submissions) - otherwise the AI summary/PDF can
+    # describe a round as still in_progress when other HR views (see
+    # _build_candidate_summary) already show it correctly closed.
+    close_expired_submissions(db, list(candidate.submissions), background_tasks)
     submissions_by_round = {s.round_number: s for s in candidate.submissions}
     rounds = []
     for round_number in (1, 2, 3):
@@ -761,7 +782,7 @@ def _gather_candidate_rounds(candidate: User, db: Session) -> list[dict]:
 
 
 @router.post("/candidates/{candidate_id}/summary", response_model=CandidateAssessmentSummaryOut)
-def candidate_summary(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def candidate_summary(candidate_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Cross-round synthesis for HR to hand off - to the candidate as
     feedback, or to the next round's interviewers as a briefing. Not
     persisted - generated fresh on each click, same as "Regenerate
@@ -770,7 +791,7 @@ def candidate_summary(candidate_id: int, db: Session = Depends(get_db), hr: User
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")
 
-    rounds = _gather_candidate_rounds(candidate, db)
+    rounds = _gather_candidate_rounds(candidate, db, background_tasks)
     if not rounds:
         raise HTTPException(400, "This candidate hasn't started any round yet - nothing to summarize.")
 
@@ -820,6 +841,7 @@ def _pdf_safe_text(text: str) -> str:
 def candidate_summary_pdf(
     candidate_id: int,
     payload: CandidateSummaryPdfRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     hr: User = Depends(require_hr),
 ):
@@ -833,7 +855,7 @@ def candidate_summary_pdf(
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")
 
-    rounds_by_number = {r["round_number"]: r for r in _gather_candidate_rounds(candidate, db)}
+    rounds_by_number = {r["round_number"]: r for r in _gather_candidate_rounds(candidate, db, background_tasks)}
     band = candidate.experience_band.value if candidate.experience_band else "unspecified"
 
     pdf = FPDF()

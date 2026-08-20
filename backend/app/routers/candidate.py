@@ -434,7 +434,7 @@ def round3_submit(
 
 
 @router.get("/round/{round_number}", response_model=RoundStateOut)
-def get_round(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     if round_number not in (1, 2, 3):
         raise HTTPException(400, "round_number must be 1, 2, or 3")
 
@@ -450,7 +450,7 @@ def get_round(round_number: int, db: Session = Depends(get_db), candidate: User 
         .filter(Submission.user_id == candidate.id, Submission.archived.is_(False))
         .all()
     )
-    close_expired_submissions(db, current)
+    close_expired_submissions(db, current, background_tasks)
 
     _require_round_unlocked(round_number, db, candidate)
 

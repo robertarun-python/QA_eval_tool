@@ -7,6 +7,7 @@ without mocking the Anthropic client every time.
 import json
 from datetime import datetime, timedelta
 
+from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from ..models import Submission, Score, RoundStatus
@@ -218,7 +219,7 @@ def score_submission_in_background(submission_id: int) -> None:
         db.close()
 
 
-def close_expired_submissions(db: Session, submissions: list[Submission]) -> list[Submission]:
+def close_expired_submissions(db: Session, submissions: list[Submission], background_tasks: BackgroundTasks) -> list[Submission]:
     """The server-side counterpart to POST /round/{n}/expire (routers/
     candidate.py), for when nobody's browser was ever there to call it -
     a closed tab, a crash, a logout, network loss, anything. That
@@ -266,12 +267,19 @@ def close_expired_submissions(db: Session, submissions: list[Submission]) -> lis
         db.refresh(submission)
         closed.append(submission)
 
-    # Scored after all of them are closed (not while looping/committing
-    # above) so one submission's LLM call can't leave the rest of this
-    # batch's DB state half-applied if it takes a while or fails funny -
-    # each score_submission_in_background call is already its own
-    # exception-safe, self-contained unit (own session, own commit).
+    # Scheduled via BackgroundTasks, same as every submit endpoint
+    # (submit_round/submit_round2/round3_submit/expire_round) - a direct
+    # call here would block whichever request happened to be the one
+    # that lazily closed this submission (e.g. HR's /candidates
+    # dashboard, which can lazily close several abandoned submissions in
+    # one request) on a real LLM call before its response can be sent.
+    # Each score_submission_in_background call is already its own
+    # exception-safe, self-contained unit (own session, own commit), so
+    # scheduling them all after the loop above (not while looping/
+    # committing) just keeps this batch's own DB state simple to reason
+    # about - it doesn't affect isolation between the scoring calls
+    # themselves.
     for submission in closed:
-        score_submission_in_background(submission.id)
+        background_tasks.add_task(score_submission_in_background, submission.id)
 
     return closed
