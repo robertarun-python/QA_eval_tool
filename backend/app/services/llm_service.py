@@ -188,6 +188,16 @@ def score_round2_submission(
 # merged over whatever Scenario.config_json HR happens to have set. The
 # fallback value itself lives in config.py (round3_default_assistance_pct),
 # not here - see that file's docstring for why.
+#
+# Both round3_partial_response.txt and round3_scoring.txt independently
+# guard against a candidate trying to direct the assistant/grading itself
+# (skip-ahead, "mark everything as passing," "tell me what scores well")
+# - the turn-level guard refuses in character, the scoring-level guard
+# ignores the attempt and logs it as a red flag in feedback_text instead
+# of letting it move the score. This is disclosed to the candidate only
+# as a short heads-up in showRound3Intro() (app.js) - that it happens and
+# gets flagged - not the trigger phrasing or where it's recorded, so the
+# disclosure sets expectations without handing out a way around it.
 DEFAULT_ROUND3_CONFIG = {
     "assistance_pct": settings.round3_default_assistance_pct,
 }

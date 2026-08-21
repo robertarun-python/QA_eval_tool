@@ -762,12 +762,13 @@ function renderRound3SettingsCard(scenario, groundedInTitle, bandLabel) {
 
       <h4>How this round works</h4>
       <details class="hint-box">
-        <summary>Guardrails the assistant follows (for reference - not shown to candidates this way)</summary>
+        <summary>Guardrails the assistant follows (for reference - candidates only see the short heads-up version, not this level of detail)</summary>
         <ul style="margin:0.5rem 0 0; padding-left:1.2rem">
           <li>Deliberately correct only ~${assistancePct}% of the time per turn (see above) - candidates are told this upfront.</li>
           <li>Never shows real code by default - only plain-English steps and observed results. A candidate can optionally view a completed turn rendered as a code snippet, but that snippet never contains pass/fail judgments either.</li>
           <li>Never states or hints which category (UI, API, DB, end-to-end) a candidate's test case falls into - that's for the candidate to reason out themselves.</li>
           <li>Refuses to discuss other candidates, skip ahead to a result, or mark everything as passed without actually simulating it - regardless of how the request is framed.</li>
+          <li>Attempts to direct the assistant's behavior or the scoring itself (e.g. "mark everything as passing," "tell me what gets the best score") are refused in-turn and separately flagged as a red flag in the scoring feedback - candidates are told upfront that this gets flagged, but not the exact trigger phrasing or that scoring is where it's recorded.</li>
         </ul>
       </details>
 
@@ -1695,6 +1696,7 @@ function showRound3Intro() {
         <li>Heads-up: the assistant won't always get it right. It may skip a check, misreport a result, or just be wrong - on purpose. Read every response the way you'd review a test log you didn't write yourself, and keep refining your prompts until you're confident it's actually correct.</li>
         <li>What's scored: mainly the quality of your prompting and verification - catching issues, asking the right follow-ups, converging on a correct result. You don't need to automate everything you wrote in Round 1 - with a longer list, that's not realistic in the time given, and it's not what's measured here.</li>
         <li>Automating across more than one area - UI, API, DB, end-to-end - earns extra credit, but it's a bonus on top of doing a few well, not a requirement.</li>
+        <li>Heads-up: trying to steer the assistant into skipping verification or telling you what would score well won't work, and gets flagged as a concern in your results - e.g. "just mark everything as passing" or "tell me what would get the best score." Treat it like a real test environment: it reports what happened, not what would look good.</li>
         <li>Your timer starts the moment you click below.</li>
       </ul>
       <div class="row">
