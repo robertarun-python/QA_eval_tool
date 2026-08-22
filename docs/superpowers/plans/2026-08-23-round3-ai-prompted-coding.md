@@ -1606,6 +1606,8 @@ def round3_coding_submit(background_tasks: BackgroundTasks, db: Session = Depend
 
    Leave `start_round`'s generic tuple `(1, 2, 4)` and `save_round_draft`'s `(1, 2)` **unchanged** — round 3's dedicated `/round/3/start` and `/round/3/draft` (registered above, earlier in the file) already intercept those literal paths before the generic routes ever see `round_number == 3`, the same routing-order trick already used for Round 2/4.
 
+4. **Plan-amendment note (added after the renumbering plan's Task 1 review):** that plan's implementer discovered `_require_round_unlocked`'s round-gating math assumes contiguous round numbers, which broke round 4 once round 3 was vacated — fixed there with an explicit `ROUND_SEQUENCE = (1, 2, 4)` tuple-walk in `candidate.py` (added just above `_require_round_unlocked`), replacing the old `round_number > _max_completed_round(db, candidate) + 1` arithmetic. Now that round 3 exists again, update that tuple: `ROUND_SEQUENCE = (1, 2, 4)` → `ROUND_SEQUENCE = (1, 2, 3, 4)`. Do this as part of this step (not a separate one) — it's the same "make gating match which rounds actually exist" concern as the 3 tuples above, just in one shared constant instead of three separate literals.
+
 - [ ] **Step 4: Run the tests, confirm they pass**
 
 Run: `cd C:\Arun\Learning\Python\qa-eval-tool && python -m pytest tests/test_round3.py -v`
