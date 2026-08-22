@@ -1,8 +1,11 @@
 """
 Candidate-only endpoints: fetch the one live (published) scenario for the
 current round + the candidate's own band, start the timer, submit, and view
-past results. Rounds are gated - a candidate can't reach round N until
-round N-1 has been submitted.
+past results. Rounds are gated in a fixed sequence (see ROUND_SEQUENCE
+below) rather than by raw round-number arithmetic - round_number 3 is
+currently unused (freed up by the Round 3 -> Round 4 renumbering) and
+isn't part of that sequence, so a candidate reaches round 4 as soon as
+round 2 is submitted, not round 3.
 """
 import threading
 from datetime import datetime, timedelta
@@ -146,6 +149,8 @@ ROUND_SEQUENCE = (1, 2, 4)
 
 
 def _require_round_unlocked(round_number: int, db: Session, candidate: User) -> None:
+    if round_number not in ROUND_SEQUENCE:
+        raise HTTPException(400, f"round_number must be one of {ROUND_SEQUENCE}")
     position = ROUND_SEQUENCE.index(round_number)
     if position == 0:
         return
