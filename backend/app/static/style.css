@@ -491,7 +491,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 }
 
 /* Round 3's per-turn/per-step status - nothing really executed, this is
-   just what the assistant claims would happen (see llm_service.round3_respond). */
+   just what the assistant claims would happen (see llm_service.round4_respond). */
 .badge-pass { background: var(--good-soft); color: var(--good); }
 .badge-fail { background: var(--bad-soft); color: var(--bad); }
 .badge-partial { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
@@ -500,7 +500,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
    pass/fail marker (so a failure is locatable to a specific step, not
    just an overall verdict), plus a distinct "observed result" callout
    styled like a log/screenshot-caption readout. Deliberately never
-   shows code - see schemas.Round3ExecutionStep. */
+   shows code - see schemas.Round4ExecutionStep. */
 .exec-steps {
   list-style: none;
   margin: 0 0 0.75rem;
@@ -535,13 +535,13 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 .exec-step-detail summary { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; font-weight: 400; }
 .exec-step-detail { font-size: 0.82rem; color: var(--text-dim); margin-top: 0.15rem; overflow-wrap: break-word; }
 
-/* Trial "View as code" rendering (see app.js's showRound3Code) - a
+/* Trial "View as code" rendering (see app.js's showRound4Code) - a
    read-only snippet, not an editor. */
 /* Round 3: prompt | result | code side by side, per turn - see
-   renderRound3TestCaseBody. Prompt starts narrower than result/code
+   renderRound4TestCaseBody. Prompt starts narrower than result/code
    (which routinely carry a full execution trace or a code snippet), but
-   all three widths are draggable via the two 6px .round3-col-resizer
-   tracks between them - see round3StartColResize. The --r3c* custom
+   all three widths are draggable via the two 6px .round4-col-resizer
+   tracks between them - see round4StartColResize. The --r4c* custom
    properties are set on the document root (not here) so a resize made
    once persists across every re-render; the fallback values below only
    matter before the candidate has dragged anything yet, or if this is
@@ -551,15 +551,15 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
    otherwise fight the manual height-resize below. Collapses to stacked,
    resizers included, below the same breakpoint the rest of the app
    already uses for narrow viewports. */
-.round3-turn-grid {
+.round4-turn-grid {
   display: grid;
-  grid-template-columns: var(--r3c1, 0.65fr) 6px var(--r3c2, 1.5fr) 6px var(--r3c3, 1.5fr);
+  grid-template-columns: var(--r4c1, 0.65fr) 6px var(--r4c2, 1.5fr) 6px var(--r4c3, 1.5fr);
   align-items: start;
   gap: 0.5rem;
   margin-bottom: 0.85rem;
 }
-.round3-pane { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
-.round3-pane-label {
+.round4-pane { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
+.round4-pane-label {
   text-transform: uppercase;
   font-size: 0.68rem;
   font-weight: 700;
@@ -571,13 +571,13 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
    looking wide/heavy at rest. Highlights on hover/drag as the only
    affordance that it's interactive - there's no other visual cue that
    these tracks aren't just decorative gaps. */
-.round3-col-resizer {
+.round4-col-resizer {
   align-self: stretch;
   width: 6px;
   cursor: col-resize;
   position: relative;
 }
-.round3-col-resizer::after {
+.round4-col-resizer::after {
   content: "";
   position: absolute;
   top: 0;
@@ -588,21 +588,21 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   background: var(--border);
   transition: background-color 0.15s var(--ease);
 }
-.round3-col-resizer:hover::after { background: var(--accent); }
+.round4-col-resizer:hover::after { background: var(--accent); }
 /* Drag the bottom-right corner to grow any one pane independently - the
    native browser resize handle, not a custom-built splitter, so it needs
    no extra JS and behaves the way every other resizable textarea on the
    web already does. overflow:auto is required for `resize` to take
    effect at all and keeps long content scrollable within whatever height
    is currently set instead of pushing the layout around. flex-shrink:0
-   matters here: this is a flex child (see .round3-pane above), and
+   matters here: this is a flex child (see .round4-pane above), and
    without it the flex layout can recompute/override a manually-resized
    height on the next re-render instead of respecting it. The diagonal
    hash mark is a custom-drawn affordance, not decoration for its own
    sake - the native resize grip a browser draws here is small and
    low-contrast enough on a dark background to go unnoticed entirely,
    which is exactly what happened before this was added. */
-.round3-pane-body {
+.round4-pane-body {
   overflow: auto;
   resize: vertical;
   flex-shrink: 0;
@@ -620,9 +620,9 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   background-size: 16px 16px;
 }
 @media (max-width: 860px) {
-  .round3-turn-grid { grid-template-columns: 1fr; }
-  .round3-pane-body { resize: none; max-height: none; background-image: none; }
-  .round3-col-resizer { display: none; }
+  .round4-turn-grid { grid-template-columns: 1fr; }
+  .round4-pane-body { resize: none; max-height: none; background-image: none; }
+  .round4-col-resizer { display: none; }
 }
 
 .code-snippet {

@@ -14,7 +14,7 @@
 // Round display names - one source, used by both HR's nav (renderHRRoundNav)
 // and the candidate's nav (renderCandidateRoundNav). Used to be two
 // identical maps (HR_ROUND_LABELS and ROUND_TITLES) defined separately.
-const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 3: "Conversational" };
+const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 4: "Conversational" };
 
 // Runtime-editable per-round/final passing scores (see HR's Settings
 // page, GET/PUT /hr/settings) - fetched once on HR login into
@@ -42,10 +42,10 @@ let candidateDetailSubmissions = [];    // the currently-open candidate's submis
 let currentCandidateDetailId = null;    // which candidate's detail panel is open - lets retryScoring/saveScoreOverride re-render the panel they're inside after a successful action
 let timerHandle = null;
 let rowCount = 0;
-let round3State = null;           // last-fetched Round3StateOut, refreshed after every turn/test-case creation
-let round3ViewedTestCaseId = null; // which test case tab is showing
-let round3DraftBuffer = {};        // { testCaseId: latestTypedText } - instant, in-memory, survives tab switches with zero latency
-let round3DraftTimers = {};        // { testCaseId: setTimeout handle } - debounced PATCH to the server
+let round4State = null;           // last-fetched Round4StateOut, refreshed after every turn/test-case creation
+let round4ViewedTestCaseId = null; // which test case tab is showing
+let round4DraftBuffer = {};        // { testCaseId: latestTypedText } - instant, in-memory, survives tab switches with zero latency
+let round4DraftTimers = {};        // { testCaseId: setTimeout handle } - debounced PATCH to the server
 
 function jsonHeaders() {
   return { "Content-Type": "application/json" };
@@ -265,7 +265,7 @@ function renderHRRoundNav() {
   const nav = document.getElementById("hr-round-nav");
   nav.innerHTML = `
     <div class="rail-section-label">Author scenarios</div>
-    ${[1, 2, 3].map((n) => `
+    ${[1, 2, 4].map((n) => `
       <button class="nav-btn ${hrPage === "rounds" && n === currentHRRound ? "active" : ""}" onclick="selectHRRound(${n})">
         <span class="nav-chip">${n}</span>
         <span class="nav-btn-copy">
@@ -315,18 +315,18 @@ function selectHRRound(n) {
   // haven't opened anything in yet.
   closeScenarioDetail();
 
-  const isRound3 = n === 3;
-  // Round 3 gets its own single settings view instead of the round1/2
-  // author/review/publish flow - see loadRound3Settings for why none of
-  // that maps onto round 3's actual shape (no fixed reference, no
+  const isRound4 = n === 4;
+  // Round 4 gets its own single settings view instead of the round1/2
+  // author/review/publish flow - see loadRound4Settings for why none of
+  // that maps onto round 4's actual shape (no fixed reference, no
   // meaningfully different "versions" to browse or compare).
-  document.getElementById("live-scenario-panel").classList.toggle("hidden", isRound3);
-  document.getElementById("create-scenario-row").classList.toggle("hidden", isRound3);
-  document.getElementById("screening-history-panel").classList.toggle("hidden", isRound3);
-  document.getElementById("round3-settings-panel").classList.toggle("hidden", !isRound3);
+  document.getElementById("live-scenario-panel").classList.toggle("hidden", isRound4);
+  document.getElementById("create-scenario-row").classList.toggle("hidden", isRound4);
+  document.getElementById("screening-history-panel").classList.toggle("hidden", isRound4);
+  document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound4);
 
-  if (isRound3) {
-    loadRound3Settings();
+  if (isRound4) {
+    loadRound4Settings();
   } else {
     resetCreateScenarioForm();
     loadLiveScenarioWidget();
@@ -422,7 +422,7 @@ async function loadAppSettings() {
   appSettings = await api("/hr/settings");
   document.getElementById("set-round1").value = appSettings.round1_passing_score;
   document.getElementById("set-round2").value = appSettings.round2_passing_score;
-  document.getElementById("set-round3").value = appSettings.round3_passing_score;
+  document.getElementById("set-round4").value = appSettings.round4_passing_score;
   document.getElementById("set-final").value = appSettings.final_passing_score;
   document.getElementById("set-window").value = appSettings.reapplication_window_months;
 }
@@ -432,7 +432,7 @@ async function saveAppSettings() {
   const payload = {
     round1_passing_score: Number(document.getElementById("set-round1").value),
     round2_passing_score: Number(document.getElementById("set-round2").value),
-    round3_passing_score: Number(document.getElementById("set-round3").value),
+    round4_passing_score: Number(document.getElementById("set-round4").value),
     final_passing_score: Number(document.getElementById("set-final").value),
     reapplication_window_months: Number(document.getElementById("set-window").value),
   };
@@ -622,8 +622,8 @@ async function openScenarioDetail(id) {
   `).join("");
 
   const isDraft = scenario.status === "draft";
-  // Round 3 no longer routes through here at all (see loadRound3Settings/
-  // renderRound3SettingsCard) - it has no fixed reference to author/
+  // Round 4 no longer routes through here at all (see loadRound4Settings/
+  // renderRound4SettingsCard) - it has no fixed reference to author/
   // review/compare across versions the way round 1/2 do, so it gets its
   // own dedicated settings panel instead of a "Review" flow into this one.
   box.innerHTML = `
@@ -687,19 +687,19 @@ function closeScenarioDetail() {
   document.getElementById("scenarios-list-panel").classList.remove("scenarios-list-panel-full");
 }
 
-// ---- Round 3 settings: one card per experience band, replacing the
+// ---- Round 4 settings: one card per experience band, replacing the
 // round1/2-style Create-a-scenario/Scenarios-list/Screening-history flow
-// entirely (see selectHRRound). Round 3 has no fixed reference to
+// entirely (see selectHRRound). Round 4 has no fixed reference to
 // author, review, or compare across versions - each candidate automates
 // their own round 1 answer, and the environment/screens are auto-
 // generated, not HR-authored - so there's no "library of scenarios" to
 // browse the way round 1/2 genuinely have, and never more than one
 // meaningful configuration per band worth looking at.
 
-const ROUND3_BANDS = [["0-7", "0-7 years"], ["7+", "7+ years"]];
+const ROUND4_BANDS = [["0-7", "0-7 years"], ["7+", "7+ years"]];
 
-async function loadRound3Settings() {
-  const box = document.getElementById("round3-settings-panel");
+async function loadRound4Settings() {
+  const box = document.getElementById("round4-settings-panel");
   let allScenarios;
   try {
     allScenarios = await api("/hr/scenarios");
@@ -710,44 +710,44 @@ async function loadRound3Settings() {
   // Only bands with an actual live scenario show anything at all - a
   // band nobody's set up yet is simply not shown, full stop, not a
   // "create one" prompt for a band that isn't even being screened right
-  // now (bootstrapping round 3 for a new band, if ever needed, is a
+  // now (bootstrapping round 4 for a new band, if ever needed, is a
   // direct API action, not a standing part of this page).
-  box.innerHTML = ROUND3_BANDS.map(([band, bandLabel]) => {
-    const liveScenario = allScenarios.find((s) => s.round_number === 3 && s.experience_band === band && s.is_live);
+  box.innerHTML = ROUND4_BANDS.map(([band, bandLabel]) => {
+    const liveScenario = allScenarios.find((s) => s.round_number === 4 && s.experience_band === band && s.is_live);
     if (!liveScenario) return "";
     const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === band && s.is_live);
-    return renderRound3SettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, bandLabel);
+    return renderRound4SettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, bandLabel);
   }).join("");
 }
 
-function renderRound3SettingsCard(scenario, groundedInTitle, bandLabel) {
+function renderRound4SettingsCard(scenario, groundedInTitle, bandLabel) {
   // 60 below is a defensive fallback only (e.g. this renders before
   // appSettings has loaded) - the real default always comes from the
-  // server (see AppSettingsOut.round3_default_assistance_pct /
-  // config.py's round3_default_assistance_pct), same pattern as
+  // server (see AppSettingsOut.round4_default_assistance_pct /
+  // config.py's round4_default_assistance_pct), same pattern as
   // passingScoreForRound() above.
-  const serverDefault = (appSettings && appSettings.round3_default_assistance_pct) ?? 60;
+  const serverDefault = (appSettings && appSettings.round4_default_assistance_pct) ?? 60;
   const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || serverDefault;
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
-      <h3>Round 3 - ${bandLabel} <span class="badge badge-published">LIVE</span></h3>
-      <p class="muted">This is what Round 3 / ${scenario.experience_band} candidates currently see.</p>
+      <h3>Round 4 - ${bandLabel} <span class="badge badge-published">LIVE</span></h3>
+      <p class="muted">This is what Round 4 / ${scenario.experience_band} candidates currently see.</p>
 
       <h4>Instructions</h4>
       <p class="muted">What candidates read when they open this round.</p>
-      <input id="r3-title-${scenario.id}" value="${escapeHtml(scenario.title)}" />
-      <textarea id="r3-desc-${scenario.id}">${escapeHtml(scenario.description)}</textarea>
+      <input id="r4-title-${scenario.id}" value="${escapeHtml(scenario.title)}" />
+      <textarea id="r4-desc-${scenario.id}">${escapeHtml(scenario.description)}</textarea>
       <div class="row">
-        <button onclick="saveRound3Instructions(${scenario.id})">Save instructions</button>
+        <button onclick="saveRound4Instructions(${scenario.id})">Save instructions</button>
       </div>
 
       <h4>Time limit</h4>
       <div class="row" style="align-items:center">
         <div class="field-inline">
           <span class="muted">min limit</span>
-          <input id="r3-time-limit-${scenario.id}" type="number" min="1" value="${scenario.time_limit_minutes}" />
+          <input id="r4-time-limit-${scenario.id}" type="number" min="1" value="${scenario.time_limit_minutes}" />
         </div>
-        <button onclick="saveRound3TimeLimit(${scenario.id})">Save</button>
+        <button onclick="saveRound4TimeLimit(${scenario.id})">Save</button>
       </div>
 
       <h4>Assistant accuracy</h4>
@@ -755,9 +755,9 @@ function renderRound3SettingsCard(scenario, groundedInTitle, bandLabel) {
       <div class="row" style="align-items:center">
         <div class="field-inline">
           <span class="muted">% correct per turn</span>
-          <input id="round3-config-edit-${scenario.id}" type="number" min="10" max="95" value="${assistancePct}" />
+          <input id="round4-config-edit-${scenario.id}" type="number" min="10" max="95" value="${assistancePct}" />
         </div>
-        <button onclick="saveRound3ConfigEdit(${scenario.id})">Save</button>
+        <button onclick="saveRound4ConfigEdit(${scenario.id})">Save</button>
       </div>
 
       <h4>How this round works</h4>
@@ -789,19 +789,19 @@ function renderRound3SettingsCard(scenario, groundedInTitle, bandLabel) {
         ` : `<p class="muted">No test environment generated yet.</p>`}
         ${scenario.ui_mockup_json ? renderMockupScreens(scenario.ui_mockup_json, `hr-mockup-${scenario.id}`) : `<p class="muted">No reference screens generated yet.</p>`}
         <div class="row">
-          <button id="r3-regen-btn-${scenario.id}" onclick="regenerateRound3Reference(${scenario.id})">Regenerate environment &amp; screens</button>
+          <button id="r4-regen-btn-${scenario.id}" onclick="regenerateRound4Reference(${scenario.id})">Regenerate environment &amp; screens</button>
         </div>
       </details>
 
-      <p id="r3-status-${scenario.id}" class="muted"></p>
+      <p id="r4-status-${scenario.id}" class="muted"></p>
     </div>
   `;
 }
 
-async function saveRound3Instructions(id) {
-  const statusEl = document.getElementById(`r3-status-${id}`);
-  const title = document.getElementById(`r3-title-${id}`).value.trim();
-  const description = document.getElementById(`r3-desc-${id}`).value.trim();
+async function saveRound4Instructions(id) {
+  const statusEl = document.getElementById(`r4-status-${id}`);
+  const title = document.getElementById(`r4-title-${id}`).value.trim();
+  const description = document.getElementById(`r4-desc-${id}`).value.trim();
   statusEl.className = "muted";
   if (!title || !description) {
     statusEl.className = "error-text";
@@ -809,7 +809,7 @@ async function saveRound3Instructions(id) {
     return;
   }
   try {
-    await api(`/hr/scenarios/${id}/round3-instructions`, { method: "PATCH", body: JSON.stringify({ title, description }) });
+    await api(`/hr/scenarios/${id}/round4-instructions`, { method: "PATCH", body: JSON.stringify({ title, description }) });
     statusEl.textContent = "Saved.";
   } catch (e) {
     statusEl.className = "error-text";
@@ -817,9 +817,9 @@ async function saveRound3Instructions(id) {
   }
 }
 
-async function saveRound3TimeLimit(id) {
-  const statusEl = document.getElementById(`r3-status-${id}`);
-  const inputEl = document.getElementById(`r3-time-limit-${id}`);
+async function saveRound4TimeLimit(id) {
+  const statusEl = document.getElementById(`r4-status-${id}`);
+  const inputEl = document.getElementById(`r4-time-limit-${id}`);
   const value = Number(inputEl.value);
   statusEl.className = "muted";
   if (!Number.isInteger(value) || value < 1) {
@@ -837,9 +837,9 @@ async function saveRound3TimeLimit(id) {
   }
 }
 
-async function saveRound3ConfigEdit(id) {
-  const statusEl = document.getElementById(`r3-status-${id}`);
-  const inputEl = document.getElementById(`round3-config-edit-${id}`);
+async function saveRound4ConfigEdit(id) {
+  const statusEl = document.getElementById(`r4-status-${id}`);
+  const inputEl = document.getElementById(`round4-config-edit-${id}`);
   const value = Number(inputEl.value);
   statusEl.className = "muted";
   if (!Number.isInteger(value) || value < 10 || value > 95) {
@@ -848,7 +848,7 @@ async function saveRound3ConfigEdit(id) {
     return;
   }
   try {
-    await api(`/hr/scenarios/${id}/round3-config`, { method: "PATCH", body: JSON.stringify({ assistance_pct: value }) });
+    await api(`/hr/scenarios/${id}/round4-config`, { method: "PATCH", body: JSON.stringify({ assistance_pct: value }) });
     statusEl.textContent = "Saved.";
   } catch (e) {
     inputEl.value = inputEl.defaultValue;
@@ -857,16 +857,16 @@ async function saveRound3ConfigEdit(id) {
   }
 }
 
-async function regenerateRound3Reference(id) {
-  const statusEl = document.getElementById(`r3-status-${id}`);
-  const btn = document.getElementById(`r3-regen-btn-${id}`);
+async function regenerateRound4Reference(id) {
+  const statusEl = document.getElementById(`r4-status-${id}`);
+  const btn = document.getElementById(`r4-regen-btn-${id}`);
   btn.disabled = true;
   btn.textContent = "Regenerating...";
   statusEl.className = "muted";
   statusEl.textContent = "Regenerating (a few seconds)...";
   try {
     await api(`/hr/scenarios/${id}/regenerate-reference`, { method: "POST" });
-    loadRound3Settings();
+    loadRound4Settings();
   } catch (e) {
     statusEl.className = "error-text";
     statusEl.textContent = e.message;
@@ -987,7 +987,7 @@ async function loadCandidates() {
   box.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Aggregate</th><th></th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 4</th><th>Aggregate</th><th></th></tr></thead>
         <tbody>
           ${candidates.map((c) => `
             <tr>
@@ -1096,7 +1096,7 @@ function renderSubmissionsPanels(submissions) {
         ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeHtml(s.auto_closed_reason)}">Auto-closed</span>` : ""}
       </h4>
       ${renderScoreBlock(s)}
-      ${s.round_number === 3 ? renderRound3Report(s)
+      ${s.round_number === 4 ? renderRound4Report(s)
         : s.round_number === 2 ? renderRound2Report(s)
         : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
     </div>
@@ -1340,7 +1340,7 @@ async function downloadCandidateSummaryPdf(id, email) {
   URL.revokeObjectURL(url);
 }
 
-function renderRound3Report(s) {
+function renderRound4Report(s) {
   // Round 3's content is always null now - the candidate's own,
   // self-titled test cases (s.test_cases) and their transcripts
   // (s.conversation_turns, grouped by test_case_id) ARE the submission.
@@ -1375,7 +1375,7 @@ function renderRound3Report(s) {
 function renderSideBySide(candidateRows, referenceRows) {
   // Round 1 only now - round 2's candidate submission is investigation-
   // shaped (see renderRound2Report) and round 3's is a conversation
-  // (see renderRound3Report), neither fits this title/steps/expected
+  // (see renderRound4Report), neither fits this title/steps/expected
   // row-vs-row comparison.
   if (!candidateRows) return "";
   const renderTable = (rows) => `
@@ -1512,7 +1512,7 @@ async function refreshCandidateNav() {
   candidateCompletedRounds = submissions
     .filter((s) => s.status === "submitted" || s.status === "scored")
     .map((s) => s.round_number);
-  const nextRound = [1, 2, 3].find((n) => !candidateCompletedRounds.includes(n));
+  const nextRound = [1, 2, 4].find((n) => !candidateCompletedRounds.includes(n));
   renderCandidateRoundNav();
 
   if (nextRound === undefined) {
@@ -1536,7 +1536,7 @@ function renderCandidateRoundNav() {
   const nav = document.getElementById("candidate-round-nav");
   nav.innerHTML = `
     <div class="rail-section-label">Assessment</div>
-    ${[1, 2, 3].map((n) => {
+    ${[1, 2, 4].map((n) => {
       const done = candidateCompletedRounds.includes(n);
       const isUnlocked = n === candidateUnlockedRound && !done;
       const note = done ? "Submitted" : n === candidateUnlockedRound ? "In progress" : "Locked";
@@ -1551,7 +1551,7 @@ function renderCandidateRoundNav() {
       `;
     }).join("")}
   `;
-  if (currentRound >= 1 && currentRound <= 3) {
+  if (currentRound >= 1 && currentRound <= 4) {
     setPageHeader("Candidate Assessment", `Round ${currentRound} · ${ROUND_LABELS[currentRound]}`, "");
   } else {
     setPageHeader("Candidate Assessment", "Assessment complete", "");
@@ -1591,21 +1591,21 @@ function renderRoundView(box, n, state) {
   }
 
   if (!submission) {
-    if (n === 3) {
+    if (n === 4) {
       // No Start button here at all - the briefing modal below is the
       // only way in, appearing the instant this round is opened. Its own
-      // "Got it - Start Round 3" button is what actually starts the
-      // round (see confirmStartRound3) - reading this costs no time
+      // "Got it - Start Round 4" button is what actually starts the
+      // round (see confirmStartRound4) - reading this costs no time
       // either way, since the timer only starts on that click.
       box.innerHTML = `
         <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
         ${formatScenarioDescription(scenario.description)}
         <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
       `;
-      showRound3Intro();
+      showRound4Intro();
       return;
     }
-    // Same pattern as round 3: no separate Start button - the briefing
+    // Same pattern as round 4: no separate Start button - the briefing
     // modal appears the instant the round is opened, and its own button
     // is what actually starts the timer.
     box.innerHTML = `
@@ -1673,21 +1673,21 @@ async function startRound(n) {
   renderRoundEntry(n, box, state.scenario, submission);
 }
 
-// One-time briefing before round 3's timer starts - shown instead of an
-// immediate Start, since round 3's format (prompt-driven, an
+// One-time briefing before round 4's timer starts - shown instead of an
+// immediate Start, since round 4's format (prompt-driven, an
 // intentionally imperfect assistant, no fixed checklist) isn't
 // self-explanatory the way rounds 1/2's plain forms are. Reading this
-// doesn't cost any time - the timer only starts once startRound(3) is
-// actually called, from confirmStartRound3 below. Deliberately no
+// doesn't cost any time - the timer only starts once startRound(4) is
+// actually called, from confirmStartRound4 below. Deliberately no
 // specifics on how often or how the assistant gets things wrong - that's
 // what the round is testing; this only sets expectations, not answers.
-function showRound3Intro() {
+function showRound4Intro() {
   const overlay = document.createElement("div");
-  overlay.id = "round3-intro-overlay";
+  overlay.id = "round4-intro-overlay";
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-box neutral">
-      <h3>Before you start Round 3</h3>
+      <h3>Before you start Round 4</h3>
       <ul>
         <li>You'll see the test cases you wrote in Round 1 - use them as your starting point.</li>
         <li>For each one, describe what to test to an AI assistant. It will simulate running it and tell you what it did and what it observed - no code involved.</li>
@@ -1700,29 +1700,29 @@ function showRound3Intro() {
         <li>Your timer starts the moment you click below.</li>
       </ul>
       <div class="row">
-        <button onclick="confirmStartRound3()">Got it - Start Round 3</button>
+        <button onclick="confirmStartRound4()">Got it - Start Round 4</button>
       </div>
     </div>
   `;
   openModalOverlay(overlay);
 }
 
-function confirmStartRound3() {
-  closeModalOverlay("round3-intro-overlay");
-  startRound(3);
+function confirmStartRound4() {
+  closeModalOverlay("round4-intro-overlay");
+  startRound(4);
 }
 
 // Each round's candidate-facing shape is genuinely different now: round
 // 1 is repeatable test-case rows, round 2 is a shorter investigation
-// list + one root-cause conclusion, round 3 is conversational. No
+// list + one root-cause conclusion, round 4 is conversational. No
 // shared "structured rounds" bucket anymore - just dispatch by number.
 function renderRoundEntry(n, box, scenario, submission) {
   if (n === 1) {
     renderEntryForm(box, scenario, submission);
   } else if (n === 2) {
     renderInvestigationForm(box, scenario, submission);
-  } else {
-    renderRound3View(box);
+  } else if (n === 4) {
+    renderRound4View(box);
   }
 }
 
@@ -1730,9 +1730,9 @@ function renderRoundEntry(n, box, scenario, submission) {
 // candidate.py's PATCH /round/{n}/draft) - the same "so a crash/refresh
 // doesn't silently lose typed work while the timer keeps running"
 // guarantee round 3's test cases already have (see
-// ROUND3_DRAFT_DEBOUNCE_MS below), just for one whole-round form instead
+// ROUND4_DRAFT_DEBOUNCE_MS below), just for one whole-round form instead
 // of a per-test-case composer. Debounced so normal typing doesn't fire a
-// request per keystroke; best-effort (like round3FlushDraft) since the
+// request per keystroke; best-effort (like round4FlushDraft) since the
 // DOM itself is always the source of truth for what's on screen right
 // now - a failed autosave only risks losing up to the debounce window's
 // worth of typing on an actual crash/refresh, never anything visible.
@@ -1931,21 +1931,21 @@ async function doSubmitRound2Investigation(force = false) {
 
 // ---- Round 3: conversational, open-ended test automation ----
 //
-// State lives server-side (Round3StateOut, see candidate.py) and gets
-// re-fetched into round3State after every turn/test-case creation, then
+// State lives server-side (Round4StateOut, see candidate.py) and gets
+// re-fetched into round4State after every turn/test-case creation, then
 // the whole panel re-renders from it - simpler than trying to patch the
 // DOM incrementally for something this stateful. The one thing that
-// does NOT live in round3State is each test case's in-progress draft
-// message (round3DraftBuffer) - that's candidate-typed and would be
+// does NOT live in round4State is each test case's in-progress draft
+// message (round4DraftBuffer) - that's candidate-typed and would be
 // lost on every re-render (and on switching tabs) otherwise; see
-// round3OnComposerInput below for the autosave mechanism.
+// round4OnComposerInput below for the autosave mechanism.
 
 const STEP_MARKS = { pass: "✓", fail: "✗", partial: "~" };
 
 // Shared by the candidate's live transcript and HR's read-only report -
 // plain-English action list, each with its own pass/fail marker, so a
 // failure is locatable to a specific step rather than just an overall
-// verdict. Deliberately never renders code - see Round3ExecutionStep.
+// verdict. Deliberately never renders code - see Round4ExecutionStep.
 function renderExecutionSteps(steps) {
   if (!steps || steps.length === 0) return "";
   return `
@@ -1968,7 +1968,7 @@ function renderExecutionSteps(steps) {
 
 // Trial feature (see candidate.py's GET /round/3/turn/{id}/code) - shown
 // automatically for whichever ONE language the candidate currently has
-// selected (round3DefaultLanguage, remembered across turns so it isn't
+// selected (round4DefaultLanguage, remembered across turns so it isn't
 // re-picked every time) - not all four languages per turn, which would
 // multiply the LLM calls behind every single message. Switching to a
 // different language for one turn is still just a click away via that
@@ -1979,32 +1979,32 @@ function renderExecutionSteps(steps) {
 // same thing per turn (see candidate.py), so a reload or a language
 // switch back to one already viewed never re-calls the LLM either way -
 // the exact same code shows every time, not a different roll.
-let round3CodeCache = {};
-let round3DefaultLanguage = "python";
-const ROUND3_CODE_LANGUAGE_OPTIONS = [
+let round4CodeCache = {};
+let round4DefaultLanguage = "python";
+const ROUND4_CODE_LANGUAGE_OPTIONS = [
   ["python", "Python"],
   ["java", "Java"],
   ["javascript", "JavaScript"],
   ["typescript", "TypeScript"],
 ];
 
-async function round3OnLanguageChange(turnId) {
-  round3DefaultLanguage = document.getElementById(`code-lang-${turnId}`).value;
-  await showRound3Code(turnId);
+async function round4OnLanguageChange(turnId) {
+  round4DefaultLanguage = document.getElementById(`code-lang-${turnId}`).value;
+  await showRound4Code(turnId);
 }
 
-async function showRound3Code(turnId) {
+async function showRound4Code(turnId) {
   const lang = document.getElementById(`code-lang-${turnId}`).value;
   const container = document.getElementById(`code-snippet-${turnId}`);
   const cacheKey = `${turnId}:${lang}`;
-  if (round3CodeCache[cacheKey]) {
-    container.innerHTML = `<pre class="code-snippet">${escapeHtml(round3CodeCache[cacheKey])}</pre>`;
+  if (round4CodeCache[cacheKey]) {
+    container.innerHTML = `<pre class="code-snippet">${escapeHtml(round4CodeCache[cacheKey])}</pre>`;
     return;
   }
   container.innerHTML = `<p class="muted">Generating...</p>`;
   try {
-    const result = await api(`/candidate/round/3/turn/${turnId}/code?language=${lang}`);
-    round3CodeCache[cacheKey] = result.code;
+    const result = await api(`/candidate/round/4/turn/${turnId}/code?language=${lang}`);
+    round4CodeCache[cacheKey] = result.code;
     container.innerHTML = `<pre class="code-snippet">${escapeHtml(result.code)}</pre>`;
   } catch (e) {
     container.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
@@ -2033,7 +2033,7 @@ function groupMockupElements(elements) {
 }
 
 // Shared by the candidate's round 3 view and HR's scenario detail -
-// renders Round3UiMockupOut's structured screens (screen -> ordered
+// renders Round4UiMockupOut's structured screens (screen -> ordered
 // typed elements) as a static, schematic wireframe. Deliberately never
 // injects LLM-authored HTML/CSS: every element renders through this
 // app's own trusted CSS classes, keyed only off `type`, with all text
@@ -2100,10 +2100,10 @@ function selectMockupScreen(idPrefix, index) {
   document.querySelectorAll(`[id^="${idPrefix}-screen-"]`).forEach((panel, i) => panel.classList.toggle("hidden", i !== index));
 }
 
-async function renderRound3View(box) {
+async function renderRound4View(box) {
   box.innerHTML = `<p class="muted">Loading...</p>`;
   try {
-    round3State = await api("/candidate/round/3/state");
+    round4State = await api("/candidate/round/4/state");
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
@@ -2111,24 +2111,24 @@ async function renderRound3View(box) {
   // Seed the draft buffer from whatever was last autosaved server-side -
   // recovers in-progress text across a full page refresh, not just a tab
   // switch within the same page load.
-  round3DraftBuffer = {};
-  for (const tc of round3State.test_cases) round3DraftBuffer[tc.id] = tc.draft_prompt || "";
-  round3ViewedTestCaseId = round3State.test_cases.length > 0 ? round3State.test_cases[0].id : null;
-  renderRound3Layout(box);
+  round4DraftBuffer = {};
+  for (const tc of round4State.test_cases) round4DraftBuffer[tc.id] = tc.draft_prompt || "";
+  round4ViewedTestCaseId = round4State.test_cases.length > 0 ? round4State.test_cases[0].id : null;
+  renderRound4Layout(box);
 
   if (!timerHandle) {
-    const submission = round3State.submission;
-    const deadline = new Date(submission.started_at + "Z").getTime() + round3State.scenario.time_limit_minutes * 60 * 1000;
-    startTimer(deadline, round3AutoSubmit, 3);
+    const submission = round4State.submission;
+    const deadline = new Date(submission.started_at + "Z").getTime() + round4State.scenario.time_limit_minutes * 60 * 1000;
+    startTimer(deadline, round4AutoSubmit, 4);
   }
 }
 
-async function round3AutoSubmit() {
+async function round4AutoSubmit() {
   const timerEl = document.getElementById("timer");
   if (timerEl) timerEl.textContent = "Time's up - submitting automatically...";
   try {
-    await api("/candidate/round/3/submit", { method: "POST" });
-    round3DraftBuffer = {};
+    await api("/candidate/round/4/submit", { method: "POST" });
+    round4DraftBuffer = {};
     stopTimer();
     disarmTabGuard();
     refreshCandidateNav();
@@ -2142,13 +2142,13 @@ async function round3AutoSubmit() {
     // this used to be exactly that infinite "flickering" loop (repeat
     // 400s until the candidate's tab was closed) before expire existed;
     // the fix is closing the round for real, not just avoiding the reload.
-    await forceExpireRound(3);
+    await forceExpireRound(4);
   }
 }
 
 // Shared by all three rounds' auto-submit-on-expiry paths (see
 // doSubmitRound1/doSubmitRound2Investigation's force=true, and
-// round3AutoSubmit's catch above) - the guaranteed way a round closes
+// round4AutoSubmit's catch above) - the guaranteed way a round closes
 // once its timer hits zero and a real submit wasn't possible (empty/
 // incomplete content, or losing a race against the server's own deadline
 // check). Whatever draft content the candidate had (round is passed in
@@ -2170,14 +2170,14 @@ async function forceExpireRound(roundNumber, body = {}) {
   refreshCandidateNav();
 }
 
-function renderRound3Layout(box) {
-  const s = round3State;
+function renderRound4Layout(box) {
+  const s = round4State;
   const envFields = s.environment ? Object.entries(s.environment.fields || {}) : [];
 
   const r1Rows = s.round1_context.submitted_rows || [];
 
   box.innerHTML = `
-    <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
+    <h3>Round 4: ${escapeHtml(s.scenario.title)}</h3>
     ${formatScenarioDescription(s.scenario.description)}
     <details class="hint-box">
       <summary><strong>Automating your own Round 1 answer</strong> - "${escapeHtml(s.round1_context.scenario_title)}"</summary>
@@ -2214,30 +2214,30 @@ function renderRound3Layout(box) {
         ${renderMockupScreens(s.ui_mockup, "cand-mockup")}
       </details>
     ` : ""}
-    <div id="round3-tabs" class="row" style="margin-bottom:0.4rem"></div>
+    <div id="round4-tabs" class="row" style="margin-bottom:0.4rem"></div>
     <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
     ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
     <div class="panel-inset example-row" style="margin-bottom:0.85rem">
       <p class="muted" style="margin-bottom:0.3rem"><strong>Example (format only, not a hint for this scenario):</strong></p>
       <p class="muted" style="margin:0">Test case title: "Verify login with valid credentials" - then a first message to the assistant like "Log in with the test account credentials and tell me what happened."</p>
     </div>
-    <div id="round3-test-case-body"></div>
+    <div id="round4-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
-      <button class="btn-block" onclick="round3Submit()">Submit Round 3</button>
+      <button class="btn-block" onclick="round4Submit()">Submit Round 4</button>
     </div>
-    <p id="round3-status" class="muted"></p>
+    <p id="round4-status" class="muted"></p>
   `;
 
-  renderRound3Tabs();
-  renderRound3TestCaseBody();
+  renderRound4Tabs();
+  renderRound4TestCaseBody();
 }
 
-function renderRound3Tabs() {
-  const s = round3State;
+function renderRound4Tabs() {
+  const s = round4State;
   const tabs = s.test_cases.map((tc, i) => {
     const count = tc.turn_count;
     return `
-      <button class="nav-btn ${tc.id === round3ViewedTestCaseId ? "active" : ""}" onclick="round3SelectTestCase(${tc.id})">
+      <button class="nav-btn ${tc.id === round4ViewedTestCaseId ? "active" : ""}" onclick="round4SelectTestCase(${tc.id})">
         <span class="nav-chip">${i + 1}</span>
         <span class="nav-btn-copy">
           <span class="nav-btn-label">${escapeHtml(tc.title || `Test case ${i + 1}`)}</span>
@@ -2247,39 +2247,39 @@ function renderRound3Tabs() {
     `;
   }).join("");
 
-  document.getElementById("round3-tabs").innerHTML = `
+  document.getElementById("round4-tabs").innerHTML = `
     ${tabs}
-    <button onclick="round3CreateTestCase()">+ New test case</button>
+    <button onclick="round4CreateTestCase()">+ New test case</button>
   `;
 }
 
-async function round3CreateTestCase() {
+async function round4CreateTestCase() {
   // No prompt() dialog - creates immediately with no title; the tab
-  // falls back to "Test case N" for display (see Round3TestCaseOut) and
+  // falls back to "Test case N" for display (see Round4TestCaseOut) and
   // the candidate's own prompts are what actually convey intent.
   try {
-    const tc = await api("/candidate/round/3/test-case", { method: "POST", body: JSON.stringify({ title: null }) });
-    round3State = await api("/candidate/round/3/state");
-    round3DraftBuffer[tc.id] = "";
-    round3ViewedTestCaseId = tc.id;
-    renderRound3Tabs();
-    renderRound3TestCaseBody();
+    const tc = await api("/candidate/round/4/test-case", { method: "POST", body: JSON.stringify({ title: null }) });
+    round4State = await api("/candidate/round/4/state");
+    round4DraftBuffer[tc.id] = "";
+    round4ViewedTestCaseId = tc.id;
+    renderRound4Tabs();
+    renderRound4TestCaseBody();
   } catch (e) {
-    document.getElementById("round3-status").textContent = e.message;
+    document.getElementById("round4-status").textContent = e.message;
   }
 }
 
-function round3SelectTestCase(id) {
-  round3FlushDraft(round3ViewedTestCaseId); // send whatever's pending for the tab being left, don't wait out the debounce
-  round3ViewedTestCaseId = id;
-  renderRound3Tabs();
-  renderRound3TestCaseBody();
+function round4SelectTestCase(id) {
+  round4FlushDraft(round4ViewedTestCaseId); // send whatever's pending for the tab being left, don't wait out the debounce
+  round4ViewedTestCaseId = id;
+  renderRound4Tabs();
+  renderRound4TestCaseBody();
 }
 
-function renderRound3TestCaseBody() {
-  const s = round3State;
-  const body = document.getElementById("round3-test-case-body");
-  const tcId = round3ViewedTestCaseId;
+function renderRound4TestCaseBody() {
+  const s = round4State;
+  const body = document.getElementById("round4-test-case-body");
+  const tcId = round4ViewedTestCaseId;
   if (tcId == null) {
     body.innerHTML = `<div class="empty-state">No test cases yet - click "+ New test case" above to describe the first thing you want to automate.</div>`;
     return;
@@ -2287,8 +2287,8 @@ function renderRound3TestCaseBody() {
 
   const turns = s.turns.filter((t) => t.test_case_id === tcId);
 
-  const languageOptionsHtml = (turnId) => ROUND3_CODE_LANGUAGE_OPTIONS.map(([value, label]) =>
-    `<option value="${value}" ${round3DefaultLanguage === value ? "selected" : ""}>${label}</option>`
+  const languageOptionsHtml = (turnId) => ROUND4_CODE_LANGUAGE_OPTIONS.map(([value, label]) =>
+    `<option value="${value}" ${round4DefaultLanguage === value ? "selected" : ""}>${label}</option>`
   ).join("");
 
   // Three panes per turn, side by side (prompt | result | code) instead
@@ -2296,27 +2296,27 @@ function renderRound3TestCaseBody() {
   // "View as code" button at the bottom; it's the same information a
   // candidate needs to correct a wrong response, so it's shown right
   // alongside the prompt/result that produced it, not buried below.
-  // Column WIDTHS are draggable via the two .round3-col-resizer bars
-  // (see round3StartColResize) - a real split-pane divider, not just
+  // Column WIDTHS are draggable via the two .round4-col-resizer bars
+  // (see round4StartColResize) - a real split-pane divider, not just
   // native per-pane resize, since "make the code pane bigger" means
   // taking width away from its neighbors, which CSS `resize` alone can't
   // do. The widths are shared across every turn row (applied as CSS
-  // custom properties on the document root - see round3ApplyColWidths),
+  // custom properties on the document root - see round4ApplyColWidths),
   // so dragging once resizes all of them together, not just this row.
   const transcriptHtml = turns.length === 0
     ? `<div class="empty-state">No messages yet in this test case - describe what you want automated to get started.</div>`
     : turns.map((t) => `
-      <div class="round3-turn-grid">
-        <div class="panel-inset round3-pane">
-          <p class="muted round3-pane-label">Prompt</p>
-          <div class="round3-pane-body">
+      <div class="round4-turn-grid">
+        <div class="panel-inset round4-pane">
+          <p class="muted round4-pane-label">Prompt</p>
+          <div class="round4-pane-body">
             <p>${escapeHtml(t.candidate_prompt)}</p>
           </div>
         </div>
-        <div class="round3-col-resizer" onmousedown="round3StartColResize(event, 'c1-c2')"></div>
-        <div class="panel-inset round3-pane">
-          <p class="muted round3-pane-label">Result</p>
-          <div class="round3-pane-body">
+        <div class="round4-col-resizer" onmousedown="round4StartColResize(event, 'c1-c2')"></div>
+        <div class="panel-inset round4-pane">
+          <p class="muted round4-pane-label">Result</p>
+          <div class="round4-pane-body">
             <p>${escapeHtml(t.model_response.response_text)}</p>
             ${renderExecutionSteps(t.model_response.steps)}
             <div class="observed-box">
@@ -2325,24 +2325,24 @@ function renderRound3TestCaseBody() {
             </div>
           </div>
         </div>
-        <div class="round3-col-resizer" onmousedown="round3StartColResize(event, 'c2-c3')"></div>
-        <div class="panel-inset round3-pane">
+        <div class="round4-col-resizer" onmousedown="round4StartColResize(event, 'c2-c3')"></div>
+        <div class="panel-inset round4-pane">
           <div class="row" style="align-items:center; justify-content:space-between; margin-bottom:0">
-            <p class="muted round3-pane-label" style="margin:0">Code</p>
-            <select id="code-lang-${t.id}" onchange="round3OnLanguageChange(${t.id})">${languageOptionsHtml(t.id)}</select>
+            <p class="muted round4-pane-label" style="margin:0">Code</p>
+            <select id="code-lang-${t.id}" onchange="round4OnLanguageChange(${t.id})">${languageOptionsHtml(t.id)}</select>
           </div>
-          <div class="round3-pane-body">
+          <div class="round4-pane-body">
             <div id="code-snippet-${t.id}"><p class="muted">Generating...</p></div>
           </div>
         </div>
       </div>
     `).join("");
 
-  const draftText = round3DraftBuffer[tcId] || "";
+  const draftText = round4DraftBuffer[tcId] || "";
   const composerHtml = `
-    <textarea id="round3-message" placeholder="What do you want the assistant to do or check next?" oninput="round3OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
+    <textarea id="round4-message" placeholder="What do you want the assistant to do or check next?" oninput="round4OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
     <div class="row">
-      <button id="round3-send-btn" onclick="round3SendMessage()">Send</button>
+      <button id="round4-send-btn" onclick="round4SendMessage()">Send</button>
     </div>
   `;
 
@@ -2354,56 +2354,56 @@ function renderRound3TestCaseBody() {
   // Auto-generate/show code for the candidate's current default language -
   // shown by default now, not gated behind a click. Cheap for anything
   // already viewed (client cache, then the server's own persisted copy -
-  // see showRound3Code), so re-rendering this same list on every new
+  // see showRound4Code), so re-rendering this same list on every new
   // message doesn't re-cost a call for turns already shown.
-  turns.forEach((t) => showRound3Code(t.id));
-  round3ApplyColWidths();
+  turns.forEach((t) => showRound4Code(t.id));
+  round4ApplyColWidths();
 }
 
-// Draggable column-width splitter for the three round3 panes (prompt |
-// result | code) - see the .round3-turn-grid markup above. Widths live
+// Draggable column-width splitter for the three round4 panes (prompt |
+// result | code) - see the .round4-turn-grid markup above. Widths live
 // in fr units, same as the CSS grid-template-columns they drive, and
 // are applied as custom properties on the document root rather than on
-// #round3-test-case-body itself: that element's innerHTML gets replaced
+// #round4-test-case-body itself: that element's innerHTML gets replaced
 // wholesale on every re-render (a new message, switching test cases),
 // which would silently wipe an inline style set directly on it. The
 // root element is never destroyed that way, so a resize made once
 // keeps applying across every future re-render in this session.
-let round3ColFr = { c1: 0.65, c2: 1.5, c3: 1.5 };
-let round3ColResizeState = null;
+let round4ColFr = { c1: 0.65, c2: 1.5, c3: 1.5 };
+let round4ColResizeState = null;
 
-function round3ApplyColWidths() {
+function round4ApplyColWidths() {
   const root = document.documentElement.style;
-  root.setProperty("--r3c1", `${round3ColFr.c1}fr`);
-  root.setProperty("--r3c2", `${round3ColFr.c2}fr`);
-  root.setProperty("--r3c3", `${round3ColFr.c3}fr`);
+  root.setProperty("--r4c1", `${round4ColFr.c1}fr`);
+  root.setProperty("--r4c2", `${round4ColFr.c2}fr`);
+  root.setProperty("--r4c3", `${round4ColFr.c3}fr`);
 }
 
-function round3StartColResize(e, edge) {
+function round4StartColResize(e, edge) {
   // Below the breakpoint where the grid collapses to a single stacked
   // column (see the media query in style.css), there's nothing
   // meaningful to drag - matches disabling the height-resize there too.
   if (window.innerWidth <= 860) return;
   e.preventDefault();
-  const grid = e.currentTarget.closest(".round3-turn-grid");
+  const grid = e.currentTarget.closest(".round4-turn-grid");
   const rect = grid.getBoundingClientRect();
   const leftKey = edge === "c1-c2" ? "c1" : "c2";
   const rightKey = edge === "c1-c2" ? "c2" : "c3";
-  const totalFr = round3ColFr.c1 + round3ColFr.c2 + round3ColFr.c3;
+  const totalFr = round4ColFr.c1 + round4ColFr.c2 + round4ColFr.c3;
   // Two 6px resizer tracks eat into the grid's width but carry no fr
   // share of their own - excluded here so the fr<->pixel conversion
   // below lines up with what the fr units actually control.
   const pxPerFr = (rect.width - 12) / totalFr;
-  round3ColResizeState = { leftKey, rightKey, startX: e.clientX, startLeftFr: round3ColFr[leftKey], startRightFr: round3ColFr[rightKey], pxPerFr };
+  round4ColResizeState = { leftKey, rightKey, startX: e.clientX, startLeftFr: round4ColFr[leftKey], startRightFr: round4ColFr[rightKey], pxPerFr };
   document.body.style.cursor = "col-resize";
   document.body.style.userSelect = "none";
-  document.addEventListener("mousemove", round3OnColResizeMove);
-  document.addEventListener("mouseup", round3StopColResize);
+  document.addEventListener("mousemove", round4OnColResizeMove);
+  document.addEventListener("mouseup", round4StopColResize);
 }
 
-function round3OnColResizeMove(e) {
-  if (!round3ColResizeState) return;
-  const { leftKey, rightKey, startX, startLeftFr, startRightFr, pxPerFr } = round3ColResizeState;
+function round4OnColResizeMove(e) {
+  if (!round4ColResizeState) return;
+  const { leftKey, rightKey, startX, startLeftFr, startRightFr, pxPerFr } = round4ColResizeState;
   const deltaFr = (e.clientX - startX) / pxPerFr;
   // Each pane keeps a floor of 0.35fr - narrow enough to clearly favor
   // whichever pane the candidate is expanding, wide enough that the
@@ -2413,53 +2413,53 @@ function round3OnColResizeMove(e) {
   let newRight = startRightFr - deltaFr;
   if (newLeft < MIN_FR) { newRight -= (MIN_FR - newLeft); newLeft = MIN_FR; }
   if (newRight < MIN_FR) { newLeft -= (MIN_FR - newRight); newRight = MIN_FR; }
-  round3ColFr[leftKey] = Math.max(MIN_FR, newLeft);
-  round3ColFr[rightKey] = Math.max(MIN_FR, newRight);
-  round3ApplyColWidths();
+  round4ColFr[leftKey] = Math.max(MIN_FR, newLeft);
+  round4ColFr[rightKey] = Math.max(MIN_FR, newRight);
+  round4ApplyColWidths();
 }
 
-function round3StopColResize() {
-  round3ColResizeState = null;
+function round4StopColResize() {
+  round4ColResizeState = null;
   document.body.style.cursor = "";
   document.body.style.userSelect = "";
-  document.removeEventListener("mousemove", round3OnColResizeMove);
-  document.removeEventListener("mouseup", round3StopColResize);
+  document.removeEventListener("mousemove", round4OnColResizeMove);
+  document.removeEventListener("mouseup", round4StopColResize);
 }
 
 // Two-layer autosave: the in-memory buffer update is instant (this is
 // what tab-switching restores from - zero network latency), the PATCH to
 // the server is debounced so normal typing doesn't fire a request per
-// keystroke. round3SelectTestCase flushes early on tab-switch so a fast
+// keystroke. round4SelectTestCase flushes early on tab-switch so a fast
 // switch-and-close doesn't lose up to DEBOUNCE_MS of typing to a
 // cancelled timeout.
-const ROUND3_DRAFT_DEBOUNCE_MS = 2000;
+const ROUND4_DRAFT_DEBOUNCE_MS = 2000;
 
-function round3OnComposerInput(tcId, value) {
-  round3DraftBuffer[tcId] = value;
-  clearTimeout(round3DraftTimers[tcId]);
-  round3DraftTimers[tcId] = setTimeout(() => round3FlushDraft(tcId), ROUND3_DRAFT_DEBOUNCE_MS);
+function round4OnComposerInput(tcId, value) {
+  round4DraftBuffer[tcId] = value;
+  clearTimeout(round4DraftTimers[tcId]);
+  round4DraftTimers[tcId] = setTimeout(() => round4FlushDraft(tcId), ROUND4_DRAFT_DEBOUNCE_MS);
 }
 
-function round3FlushDraft(tcId) {
-  if (tcId == null || round3DraftTimers[tcId] == null) return;
-  clearTimeout(round3DraftTimers[tcId]);
-  delete round3DraftTimers[tcId];
-  api(`/candidate/round/3/test-case/${tcId}/draft`, {
+function round4FlushDraft(tcId) {
+  if (tcId == null || round4DraftTimers[tcId] == null) return;
+  clearTimeout(round4DraftTimers[tcId]);
+  delete round4DraftTimers[tcId];
+  api(`/candidate/round/4/test-case/${tcId}/draft`, {
     method: "PATCH",
-    body: JSON.stringify({ draft_prompt: round3DraftBuffer[tcId] || "" }),
+    body: JSON.stringify({ draft_prompt: round4DraftBuffer[tcId] || "" }),
   }).catch(() => {}); // best-effort - the in-memory buffer is still correct either way
 }
 
-async function round3SendMessage() {
-  const tcId = round3ViewedTestCaseId;
-  const prompt = (round3DraftBuffer[tcId] || "").trim();
-  const statusEl = document.getElementById("round3-status");
-  const sendBtn = document.getElementById("round3-send-btn");
+async function round4SendMessage() {
+  const tcId = round4ViewedTestCaseId;
+  const prompt = (round4DraftBuffer[tcId] || "").trim();
+  const statusEl = document.getElementById("round4-status");
+  const sendBtn = document.getElementById("round4-send-btn");
   // Guards against a double-click firing two concurrent /turn requests -
   // without this, both could read the same "existing turns" count before
   // either commits and independently compute the same turn_number,
   // landing two turns with an identical number on the same test case
-  // (plus a wasted second LLM call). renderRound3TestCaseBody() below
+  // (plus a wasted second LLM call). renderRound4TestCaseBody() below
   // rebuilds this button fresh (enabled) on success; the catch path
   // re-enables it explicitly since no re-render happens there.
   if (sendBtn && sendBtn.disabled) return;
@@ -2470,30 +2470,30 @@ async function round3SendMessage() {
   statusEl.textContent = "Thinking...";
   if (sendBtn) sendBtn.disabled = true;
   try {
-    await api("/candidate/round/3/turn", {
+    await api("/candidate/round/4/turn", {
       method: "POST",
       body: JSON.stringify({ test_case_id: tcId, candidate_prompt: prompt }),
     });
-    clearTimeout(round3DraftTimers[tcId]);
-    delete round3DraftTimers[tcId];
-    round3DraftBuffer[tcId] = ""; // the server already cleared its copy as part of turn creation
-    round3State = await api("/candidate/round/3/state");
+    clearTimeout(round4DraftTimers[tcId]);
+    delete round4DraftTimers[tcId];
+    round4DraftBuffer[tcId] = ""; // the server already cleared its copy as part of turn creation
+    round4State = await api("/candidate/round/4/state");
     statusEl.textContent = "";
-    renderRound3Tabs();
-    renderRound3TestCaseBody();
+    renderRound4Tabs();
+    renderRound4TestCaseBody();
   } catch (e) {
     if (sendBtn) sendBtn.disabled = false;
     statusEl.textContent = e.message;
   }
 }
 
-async function round3Submit() {
-  const statusEl = document.getElementById("round3-status");
+async function round4Submit() {
+  const statusEl = document.getElementById("round4-status");
   try {
-    await api("/candidate/round/3/submit", { method: "POST" });
+    await api("/candidate/round/4/submit", { method: "POST" });
     stopTimer();
     disarmTabGuard();
-    round3DraftBuffer = {};
+    round4DraftBuffer = {};
     refreshCandidateNav();
   } catch (e) {
     // e.g. "Create at least one test case before submitting." - the
@@ -2574,7 +2574,7 @@ async function doSubmitRound1(force = false) {
   // Guards against a double-click firing two concurrent submits (the
   // second would just 400 on the server, but this avoids the confusing
   // in-between state and a wasted round trip) - see the identical guard
-  // on round3SendMessage for the more consequential version of this bug
+  // on round4SendMessage for the more consequential version of this bug
   // (there it could create two conversation turns with the same number).
   if (submitBtn && submitBtn.disabled) return;
   const content = collectRows();
@@ -2671,7 +2671,7 @@ function stopTimer() {
   }
   // Deliberately does NOT hide/clear the topbar timer element here - a
   // couple of call sites (the onExpire callbacks in renderEntryForm/
-  // renderInvestigationForm/round3AutoSubmit) call this and THEN set the
+  // renderInvestigationForm/round4AutoSubmit) call this and THEN set the
   // timer's text to "Time's up - submitting automatically..." while the
   // auto-submit request is in flight; hiding it here would make that
   // message invisible. See resetTopbarTimer, called instead at the
