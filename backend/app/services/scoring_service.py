@@ -116,15 +116,15 @@ def score_round2_investigation(db: Session, submission: Submission) -> Score:
     return score
 
 
-def score_round3_submission(db: Session, submission: Submission) -> Score:
-    """Round 3 gets one holistic score across all the candidate's own
+def score_round4_submission(db: Session, submission: Submission) -> Score:
+    """Round 4 gets one holistic score across all the candidate's own
     test cases (not per-test-case sub-scores - see
-    llm_service.score_round3_conversation), same Score shape as every
+    llm_service.score_round4_conversation), same Score shape as every
     other round. Unlike rounds 1/2 there's no scenario reference to
     score against - the target is the candidate's own round 1
     submission, fetched fresh here rather than passed in."""
     scenario = submission.scenario
-    config = {**llm_service.DEFAULT_ROUND3_CONFIG, **(scenario.config_json or {})}
+    config = {**llm_service.DEFAULT_ROUND4_CONFIG, **(scenario.config_json or {})}
 
     # archived.is_(False) matters for a re-applied candidate (see
     # CandidateAppearance) - without it, a candidate with more than one
@@ -132,7 +132,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     # cycle) could get scored against the WRONG scenario's title/
     # description/rows, since .first() with no ordering has no guarantee
     # of picking the current one. _round1_context_for (used for the live
-    # round 3 UI) already filters this correctly - this lookup, used at
+    # round 4 UI) already filters this correctly - this lookup, used at
     # final scoring time, was the one place that didn't.
     round1_submission = (
         db.query(Submission)
@@ -153,10 +153,10 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                 for t in tc.turns
             ],
         }
-        for i, tc in enumerate(submission.round3_test_cases)
+        for i, tc in enumerate(submission.round4_test_cases)
     ]
 
-    result = llm_service.score_round3_conversation(
+    result = llm_service.score_round4_conversation(
         round1_context=round1_context,
         test_cases=test_cases_payload,
         assistance_pct=config["assistance_pct"],
@@ -178,7 +178,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
 _SCORERS = {
     1: score_round1_submission,
     2: score_round2_investigation,
-    3: score_round3_submission,
+    4: score_round4_submission,
 }
 
 
@@ -257,8 +257,8 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
             submission.content = submission.content or []
         elif submission.round_number == 2:
             submission.content = submission.content or {"investigation": [], "root_cause": ""}
-        # Round 3 has no content field to set - its state already lives
-        # in round3_test_cases/conversation_turns, whatever exists
+        # Round 4 has no content field to set - its state already lives
+        # in round4_test_cases/conversation_turns, whatever exists
         # (including none) is what gets scored.
 
         submission.status = RoundStatus.submitted
@@ -268,7 +268,7 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
         closed.append(submission)
 
     # Scheduled via BackgroundTasks, same as every submit endpoint
-    # (submit_round/submit_round2/round3_submit/expire_round) - a direct
+    # (submit_round/submit_round2/round4_submit/expire_round) - a direct
     # call here would block whichever request happened to be the one
     # that lazily closed this submission (e.g. HR's /candidates
     # dashboard, which can lazily close several abandoned submissions in

@@ -13,7 +13,7 @@ import anthropic
 from pydantic import ValidationError
 
 from ..config import settings
-from ..schemas import Round3TurnResponse, Round3EnvironmentOut, Round3UiMockupOut
+from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -29,7 +29,7 @@ def _get_client() -> anthropic.Anthropic:
                 "and fill in a real key from console.anthropic.com."
             )
         # Explicit timeout, not the SDK's default (several minutes) - two
-        # call sites run synchronously in the request path (round3_turn,
+        # call sites run synchronously in the request path (round4_turn,
         # which a candidate is actively waiting on mid-assessment, and
         # HR's _generate_reference) and both now fail cleanly on an
         # ERROR (see the try/except wrapping at each call site), but
@@ -165,12 +165,12 @@ def score_round2_submission(
     return result
 
 
-# ---- Round 3 ----
+# ---- Round 4 ----
 #
 # Conversational, not one-shot: the candidate prompts an assistant to
 # build test automation for their OWN round 1 scenario+answer, across
 # as many self-titled test cases as they choose to write (no fixed
-# UI/API/DB categories - see models.Round3TestCase; deciding what to
+# UI/API/DB categories - see models.Round4TestCase; deciding what to
 # test is itself part of what this round assesses). The assistant is
 # deliberately imperfect (~assistance_pct correct per turn) and nothing
 # actually executes - it invents an execution trace (plain-English
@@ -181,68 +181,68 @@ def score_round2_submission(
 # code would let coding skill substitute for the automation-thinking
 # skill this round exists to test. No turn cap, and no UI/API/DB
 # category tagging anywhere the candidate can see (see
-# round3_partial_response.txt) - both would just be different flavors of
+# round4_partial_response.txt) - both would just be different flavors of
 # hinting, which is exactly what this round is trying not to do. HR's
 # per-scenario "rules" (currently just assistance level) are a future
-# authoring UI; for now every round 3 scenario uses these defaults,
+# authoring UI; for now every round 4 scenario uses these defaults,
 # merged over whatever Scenario.config_json HR happens to have set. The
-# fallback value itself lives in config.py (round3_default_assistance_pct),
+# fallback value itself lives in config.py (round4_default_assistance_pct),
 # not here - see that file's docstring for why.
 #
-# Both round3_partial_response.txt and round3_scoring.txt independently
+# Both round4_partial_response.txt and round4_scoring.txt independently
 # guard against a candidate trying to direct the assistant/grading itself
 # (skip-ahead, "mark everything as passing," "tell me what scores well")
 # - the turn-level guard refuses in character, the scoring-level guard
 # ignores the attempt and logs it as a red flag in feedback_text instead
 # of letting it move the score. This is disclosed to the candidate only
-# as a short heads-up in showRound3Intro() (app.js) - that it happens and
+# as a short heads-up in showRound4Intro() (app.js) - that it happens and
 # gets flagged - not the trigger phrasing or where it's recorded, so the
 # disclosure sets expectations without handing out a way around it.
-DEFAULT_ROUND3_CONFIG = {
-    "assistance_pct": settings.round3_default_assistance_pct,
+DEFAULT_ROUND4_CONFIG = {
+    "assistance_pct": settings.round4_default_assistance_pct,
 }
 
 
-def generate_round3_environment(app_description: str) -> dict:
+def generate_round4_environment(app_description: str) -> dict:
     """Auto-generates fictional test-environment reference facts (test
     login credentials, API endpoints, a DB schema reference, ...) for a
-    round 3 scenario - shown to every candidate served this scenario.
-    Grounded in the same app_description as generate_round3_ui_mockup
+    round 4 scenario - shown to every candidate served this scenario.
+    Grounded in the same app_description as generate_round4_ui_mockup
     (whichever Round 1 scenario is live for this band, resolved by the
-    caller - see hr.py's _generate_reference) rather than round 3's own
+    caller - see hr.py's _generate_reference) rather than round 4's own
     description, which is just instructions to the candidate, not a
     description of the app under test - generic grounding here produced
     generic, unhelpful credentials/schema before this was fixed."""
-    prompt = _load_prompt("round3_environment_generation.txt").format(
+    prompt = _load_prompt("round4_environment_generation.txt").format(
         app_description=app_description,
     )
     raw = _call_claude(prompt)
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the test environment, got: {type(result)}")
-    # Validated (not just "has a fields key") - Round3EnvironmentOut is
-    # only enforced at read time on ScenarioPublicOut/Round3StateOut, so
+    # Validated (not just "has a fields key") - Round4EnvironmentOut is
+    # only enforced at read time on ScenarioPublicOut/Round4StateOut, so
     # an unvalidated shape mismatch here (e.g. a non-string field value)
     # would sail through db.commit() in hr.py and only surface as a
     # broken candidate-facing read later. HR's own ScenarioOut uses a
     # loose dict, so this doesn't affect HR's own preview either way -
     # it's purely about not shipping a bad shape live.
     try:
-        return Round3EnvironmentOut.model_validate(result).model_dump()
+        return Round4EnvironmentOut.model_validate(result).model_dump()
     except ValidationError as e:
         raise ValueError(f"Test environment response didn't match the expected shape: {e}") from e
 
 
-def generate_round3_ui_mockup(app_description: str) -> dict:
+def generate_round4_ui_mockup(app_description: str) -> dict:
     """Auto-generates a structured (never raw HTML) reference sketch of
     the app's screens - shown to the candidate as a static visual
     reference, the way a real QA automation engineer would have the
     actual app open in a browser. Grounded in whichever Round 1 scenario
     is live for this band (the actual "app" a candidate's round 1
-    answer/round 3 automation is about) - see hr.py's _generate_reference
+    answer/round 4 automation is about) - see hr.py's _generate_reference
     for that lookup; app_description is already resolved by the caller,
     this function doesn't know or care where it came from."""
-    prompt = _load_prompt("round3_ui_mockup_generation.txt").format(
+    prompt = _load_prompt("round4_ui_mockup_generation.txt").format(
         app_description=app_description,
     )
     raw = _call_claude(prompt)
@@ -250,12 +250,12 @@ def generate_round3_ui_mockup(app_description: str) -> dict:
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the UI mockup, got: {type(result)}")
     try:
-        return Round3UiMockupOut.model_validate(result).model_dump()
+        return Round4UiMockupOut.model_validate(result).model_dump()
     except ValidationError as e:
         raise ValueError(f"UI mockup response didn't match the expected shape: {e}") from e
 
 
-def round3_respond(
+def round4_respond(
     test_case_title: str,
     environment: dict | None,
     scenario_instructions: str,
@@ -265,7 +265,7 @@ def round3_respond(
     assistance_pct: int,
     turn_number: int,
 ) -> dict:
-    prompt = _load_prompt("round3_partial_response.txt").format(
+    prompt = _load_prompt("round4_partial_response.txt").format(
         test_case_title=test_case_title or "(untitled test case)",
         environment_json=json.dumps(environment, indent=2) if environment else "(none provided)",
         scenario_instructions=scenario_instructions,
@@ -281,11 +281,11 @@ def round3_respond(
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
-    # Validated against Round3TurnResponse's exact shape (status must be
+    # Validated against Round4TurnResponse's exact shape (status must be
     # literally "pass"/"fail"/"partial", steps/observed_result required)
-    # before this ever reaches the caller - candidate.py's round3_turn
+    # before this ever reaches the caller - candidate.py's round4_turn
     # persists whatever this returns immediately, and every later read of
-    # that candidate's round 3 state is response_model=Round3StateOut,
+    # that candidate's round 4 state is response_model=Round4StateOut,
     # which validates just as strictly. An unvalidated shape mismatch
     # here used to sail straight into the database, permanently 500ing
     # every future read of that candidate's transcript - including the
@@ -294,25 +294,25 @@ def round3_respond(
     # instead makes a bad turn a retryable failure, the same as malformed
     # JSON already is, rather than a silent, permanent one.
     try:
-        return Round3TurnResponse.model_validate(result).model_dump()
+        return Round4TurnResponse.model_validate(result).model_dump()
     except ValidationError as e:
         raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
 
 
-# Trial feature (see routers/candidate.py's GET /round/3/turn/{id}/code): an
+# Trial feature (see routers/candidate.py's GET /round/4/turn/{id}/code): an
 # on-demand, candidate-facing rendering of an already-completed turn as a
 # code snippet, in a language the candidate picks. Deliberately generated
 # from the turn's OWN already-recorded steps/observed_result rather than
 # fresh - this can only re-describe what's already visible in the trace,
 # never decide or reveal anything new. The one rule that matters more than
-# realism: round3_code_snippet.txt forbids any assertion or pass/fail logic
+# realism: round4_code_snippet.txt forbids any assertion or pass/fail logic
 # in the generated code, since an assertion would tell the candidate
 # whether something is correct before they've verified it themselves - the
 # entire judgment this round exists to test. Isolated on purpose (its own
 # prompt file, no persistence, no effect on scoring) so it's easy to remove
 # if it turns out to still leak too much in practice.
-def generate_round3_code_snippet(test_case_title: str, steps: list[dict], observed_result: str, language: str) -> str:
-    prompt = _load_prompt("round3_code_snippet.txt").format(
+def generate_round4_code_snippet(test_case_title: str, steps: list[dict], observed_result: str, language: str) -> str:
+    prompt = _load_prompt("round4_code_snippet.txt").format(
         test_case_title=test_case_title or "(untitled test case)",
         steps_json=json.dumps(steps, indent=2),
         observed_result=observed_result,
@@ -333,8 +333,8 @@ def generate_round3_code_snippet(test_case_title: str, steps: list[dict], observ
     return text.strip()
 
 
-def score_round3_conversation(round1_context: dict, test_cases: list[dict], assistance_pct: int) -> dict:
-    prompt_text = _load_prompt("round3_scoring.txt")
+def score_round4_conversation(round1_context: dict, test_cases: list[dict], assistance_pct: int) -> dict:
+    prompt_text = _load_prompt("round4_scoring.txt")
     prompt = prompt_text.format(
         round1_scenario_title=round1_context["scenario_title"],
         round1_scenario_description=round1_context["scenario_description"],
@@ -346,7 +346,7 @@ def score_round3_conversation(round1_context: dict, test_cases: list[dict], assi
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
-    result["_provenance"] = _scoring_provenance("round3_scoring.txt", prompt_text)
+    result["_provenance"] = _scoring_provenance("round4_scoring.txt", prompt_text)
     return result
 
 

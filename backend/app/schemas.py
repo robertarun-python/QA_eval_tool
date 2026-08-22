@@ -58,15 +58,15 @@ class MeOut(BaseModel):
 class AppSettingsOut(BaseModel):
     round1_passing_score: int
     round2_passing_score: int
-    round3_passing_score: int
+    round4_passing_score: int
     final_passing_score: int
     reapplication_window_months: int
-    # Read-only here - see config.py's round3_default_assistance_pct.
+    # Read-only here - see config.py's round4_default_assistance_pct.
     # Not part of AppSettingsUpdate below: it's an env-sourced,
     # deployment-level fallback, not something HR edits through this
-    # form. Exposed purely so app.js's round3 settings card can read the
+    # form. Exposed purely so app.js's round4 settings card can read the
     # real server default instead of hardcoding its own separate copy.
-    round3_default_assistance_pct: int
+    round4_default_assistance_pct: int
 
     class Config:
         from_attributes = True
@@ -75,7 +75,7 @@ class AppSettingsOut(BaseModel):
 class AppSettingsUpdate(BaseModel):
     round1_passing_score: int = Field(ge=0, le=100)
     round2_passing_score: int = Field(ge=0, le=100)
-    round3_passing_score: int = Field(ge=0, le=100)
+    round4_passing_score: int = Field(ge=0, le=100)
     final_passing_score: int = Field(ge=0, le=300)
     reapplication_window_months: int = Field(ge=1)
 
@@ -127,24 +127,24 @@ class ScenarioTimeLimitUpdate(BaseModel):
     time_limit_minutes: int = Field(ge=1)
 
 
-class Round3ConfigUpdate(BaseModel):
-    """See hr.py's PATCH /scenarios/{id}/round3-config - the one round3-
+class Round4ConfigUpdate(BaseModel):
+    """See hr.py's PATCH /scenarios/{id}/round4-config - the one round4-
     specific tunable exposed to HR: how often the simulated assistant
     gets things right per turn (Scenario.config_json["assistance_pct"],
-    see llm_service.DEFAULT_ROUND3_CONFIG). Bounded away from the
+    see llm_service.DEFAULT_ROUND4_CONFIG). Bounded away from the
     extremes - 0% or 100% both defeat the exercise, since an assistant
     that's always wrong or always right gives the candidate nothing
     real to verify."""
     assistance_pct: int = Field(ge=10, le=95)
 
 
-class Round3InstructionsUpdate(BaseModel):
-    """See hr.py's PATCH /scenarios/{id}/round3-instructions - editing
-    title/description on a round3 scenario regardless of status, same
-    reasoning and blocking as Round3ConfigUpdate above. Round 1/2 keep
+class Round4InstructionsUpdate(BaseModel):
+    """See hr.py's PATCH /scenarios/{id}/round4-instructions - editing
+    title/description on a round4 scenario regardless of status, same
+    reasoning and blocking as Round4ConfigUpdate above. Round 1/2 keep
     title/description as draft-only edits (see ScenarioUpdate) because
     they gate a fixed reference answer that's meaningful to review before
-    publishing; round 3 has no such reference, so there's no equivalent
+    publishing; round 4 has no such reference, so there's no equivalent
     reason to restrict this to drafts."""
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
@@ -171,15 +171,15 @@ class ScenarioPublicOut(BaseModel):
 class ScenarioOut(ScenarioPublicOut):
     """HR-facing shape - includes the reference answer for review/scoring."""
     reference_json: Optional[list[dict]] = None
-    # Round 3 only: the auto-generated test-environment reference facts
+    # Round 4 only: the auto-generated test-environment reference facts
     # and reference UI screens (see Scenario.environment_json/
     # ui_mockup_json). Not on ScenarioPublicOut either - each is included
-    # there separately, as Round3EnvironmentOut/Round3UiMockupOut, shaped
+    # there separately, as Round4EnvironmentOut/Round4UiMockupOut, shaped
     # for direct candidate display rather than HR's raw-JSON review.
     environment_json: Optional[dict] = None
     ui_mockup_json: Optional[dict] = None
-    # Round 3 only in practice (round 1/2 scenarios never set anything
-    # here) - see Round3ConfigUpdate. HR-facing so the assistant-accuracy
+    # Round 4 only in practice (round 1/2 scenarios never set anything
+    # here) - see Round4ConfigUpdate. HR-facing so the assistant-accuracy
     # editor can show the current value; candidates never see this.
     config_json: dict[str, Any] = {}
 
@@ -214,7 +214,7 @@ class Round2SubmissionCreate(BaseModel):
 # their one submit on empty/incomplete work. Both /expire (once the
 # timer has actually hit zero) and /draft (periodic autosave while a
 # round is still genuinely in progress - the rounds 1/2 equivalent of
-# round 3's PATCH /round/3/test-case/{id}/draft) need the opposite rule:
+# round 4's PATCH /round/4/test-case/{id}/draft) need the opposite rule:
 # whatever's there, even nothing, must be acceptable. Shared by both
 # rather than two near-identical schemas - see candidate.py's POST
 # /round/{n}/expire and PATCH /round/{n}/draft.
@@ -229,7 +229,7 @@ class ScoreOut(BaseModel):
     coverage_score: Optional[int]
     misses_json: list
     # Round 1 only - see models.Score.concept_coverage_json. Empty list
-    # for rounds 2/3.
+    # for rounds 2/4.
     concept_coverage_json: list = Field(default_factory=list)
     final_score: Optional[int]
     feedback_text: Optional[str]
@@ -281,10 +281,10 @@ class SubmissionOut(BaseModel):
     round_number: int
     status: str
     # Shape is round-dependent: round 1 is list[TestCaseRow]-shaped,
-    # round 2 is {"investigation": [...], "root_cause": str}, round 3 is
+    # round 2 is {"investigation": [...], "root_cause": str}, round 4 is
     # always None - there's nothing candidate-authored to store at the
     # submission level, the test cases/turns themselves (see
-    # Round3TestCaseOut/Round3TurnOut) are the round 3 submission.
+    # Round4TestCaseOut/Round4TurnOut) are the round 4 submission.
     content: Optional[Any] = None
     started_at: Optional[datetime] = None
     created_at: datetime
@@ -297,13 +297,13 @@ class SubmissionReportOut(SubmissionOut):
     """HR-facing only (candidate report drill-down): adds the scenario
     (including its reference answer) and the score, for side-by-side
     comparison - neither of which the candidate-facing SubmissionOut
-    exposes. test_cases/conversation_turns are populated for round 3
+    exposes. test_cases/conversation_turns are populated for round 4
     only, so the report can group turns by test case without a second
     round-trip."""
     scenario: Optional[ScenarioOut] = None
     score: Optional[ScoreOut] = None
-    test_cases: Optional[list["Round3TestCaseOut"]] = None
-    conversation_turns: Optional[list["Round3TurnOut"]] = None
+    test_cases: Optional[list["Round4TestCaseOut"]] = None
+    conversation_turns: Optional[list["Round4TurnOut"]] = None
     # Set when status == "scoring_failed" (see models.RoundStatus) - the
     # error from the failed background scoring attempt, so HR can see
     # why instead of a submission just looking stuck.
@@ -424,25 +424,25 @@ class CandidateSummaryPdfRequest(BaseModel):
     final_summary: str
 
 
-# ---- Round 3 (conversational automation: the candidate writes their
+# ---- Round 4 (conversational automation: the candidate writes their
 # own open-ended, self-titled test cases - see routers/candidate.py's
-# round 3 section. Deliberately no fixed UI/API/DB categories: picking
+# round 4 section. Deliberately no fixed UI/API/DB categories: picking
 # what to test is itself part of what this round assesses.) ----
 
 
 class Round1ContextOut(BaseModel):
-    """What the candidate wrote in round 1, carried into round 3 so
+    """What the candidate wrote in round 1, carried into round 4 so
     they're automating their own test cases, not a fresh scenario."""
     scenario_title: str
     scenario_description: str
     submitted_rows: list[dict]
 
 
-class Round3EnvironmentOut(BaseModel):
+class Round4EnvironmentOut(BaseModel):
     """Auto-generated, fictional test-environment reference facts (test
     login credentials, a simulated API base URL, ...) shown to the
     candidate alongside the scenario description - see
-    llm_service.generate_round3_environment. A loose dict rather than
+    llm_service.generate_round4_environment. A loose dict rather than
     fixed fields, since different scenarios legitimately need different
     reference facts (a login flow needs credentials; a reporting feature
     might need a date range instead)."""
@@ -450,32 +450,32 @@ class Round3EnvironmentOut(BaseModel):
     notes: Optional[str] = None
 
 
-class Round3MockupElement(BaseModel):
+class Round4MockupElement(BaseModel):
     """One element on a reference screen, in display order (order IS the
     layout - no free-text position field for the renderer to interpret).
     Structured on purpose, never raw HTML/CSS - see
-    llm_service.generate_round3_ui_mockup and app.js's renderMockupScreens,
+    llm_service.generate_round4_ui_mockup and app.js's renderMockupScreens,
     which renders each type through the app's own trusted CSS."""
     type: Literal["label", "input", "button", "link", "text"]
     text: str
 
 
-class Round3MockupScreen(BaseModel):
+class Round4MockupScreen(BaseModel):
     name: str
-    elements: list[Round3MockupElement]
+    elements: list[Round4MockupElement]
 
 
-class Round3UiMockupOut(BaseModel):
+class Round4UiMockupOut(BaseModel):
     """Auto-generated, structured reference screens (login page, home
     page, ...) shown to the candidate as a static visual reference for
-    the app they're automating - see llm_service.generate_round3_ui_mockup.
+    the app they're automating - see llm_service.generate_round4_ui_mockup.
     Deliberately includes 1-2 pairs of easy-to-confuse element labels per
     scenario, by design - precision in describing the UI is part of what
     this round assesses."""
-    screens: list[Round3MockupScreen]
+    screens: list[Round4MockupScreen]
 
 
-class Round3ExecutionStep(BaseModel):
+class Round4ExecutionStep(BaseModel):
     """One action in the execution trace, described in plain English -
     deliberately never code. The candidate is meant to reason from
     observed behavior (what a manual tester watching a screen or reading
@@ -490,21 +490,21 @@ class Round3ExecutionStep(BaseModel):
     detail: Optional[str] = None
 
 
-class Round3TurnResponse(BaseModel):
+class Round4TurnResponse(BaseModel):
     """The assistant's structured reply for one turn - see
-    llm_service.round3_respond and prompts/round3_partial_response.txt.
-    No code field on purpose (see Round3ExecutionStep)."""
+    llm_service.round4_respond and prompts/round4_partial_response.txt.
+    No code field on purpose (see Round4ExecutionStep)."""
     response_text: str
-    steps: list[Round3ExecutionStep]
+    steps: list[Round4ExecutionStep]
     observed_result: str
     status: Literal["pass", "fail", "partial"]
 
 
-class Round3TestCaseCreate(BaseModel):
+class Round4TestCaseCreate(BaseModel):
     title: Optional[str] = None
 
 
-class Round3TestCaseOut(BaseModel):
+class Round4TestCaseOut(BaseModel):
     id: int
     title: Optional[str] = None
     draft_prompt: str
@@ -515,13 +515,13 @@ class Round3TestCaseOut(BaseModel):
         from_attributes = True
 
 
-class Round3DraftUpdate(BaseModel):
+class Round4DraftUpdate(BaseModel):
     """PATCH body for autosaving a test case's in-progress, unsent
-    message - see candidate.py's PATCH /round/3/test-case/{id}/draft."""
+    message - see candidate.py's PATCH /round/4/test-case/{id}/draft."""
     draft_prompt: str
 
 
-class Round3TurnCreate(BaseModel):
+class Round4TurnCreate(BaseModel):
     test_case_id: int
     # min_length=1 for the same reason every other candidate-input field
     # has it (TestCaseRow, Round2InvestigationRow, Round2SubmissionCreate.
@@ -530,12 +530,12 @@ class Round3TurnCreate(BaseModel):
     candidate_prompt: str = Field(min_length=1)
 
 
-class Round3TurnOut(BaseModel):
+class Round4TurnOut(BaseModel):
     id: int
     test_case_id: int
     turn_number: int
     candidate_prompt: str
-    model_response: Round3TurnResponse
+    model_response: Round4TurnResponse
     created_at: datetime
 
     class Config:
@@ -547,9 +547,9 @@ class Round3TurnOut(BaseModel):
         protected_namespaces = ()
 
 
-class Round3CodeSnippetOut(BaseModel):
-    """Trial feature (see routers/candidate.py's GET /round/3/turn/{id}/code,
-    llm_service.generate_round3_code_snippet) - an on-demand, candidate-
+class Round4CodeSnippetOut(BaseModel):
+    """Trial feature (see routers/candidate.py's GET /round/4/turn/{id}/code,
+    llm_service.generate_round4_code_snippet) - an on-demand, candidate-
     facing rendering of an already-completed turn as code, in a language
     the candidate picks. Not persisted anywhere and has no effect on
     scoring - purely a rendering of what's already in the transcript."""
@@ -557,18 +557,18 @@ class Round3CodeSnippetOut(BaseModel):
     code: str
 
 
-class Round3StateOut(BaseModel):
-    """Everything the round 3 candidate screen needs in one call: the
+class Round4StateOut(BaseModel):
+    """Everything the round 4 candidate screen needs in one call: the
     auto-generated test environment, their own round 1 context, their
     test cases (candidate-created, open-ended), and the full transcript
     (flat - the frontend groups turns by test_case_id)."""
     scenario: ScenarioPublicOut
     submission: SubmissionOut
     round1_context: Round1ContextOut
-    environment: Optional[Round3EnvironmentOut] = None
-    ui_mockup: Optional[Round3UiMockupOut] = None
-    test_cases: list[Round3TestCaseOut]
-    turns: list[Round3TurnOut]
+    environment: Optional[Round4EnvironmentOut] = None
+    ui_mockup: Optional[Round4UiMockupOut] = None
+    test_cases: list[Round4TestCaseOut]
+    turns: list[Round4TurnOut]
 
 
 # ---- HR screening history (per-scenario performance, across everyone
@@ -610,6 +610,6 @@ class ScenarioHistoryOut(BaseModel):
     cleared_pct: Optional[float] = None  # None until at least one submission is scored
     passing_score: int
     common_misses: list[MissPattern]
-    # Round 1 only - empty for round 2/3 scenarios, which have no
+    # Round 1 only - empty for round 2/4 scenarios, which have no
     # concept_coverage data to average (see ConceptCoverageAverage).
     concept_coverage_averages: list[ConceptCoverageAverage] = Field(default_factory=list)

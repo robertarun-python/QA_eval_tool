@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 
 from .conftest import (
     HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD,
-    _login, _auth, _publish_scenario, _publish_round3_scenario,
+    _login, _auth, _publish_scenario, _publish_round4_scenario,
 )
 
 
@@ -166,7 +166,7 @@ def test_a_normal_submit_has_no_auto_closed_reason(client, monkeypatch):
 def test_close_expired_submissions_schedules_scoring_as_a_background_task_not_inline(client, monkeypatch):
     """close_expired_submissions must schedule each newly-closed
     submission's scoring via BackgroundTasks, same as every submit
-    endpoint already does (submit_round/submit_round2/round3_submit/
+    endpoint already does (submit_round/submit_round2/round4_submit/
     expire_round) - not call score_submission_in_background directly.
     Direct calls block whichever request happened to be the one that
     lazily closed the submission (e.g. HR's /candidates dashboard, which
@@ -199,16 +199,16 @@ def test_close_expired_submissions_schedules_scoring_as_a_background_task_not_in
     db.close()
 
 
-def test_expired_round3_in_progress_submission_no_longer_blocks_round3_config_edit(client, monkeypatch):
-    """Same bug class as the time-limit block above, but for round 3's
-    own in-progress guard (_require_round3_not_in_progress) - it must
+def test_expired_round4_in_progress_submission_no_longer_blocks_round4_config_edit(client, monkeypatch):
+    """Same bug class as the time-limit block above, but for round 4's
+    own in-progress guard (_require_round4_not_in_progress) - it must
     also lazily close an abandoned-past-deadline submission before
-    counting, or an abandoned round 3 candidate blocks HR from ever
+    counting, or an abandoned round 4 candidate blocks HR from ever
     editing that scenario's config again."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
-    published = _publish_round3_scenario(client, hr_token, monkeypatch)
+    published = _publish_round4_scenario(client, hr_token, monkeypatch)
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {
         "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
@@ -216,7 +216,7 @@ def test_expired_round3_in_progress_submission_no_longer_blocks_round3_config_ed
     monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {
         "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
     })
-    monkeypatch.setattr(llm_service, "score_round3_conversation", lambda **kwargs: {
+    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
         "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
     })
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
@@ -232,17 +232,17 @@ def test_expired_round3_in_progress_submission_no_longer_blocks_round3_config_ed
         json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
         cookies=_auth(cand_token),
     )
-    client.post("/candidate/round/3/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(
-        f"/hr/scenarios/{published['id']}/round3-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
+        f"/hr/scenarios/{published['id']}/round4-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
     )
     assert res.status_code == 409
 
-    _set_started_at(3, minutes_ago=31)
+    _set_started_at(4, minutes_ago=31)
 
     res = client.patch(
-        f"/hr/scenarios/{published['id']}/round3-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
+        f"/hr/scenarios/{published['id']}/round4-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
     )
     assert res.status_code == 200
     assert res.json()["config_json"]["assistance_pct"] == 80

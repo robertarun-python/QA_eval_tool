@@ -68,7 +68,7 @@ def client(monkeypatch):
     app.dependency_overrides.clear()
 
 
-# ---- Shared test helpers (used by test_round1.py, test_round2.py, test_round3.py) ----
+# ---- Shared test helpers (used by test_round1.py, test_round2.py, test_round4.py) ----
 
 FAKE_REFERENCE = [
     {"title": "ref row", "preconditions": "", "steps": "...", "expected_result": "...", "priority": "High", "type": "Positive"},
@@ -131,28 +131,28 @@ def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7",
     return scenario
 
 
-def _publish_round3_scenario(client, hr_token, monkeypatch, band="0-7", title="Automation challenge"):
-    """Round 3 has no test-case reference to generate, but it does
+def _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7", title="Automation challenge"):
+    """Round 4 has no test-case reference to generate, but it does
     auto-generate a Test Environment reference sheet and reference UI
     screens at creation time (see hr.py's _generate_reference) - mock
     both the same way _publish_scenario mocks the round 1/2 reference
     generators."""
     from app.services import llm_service
-    monkeypatch.setattr(llm_service, "generate_round3_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
-    monkeypatch.setattr(llm_service, "generate_round3_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
+    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
 
     scenario = client.post(
         "/hr/scenarios",
-        json={"round_number": 3, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30},
+        json={"round_number": 4, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     ).json()
     client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
     return scenario
 
 
-def _create_round3_test_case(client, token, title=None):
+def _create_round4_test_case(client, token, title=None):
     return client.post(
-        "/candidate/round/3/test-case",
+        "/candidate/round/4/test-case",
         json={"title": title},
         cookies=_auth(token),
     ).json()

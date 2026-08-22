@@ -120,12 +120,12 @@ def test_round2_submission_scored_via_background_task(client, monkeypatch):
     assert entry["not_cleared_count"] == 1  # 65 < default passing_score of 70
 
 
-def test_round3_dedicated_submit_endpoint_is_reached_not_the_generic_one(client, monkeypatch):
-    """Round 3 has its own endpoints (/round/3/turn, /round/3/submit,
-    no body) - confirms /candidate/round/3/submit reaches that dedicated
+def test_round4_dedicated_submit_endpoint_is_reached_not_the_generic_one(client, monkeypatch):
+    """Round 4 has its own endpoints (/round/4/turn, /round/4/submit,
+    no body) - confirms /candidate/round/4/submit reaches that dedicated
     handler rather than being shadowed by the generic row-based
     /candidate/round/{n}/submit (round 1 only now, expects a `content`
-    list it would 422 on). No round 3 scenario is published in this
+    list it would 422 on). No round 4 scenario is published in this
     test, so the dedicated handler's own 404 ("no published scenario")
     is what proves it was reached instead."""
     from app.services import llm_service
@@ -143,6 +143,6 @@ def test_round3_dedicated_submit_endpoint_is_reached_not_the_generic_one(client,
     client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     client.post("/candidate/round/2/submit", json={"investigation": FAKE_INVESTIGATION, "root_cause": FAKE_ROOT_CAUSE}, cookies=_auth(cand_token))
 
-    res = client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
+    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
     assert res.status_code == 404
     assert "published scenario" in res.json()["detail"]

@@ -66,13 +66,13 @@ class Settings(BaseSettings):
     # routers/candidate.py's _require_within_time_limit.
     submission_grace_seconds: int = 60
 
-    # How often Round 3's assistant is instructed to be correct per turn
+    # How often Round 4's assistant is instructed to be correct per turn
     # (the rest of the time it introduces a deliberate flaw) - the whole
     # premise of that round is the candidate catching what the assistant
     # gets wrong. HR can still override this per scenario via
-    # Scenario.config_json (see llm_service.DEFAULT_ROUND3_CONFIG); this
+    # Scenario.config_json (see llm_service.DEFAULT_ROUND4_CONFIG); this
     # is only the fallback when a scenario doesn't set its own.
-    round3_default_assistance_pct: int = 60
+    round4_default_assistance_pct: int = 60
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
     # logins instead of open signup: 1 HR + 3 candidates (2x 0-7yrs, 1x 7+yrs).

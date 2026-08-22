@@ -6,7 +6,7 @@ Rounds 1 and 2 have a working reference-generation/scoring pipeline (see
 llm_service.py) and share the same candidate-facing row shape (title,
 preconditions, steps, expected_result) - round 1's cases and round 2's
 debugging steps are structurally identical, just differently worded.
-Round 3 is conversational and has no scenario-level test-case reference
+Round 4 is conversational and has no scenario-level test-case reference
 (its target is each candidate's own round 1 answer) - instead it has an
 auto-generated Test Environment reference sheet (environment_json, see
 _generate_reference) that plays the same role reference_json does for
@@ -31,10 +31,10 @@ from ..models import (
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
     CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern, ConceptCoverageAverage,
-    Round3TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
+    Round4TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
-    ScenarioTimeLimitUpdate, Round3ConfigUpdate, Round3InstructionsUpdate,
+    ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
@@ -48,7 +48,7 @@ VALID_BANDS = (ExperienceBand.junior.value, ExperienceBand.senior.value)
 # Mirrors app.js's ROUND_LABELS - only used here for the PDF's per-round
 # headings, so a small local copy (not worth a shared-constants file
 # across two different languages) is the pragmatic choice.
-ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 3: "Conversational"}
+ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 4: "Conversational"}
 
 
 def get_settings(db: Session) -> AppSettings:
@@ -67,17 +67,17 @@ def get_settings(db: Session) -> AppSettings:
 
 def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
     """AppSettingsOut mixes the DB-backed, HR-editable fields on
-    app_settings with config.py's round3_default_assistance_pct - a
+    app_settings with config.py's round4_default_assistance_pct - a
     separate, env-sourced, read-only fallback (see that schema's
     docstring) - so it can't just be `return app_settings` like the rest
     of this file's response_model endpoints."""
     return AppSettingsOut(
         round1_passing_score=app_settings.round1_passing_score,
         round2_passing_score=app_settings.round2_passing_score,
-        round3_passing_score=app_settings.round3_passing_score,
+        round4_passing_score=app_settings.round4_passing_score,
         final_passing_score=app_settings.final_passing_score,
         reapplication_window_months=app_settings.reapplication_window_months,
-        round3_default_assistance_pct=settings.round3_default_assistance_pct,
+        round4_default_assistance_pct=settings.round4_default_assistance_pct,
     )
 
 
@@ -98,8 +98,8 @@ def update_app_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db
 
 @router.post("/scenarios", response_model=ScenarioOut, status_code=201)
 def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    if payload.round_number not in (1, 2, 3):
-        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    if payload.round_number not in (1, 2, 4):
+        raise HTTPException(400, "round_number must be 1, 2, or 4")
     if payload.experience_band not in VALID_BANDS:
         raise HTTPException(400, "experience_band must be '0-7' or '7+'")
     if payload.time_limit_minutes < 1:
@@ -150,17 +150,17 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
             experience_band=scenario.experience_band.value,
             time_limit_minutes=scenario.time_limit_minutes,
         )
-    else:
-        # Round 3 has no scenario-level test-case reference (its target
+    elif scenario.round_number == 4:
+        # Round 4 has no scenario-level test-case reference (its target
         # is each candidate's own round 1 answer) - what it needs instead
         # is a Test Environment reference sheet (credentials, API
         # endpoints, DB schema, ...) plus a reference sketch of the app's
         # screens, both shown to every candidate. Both describe the
         # actual app under test, which lives in round 1's scenario, not
-        # round 3's own (round 3's description is just instructions to
+        # round 4's own (round 4's description is just instructions to
         # the candidate, not a description of the app) - ground both in
         # whichever round 1 scenario is currently live for this band,
-        # falling back to round 3's own text only if round 1 hasn't been
+        # falling back to round 4's own text only if round 1 hasn't been
         # published for this band yet. Same lifecycle as reference_json
         # otherwise: generated here (together, one HR "Regenerate" action
         # refreshes both), required before publish (see publish_scenario).
@@ -170,55 +170,55 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
             Scenario.is_live.is_(True),
         ).first()
         app_description = live_round1.description if live_round1 else scenario.description
-        scenario.environment_json = llm_service.generate_round3_environment(
+        scenario.environment_json = llm_service.generate_round4_environment(
             app_description=app_description,
         )
-        scenario.ui_mockup_json = llm_service.generate_round3_ui_mockup(
+        scenario.ui_mockup_json = llm_service.generate_round4_ui_mockup(
             app_description=app_description,
         )
     db.commit()
     db.refresh(scenario)
 
 
-def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
+def _resync_round4_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
     """Called right after a round1 scenario newly goes live (see
-    publish_scenario/move_to_screening below). If a round3 scenario is
+    publish_scenario/move_to_screening below). If a round4 scenario is
     ALSO currently live for the same band, its environment_json/
     ui_mockup_json were grounded in whichever round1 scenario was live
     at the moment IT was created or last regenerated (see
     _generate_reference_unsafe above) - now stale, since a different
     round1 scenario just took over. Left alone, every candidate in this
-    band would see round3 test data (credentials, API endpoints, screens)
+    band would see round4 test data (credentials, API endpoints, screens)
     describing a completely different app than the one their own round1
     answer was actually about - a real, observed bug this fixes at the
     source instead of requiring HR to remember to hit "Regenerate" on
-    round3 every time round1 rotates.
+    round4 every time round1 rotates.
 
     Best-effort: a failure here (LLM error, bad shape) must not block the
     round1 publish/promotion that triggered it - HR still has the manual
-    Regenerate button on round3 as a fallback.
+    Regenerate button on round4 as a fallback.
 
     Also skipped (silently, same best-effort spirit) while any candidate
-    is actively mid-round-3 on that live scenario - same "don't change
-    the rules mid-conversation" guard as every other round3-config
-    mutation (see _require_round3_not_in_progress). This action is about
-    round 1, not round 3, but round 1 going live is exactly what
+    is actively mid-round-4 on that live scenario - same "don't change
+    the rules mid-conversation" guard as every other round4-config
+    mutation (see _require_round4_not_in_progress). This action is about
+    round 1, not round 4, but round 1 going live is exactly what
     triggers this resync, so without the guard a candidate's
     environment/screens could silently change out from under them
     mid-conversation."""
     if round1_scenario.round_number != 1:
         return
-    live_round3 = db.query(Scenario).filter(
-        Scenario.round_number == 3,
+    live_round4 = db.query(Scenario).filter(
+        Scenario.round_number == 4,
         Scenario.experience_band == round1_scenario.experience_band,
         Scenario.is_live.is_(True),
     ).first()
-    if live_round3 is None:
+    if live_round4 is None:
         return
     in_progress_count = (
         db.query(Submission)
         .filter(
-            Submission.scenario_id == live_round3.id,
+            Submission.scenario_id == live_round4.id,
             Submission.status == RoundStatus.in_progress,
             Submission.archived.is_(False),
         )
@@ -227,10 +227,10 @@ def _resync_round3_reference_for_band(round1_scenario: Scenario, db: Session) ->
     if in_progress_count > 0:
         return
     try:
-        live_round3.environment_json = llm_service.generate_round3_environment(
+        live_round4.environment_json = llm_service.generate_round4_environment(
             app_description=round1_scenario.description,
         )
-        live_round3.ui_mockup_json = llm_service.generate_round3_ui_mockup(
+        live_round4.ui_mockup_json = llm_service.generate_round4_ui_mockup(
             app_description=round1_scenario.description,
         )
         db.commit()
@@ -243,15 +243,15 @@ def regenerate_reference(scenario_id: int, background_tasks: BackgroundTasks, db
     """Draft-only for round 1/2 (see _get_draft_scenario_or_404) - their
     reference is a fixed answer key candidates get scored against, so
     regenerating it on a live scenario would be rewriting the ground
-    truth out from under whoever's already been scored. Round 3 has no
+    truth out from under whoever's already been scored. Round 4 has no
     such answer key (its "reference" is just environment/screen flavor
     text), and its scenarios go live immediately on creation (see
-    createRound3Scenario in app.js) rather than sitting as a draft
+    createRound4Scenario in app.js) rather than sitting as a draft
     first, so it gets the same live-editable-but-blocked-mid-round
     treatment as its other settings instead."""
     scenario = db.get(Scenario, scenario_id)
-    if scenario is not None and scenario.round_number == 3:
-        _require_round3_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")
+    if scenario is not None and scenario.round_number == 4:
+        _require_round4_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")
     else:
         scenario = _get_draft_scenario_or_404(scenario_id, db)
     _generate_reference(scenario, db)
@@ -345,19 +345,19 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
     return scenario
 
 
-def _get_round3_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
+def _get_round4_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
-    if scenario.round_number != 3:
-        raise HTTPException(400, "This setting only applies to round 3 scenarios.")
+    if scenario.round_number != 4:
+        raise HTTPException(400, "This setting only applies to round 4 scenarios.")
     return scenario
 
 
-def _require_round3_not_in_progress(scenario_id: int, db: Session, background_tasks: BackgroundTasks, action: str) -> None:
-    """Shared by round3-config and round3-instructions below. Scoped to
+def _require_round4_not_in_progress(scenario_id: int, db: Session, background_tasks: BackgroundTasks, action: str) -> None:
+    """Shared by round4-config and round4-instructions below. Scoped to
     this one exact scenario, not band-wide like the time-limit block:
-    both of these only ever affect round 3's own LLM calls, so a
+    both of these only ever affect round 4's own LLM calls, so a
     candidate mid-round-1 or -2 hasn't touched this scenario's behavior
     yet and isn't affected either way. Blocked because changing either
     mid-conversation would mean that same candidate's later turns get
@@ -367,7 +367,7 @@ def _require_round3_not_in_progress(scenario_id: int, db: Session, background_ta
     Before counting, lazily closes out anything that LOOKS in_progress
     but has actually already run past its own deadline (see
     scoring_service.close_expired_submissions) - otherwise a candidate
-    who abandoned round 3 (closed the tab, crashed, logged out, network
+    who abandoned round 4 (closed the tab, crashed, logged out, network
     loss) would block this forever, since nothing else would ever go
     back and close it."""
     in_progress = (
@@ -389,15 +389,15 @@ def _require_round3_not_in_progress(scenario_id: int, db: Session, background_ta
         )
 
 
-@router.patch("/scenarios/{scenario_id}/round3-config", response_model=ScenarioOut)
-def update_round3_config(scenario_id: int, payload: Round3ConfigUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """The one round3-specific tunable exposed to HR: how often the
-    simulated assistant gets things right per turn (see Round3ConfigUpdate
-    and llm_service.DEFAULT_ROUND3_CONFIG). Allowed regardless of draft/
+@router.patch("/scenarios/{scenario_id}/round4-config", response_model=ScenarioOut)
+def update_round4_config(scenario_id: int, payload: Round4ConfigUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """The one round4-specific tunable exposed to HR: how often the
+    simulated assistant gets things right per turn (see Round4ConfigUpdate
+    and llm_service.DEFAULT_ROUND4_CONFIG). Allowed regardless of draft/
     published/live status, same reasoning as update_scenario_time_limit -
     doesn't retroactively invalidate anything already scored."""
-    scenario = _get_round3_scenario_or_404(scenario_id, db)
-    _require_round3_not_in_progress(scenario_id, db, background_tasks, "change the assistant's accuracy")
+    scenario = _get_round4_scenario_or_404(scenario_id, db)
+    _require_round4_not_in_progress(scenario_id, db, background_tasks, "change the assistant's accuracy")
 
     scenario.config_json = {**(scenario.config_json or {}), "assistance_pct": payload.assistance_pct}
     db.commit()
@@ -405,14 +405,14 @@ def update_round3_config(scenario_id: int, payload: Round3ConfigUpdate, backgrou
     return scenario
 
 
-@router.patch("/scenarios/{scenario_id}/round3-instructions", response_model=ScenarioOut)
-def update_round3_instructions(scenario_id: int, payload: Round3InstructionsUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """Title/description on a round3 scenario, editable regardless of
-    status - unlike round1/2 (see ScenarioUpdate, draft-only), round 3
+@router.patch("/scenarios/{scenario_id}/round4-instructions", response_model=ScenarioOut)
+def update_round4_instructions(scenario_id: int, payload: Round4InstructionsUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Title/description on a round4 scenario, editable regardless of
+    status - unlike round1/2 (see ScenarioUpdate, draft-only), round 4
     has no fixed reference answer gating a "review before publish" step,
     so there's no equivalent reason to restrict this to drafts."""
-    scenario = _get_round3_scenario_or_404(scenario_id, db)
-    _require_round3_not_in_progress(scenario_id, db, background_tasks, "change this round's instructions")
+    scenario = _get_round4_scenario_or_404(scenario_id, db)
+    _require_round4_not_in_progress(scenario_id, db, background_tasks, "change this round's instructions")
 
     scenario.title = payload.title
     scenario.description = payload.description
@@ -430,16 +430,16 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     scenario for it also makes it live, so a scenario doesn't sit
     published-but-invisible with no HR action ever having asked for that."""
     scenario = _get_draft_scenario_or_404(scenario_id, db)
-    # Round 3 has no scenario-level test-case reference to review upfront
+    # Round 4 has no scenario-level test-case reference to review upfront
     # (its target is each candidate's own round 1 answer) - but it does
     # have its own generated content that must exist before candidates
     # see this scenario: the Test Environment reference sheet and the
     # reference UI screens.
-    if scenario.round_number == 3:
+    if scenario.round_number == 4:
         if not scenario.environment_json:
-            raise HTTPException(400, "Can't publish a round 3 scenario with no test environment generated yet.")
+            raise HTTPException(400, "Can't publish a round 4 scenario with no test environment generated yet.")
         if not scenario.ui_mockup_json:
-            raise HTTPException(400, "Can't publish a round 3 scenario with no reference UI screens generated yet.")
+            raise HTTPException(400, "Can't publish a round 4 scenario with no reference UI screens generated yet.")
     elif not scenario.reference_json:
         raise HTTPException(400, "Can't publish a scenario with no reference answer yet - generate or write one first.")
 
@@ -457,7 +457,7 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     db.commit()
     db.refresh(scenario)
     if scenario.is_live:
-        _resync_round3_reference_for_band(scenario, db)
+        _resync_round4_reference_for_band(scenario, db)
     return scenario
 
 
@@ -483,7 +483,7 @@ def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User 
     scenario.is_live = True
     db.commit()
     db.refresh(scenario)
-    _resync_round3_reference_for_band(scenario, db)
+    _resync_round4_reference_for_band(scenario, db)
     return scenario
 
 
@@ -507,7 +507,7 @@ def list_scenarios(db: Session = Depends(get_db), hr: User = Depends(require_hr)
     nothing they intentionally created disappears. The only thing
     filtered out is a draft with no generated content: a failed or
     interrupted generation, not real content (Regenerate fixes those;
-    they're reachable directly by id if needed). Round 3's generated
+    they're reachable directly by id if needed). Round 4's generated
     content is environment_json, not reference_json (see publish_scenario)."""
     scenarios = (
         db.query(Scenario)
@@ -568,7 +568,7 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
     submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     aggregate_score = None
-    for round_number in (1, 2, 3):
+    for round_number in (1, 2, 4):
         submission = submissions_by_round.get(round_number)
         if submission is None:
             status = "not_started"
@@ -610,13 +610,13 @@ def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionR
     out = []
     for s in submissions:
         report = SubmissionReportOut.model_validate(s)
-        if s.round_number == 3:
+        if s.round_number == 4:
             report.test_cases = [
-                Round3TestCaseOut(
+                Round4TestCaseOut(
                     id=tc.id, title=tc.title, draft_prompt=tc.draft_prompt,
                     created_at=tc.created_at, turn_count=len(tc.turns),
                 )
-                for tc in s.round3_test_cases
+                for tc in s.round4_test_cases
             ]
         out.append(report)
     return out
@@ -793,7 +793,7 @@ def _gather_candidate_rounds(candidate: User, db: Session, background_tasks: Bac
     close_expired_submissions(db, list(candidate.submissions), background_tasks)
     submissions_by_round = {s.round_number: s for s in candidate.submissions}
     rounds = []
-    for round_number in (1, 2, 3):
+    for round_number in (1, 2, 4):
         submission = submissions_by_round.get(round_number)
         if submission is None:
             continue
@@ -810,7 +810,7 @@ def _gather_candidate_rounds(candidate: User, db: Session, background_tasks: Bac
                 "misses": submission.score.misses_json or [],
             })
             # Round 1 only (see models.Score.concept_coverage_json) - []
-            # for rounds 2/3, in which case the key is omitted entirely so
+            # for rounds 2/4, in which case the key is omitted entirely so
             # the summary prompt doesn't have to special-case an empty list.
             if submission.score.concept_coverage_json:
                 entry["concept_coverage"] = submission.score.concept_coverage_json
@@ -987,7 +987,7 @@ def scenario_history(db: Session = Depends(get_db), hr: User = Depends(require_h
         ]
 
         # Round 1 only (see models.Score.concept_coverage_json) - empty
-        # for round 2/3 scenarios, which never populate that column.
+        # for round 2/4 scenarios, which never populate that column.
         # Averaged as a percentage (covered/total), not raw counts, since
         # different candidates' reference sets could in principle have a
         # different total per category - a straight count average would

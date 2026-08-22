@@ -1,7 +1,7 @@
 """
 Rounds 1/2's periodic in-progress autosave (see candidate.py's PATCH
-/round/{round_number}/draft) - the same pattern round 3's test cases
-already have via PATCH /round/3/test-case/{id}/draft (see test_round3.py),
+/round/{round_number}/draft) - the same pattern round 4's test cases
+already have via PATCH /round/4/test-case/{id}/draft (see test_round4.py),
 just for a whole-round form instead of a per-test-case composer. Without
 this, a crash, refresh, or network loss mid-round silently lost whatever
 the candidate had typed while their timer kept counting down - a real

@@ -12,36 +12,36 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, Submission, RoundStatus, ConversationTurn, Round3TestCase, CandidateAppearance
+from ..models import User, Scenario, Submission, RoundStatus, ConversationTurn, Round4TestCase, CandidateAppearance
 from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
-    Round1ContextOut, Round3StateOut, Round3TurnCreate, Round3TurnOut,
-    Round3TestCaseCreate, Round3TestCaseOut, Round3DraftUpdate, Round3EnvironmentOut,
-    Round3UiMockupOut, Round2SubmissionCreate, Round3CodeSnippetOut, ExpireRoundPayload,
+    Round1ContextOut, Round4StateOut, Round4TurnCreate, Round4TurnOut,
+    Round4TestCaseCreate, Round4TestCaseOut, Round4DraftUpdate, Round4EnvironmentOut,
+    Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload,
 )
 from ..dependencies import require_candidate
 from ..services import llm_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
-ROUND3_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
+ROUND4_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
 
-# Serializes the generate-then-persist section of round3_turn_code per
+# Serializes the generate-then-persist section of round4_turn_code per
 # turn (see below) - two concurrent requests for the same (turn,
 # language), e.g. the candidate opening the same turn's code view in
 # two tabs, would otherwise both see the cache empty and both call the
 # LLM, and whichever commits last would silently overwrite the other's
 # cached code. One lock per turn_id (not a single global lock) so
 # unrelated turns/candidates never wait on each other.
-_round3_code_locks: dict[int, threading.Lock] = {}
-_round3_code_locks_guard = threading.Lock()
+_round4_code_locks: dict[int, threading.Lock] = {}
+_round4_code_locks_guard = threading.Lock()
 
 
-def _round3_code_lock(turn_id: int) -> threading.Lock:
-    with _round3_code_locks_guard:
-        lock = _round3_code_locks.get(turn_id)
+def _round4_code_lock(turn_id: int) -> threading.Lock:
+    with _round4_code_locks_guard:
+        lock = _round4_code_locks.get(turn_id)
         if lock is None:
             lock = threading.Lock()
-            _round3_code_locks[turn_id] = lock
+            _round4_code_locks[turn_id] = lock
         return lock
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
@@ -67,14 +67,14 @@ def _sanitize_expired_round1_row(row: dict) -> dict:
     }
 
 # The one round still on the generic row-based /round/{round_number}/submit
-# endpoint below. Rounds 2 and 3 each have their own dedicated submit
+# endpoint below. Rounds 2 and 4 each have their own dedicated submit
 # endpoint (different payload shapes - see Round2SubmissionCreate; round
-# 3 takes no body at all) registered further up this file, ahead of the
-# generic route on purpose (see the routing-order note in the round 3
+# 4 takes no body at all) registered further up this file, ahead of the
+# generic route on purpose (see the routing-order note in the round 4
 # section for why registration order matters here).
 STRUCTURED_ROUNDS = (1,)
 
-ROUND3_CONFIG_DEFAULTS = llm_service.DEFAULT_ROUND3_CONFIG
+ROUND4_CONFIG_DEFAULTS = llm_service.DEFAULT_ROUND4_CONFIG
 
 router = APIRouter(prefix="/candidate", tags=["candidate"])
 
@@ -101,7 +101,7 @@ def _max_completed_round(db: Session, candidate: User) -> int:
     scoring_service.close_expired_submissions) - this is called by
     _require_round_unlocked, which every round endpoint checks first,
     including the write endpoints (submit_round, submit_round2,
-    round3_submit, start_round). Closing an expired submission there
+    round4_submit, start_round). Closing an expired submission there
     would risk discarding a real, in-flight submit payload for that
     exact round the instant it arrived even slightly late - the correct
     rejection for that is _require_within_time_limit's own 400, not a
@@ -134,8 +134,23 @@ def _current_appearance_id(db: Session, candidate: User) -> int | None:
     return appearance.id if appearance else None
 
 
+# The actual round sequence a candidate progresses through, in order.
+# NOT contiguous integers: round_number 3 was freed up by the Round 3 ->
+# Round 4 renumbering (see migrate_round_renumber.py) and isn't reused by
+# THIS round - it'll be a different, unrelated round once a later plan
+# adds one back. Gating has to walk this explicit sequence rather than
+# comparing raw numbers (round_number > max_completed + 1), or round 4
+# would stay permanently locked behind a round 3 that no candidate can
+# ever complete.
+ROUND_SEQUENCE = (1, 2, 4)
+
+
 def _require_round_unlocked(round_number: int, db: Session, candidate: User) -> None:
-    if round_number > _max_completed_round(db, candidate) + 1:
+    position = ROUND_SEQUENCE.index(round_number)
+    if position == 0:
+        return
+    previous_round = ROUND_SEQUENCE[position - 1]
+    if _max_completed_round(db, candidate) < previous_round:
         raise HTTPException(403, f"Round {round_number} isn't unlocked yet - complete the earlier rounds first.")
 
 
@@ -158,7 +173,7 @@ def _require_within_time_limit(submission: Submission, scenario: Scenario) -> No
 # ---- Round 2 (debugging investigation, one-shot submit) ----
 #
 # Registered before the generic /round/{round_number}/... routes for the
-# same routing-order reason round 3's endpoints are below: this would
+# same routing-order reason round 4's endpoints are below: this would
 # otherwise be shadowed by /round/{round_number}/submit. Round 2's
 # candidate payload (investigation rows + one root-cause conclusion) no
 # longer matches SubmissionCreate's test-case-row shape - see
@@ -208,23 +223,23 @@ def submit_round2(
     return submission
 
 
-# ---- Round 3 (conversational, open-ended: the candidate creates their
+# ---- Round 4 (conversational, open-ended: the candidate creates their
 # own self-titled test cases, no fixed category or ordering) ----
 #
 # Registered before the generic /round/{round_number}/... routes below
 # on purpose: Starlette matches routes in registration order, and
-# /round/3/submit would otherwise be shadowed by /round/{round_number}/submit
-# (both match the literal path "/round/3/submit") - the generic one
+# /round/4/submit would otherwise be shadowed by /round/{round_number}/submit
+# (both match the literal path "/round/4/submit") - the generic one
 # would win and this round's real endpoint would never be reached.
-# /round/{n}/start further down already works unchanged for round 3 (it
+# /round/{n}/start further down already works unchanged for round 4 (it
 # just creates the Submission row - there's no phase to initialize
-# anymore). Everything else round-3-specific lives here rather than
+# anymore). Everything else round-4-specific lives here rather than
 # being forced through the row-based STRUCTURED_ROUNDS endpoints, since
 # the shapes genuinely differ (a multi-turn conversation vs. a single
 # list-of-rows payload).
 
-def _round3_config(scenario: Scenario) -> dict:
-    return {**ROUND3_CONFIG_DEFAULTS, **(scenario.config_json or {})}
+def _round4_config(scenario: Scenario) -> dict:
+    return {**ROUND4_CONFIG_DEFAULTS, **(scenario.config_json or {})}
 
 
 def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
@@ -233,11 +248,11 @@ def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
         .filter(Submission.user_id == candidate.id, Submission.round_number == 1, Submission.archived.is_(False))
         .first()
     )
-    # Round gating guarantees this exists by the time round 3 is
-    # reachable (round 3 only unlocks after round 1 is submitted) - this
+    # Round gating guarantees this exists by the time round 4 is
+    # reachable (round 4 only unlocks after round 1 is submitted) - this
     # is a defensive guard, not an expected user-facing path.
     if round1_submission is None:
-        raise HTTPException(409, "No round 1 submission found - round 3 automates your round 1 answer, which has to exist first.")
+        raise HTTPException(409, "No round 1 submission found - round 4 automates your round 1 answer, which has to exist first.")
     return Round1ContextOut(
         scenario_title=round1_submission.scenario.title,
         scenario_description=round1_submission.scenario.description,
@@ -245,82 +260,82 @@ def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
     )
 
 
-def _round3_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
-    scenario = _live_scenario(db, 3, candidate)
+def _round4_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+    scenario = _live_scenario(db, 4, candidate)
     if scenario is None:
-        raise HTTPException(404, "No published scenario for round 3 yet - check back once HR has published one.")
+        raise HTTPException(404, "No published scenario for round 4 yet - check back once HR has published one.")
     submission = (
         db.query(Submission)
         .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
         .first()
     )
     if submission is None:
-        raise HTTPException(404, "Round 3 hasn't been started yet - call /round/3/start first.")
+        raise HTTPException(404, "Round 4 hasn't been started yet - call /round/4/start first.")
     return scenario, submission
 
 
-def _test_case_out(tc: Round3TestCase) -> Round3TestCaseOut:
-    return Round3TestCaseOut(
+def _test_case_out(tc: Round4TestCase) -> Round4TestCaseOut:
+    return Round4TestCaseOut(
         id=tc.id, title=tc.title, draft_prompt=tc.draft_prompt,
         created_at=tc.created_at, turn_count=len(tc.turns),
     )
 
 
-def _build_round3_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round3StateOut:
-    environment = Round3EnvironmentOut(**scenario.environment_json) if scenario.environment_json else None
-    ui_mockup = Round3UiMockupOut(**scenario.ui_mockup_json) if scenario.ui_mockup_json else None
-    return Round3StateOut(
+def _build_round4_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round4StateOut:
+    environment = Round4EnvironmentOut(**scenario.environment_json) if scenario.environment_json else None
+    ui_mockup = Round4UiMockupOut(**scenario.ui_mockup_json) if scenario.ui_mockup_json else None
+    return Round4StateOut(
         scenario=scenario,
         submission=submission,
         round1_context=_round1_context_for(candidate, db),
         environment=environment,
         ui_mockup=ui_mockup,
-        test_cases=[_test_case_out(tc) for tc in submission.round3_test_cases],
+        test_cases=[_test_case_out(tc) for tc in submission.round4_test_cases],
         turns=submission.conversation_turns,
     )
 
 
-def _owned_test_case(test_case_id: int, submission: Submission, db: Session) -> Round3TestCase:
-    tc = db.get(Round3TestCase, test_case_id)
+def _owned_test_case(test_case_id: int, submission: Submission, db: Session) -> Round4TestCase:
+    tc = db.get(Round4TestCase, test_case_id)
     if tc is None or tc.submission_id != submission.id:
         raise HTTPException(404, "No such test case on this submission.")
     return tc
 
 
-@router.get("/round/3/state", response_model=Round3StateOut)
-def round3_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    _require_round_unlocked(3, db, candidate)
-    scenario, submission = _round3_scenario_and_submission(candidate, db)
-    return _build_round3_state(scenario, submission, candidate, db)
+@router.get("/round/4/state", response_model=Round4StateOut)
+def round4_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(4, db, candidate)
+    scenario, submission = _round4_scenario_and_submission(candidate, db)
+    return _build_round4_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/3/test-case", response_model=Round3TestCaseOut, status_code=201)
-def round3_create_test_case(
-    payload: Round3TestCaseCreate,
+@router.post("/round/4/test-case", response_model=Round4TestCaseOut, status_code=201)
+def round4_create_test_case(
+    payload: Round4TestCaseCreate,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(3, db, candidate)
-    _, submission = _round3_scenario_and_submission(candidate, db)
+    _require_round_unlocked(4, db, candidate)
+    _, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
 
-    tc = Round3TestCase(submission_id=submission.id, title=payload.title)
+    tc = Round4TestCase(submission_id=submission.id, title=payload.title)
     db.add(tc)
     db.commit()
     db.refresh(tc)
     return _test_case_out(tc)
 
 
-@router.patch("/round/3/test-case/{test_case_id}/draft", status_code=204)
-def round3_save_draft(
+@router.patch("/round/4/test-case/{test_case_id}/draft", status_code=204)
+def round4_save_draft(
     test_case_id: int,
-    payload: Round3DraftUpdate,
+    payload: Round4DraftUpdate,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(3, db, candidate)
-    _, submission = _round3_scenario_and_submission(candidate, db)
+    _require_round_unlocked(4, db, candidate)
+    _, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
 
@@ -329,15 +344,15 @@ def round3_save_draft(
     db.commit()
 
 
-@router.post("/round/3/turn", response_model=Round3TurnOut, status_code=201)
-def round3_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    _require_round_unlocked(3, db, candidate)
-    scenario, submission = _round3_scenario_and_submission(candidate, db)
+@router.post("/round/4/turn", response_model=Round4TurnOut, status_code=201)
+def round4_turn(payload: Round4TurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(4, db, candidate)
+    scenario, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
 
     test_case = _owned_test_case(payload.test_case_id, submission, db)
-    config = _round3_config(scenario)
+    config = _round4_config(scenario)
     existing_turns = test_case.turns
 
     round1_context = _round1_context_for(candidate, db)
@@ -347,16 +362,16 @@ def round3_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candid
     ]
     turn_number = len(existing_turns) + 1
 
-    # Called synchronously in the request path (unlike round 1/2/3 scoring,
+    # Called synchronously in the request path (unlike round 1/2/4 scoring,
     # which run as a background task) - a bad response here (malformed
-    # JSON, an API error, or a shape that doesn't match Round3TurnResponse
-    # - see llm_service.round3_respond) must never reach db.add() below.
+    # JSON, an API error, or a shape that doesn't match Round4TurnResponse
+    # - see llm_service.round4_respond) must never reach db.add() below.
     # Nothing has been persisted yet at this point, so this is a clean,
     # retryable failure for the candidate - not the stuck-forever state a
     # persisted-then-invalid turn used to cause on every later read of
-    # this candidate's round 3 state.
+    # this candidate's round 4 state.
     try:
-        response = llm_service.round3_respond(
+        response = llm_service.round4_respond(
             test_case_title=test_case.title or "",
             environment=scenario.environment_json,
             scenario_instructions=scenario.description,
@@ -385,14 +400,14 @@ def round3_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candid
     return turn
 
 
-@router.get("/round/3/turn/{turn_id}/code", response_model=Round3CodeSnippetOut)
-def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.get("/round/4/turn/{turn_id}/code", response_model=Round4CodeSnippetOut)
+def round4_turn_code(turn_id: int, language: str, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Trial feature: an on-demand, candidate-facing rendering of an
     already-completed turn as a code snippet, in a language the candidate
     picks. Generated from that turn's OWN already-recorded steps/
     observed_result - this can only re-describe what's already visible
     in the transcript, never reveal anything new, and carries no scoring
-    weight. Deliberately isolated from the rest of round 3 so it's easy
+    weight. Deliberately isolated from the rest of round 4 so it's easy
     to remove if it doesn't hold up.
 
     Persisted per (turn, language) in ConversationTurn.generated_code_json
@@ -401,29 +416,29 @@ def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
     different code each time, which is confusing for something meant to
     just be a fixed re-rendering of a decision already made. Also means
     switching back to an already-viewed language costs nothing."""
-    _require_round_unlocked(3, db, candidate)
-    if language not in ROUND3_CODE_LANGUAGES:
-        raise HTTPException(400, f"language must be one of: {', '.join(ROUND3_CODE_LANGUAGES)}")
-    _, submission = _round3_scenario_and_submission(candidate, db)
+    _require_round_unlocked(4, db, candidate)
+    if language not in ROUND4_CODE_LANGUAGES:
+        raise HTTPException(400, f"language must be one of: {', '.join(ROUND4_CODE_LANGUAGES)}")
+    _, submission = _round4_scenario_and_submission(candidate, db)
     turn = db.get(ConversationTurn, turn_id)
     if turn is None or turn.submission_id != submission.id:
         raise HTTPException(404, "No such turn on this submission.")
 
     cached = (turn.generated_code_json or {}).get(language)
     if cached is not None:
-        return Round3CodeSnippetOut(language=language, code=cached)
+        return Round4CodeSnippetOut(language=language, code=cached)
 
-    with _round3_code_lock(turn_id):
+    with _round4_code_lock(turn_id):
         # Another request for this exact turn may have generated and
         # committed while we were waiting for the lock - re-read rather
         # than trust the pre-lock snapshot above.
         db.refresh(turn)
         cached = (turn.generated_code_json or {}).get(language)
         if cached is not None:
-            return Round3CodeSnippetOut(language=language, code=cached)
+            return Round4CodeSnippetOut(language=language, code=cached)
 
         try:
-            code = llm_service.generate_round3_code_snippet(
+            code = llm_service.generate_round4_code_snippet(
                 test_case_title=turn.test_case.title,
                 steps=turn.model_response.get("steps", []),
                 observed_result=turn.model_response.get("observed_result", ""),
@@ -434,25 +449,25 @@ def round3_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
 
         turn.generated_code_json = {**(turn.generated_code_json or {}), language: code}
         db.commit()
-        return Round3CodeSnippetOut(language=language, code=code)
+        return Round4CodeSnippetOut(language=language, code=code)
 
 
-@router.post("/round/3/submit", response_model=SubmissionOut, status_code=201)
-def round3_submit(
+@router.post("/round/4/submit", response_model=SubmissionOut, status_code=201)
+def round4_submit(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(3, db, candidate)
-    scenario, submission = _round3_scenario_and_submission(candidate, db)
+    _require_round_unlocked(4, db, candidate)
+    scenario, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
 
     _require_within_time_limit(submission, scenario)
 
-    if not submission.round3_test_cases:
+    if not submission.round4_test_cases:
         raise HTTPException(400, "Create at least one test case before submitting.")
-    if not any(tc.turns for tc in submission.round3_test_cases):
+    if not any(tc.turns for tc in submission.round4_test_cases):
         raise HTTPException(400, "Send at least one message in a test case before submitting.")
 
     submission.status = RoundStatus.submitted
@@ -465,8 +480,8 @@ def round3_submit(
 
 @router.get("/round/{round_number}", response_model=RoundStateOut)
 def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    if round_number not in (1, 2, 3):
-        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    if round_number not in (1, 2, 4):
+        raise HTTPException(400, "round_number must be 1, 2, or 4")
 
     # Lazily close out any of this candidate's abandoned-and-expired
     # submissions before checking round-gating below - unlike the write
@@ -498,8 +513,8 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
 
 @router.post("/round/{round_number}/start", response_model=SubmissionOut, status_code=201)
 def start_round(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    if round_number not in (1, 2, 3):
-        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    if round_number not in (1, 2, 4):
+        raise HTTPException(400, "round_number must be 1, 2, or 4")
     _require_round_unlocked(round_number, db, candidate)
 
     scenario = _live_scenario(db, round_number, candidate)
@@ -587,8 +602,8 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     tab_switch_events_json). Silently a no-op if there's nothing
     in-progress to attach it to (the round may have already ended by the
     time this request lands)."""
-    if round_number not in (1, 2, 3):
-        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    if round_number not in (1, 2, 4):
+        raise HTTPException(400, "round_number must be 1, 2, or 4")
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         return
@@ -617,18 +632,18 @@ def save_round_draft(
     candidate: User = Depends(require_candidate),
 ):
     """Periodic autosave for rounds 1/2's in-progress content, the same
-    pattern round 3's test cases already have (see round3_save_draft
+    pattern round 4's test cases already have (see round4_save_draft
     above) - so a crash, refresh, or network loss mid-round doesn't
     silently lose typed-but-unsubmitted work while the timer keeps
     counting down. Reuses ExpireRoundPayload's shape (deliberately
     permissive - see its docstring), but unlike /expire below this never
     touches submission.status or checks the deadline: only a real
     Submit, or /expire once the deadline has genuinely passed, ever ends
-    the round. Round 3 has no equivalent here - it already autosaves per
-    test case instead (PATCH /round/3/test-case/{id}/draft), since it
+    the round. Round 4 has no equivalent here - it already autosaves per
+    test case instead (PATCH /round/4/test-case/{id}/draft), since it
     has no single whole-round form the way rounds 1/2 do."""
     if round_number not in (1, 2):
-        raise HTTPException(400, "round_number must be 1 or 2 - round 3 autosaves per test case, see PATCH /round/3/test-case/{id}/draft.")
+        raise HTTPException(400, "round_number must be 1 or 2 - round 4 autosaves per test case, see PATCH /round/4/test-case/{id}/draft.")
     _require_round_unlocked(round_number, db, candidate)
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
@@ -667,7 +682,7 @@ def expire_round(
 ):
     """The frontend's guaranteed fallback once a round's timer hits zero:
     it always tries a real submit first (see app.js's doSubmitRound1/
-    doSubmitRound2Investigation/round3AutoSubmit with force=true), and
+    doSubmitRound2Investigation/round4AutoSubmit with force=true), and
     only calls this if that attempt failed - empty/incomplete content
     that a normal submit would correctly reject, or the rare case of
     losing a race against _require_within_time_limit. Either way the
@@ -680,8 +695,8 @@ def expire_round(
     outcome, not a reason to strand the round. Requires the deadline to
     have genuinely passed server-side, not just claimed by the client, so
     this can't be used to skip a round early."""
-    if round_number not in (1, 2, 3):
-        raise HTTPException(400, "round_number must be 1, 2, or 3")
+    if round_number not in (1, 2, 4):
+        raise HTTPException(400, "round_number must be 1, 2, or 4")
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
@@ -706,8 +721,8 @@ def expire_round(
             ],
             "root_cause": payload.root_cause or "",
         }
-    # Round 3 has no content field to set here - its state already lives
-    # in round3_test_cases/conversation_turns, whatever exists (including
+    # Round 4 has no content field to set here - its state already lives
+    # in round4_test_cases/conversation_turns, whatever exists (including
     # none) is what gets scored.
 
     submission.status = RoundStatus.submitted

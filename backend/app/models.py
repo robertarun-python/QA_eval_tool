@@ -101,17 +101,17 @@ class Scenario(Base):
     status = Column(Enum(ScenarioStatus), default=ScenarioStatus.draft, nullable=False)
     is_live = Column(Boolean, default=False, nullable=False)
     reference_json = Column(JSON, nullable=True)  # HR-approved "superhuman" reference answer
-    # Round 3 only: auto-generated fictional test-environment reference
+    # Round 4 only: auto-generated fictional test-environment reference
     # facts (credentials, a simulated API base URL, ...) shown to
     # candidates alongside the scenario description - see
-    # llm_service.generate_round3_environment. Same lifecycle as
+    # llm_service.generate_round4_environment. Same lifecycle as
     # reference_json: generated at creation, HR can regenerate it,
     # required before publish.
     environment_json = Column(JSON, nullable=True)
-    # Round 3 only: auto-generated structured reference screens (login
+    # Round 4 only: auto-generated structured reference screens (login
     # page, home page, ...) shown to candidates as a static visual
     # reference for the app they're automating - see
-    # llm_service.generate_round3_ui_mockup. Structured (screens ->
+    # llm_service.generate_round4_ui_mockup. Structured (screens ->
     # ordered typed elements), never raw HTML, so the frontend renders it
     # through trusted CSS instead of injecting LLM-authored markup. Same
     # lifecycle as environment_json: generated at creation, HR can
@@ -190,16 +190,16 @@ class Submission(Base):
     # cases. created_at is monotonic regardless, which is what "the
     # transcript in the order it happened" actually needs - code that
     # wants turns grouped by test case does that grouping itself, e.g.
-    # scoring_service.score_round3_submission.
+    # scoring_service.score_round4_submission.
     conversation_turns = relationship(
         "ConversationTurn", back_populates="submission",
         order_by="ConversationTurn.created_at",
     )
-    # Round 3 only: the candidate's own, self-titled test cases - see
-    # Round3TestCase. Ordered by creation so the tab strip is stable.
-    round3_test_cases = relationship(
-        "Round3TestCase", back_populates="submission",
-        order_by="Round3TestCase.created_at",
+    # Round 4 only: the candidate's own, self-titled test cases - see
+    # Round4TestCase. Ordered by creation so the tab strip is stable.
+    round4_test_cases = relationship(
+        "Round4TestCase", back_populates="submission",
+        order_by="Round4TestCase.created_at",
     )
 
 
@@ -259,24 +259,24 @@ class Score(Base):
         return self.overridden_by_user_id is not None
 
 
-class Round3TestCase(Base):
-    """Round 3 only: one candidate-created, self-titled automation test
+class Round4TestCase(Base):
+    """Round 4 only: one candidate-created, self-titled automation test
     case. Deliberately no fixed category (UI/API/DB) - the candidate
     decides what to test and how many to write, which is the actual
     thing this round assesses. `title` is nullable: "Test case N" is a
     display-time fallback for an untitled one, not a stored default."""
-    __tablename__ = "round3_test_cases"
+    __tablename__ = "round4_test_cases"
 
     id = Column(Integer, primary_key=True)
     submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
     title = Column(String, nullable=True)
     # Autosave target for the candidate's in-progress, unsent message -
-    # see candidate.py's PATCH /round/3/test-case/{id}/draft. Cleared
+    # see candidate.py's PATCH /round/4/test-case/{id}/draft. Cleared
     # back to "" once that text is actually sent as a turn.
     draft_prompt = Column(Text, nullable=False, default="")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    submission = relationship("Submission", back_populates="round3_test_cases")
+    submission = relationship("Submission", back_populates="round4_test_cases")
     turns = relationship(
         "ConversationTurn", back_populates="test_case",
         order_by="ConversationTurn.turn_number",
@@ -284,20 +284,20 @@ class Round3TestCase(Base):
 
 
 class ConversationTurn(Base):
-    """Round 3 only: each back-and-forth between candidate and the LLM,
-    scoped to one of the candidate's own test cases (see Round3TestCase)."""
+    """Round 4 only: each back-and-forth between candidate and the LLM,
+    scoped to one of the candidate's own test cases (see Round4TestCase)."""
     __tablename__ = "conversation_turns"
 
     id = Column(Integer, primary_key=True)
     submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
-    test_case_id = Column(Integer, ForeignKey("round3_test_cases.id"), nullable=False, index=True)
+    test_case_id = Column(Integer, ForeignKey("round4_test_cases.id"), nullable=False, index=True)
     # 1-indexed *within this test case*, not global across the submission -
     # keeps "turn cap per test case" a plain count query and each test
     # case's transcript independently orderable.
     turn_number = Column(Integer, nullable=False)
     candidate_prompt = Column(Text, nullable=False)
     # Structured, not plain text: {response_text, steps, observed_result,
-    # status} - see schemas.Round3TurnResponse / llm_service.round3_respond.
+    # status} - see schemas.Round4TurnResponse / llm_service.round4_respond.
     # No code field, deliberately - the candidate reasons from an
     # execution trace (plain-English steps + what was observed), never
     # from reading an implementation. Every other LLM-output column in
@@ -318,7 +318,7 @@ class ConversationTurn(Base):
     generated_code_json = Column(JSON, nullable=True)
 
     submission = relationship("Submission", back_populates="conversation_turns")
-    test_case = relationship("Round3TestCase", back_populates="turns")
+    test_case = relationship("Round4TestCase", back_populates="turns")
 
 
 class CandidateAppearance(Base):
@@ -358,7 +358,7 @@ class AppSettings(Base):
     id = Column(Integer, primary_key=True)
     round1_passing_score = Column(Integer, nullable=False, default=70)
     round2_passing_score = Column(Integer, nullable=False, default=70)
-    round3_passing_score = Column(Integer, nullable=False, default=70)
+    round4_passing_score = Column(Integer, nullable=False, default=70)
     final_passing_score = Column(Integer, nullable=False, default=210)  # out of 300 (sum of the three rounds)
     reapplication_window_months = Column(Integer, nullable=False, default=6)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
