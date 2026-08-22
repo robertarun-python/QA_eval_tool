@@ -24,3 +24,6 @@ QA tool info.txt
 backend/.claude/
 backend/.agents/
 backend/skills-lock.json
+
+# Local git worktrees used for isolated subagent-driven development work.
+.worktrees/
