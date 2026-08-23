@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from ..models import Submission, Score, RoundStatus
-from . import llm_service
+from . import llm_service, execution_service
 
 
 def _apply_provenance(score: Score, result: dict) -> None:
@@ -116,6 +116,80 @@ def score_round2_investigation(db: Session, submission: Submission) -> Score:
     return score
 
 
+def score_round3_submission(db: Session, submission: Submission) -> Score:
+    """Round 3 (AI-prompted coding): re-run the candidate's final code
+    against the scenario's HR-approved test suite for an objective pass
+    rate, then one LLM call judges the direction quality (precision,
+    efficiency, independent judgment) against the full transcript."""
+    scenario = submission.scenario
+    reference = scenario.reference_json or {}
+    test_cases = reference.get("test_cases", [])
+    expected_approach = reference.get("expected_approach", "")
+
+    turns = submission.round3_turns
+    language = (submission.content or {}).get("language", "")
+    final_code = next((t.code_after for t in reversed(turns) if t.code_after), None)
+
+    if final_code is None:
+        # No turn ever produced real code - nothing to run. See the
+        # design spec's Scoring section: skip execution entirely rather
+        # than attempting to run nothing.
+        test_results = [{**tc, "actual_output": None, "passed": False} for tc in test_cases]
+    else:
+        test_results = []
+        for tc in test_cases:
+            result = execution_service.run_code(language=language, code=final_code, stdin=[tc["input"]])
+            if result.infra_error:
+                # Per the design spec's Error handling section: a hosted
+                # execution-API infra failure (e.g. the Piston endpoint
+                # rejecting the request) must never be scored as if it
+                # were the candidate's own program crashing - it must
+                # not be silently counted as a failed test case in the
+                # coverage_score denominator. Raising here (rather than
+                # recording actual_output=None/passed=False and
+                # continuing) lets this propagate out uncaught, straight
+                # into score_submission_in_background's existing
+                # try/except below, which already routes any scoring-time
+                # exception to RoundStatus.scoring_failed - the same path
+                # every other scoring failure takes.
+                raise RuntimeError(f"Code execution infra error while scoring test case: {tc.get('description', tc['input'])}")
+            actual_output = (result.stdout or "").strip()
+            test_results.append({
+                **tc,
+                "actual_output": actual_output,
+                "passed": actual_output == str(tc["expected_output"]).strip(),
+            })
+
+    conversation_payload = [
+        {
+            "turn_number": t.turn_number, "candidate_prompt": t.candidate_prompt,
+            "response_kind": t.response_kind, "response_message": t.response_message,
+            "code_after": t.code_after,
+        }
+        for t in turns
+    ]
+
+    result = llm_service.score_round3_coding(
+        scenario_description=scenario.description,
+        expected_approach=expected_approach,
+        conversation_so_far=conversation_payload,
+        test_results=test_results,
+    )
+
+    score = _get_or_create_score(db, submission)
+    _apply_provenance(score, result)
+    passed_count = sum(1 for r in test_results if r["passed"])
+    score.coverage_score = round(passed_count / len(test_results) * 100) if test_results else 0
+    score.misses_json = result.get("misses", []) + [f"Guardrail: {g}" for g in result.get("guardrail_violations", [])]
+    score.final_score = result.get("final_score")
+    score.feedback_text = result.get("feedback_text")
+    score.raw_llm_response_json = {"test_results": test_results, "conversation": conversation_payload, "scoring": result}
+    submission.status = RoundStatus.scored
+    db.commit()
+    db.refresh(score)
+    return score
+
+
 def score_round4_submission(db: Session, submission: Submission) -> Score:
     """Round 4 gets one holistic score across all the candidate's own
     test cases (not per-test-case sub-scores - see
@@ -178,6 +252,7 @@ def score_round4_submission(db: Session, submission: Submission) -> Score:
 _SCORERS = {
     1: score_round1_submission,
     2: score_round2_investigation,
+    3: score_round3_submission,
     4: score_round4_submission,
 }
 
