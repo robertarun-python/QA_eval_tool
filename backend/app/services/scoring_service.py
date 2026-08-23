@@ -138,7 +138,21 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     else:
         test_results = []
         for tc in test_cases:
-            result = execution_service.run_code(language=language, code=final_code, stdin=[tc["input"]])
+            # .get(), not tc["input"]/tc["expected_output"] directly:
+            # defensive against a malformed reference (e.g. hand-edited
+            # via HR's PATCH before/around Fix 2's validation landed) -
+            # a missing key should fail this one test case with a clear
+            # description, not blow up scoring with an opaque KeyError.
+            tc_input = tc.get("input")
+            if tc_input is None:
+                test_results.append({
+                    **tc,
+                    "actual_output": None,
+                    "passed": False,
+                    "actual_output_error": "Reference test case is missing 'input' - could not run.",
+                })
+                continue
+            result = execution_service.run_code(language=language, code=final_code, stdin=[tc_input])
             if result.infra_error:
                 # Per the design spec's Error handling section: a hosted
                 # execution-API infra failure (e.g. the Piston endpoint
@@ -152,12 +166,13 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                 # try/except below, which already routes any scoring-time
                 # exception to RoundStatus.scoring_failed - the same path
                 # every other scoring failure takes.
-                raise RuntimeError(f"Code execution infra error while scoring test case: {tc.get('description', tc['input'])}")
+                raise RuntimeError(f"Code execution infra error while scoring test case: {tc.get('description', tc_input)}")
             actual_output = (result.stdout or "").strip()
+            expected_output = tc.get("expected_output")
             test_results.append({
                 **tc,
                 "actual_output": actual_output,
-                "passed": actual_output == str(tc["expected_output"]).strip(),
+                "passed": expected_output is not None and actual_output == str(expected_output).strip(),
             })
 
     conversation_payload = [

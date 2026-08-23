@@ -65,3 +65,42 @@ def test_run_code_reports_infra_error_on_network_failure(monkeypatch):
 def test_run_code_rejects_unsupported_language():
     with pytest.raises(ValueError):
         execution_service.run_code(language="ruby", code="puts 1", stdin=[])
+
+
+def test_run_code_surfaces_compile_stage_stderr_on_compile_failure(monkeypatch):
+    """Fix 4 (final whole-branch review): Piston returns compile
+    diagnostics in a separate `compile` stage (present for compiled
+    languages like Java) - on a compile failure, `run` just shows a
+    generic runtime symptom while the real compiler error sits in
+    `compile`. Confirm it's folded into the returned stderr."""
+    monkeypatch.setattr(execution_service, "_execute", lambda payload: {
+        "compile": {"stdout": "", "stderr": "Main.java:3: error: ';' expected", "code": 1, "signal": None},
+        "run": {"stdout": "", "stderr": "Error: Could not find or load main class Main", "code": 1, "signal": None, "wall_time": 30},
+    })
+    result = execution_service.run_code(language="java", code="broken", stdin=[])
+    assert "[compile]" in result.stderr
+    assert "';' expected" in result.stderr
+    # The run stage's own stderr isn't discarded either.
+    assert "Could not find or load main class" in result.stderr
+    assert result.infra_error is False
+
+
+def test_run_code_does_not_add_compile_prefix_on_successful_compile(monkeypatch):
+    monkeypatch.setattr(execution_service, "_execute", lambda payload: {
+        "compile": {"stdout": "", "stderr": "", "code": 0, "signal": None},
+        "run": {"stdout": "hello\n", "stderr": "", "code": 0, "signal": None, "wall_time": 30},
+    })
+    result = execution_service.run_code(language="java", code="ok", stdin=[])
+    assert result.stdout == "hello\n"
+    assert result.stderr == ""
+
+
+def test_run_code_reports_infra_error_on_malformed_response_shape(monkeypatch):
+    """Fix 8: data.get("run", {}) would raise AttributeError uncaught if
+    `data` isn't a dict (e.g. Piston returns something unexpected) -
+    confirm that maps to infra_error=True like every other API-failure
+    mode, rather than propagating."""
+    monkeypatch.setattr(execution_service, "_execute", lambda payload: None)
+    result = execution_service.run_code(language="python", code="print(1)", stdin=[])
+    assert result.infra_error is True
+    assert result.exit_code is None

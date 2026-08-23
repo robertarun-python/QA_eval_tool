@@ -65,19 +65,44 @@ def run_code(language: str, code: str, stdin: list[str]) -> ExecutionResult:
     }
     try:
         data = _execute(payload)
-    except (httpx.HTTPError, ValueError, KeyError):
+
+        run = data.get("run", {})
+        stderr = run.get("stderr", "")
+
+        # Compiled languages (Java) run a separate `compile` stage before
+        # `run` - on a compile failure, `run` just shows a generic symptom
+        # (e.g. "could not find or load main class") while the actual
+        # compiler error sits unread in `compile`. Fold it into the
+        # returned stderr (prefixed so it's distinguishable from a
+        # runtime stderr) rather than adding a new ExecutionResult field
+        # for it.
+        compile_stage = data.get("compile") or {}
+        compile_stderr = (compile_stage.get("stderr") or "").strip()
+        compile_code = compile_stage.get("code")
+        compile_failed = bool(compile_stderr) or (compile_code is not None and compile_code != 0)
+        if compile_stage and compile_failed:
+            compile_note = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
+            stderr = f"{compile_note}\n{stderr}" if stderr else compile_note
+
+        # Piston reports a killed-by-timeout run via signal "SIGKILL"
+        # rather than a dedicated boolean field - confirmed 2026-08-23
+        # against the Piston API source (api/src/job.js): the isolate
+        # sandbox's TO/OL/EL statuses are all normalized to signal:
+        # 'SIGKILL' before the response is sent, so this string check is
+        # the documented shape.
+        timed_out = run.get("signal") == "SIGKILL"
+    # AttributeError/TypeError: same defensiveness as the other three -
+    # a malformed/unexpected response body (data isn't a dict, or a
+    # nested stage isn't) would otherwise raise uncaught out of this
+    # function past every other API-failure mode's infra_error=True
+    # handling. Not purely theoretical - this plan's own testing found
+    # the public Piston endpoint returning 401s in practice.
+    except (httpx.HTTPError, ValueError, KeyError, AttributeError, TypeError):
         return ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
 
-    run = data.get("run", {})
-    # Piston reports a killed-by-timeout run via signal "SIGKILL" rather
-    # than a dedicated boolean field - confirmed 2026-08-23 against the
-    # Piston API source (api/src/job.js): the isolate sandbox's TO/OL/EL
-    # statuses are all normalized to signal: 'SIGKILL' before the
-    # response is sent, so this string check is the documented shape.
-    timed_out = run.get("signal") == "SIGKILL"
     return ExecutionResult(
         stdout=run.get("stdout", ""),
-        stderr=run.get("stderr", ""),
+        stderr=stderr,
         exit_code=run.get("code"),
         timed_out=timed_out,
         infra_error=False,
