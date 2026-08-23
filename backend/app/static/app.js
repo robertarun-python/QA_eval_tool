@@ -14,7 +14,7 @@
 // Round display names - one source, used by both HR's nav (renderHRRoundNav)
 // and the candidate's nav (renderCandidateRoundNav). Used to be two
 // identical maps (HR_ROUND_LABELS and ROUND_TITLES) defined separately.
-const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 4: "Conversational" };
+const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 3: "AI-prompted coding", 4: "Conversational" };
 
 // Runtime-editable per-round/final passing scores (see HR's Settings
 // page, GET/PUT /hr/settings) - fetched once on HR login into
@@ -265,7 +265,7 @@ function renderHRRoundNav() {
   const nav = document.getElementById("hr-round-nav");
   nav.innerHTML = `
     <div class="rail-section-label">Author scenarios</div>
-    ${[1, 2, 4].map((n) => `
+    ${[1, 2, 3, 4].map((n) => `
       <button class="nav-btn ${hrPage === "rounds" && n === currentHRRound ? "active" : ""}" onclick="selectHRRound(${n})">
         <span class="nav-chip">${n}</span>
         <span class="nav-btn-copy">
@@ -422,6 +422,7 @@ async function loadAppSettings() {
   appSettings = await api("/hr/settings");
   document.getElementById("set-round1").value = appSettings.round1_passing_score;
   document.getElementById("set-round2").value = appSettings.round2_passing_score;
+  document.getElementById("set-round3").value = appSettings.round3_passing_score;
   document.getElementById("set-round4").value = appSettings.round4_passing_score;
   document.getElementById("set-final").value = appSettings.final_passing_score;
   document.getElementById("set-window").value = appSettings.reapplication_window_months;
@@ -432,6 +433,7 @@ async function saveAppSettings() {
   const payload = {
     round1_passing_score: Number(document.getElementById("set-round1").value),
     round2_passing_score: Number(document.getElementById("set-round2").value),
+    round3_passing_score: Number(document.getElementById("set-round3").value),
     round4_passing_score: Number(document.getElementById("set-round4").value),
     final_passing_score: Number(document.getElementById("set-final").value),
     reapplication_window_months: Number(document.getElementById("set-window").value),
@@ -610,16 +612,26 @@ async function openScenarioDetail(id) {
   // llm_service.py's round 2 section) - the prompt never asks for them,
   // so those two columns just don't apply here.
   const showPriorityType = scenario.round_number === 1;
-  const refRows = (scenario.reference_json || []).map((r, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${escapeHtml(r.title)}</td>
-      <td>${escapeHtml(r.preconditions || "")}</td>
-      <td>${escapeHtml(r.steps)}</td>
-      <td>${escapeHtml(r.expected_result)}</td>
-      ${showPriorityType ? `<td>${escapeHtml(r.priority)}</td><td>${escapeHtml(r.type)}</td>` : ""}
-    </tr>
-  `).join("");
+  const isCodingReference = scenario.round_number === 3;
+  const refRows = isCodingReference
+    ? ((scenario.reference_json && scenario.reference_json.test_cases) || []).map((tc, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${escapeHtml(tc.input)}</td>
+          <td>${escapeHtml(tc.expected_output)}</td>
+          <td>${escapeHtml(tc.description || "")}</td>
+        </tr>
+      `).join("")
+    : (scenario.reference_json || []).map((r, i) => `
+        <tr>
+          <td>${i + 1}</td>
+          <td>${escapeHtml(r.title)}</td>
+          <td>${escapeHtml(r.preconditions || "")}</td>
+          <td>${escapeHtml(r.steps)}</td>
+          <td>${escapeHtml(r.expected_result)}</td>
+          ${showPriorityType ? `<td>${escapeHtml(r.priority)}</td><td>${escapeHtml(r.type)}</td>` : ""}
+        </tr>
+      `).join("");
 
   const isDraft = scenario.status === "draft";
   // Round 4 no longer routes through here at all (see loadRound4Settings/
@@ -648,14 +660,18 @@ async function openScenarioDetail(id) {
     <h4>Reference answer ${isDraft ? "(review before publishing)" : ""}</h4>
     <div class="table-scroll">
       <table>
-        <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th>${showPriorityType ? "<th>Priority</th><th>Type</th>" : ""}</tr></thead>
-        <tbody>${refRows || `<tr><td colspan="${showPriorityType ? 7 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
+        <thead><tr>${isCodingReference
+          ? "<th>SI.No</th><th>Input</th><th>Expected output</th><th>Description</th>"
+          : `<th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th>${showPriorityType ? "<th>Priority</th><th>Type</th>" : ""}`
+        }</tr></thead>
+        <tbody>${refRows || `<tr><td colspan="${isCodingReference ? 4 : showPriorityType ? 7 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
       </table>
     </div>
+    ${isCodingReference && scenario.reference_json ? `<p class="muted"><strong>Expected approach:</strong> ${escapeHtml(scenario.reference_json.expected_approach || "")}</p>` : ""}
     ${isDraft ? `
       <details>
         <summary>Edit reference as JSON</summary>
-        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || [], null, 2))}</textarea>
+        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || (isCodingReference ? {test_cases: [], expected_approach: ""} : []), null, 2))}</textarea>
         <div class="row">
           <button onclick="saveReferenceEdit(${scenario.id})">Save edits</button>
         </div>
@@ -987,7 +1003,7 @@ async function loadCandidates() {
   box.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 4</th><th>Aggregate</th><th></th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th><th>Aggregate</th><th></th></tr></thead>
         <tbody>
           ${candidates.map((c) => `
             <tr>
@@ -1001,7 +1017,7 @@ async function loadCandidates() {
               </td>
               <td>${c.exam_date ? formatDate(c.exam_date) : "-"}</td>
               ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
-              <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 210) ? "score-good" : "score-bad"}">${c.aggregate_score}/300</strong>` : `<span class="muted">-</span>`}</td>
+              <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 210) ? "score-good" : "score-bad"}">${c.aggregate_score}/400</strong>` : `<span class="muted">-</span>`}</td>
               <td><button onclick="openCandidateDetail(${c.id})">View</button></td>
             </tr>
           `).join("")}
@@ -1097,6 +1113,7 @@ function renderSubmissionsPanels(submissions) {
       </h4>
       ${renderScoreBlock(s)}
       ${s.round_number === 4 ? renderRound4Report(s)
+        : s.round_number === 3 ? renderRound3Report(s)
         : s.round_number === 2 ? renderRound2Report(s)
         : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
     </div>
@@ -1261,7 +1278,7 @@ async function loadAppearances(candidateId) {
                 ${a.is_current ? '<span class="badge badge-published">Current</span>' : '<span class="badge">Archived</span>'}
                 ${a.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}
               </td>
-              <td>${a.aggregate_score != null ? `${a.aggregate_score}/300` : `<span class="muted">-</span>`}</td>
+              <td>${a.aggregate_score != null ? `${a.aggregate_score}/400` : `<span class="muted">-</span>`}</td>
               <td><button onclick="viewAppearance(${candidateId}, ${a.id})">View</button></td>
             </tr>
           `).join("")}
@@ -1370,6 +1387,45 @@ function renderRound4Report(s) {
       </div>
     `).join("") || `<p class="muted">No messages sent in this test case.</p>`}
   `).join("");
+}
+
+// Round 3's content is always null now - the turn-by-turn transcript
+// (s.round3_turns) and the run history (s.round3_runs) ARE the
+// submission, same as round 4's turns/test_cases above. Each turn shows
+// the candidate's instruction and the assistant's classified response
+// (clarify/refuse/code_edit, surfaced as a badge so HR can see at a
+// glance whether the candidate was steering with enough precision to get
+// real code out of the assistant); runs are shown separately below,
+// newest first, since a run isn't tied to one specific turn server-side.
+const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass" };
+
+function renderRound3Report(s) {
+  if (!s.round3_turns) return "";
+  if (s.round3_turns.length === 0) return `<p class="muted">No messages sent.</p>`;
+
+  const turnsHtml = s.round3_turns.map((t) => `
+    <div class="panel-inset round3-coding-turn">
+      <p class="muted">Turn ${t.turn_number}</p>
+      <p><strong>Candidate:</strong> ${escapeHtml(t.candidate_prompt)}</p>
+      <p><strong>Assistant:</strong> <span class="badge ${ROUND3_RESPONSE_KIND_BADGE[t.response_kind] || ""}">${escapeHtml(t.response_kind)}</span> ${escapeHtml(t.response_message)}</p>
+      ${t.code_after ? `<pre class="code-snippet">${escapeHtml(t.code_after)}</pre>` : ""}
+    </div>
+  `).join("");
+
+  const runsHtml = (s.round3_runs || []).map((r) => `
+    <div class="panel-inset round3-coding-run">
+      <p class="muted">Run at ${formatDate(r.created_at)} - ${r.timed_out ? "timed out" : r.infra_error ? "execution service error" : `exit code ${r.exit_code}`}</p>
+      ${r.stdout ? `<pre class="code-snippet">${escapeHtml(r.stdout)}</pre>` : ""}
+      ${r.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(r.stderr)}</pre>` : ""}
+    </div>
+  `).join("") || `<p class="muted">No runs.</p>`;
+
+  return `
+    <h5>Conversation</h5>
+    ${turnsHtml}
+    <h5>Run history</h5>
+    ${runsHtml}
+  `;
 }
 
 function renderSideBySide(candidateRows, referenceRows) {
@@ -1512,7 +1568,7 @@ async function refreshCandidateNav() {
   candidateCompletedRounds = submissions
     .filter((s) => s.status === "submitted" || s.status === "scored")
     .map((s) => s.round_number);
-  const nextRound = [1, 2, 4].find((n) => !candidateCompletedRounds.includes(n));
+  const nextRound = [1, 2, 3, 4].find((n) => !candidateCompletedRounds.includes(n));
   renderCandidateRoundNav();
 
   if (nextRound === undefined) {
@@ -1536,7 +1592,7 @@ function renderCandidateRoundNav() {
   const nav = document.getElementById("candidate-round-nav");
   nav.innerHTML = `
     <div class="rail-section-label">Assessment</div>
-    ${[1, 2, 4].map((n) => {
+    ${[1, 2, 3, 4].map((n) => {
       const done = candidateCompletedRounds.includes(n);
       const isUnlocked = n === candidateUnlockedRound && !done;
       const note = done ? "Submitted" : n === candidateUnlockedRound ? "In progress" : "Locked";
@@ -1591,6 +1647,15 @@ function renderRoundView(box, n, state) {
   }
 
   if (!submission) {
+    if (n === 3) {
+      box.innerHTML = `
+        <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
+        ${formatScenarioDescription(scenario.description)}
+        <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
+      `;
+      showRound3CodingIntro();
+      return;
+    }
     if (n === 4) {
       // No Start button here at all - the briefing modal below is the
       // only way in, appearing the instant this round is opened. Its own
@@ -1721,7 +1786,9 @@ function renderRoundEntry(n, box, scenario, submission) {
     renderEntryForm(box, scenario, submission);
   } else if (n === 2) {
     renderInvestigationForm(box, scenario, submission);
-  } else if (n === 4) {
+  } else if (n === 3) {
+    renderRound3CodingView(box);
+  } else {
     renderRound4View(box);
   }
 }
@@ -1925,6 +1992,202 @@ async function doSubmitRound2Investigation(force = false) {
       return;
     }
     if (submitBtn) submitBtn.disabled = false;
+    statusEl.textContent = e.message;
+  }
+}
+
+// ---- Round 3: AI-prompted coding. The candidate never edits code
+// directly - every code_after comes from the assistant's response to a
+// candidate instruction (see routers/candidate.py's round3_coding_turn).
+// A single evolving code buffer per submission, unlike Round 4's
+// multiple self-titled test cases - so there's one composer, one code
+// pane, one run history, not per-test-case tabs. ----
+
+function showRound3CodingIntro() {
+  const overlay = document.createElement("div");
+  overlay.id = "round3-coding-intro-overlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box neutral">
+      <h3>Before you start Round 3</h3>
+      <ul>
+        <li>You never write code directly - you direct an assistant with plain-English instructions (variables, loops, data structures, what to read/print), and it writes the actual code.</li>
+        <li>Your first message should describe enough for a first attempt - the assistant's first version will be a plain-language, brute-force sketch, not the polished final answer.</li>
+        <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
+        <li>You can run your code at any point once it's real code, and see real output (or a real error) - reading and fixing what went wrong is on you: the assistant won't jump in on its own just because a run failed.</li>
+        <li>What's scored: correctness, how precisely you specified things, and whether you pushed toward a more efficient solution - not just getting something that happens to work.</li>
+        <li>Your timer starts the moment you click below.</li>
+      </ul>
+      <div class="field-row" style="align-items:center">
+        <span class="muted">Language</span>
+        <select id="round3-language-select">
+          <option value="python">Python</option>
+          <option value="java">Java</option>
+          <option value="javascript">JavaScript</option>
+        </select>
+      </div>
+      <div class="row">
+        <button onclick="confirmStartRound3Coding()">Got it - Start Round 3</button>
+      </div>
+    </div>
+  `;
+  openModalOverlay(overlay);
+}
+
+function confirmStartRound3Coding() {
+  const language = document.getElementById("round3-language-select").value;
+  closeModalOverlay("round3-coding-intro-overlay");
+  startRound3Coding(language);
+}
+
+async function startRound3Coding(language) {
+  await api("/candidate/round/3/start", { method: "POST", body: JSON.stringify({ language }) });
+  const box = document.getElementById("round-view");
+  renderRoundEntry(3, box, null, null);
+}
+
+let round3CodingState = null;
+let round3CodingDraftTimer = null;
+const ROUND3_CODING_DRAFT_DEBOUNCE_MS = 1000;
+
+async function renderRound3CodingView(box) {
+  try {
+    round3CodingState = await api("/candidate/round/3/state");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
+  renderRound3CodingLayout(box);
+  const submission = round3CodingState.submission;
+  if (submission.status === "in_progress" && submission.started_at) {
+    const deadline = new Date(submission.started_at + "Z").getTime()
+      + round3CodingState.scenario.time_limit_minutes * 60 * 1000;
+    startTimer(deadline, round3CodingAutoSubmit, 3);
+  }
+}
+
+async function round3CodingAutoSubmit() {
+  try {
+    await api("/candidate/round/3/submit", { method: "POST" });
+  } catch (e) {
+    await api("/candidate/round/3/expire", { method: "POST", body: JSON.stringify({}) }).catch(() => {});
+  }
+  refreshCandidateNav();
+}
+
+function renderRound3CodingLayout(box) {
+  const s = round3CodingState;
+  if (!s) return;
+  const turnsHtml = s.turns.map((t) => `
+    <div class="round3-coding-turn">
+      <p class="round3-coding-prompt"><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
+      <p class="round3-coding-response round3-coding-response-${t.response_kind}"><strong>Assistant:</strong> ${escapeHtml(t.response_message)}</p>
+    </div>
+  `).join("");
+
+  const latestCode = [...s.turns].reverse().find((t) => t.code_after)?.code_after || "";
+  const runsHtml = s.runs.slice().reverse().map((r) => `
+    <div class="round3-coding-run">
+      <p class="muted">Run at ${new Date(r.created_at).toLocaleTimeString()} - ${r.timed_out ? "timed out" : r.infra_error ? "execution service error, try again" : `exit code ${r.exit_code}`}</p>
+      ${r.stdout ? `<pre class="code-snippet">${escapeHtml(r.stdout)}</pre>` : ""}
+      ${r.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(r.stderr)}</pre>` : ""}
+    </div>
+  `).join("");
+
+  box.innerHTML = `
+    <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
+    ${formatScenarioDescription(s.scenario.description)}
+    <p class="muted">Language: ${escapeHtml(s.language || "")}</p>
+    <div class="round3-coding-grid">
+      <div class="panel-inset round3-coding-pane">
+        <p class="muted round3-pane-label">Conversation</p>
+        <div class="round3-pane-body" id="round3-coding-turns">${turnsHtml || '<p class="muted">Nothing yet - tell the assistant what you need.</p>'}</div>
+        <textarea id="round3-coding-message" placeholder="What do you want the assistant to do next?" oninput="round3CodingOnComposerInput(this.value)">${escapeHtml((s.submission.content && s.submission.content.draft_prompt) || "")}</textarea>
+        <div class="row">
+          <button id="round3-coding-send-btn" onclick="round3CodingSendMessage()">Send</button>
+        </div>
+      </div>
+      <div class="panel-inset round3-coding-pane">
+        <p class="muted round3-pane-label">Code</p>
+        <pre class="code-snippet" id="round3-coding-code">${escapeHtml(latestCode || "(no code yet)")}</pre>
+        <div class="field-row">
+          <input id="round3-coding-stdin" placeholder="Input values, one per line" />
+        </div>
+        <div class="row">
+          <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
+          <button class="btn-block" onclick="round3CodingSubmit()">Submit Round 3</button>
+        </div>
+        <div id="round3-coding-runs">${runsHtml}</div>
+      </div>
+    </div>
+    <p id="round3-coding-status" class="muted"></p>
+  `;
+}
+
+function round3CodingOnComposerInput(value) {
+  clearTimeout(round3CodingDraftTimer);
+  round3CodingDraftTimer = setTimeout(() => round3CodingFlushDraft(value), ROUND3_CODING_DRAFT_DEBOUNCE_MS);
+}
+
+function round3CodingFlushDraft(value) {
+  api("/candidate/round/3/draft", { method: "PATCH", body: JSON.stringify({ draft_prompt: value }) }).catch(() => {});
+}
+
+async function round3CodingSendMessage() {
+  const textarea = document.getElementById("round3-coding-message");
+  const prompt = textarea.value.trim();
+  const statusEl = document.getElementById("round3-coding-status");
+  const sendBtn = document.getElementById("round3-coding-send-btn");
+  if (!prompt) return;
+  sendBtn.disabled = true;
+  statusEl.className = "muted";
+  statusEl.textContent = "Sending...";
+  try {
+    clearTimeout(round3CodingDraftTimer);
+    await api("/candidate/round/3/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt }) });
+    round3CodingState = await api("/candidate/round/3/state");
+    renderRound3CodingLayout(document.getElementById("round-view"));
+    statusEl.textContent = "";
+  } catch (e) {
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+async function round3CodingRun() {
+  const stdinRaw = document.getElementById("round3-coding-stdin").value;
+  const stdin = stdinRaw.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
+  const statusEl = document.getElementById("round3-coding-status");
+  const runBtn = document.getElementById("round3-coding-run-btn");
+  runBtn.disabled = true;
+  statusEl.className = "muted";
+  statusEl.textContent = "Running...";
+  try {
+    await api("/candidate/round/3/run", { method: "POST", body: JSON.stringify({ stdin }) });
+    round3CodingState = await api("/candidate/round/3/state");
+    renderRound3CodingLayout(document.getElementById("round-view"));
+    statusEl.textContent = "";
+  } catch (e) {
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  } finally {
+    runBtn.disabled = false;
+  }
+}
+
+async function round3CodingSubmit() {
+  const statusEl = document.getElementById("round3-coding-status");
+  statusEl.className = "muted";
+  statusEl.textContent = "Submitting...";
+  try {
+    await api("/candidate/round/3/submit", { method: "POST" });
+    stopTimer();
+    disarmTabGuard();
+    refreshCandidateNav();
+  } catch (e) {
+    statusEl.className = "error-text";
     statusEl.textContent = e.message;
   }
 }

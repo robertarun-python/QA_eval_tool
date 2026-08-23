@@ -625,6 +625,42 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   .round4-col-resizer { display: none; }
 }
 
+/* Round 3 (AI-prompted coding): conversation | code side by side - same
+   visual language as .round4-turn-grid above, but a simpler 2-column
+   layout with no draggable resizer, since there's no third "Code" column
+   distinct from the conversation the way Round 4's trial code-viewer
+   needed one. --bad (this stylesheet's one warning/error token - see
+   .error-text/.badge-fail) marks a refusal or a stderr block, not
+   --accent, which is just the general brand accent used for links/
+   focus/active-nav elsewhere in this file. */
+.round3-coding-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+.round3-coding-pane { display: flex; flex-direction: column; min-width: 0; }
+.round3-pane-label {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.5rem;
+}
+.round3-pane-body { overflow-y: auto; max-height: 20rem; margin-bottom: 0.75rem; }
+.round3-coding-turn { margin-bottom: 0.75rem; }
+.round3-coding-prompt { margin: 0 0 0.25rem; }
+.round3-coding-response { margin: 0; }
+.round3-coding-response-refuse { color: var(--bad); }
+.round3-coding-stderr { color: var(--bad); }
+.round3-coding-run { margin-bottom: 0.75rem; }
+#round3-coding-message { min-height: 4rem; }
+#round3-coding-code { min-height: 8rem; white-space: pre-wrap; }
+
+@media (max-width: 900px) {
+  .round3-coding-grid { grid-template-columns: 1fr; }
+}
+
 .code-snippet {
   background: var(--bg);
   border: 1px solid var(--border);
