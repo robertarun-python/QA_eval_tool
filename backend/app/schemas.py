@@ -306,6 +306,8 @@ class SubmissionReportOut(SubmissionOut):
     score: Optional[ScoreOut] = None
     test_cases: Optional[list["Round4TestCaseOut"]] = None
     conversation_turns: Optional[list["Round4TurnOut"]] = None
+    round3_turns: Optional[list["Round3TurnOut"]] = None
+    round3_runs: Optional[list["Round3RunOut"]] = None
     # Set when status == "scoring_failed" (see models.RoundStatus) - the
     # error from the failed background scoring attempt, so HR can see
     # why instead of a submission just looking stuck.

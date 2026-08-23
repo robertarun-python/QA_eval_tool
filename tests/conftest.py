@@ -90,9 +90,21 @@ FAKE_UI_MOCKUP = {
     ],
 }
 
+FAKE_ROUND3_CODING_REFERENCE = {
+    "test_cases": [{"input": "2 3", "expected_output": "5", "description": "basic sum"}],
+    "expected_approach": "Read two integers and add them directly.",
+}
+
 _REFERENCE_GENERATOR_BY_ROUND = {
     1: "generate_round1_reference",
     2: "generate_round2_reference",
+    3: "generate_round3_reference",
+}
+
+_FAKE_REFERENCE_BY_ROUND = {
+    1: lambda: list(FAKE_REFERENCE),
+    2: lambda: list(FAKE_REFERENCE),
+    3: lambda: dict(FAKE_ROUND3_CODING_REFERENCE),
 }
 
 
@@ -120,7 +132,7 @@ def _auth(token):
 def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Login form"):
     from app.services import llm_service
     generator_name = _REFERENCE_GENERATOR_BY_ROUND[round_number]
-    monkeypatch.setattr(llm_service, generator_name, lambda **kwargs: list(FAKE_REFERENCE))
+    monkeypatch.setattr(llm_service, generator_name, lambda **kwargs: _FAKE_REFERENCE_BY_ROUND[round_number]())
 
     scenario = client.post(
         "/hr/scenarios",

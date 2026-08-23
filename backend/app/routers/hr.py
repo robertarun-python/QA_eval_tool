@@ -31,7 +31,7 @@ from ..models import (
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
     CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern, ConceptCoverageAverage,
-    Round4TestCaseOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
+    Round4TestCaseOut, Round3TurnOut, Round3RunOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
     ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate,
@@ -48,7 +48,7 @@ VALID_BANDS = (ExperienceBand.junior.value, ExperienceBand.senior.value)
 # Mirrors app.js's ROUND_LABELS - only used here for the PDF's per-round
 # headings, so a small local copy (not worth a shared-constants file
 # across two different languages) is the pragmatic choice.
-ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 4: "Conversational"}
+ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 3: "AI-prompted coding", 4: "Conversational"}
 
 
 def get_settings(db: Session) -> AppSettings:
@@ -74,6 +74,7 @@ def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
     return AppSettingsOut(
         round1_passing_score=app_settings.round1_passing_score,
         round2_passing_score=app_settings.round2_passing_score,
+        round3_passing_score=app_settings.round3_passing_score,
         round4_passing_score=app_settings.round4_passing_score,
         final_passing_score=app_settings.final_passing_score,
         reapplication_window_months=app_settings.reapplication_window_months,
@@ -98,8 +99,8 @@ def update_app_settings(payload: AppSettingsUpdate, db: Session = Depends(get_db
 
 @router.post("/scenarios", response_model=ScenarioOut, status_code=201)
 def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    if payload.round_number not in (1, 2, 4):
-        raise HTTPException(400, "round_number must be 1, 2, or 4")
+    if payload.round_number not in (1, 2, 3, 4):
+        raise HTTPException(400, "round_number must be 1, 2, 3, or 4")
     if payload.experience_band not in VALID_BANDS:
         raise HTTPException(400, "experience_band must be '0-7' or '7+'")
     if payload.time_limit_minutes < 1:
@@ -149,6 +150,11 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
             scenario_description=scenario.description,
             experience_band=scenario.experience_band.value,
             time_limit_minutes=scenario.time_limit_minutes,
+        )
+    elif scenario.round_number == 3:
+        scenario.reference_json = llm_service.generate_round3_reference(
+            scenario_description=scenario.description,
+            experience_band=scenario.experience_band.value,
         )
     elif scenario.round_number == 4:
         # Round 4 has no scenario-level test-case reference (its target
@@ -568,7 +574,7 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
     submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     aggregate_score = None
-    for round_number in (1, 2, 4):
+    for round_number in (1, 2, 3, 4):
         submission = submissions_by_round.get(round_number)
         if submission is None:
             status = "not_started"
@@ -610,7 +616,10 @@ def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionR
     out = []
     for s in submissions:
         report = SubmissionReportOut.model_validate(s)
-        if s.round_number == 4:
+        if s.round_number == 3:
+            report.round3_turns = [Round3TurnOut.model_validate(t) for t in s.round3_turns]
+            report.round3_runs = [Round3RunOut.model_validate(r) for r in s.round3_execution_runs]
+        elif s.round_number == 4:
             report.test_cases = [
                 Round4TestCaseOut(
                     id=tc.id, title=tc.title, draft_prompt=tc.draft_prompt,
@@ -793,7 +802,7 @@ def _gather_candidate_rounds(candidate: User, db: Session, background_tasks: Bac
     close_expired_submissions(db, list(candidate.submissions), background_tasks)
     submissions_by_round = {s.round_number: s for s in candidate.submissions}
     rounds = []
-    for round_number in (1, 2, 4):
+    for round_number in (1, 2, 3, 4):
         submission = submissions_by_round.get(round_number)
         if submission is None:
             continue
