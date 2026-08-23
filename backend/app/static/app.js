@@ -1017,7 +1017,7 @@ async function loadCandidates() {
               </td>
               <td>${c.exam_date ? formatDate(c.exam_date) : "-"}</td>
               ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
-              <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 210) ? "score-good" : "score-bad"}">${c.aggregate_score}/400</strong>` : `<span class="muted">-</span>`}</td>
+              <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 280) ? "score-good" : "score-bad"}">${c.aggregate_score}/400</strong>` : `<span class="muted">-</span>`}</td>
               <td><button onclick="openCandidateDetail(${c.id})">View</button></td>
             </tr>
           `).join("")}
@@ -2111,7 +2111,7 @@ function renderRound3CodingLayout(box) {
         <p class="muted round3-pane-label">Code</p>
         <pre class="code-snippet" id="round3-coding-code">${escapeHtml(latestCode || "(no code yet)")}</pre>
         <div class="field-row">
-          <input id="round3-coding-stdin" placeholder="Input values, one per line" />
+          <textarea id="round3-coding-stdin" placeholder="Input values, one per line"></textarea>
         </div>
         <div class="row">
           <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>

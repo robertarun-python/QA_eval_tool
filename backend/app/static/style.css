@@ -655,6 +655,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 .round3-coding-stderr { color: var(--bad); }
 .round3-coding-run { margin-bottom: 0.75rem; }
 #round3-coding-message { min-height: 4rem; }
+#round3-coding-stdin { min-height: 3rem; }
 #round3-coding-code { min-height: 8rem; white-space: pre-wrap; }
 
 @media (max-width: 900px) {
