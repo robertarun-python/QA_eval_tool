@@ -8,7 +8,72 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from .conftest import HR_EMAIL, HR_PASSWORD, _login, _auth, _publish_scenario
+from .conftest import HR_EMAIL, HR_PASSWORD, FAKE_ROUND3_CODING_REFERENCE, _login, _auth, _publish_scenario
+
+
+def _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Add two numbers"):
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round3_reference", lambda **kwargs: dict(FAKE_ROUND3_CODING_REFERENCE))
+    return client.post(
+        "/hr/scenarios",
+        json={"round_number": 3, "title": title, "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        cookies=_auth(hr_token),
+    ).json()
+
+
+def test_hr_can_edit_a_draft_round3_scenarios_reference_json(client, monkeypatch):
+    """Fix 2 (final whole-branch review): ScenarioUpdate.reference_json
+    used to be typed list[TestCaseRow], so PATCHing a round-3 scenario's
+    reference (a {"test_cases": [...], "expected_approach": "..."} dict)
+    422'd before it ever reached the handler. Confirms the dict shape now
+    round-trips through PATCH -> GET unchanged."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch)
+
+    new_reference = {
+        "test_cases": [
+            {"input": "10 20", "expected_output": "30", "description": "bigger sum"},
+        ],
+        "expected_approach": "Read two integers, one per line, and print their sum.",
+    }
+    res = client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": new_reference},
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 200
+    assert res.json()["reference_json"] == new_reference
+
+    fetched = client.get(f"/hr/scenarios/{scenario['id']}", cookies=_auth(hr_token)).json()
+    assert fetched["reference_json"] == new_reference
+
+
+def test_hr_editing_round3_reference_json_rejects_wrong_shapes(client, monkeypatch):
+    """A round-1/2-shaped list, or a dict missing test_cases/expected_approach,
+    must be rejected with a clear 4xx rather than silently corrupting the
+    scenario or blowing up later at scoring time."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch)
+
+    # A round-1/2-shaped list is wrong for round 3.
+    res = client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": [{"title": "x", "steps": "x", "expected_result": "x"}]},
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 400
+
+    # A dict missing test_cases is wrong.
+    res = client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": {"expected_approach": "only this"}},
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 400
+
+    # Untouched by the rejected attempts above.
+    fetched = client.get(f"/hr/scenarios/{scenario['id']}", cookies=_auth(hr_token)).json()
+    assert fetched["reference_json"] == dict(FAKE_ROUND3_CODING_REFERENCE)
 
 
 def test_hr_can_create_and_publish_a_round3_coding_scenario(client, monkeypatch):

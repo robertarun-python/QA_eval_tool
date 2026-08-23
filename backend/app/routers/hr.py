@@ -28,13 +28,15 @@ from ..models import (
     User, Scenario, ScenarioStatus, Submission, Score, RoundStatus, ExperienceBand, Role, AppSettings,
     CandidateAppearance,
 )
+from pydantic import ValidationError
+
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
     CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern, ConceptCoverageAverage,
     Round4TestCaseOut, Round3TurnOut, Round3RunOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
-    ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate,
+    ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate, TestCaseRow,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
@@ -264,6 +266,38 @@ def regenerate_reference(scenario_id: int, background_tasks: BackgroundTasks, db
     return scenario
 
 
+def _validate_reference_json_for_update(round_number: int, reference_json):
+    """reference_json's shape depends on round_number - list[TestCaseRow]
+    for rounds 1/2, {"test_cases": [...], "expected_approach": "..."} for
+    round 3 (see ScenarioOut.reference_json / ScenarioUpdate.reference_json
+    above, and llm_service.generate_round3_reference which produces this
+    same shape). ScenarioUpdate.reference_json is typed Any now (pydantic
+    can't shape-check a round-dependent field on the wire), so this is
+    where that validation actually happens - a basic "is this shape sane"
+    check, not exhaustive, but enough to reject something obviously wrong
+    with a clear 4xx instead of corrupting the scenario or blowing up at
+    scoring time later. Returns the value to actually store."""
+    if round_number == 3:
+        if (
+            not isinstance(reference_json, dict)
+            or not isinstance(reference_json.get("test_cases"), list)
+            or not isinstance(reference_json.get("expected_approach"), str)
+        ):
+            raise HTTPException(
+                400,
+                "reference_json for round 3 must be an object with a 'test_cases' list "
+                "and an 'expected_approach' string",
+            )
+        return reference_json
+    if not isinstance(reference_json, list):
+        raise HTTPException(400, "reference_json must be a list of test-case rows")
+    try:
+        rows = [TestCaseRow(**row) for row in reference_json]
+    except (TypeError, ValidationError) as e:
+        raise HTTPException(400, f"reference_json must be a list of test-case rows: {e}")
+    return [row.model_dump() for row in rows]
+
+
 @router.patch("/scenarios/{scenario_id}", response_model=ScenarioOut)
 def update_scenario(scenario_id: int, payload: ScenarioUpdate, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     scenario = _get_draft_scenario_or_404(scenario_id, db)
@@ -277,7 +311,7 @@ def update_scenario(scenario_id: int, payload: ScenarioUpdate, db: Session = Dep
             raise HTTPException(400, "time_limit_minutes must be at least 1")
         scenario.time_limit_minutes = payload.time_limit_minutes
     if payload.reference_json is not None:
-        scenario.reference_json = [row.model_dump() for row in payload.reference_json]
+        scenario.reference_json = _validate_reference_json_for_update(scenario.round_number, payload.reference_json)
 
     db.commit()
     db.refresh(scenario)

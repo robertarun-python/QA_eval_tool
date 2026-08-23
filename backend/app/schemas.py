@@ -118,7 +118,12 @@ class ScenarioUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     time_limit_minutes: Optional[int] = None
-    reference_json: Optional[list[TestCaseRow]] = None
+    # Any, not list[TestCaseRow]: same reason as ScenarioOut.reference_json
+    # above - list[dict] for rounds 1/2, {"test_cases": [...],
+    # "expected_approach": "..."} for round 3. Pydantic can no longer
+    # shape-check this on the wire, so hr.py's update_scenario handler
+    # does the round-aware validation itself before writing it.
+    reference_json: Optional[Any] = None
 
 
 class ScenarioTimeLimitUpdate(BaseModel):
