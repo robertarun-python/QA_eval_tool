@@ -16,6 +16,7 @@ def test_default_settings_row_exists(client):
     assert body == {
         "round1_passing_score": 70,
         "round2_passing_score": 70,
+        "round3_passing_score": 70,
         "round4_passing_score": 70,
         "final_passing_score": 210,
         "reapplication_window_months": 6,
@@ -31,7 +32,7 @@ def test_settings_exposes_the_round4_default_assistance_pct_read_only(client):
     hardcoding its own separate copy of it."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     payload = {
-        "round1_passing_score": 60, "round2_passing_score": 80, "round4_passing_score": 75,
+        "round1_passing_score": 60, "round2_passing_score": 80, "round3_passing_score": 75, "round4_passing_score": 75,
         "final_passing_score": 200, "reapplication_window_months": 3,
     }
     res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
@@ -45,6 +46,7 @@ def test_settings_round_trip(client):
     payload = {
         "round1_passing_score": 60,
         "round2_passing_score": 80,
+        "round3_passing_score": 75,
         "round4_passing_score": 75,
         "final_passing_score": 200,
         "reapplication_window_months": 3,
@@ -60,10 +62,10 @@ def test_settings_round_trip(client):
 def test_settings_reject_out_of_range_values(client):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     base = {
-        "round1_passing_score": 70, "round2_passing_score": 70, "round4_passing_score": 70,
+        "round1_passing_score": 70, "round2_passing_score": 70, "round3_passing_score": 70, "round4_passing_score": 70,
         "final_passing_score": 210, "reapplication_window_months": 6,
     }
-    res = client.put("/hr/settings", json={**base, "final_passing_score": 301}, cookies=_auth(hr_token))
+    res = client.put("/hr/settings", json={**base, "final_passing_score": 401}, cookies=_auth(hr_token))
     assert res.status_code == 422
     res = client.put("/hr/settings", json={**base, "round1_passing_score": 101}, cookies=_auth(hr_token))
     assert res.status_code == 422
@@ -76,7 +78,7 @@ def test_settings_endpoints_require_hr(client):
     assert client.get("/hr/settings", cookies=_auth(cand_token)).status_code == 403
     assert client.put(
         "/hr/settings",
-        json={"round1_passing_score": 70, "round2_passing_score": 70, "round4_passing_score": 70,
+        json={"round1_passing_score": 70, "round2_passing_score": 70, "round3_passing_score": 70, "round4_passing_score": 70,
               "final_passing_score": 210, "reapplication_window_months": 6},
         cookies=_auth(cand_token),
     ).status_code == 403
@@ -89,7 +91,7 @@ def test_scenario_history_reacts_to_independently_changed_round_thresholds(clien
     # Lower round 1's bar to 50, leave round 2 at the default 70.
     client.put(
         "/hr/settings",
-        json={"round1_passing_score": 50, "round2_passing_score": 70, "round4_passing_score": 70,
+        json={"round1_passing_score": 50, "round2_passing_score": 70, "round3_passing_score": 70, "round4_passing_score": 70,
               "final_passing_score": 210, "reapplication_window_months": 6},
         cookies=_auth(hr_token),
     )
