@@ -16,6 +16,18 @@
 // identical maps (HR_ROUND_LABELS and ROUND_TITLES) defined separately.
 const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 3: "AI-prompted coding", 4: "Conversational" };
 
+// Per-round description-field guidance for the shared "Create a scenario"
+// form (see resetCreateScenarioForm) - each round hands the candidate a
+// different kind of prompt (a feature to test, a bug report to debug, a
+// problem statement to solve), so one static placeholder can't describe
+// all of them. Round 4 isn't here - it has its own dedicated authoring
+// panel (see selectHRRound/loadRound4Settings), never this shared form.
+const ROUND_DESC_PLACEHOLDERS = {
+  1: "Describe the feature/system the candidate should write test cases for...",
+  2: "Describe the bug/production issue the candidate should debug - what's broken, how it was reported...",
+  3: "Write the coding problem statement the candidate should solve by prompting the AI assistant - what the program should read from stdin and print to stdout...",
+};
+
 // Runtime-editable per-round/final passing scores (see HR's Settings
 // page, GET/PUT /hr/settings) - fetched once on HR login into
 // appSettings below and used by every score-good/score-bad styling
@@ -408,6 +420,7 @@ function resetCreateScenarioForm() {
   document.getElementById("s-time-limit").value = "30";
   document.getElementById("s-title").value = "";
   document.getElementById("s-desc").value = "";
+  document.getElementById("s-desc").placeholder = ROUND_DESC_PLACEHOLDERS[currentHRRound] || "";
   updateCreateBtnState();
 }
 
@@ -2012,31 +2025,46 @@ function showRound3CodingIntro() {
       <h3>Before you start Round 3</h3>
       <ul>
         <li>You never write code directly - you direct an assistant with plain-English instructions (variables, loops, data structures, what to read/print), and it writes the actual code.</li>
-        <li>Your first message should describe enough for a first attempt - the assistant's first version will be a plain-language, brute-force sketch, not the polished final answer.</li>
+        <li>Your first message should describe enough for a first attempt - the assistant's first version will be real, runnable code, but deliberately the simplest brute-force approach, not the polished final answer.</li>
         <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
-        <li>You can run your code at any point once it's real code, and see real output (or a real error) - reading and fixing what went wrong is on you: the assistant won't jump in on its own just because a run failed.</li>
+        <li>You can run your code at any point and see real output (or a real error). Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception, and you won't be able to copy run output out of this page to paste back in. Tell it exactly what to change instead.</li>
         <li>What's scored: correctness, how precisely you specified things, and whether you pushed toward a more efficient solution - not just getting something that happens to work.</li>
-        <li>Your timer starts the moment you click below.</li>
+        <li>Next, you'll pick your language - your timer starts the moment you start from there.</li>
       </ul>
-      <div class="field-row" style="align-items:center">
-        <span class="muted">Language</span>
-        <select id="round3-language-select">
-          <option value="python">Python</option>
-          <option value="java">Java</option>
-          <option value="javascript">JavaScript</option>
-        </select>
-      </div>
       <div class="row">
-        <button onclick="confirmStartRound3Coding()">Got it - Start Round 3</button>
+        <button onclick="confirmRound3CodingIntro()">Got it</button>
       </div>
     </div>
   `;
   openModalOverlay(overlay);
 }
 
+// Split from the intro (see showRound3CodingIntro) so language choice
+// happens as its own step after the candidate has actually read the
+// notes, not bundled into the same click - matching round 4's intro,
+// which also only ever asks the candidate to confirm one thing at a
+// time. The language picker renders into the round view itself (below
+// the scenario title/description already sitting there - see
+// renderRoundEntry), not another modal.
+function confirmRound3CodingIntro() {
+  closeModalOverlay("round3-coding-intro-overlay");
+  document.getElementById("round-view").insertAdjacentHTML("beforeend", `
+    <div class="field-row" style="align-items:center">
+      <span class="muted">Language</span>
+      <select id="round3-language-select">
+        <option value="python">Python</option>
+        <option value="java">Java</option>
+        <option value="javascript">JavaScript</option>
+      </select>
+    </div>
+    <div class="row">
+      <button onclick="confirmStartRound3Coding()">Start Round 3</button>
+    </div>
+  `);
+}
+
 function confirmStartRound3Coding() {
   const language = document.getElementById("round3-language-select").value;
-  closeModalOverlay("round3-coding-intro-overlay");
   startRound3Coding(language);
 }
 
@@ -2086,8 +2114,15 @@ function renderRound3CodingLayout(box) {
   `).join("");
 
   const latestCode = [...s.turns].reverse().find((t) => t.code_after)?.code_after || "";
+  // no-copy class (CSS: user-select: none) plus inline copy/cut/
+  // contextmenu blockers: run output is the one place a candidate could
+  // lift an exact error/log string and paste it back into the composer
+  // to route around the "diagnose it yourself" rule in
+  // round3_coding_turn.txt - the assistant already refuses that in the
+  // prompt, but not being able to select/copy the text at all is a
+  // stronger, UI-level backstop against the same workaround.
   const runsHtml = s.runs.slice().reverse().map((r) => `
-    <div class="round3-coding-run">
+    <div class="round3-coding-run no-copy" oncopy="return false" oncut="return false" oncontextmenu="return false">
       <p class="muted">Run at ${new Date(r.created_at).toLocaleTimeString()} - ${r.timed_out ? "timed out" : r.infra_error ? "execution service error, try again" : `exit code ${r.exit_code}`}</p>
       ${r.stdout ? `<pre class="code-snippet">${escapeHtml(r.stdout)}</pre>` : ""}
       ${r.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(r.stderr)}</pre>` : ""}
@@ -2110,9 +2145,6 @@ function renderRound3CodingLayout(box) {
       <div class="panel-inset round3-coding-pane">
         <p class="muted round3-pane-label">Code</p>
         <pre class="code-snippet" id="round3-coding-code">${escapeHtml(latestCode || "(no code yet)")}</pre>
-        <div class="field-row">
-          <textarea id="round3-coding-stdin" placeholder="Input values, one per line"></textarea>
-        </div>
         <div class="row">
           <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
           <button class="btn-block" onclick="round3CodingSubmit()">Submit Round 3</button>
@@ -2157,15 +2189,19 @@ async function round3CodingSendMessage() {
 }
 
 async function round3CodingRun() {
-  const stdinRaw = document.getElementById("round3-coding-stdin").value;
-  const stdin = stdinRaw.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
   const statusEl = document.getElementById("round3-coding-status");
   const runBtn = document.getElementById("round3-coding-run-btn");
   runBtn.disabled = true;
   statusEl.className = "muted";
   statusEl.textContent = "Running...";
   try {
-    await api("/candidate/round/3/run", { method: "POST", body: JSON.stringify({ stdin }) });
+    // No candidate-supplied stdin (see the removed "Input values" box) -
+    // HR's own reference test cases are what actually gets run against
+    // this code, at scoring time (scoring_service.score_round3_submission),
+    // completely independent of this button. Run exists purely so the
+    // candidate can see their code execute and read a real error, not as
+    // a way to check correctness against specific inputs.
+    await api("/candidate/round/3/run", { method: "POST", body: JSON.stringify({ stdin: [] }) });
     round3CodingState = await api("/candidate/round/3/state");
     renderRound3CodingLayout(document.getElementById("round-view"));
     statusEl.textContent = "";
@@ -2248,7 +2284,6 @@ const ROUND4_CODE_LANGUAGE_OPTIONS = [
   ["python", "Python"],
   ["java", "Java"],
   ["javascript", "JavaScript"],
-  ["typescript", "TypeScript"],
 ];
 
 async function round4OnLanguageChange(turnId) {

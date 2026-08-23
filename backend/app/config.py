@@ -75,10 +75,8 @@ class Settings(BaseSettings):
     round4_default_assistance_pct: int = 60
 
     # Round 3 (AI-prompted coding) code execution - see
-    # services/execution_service.py. Piston is a free, open hosted
-    # code-execution API; swappable later via this one setting, same
-    # "one place to change" pattern as claude_model above.
-    piston_api_url: str = "https://emkc.org/api/v2/piston"
+    # services/execution_service.py, which runs candidate code as a local
+    # subprocess with this as its wall-clock timeout.
     execution_timeout_seconds: int = 10
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned

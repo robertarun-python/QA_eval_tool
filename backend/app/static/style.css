@@ -654,8 +654,12 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 .round3-coding-response-refuse { color: var(--bad); }
 .round3-coding-stderr { color: var(--bad); }
 .round3-coding-run { margin-bottom: 0.75rem; }
+/* Backs up the copy/cut/contextmenu blockers on .no-copy elements (see
+   renderRound3CodingLayout) - stops the candidate selecting run output
+   to paste it back into the composer as a way around the assistant's
+   "diagnose it yourself" refusal for pasted errors/logs. */
+.no-copy { user-select: none; -webkit-user-select: none; }
 #round3-coding-message { min-height: 4rem; }
-#round3-coding-stdin { min-height: 3rem; }
 #round3-coding-code { min-height: 8rem; white-space: pre-wrap; }
 
 @media (max-width: 900px) {

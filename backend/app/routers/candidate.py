@@ -28,7 +28,7 @@ from ..dependencies import require_candidate
 from ..services import llm_service, execution_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
-ROUND4_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
+ROUND4_CODE_LANGUAGES = ("python", "java", "javascript")
 
 # Serializes the generate-then-persist section of round4_turn_code per
 # turn (see below) - two concurrent requests for the same (turn,

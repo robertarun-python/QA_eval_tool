@@ -195,6 +195,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     _apply_provenance(score, result)
     passed_count = sum(1 for r in test_results if r["passed"])
     score.coverage_score = round(passed_count / len(test_results) * 100) if test_results else 0
+    score.test_results_json = test_results
     score.misses_json = result.get("misses", []) + [f"Guardrail: {g}" for g in result.get("guardrail_violations", [])]
     score.final_score = result.get("final_score")
     score.feedback_text = result.get("feedback_text")

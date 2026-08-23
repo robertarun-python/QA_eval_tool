@@ -238,6 +238,9 @@ class ScoreOut(BaseModel):
     # Round 1 only - see models.Score.concept_coverage_json. Empty list
     # for rounds 2/4.
     concept_coverage_json: list = Field(default_factory=list)
+    # Round 3 only - see models.Score.test_results_json. Empty list for
+    # other rounds.
+    test_results_json: list = Field(default_factory=list)
     final_score: Optional[int]
     feedback_text: Optional[str]
     # Human-override audit trail (see hr.py's PATCH /submissions/{id}/score) -
@@ -265,6 +268,14 @@ class ScoreOut(BaseModel):
     @field_validator("concept_coverage_json", mode="before")
     @classmethod
     def _default_concept_coverage(cls, v):
+        return v or []
+
+    # test_results_json is a newly-added column (see
+    # migrate_round3_test_results.py) - same NULL-on-existing-rows
+    # backfill reasoning as concept_coverage_json above.
+    @field_validator("test_results_json", mode="before")
+    @classmethod
+    def _default_test_results(cls, v):
         return v or []
 
 

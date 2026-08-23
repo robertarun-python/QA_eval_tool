@@ -155,6 +155,18 @@ def test_round3_coding_full_happy_path(client, monkeypatch):
     assert submit_res.status_code == 201
     assert submit_res.json()["status"] == "submitted"
 
+    # HR's report shows the per-test-case breakdown behind coverage_score
+    # (see models.Score.test_results_json), not just the aggregate
+    # percentage - same promotion concept_coverage_json already got for
+    # round 1 (see test_round1.py's equivalent assertion).
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round3 = next(s for s in res.json() if s["round_number"] == 3)
+    assert report_round3["score"]["test_results_json"] == [
+        {"input": "2 3", "expected_output": "5", "description": "basic sum", "actual_output": "5", "passed": True},
+    ]
+
 
 def test_round3_coding_turn_asking_which_loop_is_correct_gets_refused(client, monkeypatch):
     from app.services import llm_service

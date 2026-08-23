@@ -229,6 +229,16 @@ class Score(Base):
     # text match across candidates (see that function's docstring), which
     # a restructured shape would break.
     concept_coverage_json = Column(JSON, default=list)
+    # Round 3 only (empty list for other rounds): the per-test-case
+    # breakdown behind coverage_score - each entry is whatever the
+    # reference test case had (input, expected_output, description, ...)
+    # plus actual_output and passed, exactly as computed in
+    # scoring_service.score_round3_submission. Was previously only
+    # written into raw_llm_response_json (audit-only, never exposed to
+    # the frontend) - promoted to its own column, same reasoning as
+    # concept_coverage_json above, so HR's report can show which specific
+    # cases passed/failed, not just the aggregate percentage.
+    test_results_json = Column(JSON, default=list)
     final_score = Column(Integer, nullable=True)      # 0-100
     feedback_text = Column(Text, nullable=True)
     raw_llm_response_json = Column(JSON, default=dict)  # full LLM output, for auditing
