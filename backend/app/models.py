@@ -201,6 +201,15 @@ class Submission(Base):
         "Round4TestCase", back_populates="submission",
         order_by="Round4TestCase.created_at",
     )
+    # Round 3 only (AI-prompted coding) - see Round3Turn/Round3ExecutionRun.
+    round3_turns = relationship(
+        "Round3Turn", back_populates="submission",
+        order_by="Round3Turn.created_at",
+    )
+    round3_execution_runs = relationship(
+        "Round3ExecutionRun", back_populates="submission",
+        order_by="Round3ExecutionRun.created_at",
+    )
 
 
 class Score(Base):
@@ -321,6 +330,61 @@ class ConversationTurn(Base):
     test_case = relationship("Round4TestCase", back_populates="turns")
 
 
+class Round3Turn(Base):
+    """Round 3 only (AI-prompted coding): one candidate instruction and
+    the LLM's classified response. Unlike Round 4's automation round,
+    there's a single evolving code buffer per submission, not multiple
+    self-titled test cases - so this is scoped straight to submission_id,
+    no intermediate test-case table. See
+    docs/superpowers/specs/2026-08-23-round3-ai-coding-design.md."""
+    __tablename__ = "round3_turns"
+
+    id = Column(Integer, primary_key=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    turn_number = Column(Integer, nullable=False)
+    candidate_prompt = Column(Text, nullable=False)
+    language = Column(String, nullable=False)
+    response_kind = Column(String, nullable=False)  # "clarify" | "refuse" | "code_edit"
+    response_message = Column(Text, nullable=False)
+    # Full code snapshot after this turn, NOT a diff - NULL for
+    # clarify/refuse turns (nothing changed). See the design spec's data
+    # model section for why a full snapshot per turn is the right
+    # tradeoff at this scale (one candidate, one submission, SQLite).
+    code_after = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    submission = relationship("Submission", back_populates="round3_turns")
+
+
+class Round3ExecutionRun(Base):
+    """Round 3 only (AI-prompted coding): one Run click's result.
+    Denormalizes language/code_snapshot rather than joining through
+    turn_id, so a run record is self-contained even when turn_id is null
+    (a re-run of already-generated code, no new turn since)."""
+    __tablename__ = "round3_execution_runs"
+
+    id = Column(Integer, primary_key=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    turn_id = Column(Integer, ForeignKey("round3_turns.id"), nullable=True)
+    language = Column(String, nullable=False)
+    code_snapshot = Column(Text, nullable=False)
+    stdin_json = Column(JSON, default=list)
+    stdout = Column(Text, nullable=True)
+    stderr = Column(Text, nullable=True)
+    exit_code = Column(Integer, nullable=True)
+    timed_out = Column(Boolean, nullable=False, default=False)
+    # Set when the hosted execution API itself failed (network error,
+    # rate limit, ...) - distinct from exit_code/stderr, which are the
+    # CANDIDATE's program's own output. Never treat this run's
+    # stdout/stderr as a real result when this is true - see
+    # scoring_service.score_round3_submission.
+    infra_error = Column(Boolean, nullable=False, default=False)
+    duration_ms = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    submission = relationship("Submission", back_populates="round3_execution_runs")
+
+
 class CandidateAppearance(Base):
     """One row per bulk-upload event for a candidate (see
     routers/hr.py's upload endpoint and credential_service.py) - the
@@ -358,6 +422,7 @@ class AppSettings(Base):
     id = Column(Integer, primary_key=True)
     round1_passing_score = Column(Integer, nullable=False, default=70)
     round2_passing_score = Column(Integer, nullable=False, default=70)
+    round3_passing_score = Column(Integer, nullable=False, default=70)
     round4_passing_score = Column(Integer, nullable=False, default=70)
     final_passing_score = Column(Integer, nullable=False, default=210)  # out of 300 (sum of the three rounds)
     reapplication_window_months = Column(Integer, nullable=False, default=6)

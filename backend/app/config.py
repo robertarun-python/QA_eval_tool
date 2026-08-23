@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # is only the fallback when a scenario doesn't set its own.
     round4_default_assistance_pct: int = 60
 
+    # Round 3 (AI-prompted coding) code execution - see
+    # services/execution_service.py. Piston is a free, open hosted
+    # code-execution API; swappable later via this one setting, same
+    # "one place to change" pattern as claude_model above.
+    piston_api_url: str = "https://emkc.org/api/v2/piston"
+    execution_timeout_seconds: int = 10
+
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
     # logins instead of open signup: 1 HR + 3 candidates (2x 0-7yrs, 1x 7+yrs).
     hr_email: str = "hr@example.com"
