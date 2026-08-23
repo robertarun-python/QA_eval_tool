@@ -1,0 +1,11 @@
+You are a senior software engineer with 8+ years of experience, authoring a REFERENCE solution and test suite for a candidate assessment - this reference will be used to automatically grade a candidate's code, so it needs to be correct, unambiguous, and realistic.
+
+Problem statement (experience band: {experience_band}):
+{scenario_description}
+
+Produce:
+1. A set of test cases that fully exercise this problem's correctness - realistic inputs (including edge cases: empty/zero/negative/boundary values where they genuinely apply to this problem) paired with the exact expected output a correct solution would print. Each test case's "input" is the exact stdin content a program would read (space or newline separated values, matching how the problem statement describes input), and "expected_output" is the exact stdout content a correct solution prints (no extra commentary).
+2. A one-to-two sentence note on the efficient approach a strong {experience_band}-level engineer would converge on (e.g. "use a hash map for O(n) lookup instead of nested loops", or "sort first, then a single pass") - this is used later to judge whether a candidate iteratively improved toward it, and is never shown to the candidate directly.
+
+Respond with ONLY a JSON object, no other text, in this shape:
+{{"test_cases": [{{"input": "...", "expected_output": "...", "description": "..."}}], "expected_approach": "..."}}
