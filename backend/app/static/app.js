@@ -2025,7 +2025,7 @@ function showRound3CodingIntro() {
       <h3>Before you start Round 3</h3>
       <ul>
         <li>You never write code directly - you direct an assistant with plain-English instructions (variables, loops, data structures, what to read/print), and it writes the actual code.</li>
-        <li>Your first message should describe enough for a first attempt - the assistant's first version will be real, runnable code, but deliberately the simplest brute-force approach, not the polished final answer.</li>
+        <li>Every instruction, including your first one, has to be a single concrete step - not "write a program to..." or "give me the solution." Asking it to build the whole thing, solve the problem, or suggest an approach gets refused; you have to break the work into steps yourself.</li>
         <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
         <li>You can run your code at any point and see real output (or a real error). Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception, and you won't be able to copy run output out of this page to paste back in. Tell it exactly what to change instead.</li>
         <li>What's scored: correctness, how precisely you specified things, and whether you pushed toward a more efficient solution - not just getting something that happens to work.</li>
