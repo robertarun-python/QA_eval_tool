@@ -13,7 +13,7 @@ import anthropic
 from pydantic import ValidationError
 
 from ..config import settings
-from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut
+from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -162,6 +162,71 @@ def score_round2_submission(
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     result["_provenance"] = _scoring_provenance("round2_debug_scoring.txt", prompt_text)
+    return result
+
+
+# ---- Round 3 (AI-prompted coding: the candidate never writes code
+# directly - they direct the LLM turn by turn, and it writes/edits the
+# actual source. See
+# docs/superpowers/specs/2026-08-23-round3-ai-coding-design.md.) ----
+
+def generate_round3_reference(scenario_description: str, experience_band: str) -> dict:
+    prompt = _load_prompt("round3_reference_generation.txt").format(
+        scenario_description=scenario_description,
+        experience_band=experience_band,
+    )
+    raw = _call_claude(prompt)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict) or "test_cases" not in result or "expected_approach" not in result:
+        raise ValueError(f"Expected a JSON object with 'test_cases' and 'expected_approach' keys, got: {result!r}")
+    return result
+
+
+def round3_coding_turn(
+    scenario_description: str,
+    language: str,
+    conversation_so_far: list[dict],
+    current_code: str | None,
+    candidate_prompt: str,
+    turn_number: int,
+) -> dict:
+    prompt = _load_prompt("round3_coding_turn.txt").format(
+        scenario_description=scenario_description,
+        language=language,
+        conversation_so_far=json.dumps(conversation_so_far, indent=2),
+        current_code=current_code or "(no code written yet)",
+        candidate_prompt=candidate_prompt,
+        turn_number=turn_number,
+        is_first_turn="true" if turn_number == 1 else "false",
+    )
+    raw = _call_claude(prompt, max_tokens=2048)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
+    try:
+        return Round3CodingTurnResponse.model_validate(result).model_dump()
+    except ValidationError as e:
+        raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+
+
+def score_round3_coding(
+    scenario_description: str,
+    expected_approach: str,
+    conversation_so_far: list[dict],
+    test_results: list[dict],
+) -> dict:
+    prompt_text = _load_prompt("round3_coding_scoring.txt")
+    prompt = prompt_text.format(
+        scenario_description=scenario_description,
+        expected_approach=expected_approach,
+        conversation_so_far=json.dumps(conversation_so_far, indent=2),
+        test_results=json.dumps(test_results, indent=2),
+    )
+    raw = _call_claude(prompt, max_tokens=2048)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result["_provenance"] = _scoring_provenance("round3_coding_scoring.txt", prompt_text)
     return result
 
 
