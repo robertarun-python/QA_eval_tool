@@ -645,13 +645,38 @@ class Round3TurnOut(BaseModel):
         from_attributes = True
 
 
-class Round3RunCreate(BaseModel):
-    stdin: list[str] = []
+class Round3RunInputCreate(BaseModel):
+    """POST /candidate/round/3/run/input - one line the candidate typed
+    in response to whatever the live process's last input() prompt was.
+    See execution_service.InteractiveSession.write_input."""
+    line: str
+
+
+class Round3RunPollOut(BaseModel):
+    """Response shape for /round/3/run/start and /round/3/run/poll -
+    the FULL accumulated output so far (not just what's new since the
+    last poll), so the frontend can just re-render the terminal from
+    this each time rather than tracking byte offsets itself. Once
+    `exited` is true, this is the final state and polling can stop."""
+    stdout: str = ""
+    stderr: str = ""
+    exited: bool = False
+    exit_code: Optional[int] = None
+    timed_out: bool = False
+    infra_error: bool = False
 
 
 class Round3RunOut(BaseModel):
     id: int
     language: str
+    # The exact stdin this run actually used - whatever the candidate
+    # typed, or the server's own sample-input fallback when they left the
+    # box blank (see candidate.py's round3_coding_run). Always shown
+    # alongside the output so a run's result is never a mystery about
+    # what input produced it. Field name matches the ORM attribute
+    # (models.Round3ExecutionRun.stdin_json), same convention as
+    # misses_json/concept_coverage_json elsewhere in this file.
+    stdin_json: list[str] = Field(default_factory=list)
     stdout: Optional[str] = None
     stderr: Optional[str] = None
     exit_code: Optional[int] = None

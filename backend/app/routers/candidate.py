@@ -8,6 +8,7 @@ for a new round (AI-prompted coding), unrelated to the manual-testing
 round that used to live at that number.
 """
 import threading
+import time
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -22,7 +23,7 @@ from ..schemas import (
     Round4TestCaseCreate, Round4TestCaseOut, Round4DraftUpdate, Round4EnvironmentOut,
     Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload,
     Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut,
-    Round3RunCreate, Round3RunOut, Round3StateOut,
+    Round3RunInputCreate, Round3RunPollOut, Round3RunOut, Round3StateOut,
 )
 from ..dependencies import require_candidate
 from ..services import llm_service, execution_service
@@ -336,8 +337,54 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
     return turn
 
 
-@router.post("/round/3/run", response_model=Round3RunOut, status_code=201)
-def round3_coding_run(payload: Round3RunCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+# One live InteractiveSession per submission at a time (see
+# execution_service.InteractiveSession) - a candidate only ever directs
+# one Run at a time for their own submission, so this is keyed simply by
+# submission_id. In-memory only, deliberately not persisted: a server
+# restart just drops any live session, and the candidate clicking Run
+# again starts a fresh one - acceptable for this tool's scale, and far
+# simpler than trying to resume a subprocess across a process restart.
+_interactive_sessions: dict[int, execution_service.InteractiveSession] = {}
+
+
+def _session_to_poll_out(session: execution_service.InteractiveSession) -> Round3RunPollOut:
+    return Round3RunPollOut(
+        stdout=session.stdout_buffer, stderr=session.stderr_buffer,
+        exited=session.exited, exit_code=session.exit_code,
+        timed_out=session.timed_out, infra_error=session.infra_error,
+    )
+
+
+def _persist_interactive_run(db: Session, submission: Submission, language: str, session: execution_service.InteractiveSession) -> None:
+    """Called once, right as an InteractiveSession is first observed to
+    have exited (from either /run/start or /run/poll, whichever gets
+    there first) - writes the same Round3ExecutionRun shape run_code's
+    batch path used to, so HR's report and Round3StateOut.runs (the
+    "latest run" panel) don't need to know the run was interactive."""
+    latest_turn = next((t for t in reversed(submission.round3_turns) if t.code_after), None)
+    duration_ms = (
+        int((time.monotonic() - session.started_monotonic) * 1000)
+        if session.started_monotonic is not None else None
+    )
+    run = Round3ExecutionRun(
+        submission_id=submission.id,
+        turn_id=latest_turn.id if latest_turn else None,
+        language=language,
+        code_snapshot=latest_turn.code_after if latest_turn else "",
+        stdin_json=session.stdin_sent,
+        stdout=session.stdout_buffer,
+        stderr=session.stderr_buffer,
+        exit_code=session.exit_code,
+        timed_out=session.timed_out,
+        infra_error=session.infra_error,
+        duration_ms=duration_ms,
+    )
+    db.add(run)
+    db.commit()
+
+
+@router.post("/round/3/run/start", response_model=Round3RunPollOut, status_code=201)
+async def round3_coding_run_start(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     _require_round_unlocked(3, db, candidate)
     _, submission = _round3_coding_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
@@ -347,26 +394,55 @@ def round3_coding_run(payload: Round3RunCreate, db: Session = Depends(get_db), c
     if latest_turn is None:
         raise HTTPException(400, "There's no code to run yet - direct the assistant to write some first.")
 
-    language = (submission.content or {}).get("language")
-    result = execution_service.run_code(language=language, code=latest_turn.code_after, stdin=payload.stdin)
+    # Clicking Run again while one is already live replaces it, same as
+    # re-running a program in a real terminal would - not queued or
+    # rejected.
+    existing = _interactive_sessions.pop(submission.id, None)
+    if existing is not None:
+        await existing.stop()
 
-    run = Round3ExecutionRun(
-        submission_id=submission.id,
-        turn_id=latest_turn.id,
-        language=language,
-        code_snapshot=latest_turn.code_after,
-        stdin_json=payload.stdin,
-        stdout=result.stdout,
-        stderr=result.stderr,
-        exit_code=result.exit_code,
-        timed_out=result.timed_out,
-        infra_error=result.infra_error,
-        duration_ms=result.duration_ms,
-    )
-    db.add(run)
-    db.commit()
-    db.refresh(run)
-    return run
+    language = (submission.content or {}).get("language")
+    session = await execution_service.start_interactive(language=language, code=latest_turn.code_after)
+    if session.exited:
+        # Never really started (unsupported infra, a Java compile
+        # failure) - nothing to poll further, persist immediately.
+        _persist_interactive_run(db, submission, language, session)
+    else:
+        _interactive_sessions[submission.id] = session
+    return _session_to_poll_out(session)
+
+
+@router.get("/round/3/run/poll", response_model=Round3RunPollOut)
+def round3_coding_run_poll(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    _, submission = _round3_coding_scenario_and_submission(candidate, db)
+    session = _interactive_sessions.get(submission.id)
+    if session is None:
+        raise HTTPException(404, "No run in progress - click Run to start one.")
+    if session.exited:
+        language = (submission.content or {}).get("language")
+        _persist_interactive_run(db, submission, language, session)
+        _interactive_sessions.pop(submission.id, None)
+    return _session_to_poll_out(session)
+
+
+@router.post("/round/3/run/input", status_code=204)
+async def round3_coding_run_input(payload: Round3RunInputCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    _, submission = _round3_coding_scenario_and_submission(candidate, db)
+    session = _interactive_sessions.get(submission.id)
+    if session is None or session.exited:
+        raise HTTPException(400, "No run in progress to send input to.")
+    await session.write_input(payload.line)
+
+
+@router.post("/round/3/run/stop", status_code=204)
+async def round3_coding_run_stop(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    _, submission = _round3_coding_scenario_and_submission(candidate, db)
+    session = _interactive_sessions.pop(submission.id, None)
+    if session is not None:
+        await session.stop()
 
 
 @router.get("/round/3/state", response_model=Round3StateOut)

@@ -653,14 +653,60 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 .round3-coding-response { margin: 0; }
 .round3-coding-response-refuse { color: var(--bad); }
 .round3-coding-stderr { color: var(--bad); }
-.round3-coding-run { margin-bottom: 0.75rem; }
+.round3-coding-run { margin-bottom: 0.75rem; } /* HR's report run-history list - see renderRound3Report */
 /* Backs up the copy/cut/contextmenu blockers on .no-copy elements (see
-   renderRound3CodingLayout) - stops the candidate selecting run output
-   to paste it back into the composer as a way around the assistant's
-   "diagnose it yourself" refusal for pasted errors/logs. */
+   renderRound3CodingLayout/round3TerminalLogHtml) - stops the candidate
+   selecting terminal output to paste it back into the composer as a way
+   around the assistant's "diagnose it yourself" refusal for pasted
+   errors/logs. TEMPORARILY not applied anywhere right now - see the
+   comment in renderRound3CodingLayout for where to restore it. */
 .no-copy { user-select: none; -webkit-user-select: none; }
 #round3-coding-message { min-height: 4rem; }
 #round3-coding-code { min-height: 8rem; white-space: pre-wrap; }
+
+/* The interactive Run terminal (see round3CodingRun/round3PollRun in
+   app.js) - a live transcript, not a static result block, so it gets a
+   fixed scrollable height like the conversation pane above it rather
+   than growing the page as output streams in.
+
+   Deliberately its own dark "console" look (black background, light
+   monospace text, no card border/radius) rather than reusing
+   .code-snippet's light bordered-box style, which reads identically to
+   a real input/textarea (see the shared `input, textarea, select,
+   button` rule below) - next to the terminal-input row, output the
+   candidate can't type into and the box they actually type into looked
+   like the same kind of control. This makes read-only output visually
+   unmistakable at a glance, the same distinction a real terminal
+   window has from an OS text field. */
+.round3-terminal {
+  overflow-y: auto;
+  max-height: 14rem;
+  min-height: 4rem;
+  margin-bottom: 0.5rem;
+  background: #14161a;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.9rem 1rem;
+}
+.round3-terminal-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace;
+  font-size: 0.82rem;
+  color: #e2e4e8;
+}
+.round3-terminal-stdin { color: #7cd0ff; font-weight: 600; }
+.round3-terminal-stderr { color: #ff8f8f; }
+#round3-terminal-input-row { align-items: center; }
+#round3-terminal-input-row::before {
+  content: ">";
+  font-family: ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace;
+  font-weight: 700;
+  color: var(--accent);
+}
+#round3-terminal-input { flex: 1; margin-bottom: 0; }
+#round3-terminal-status { text-transform: none; font-weight: 400; letter-spacing: normal; }
 
 @media (max-width: 900px) {
   .round3-coding-grid { grid-template-columns: 1fr; }

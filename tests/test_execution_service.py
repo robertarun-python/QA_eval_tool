@@ -41,8 +41,28 @@ def test_run_code_passes_stdin_joined_by_newlines(monkeypatch):
 
     monkeypatch.setattr(execution_service, "_run_subprocess", fake_run_subprocess)
     execution_service.run_code(language="python", code="a=int(input());b=int(input());print(a+b)", stdin=["2", "3"])
-    assert captured["stdin_text"] == "2\n3"
+    # Trailing "\n\n" - see run_code's comment: guarantees a genuinely
+    # blank line is always readable past the supplied values, so a
+    # candidate's own "read until blank" loop can terminate for real
+    # instead of hitting a bare EOFError.
+    assert captured["stdin_text"] == "2\n3\n\n"
     assert captured["cmd"][0] == sys.executable
+
+
+def test_run_code_lets_a_read_until_blank_loop_terminate_cleanly():
+    code = (
+        "values = []\n"
+        "while True:\n"
+        "    line = input()\n"
+        "    if line == '':\n"
+        "        break\n"
+        "    values.append(int(line))\n"
+        "print(sum(values))\n"
+    )
+    result = execution_service.run_code(language="python", code=code, stdin=["2", "3"])
+    assert result.stdout == "5\n"
+    assert result.stderr == ""
+    assert result.exit_code == 0
 
 
 def test_run_code_detects_timeout(monkeypatch):
@@ -134,3 +154,81 @@ def test_run_code_actually_times_out_python_infinite_loop(monkeypatch):
     result = execution_service.run_code(language="python", code="while True: pass", stdin=[])
     assert result.timed_out is True
     assert result.infra_error is False
+
+
+# ---- InteractiveSession (the candidate's own Run button - a real, live
+# subprocess the caller polls/writes into across several calls, not one
+# blocking batch call like run_code above). Real Python subprocesses
+# throughout, same reasoning as the batch tests above - this is exactly
+# the code path that matters here, not a mock of it.
+
+async def _poll_until_exited(session, max_attempts=50, delay=0.05):
+    import asyncio
+    for _ in range(max_attempts):
+        if session.exited:
+            return
+        await asyncio.sleep(delay)
+    raise AssertionError("session never exited within the polling budget")
+
+
+def test_interactive_session_waits_for_real_typed_input_before_producing_output():
+    """The core behavior this whole feature exists for: the process
+    actually blocks on input() until write_input is called - nothing is
+    pre-supplied or guessed. Confirms output only appears in response to
+    what was actually typed, in the order a real terminal session would
+    show it."""
+    import asyncio
+
+    async def scenario():
+        session = await execution_service.start_interactive(
+            language="python",
+            code="a = input('enter a: ')\nb = input('enter b: ')\nprint(int(a) + int(b))\n",
+        )
+        try:
+            # Give the process a moment to actually reach and print the
+            # first prompt - it must NOT have exited or produced the sum
+            # yet, since no input has been sent.
+            await asyncio.sleep(0.3)
+            assert session.exited is False
+            assert "enter a" in session.stdout_buffer
+            assert "enter b" not in session.stdout_buffer
+
+            await session.write_input("2")
+            await asyncio.sleep(0.3)
+            assert "enter b" in session.stdout_buffer
+            assert session.exited is False  # still waiting on the second input
+
+            await session.write_input("3")
+            await _poll_until_exited(session)
+            assert "5" in session.stdout_buffer
+            assert session.exit_code == 0
+            assert session.stdin_sent == ["2", "3"]
+        finally:
+            await session.stop()
+
+    asyncio.run(scenario())
+
+
+def test_interactive_session_rejects_unsupported_language():
+    import asyncio
+
+    async def scenario():
+        await execution_service.start_interactive(language="ruby", code="puts 1")
+
+    with pytest.raises(ValueError):
+        asyncio.run(scenario())
+
+
+def test_interactive_session_stop_kills_a_still_running_process():
+    import asyncio
+
+    async def scenario():
+        session = await execution_service.start_interactive(language="python", code="input()\n")
+        try:
+            await asyncio.sleep(0.2)
+            assert session.exited is False
+        finally:
+            await session.stop()
+        assert session.exited is True
+
+    asyncio.run(scenario())

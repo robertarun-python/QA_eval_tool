@@ -76,8 +76,19 @@ class Settings(BaseSettings):
 
     # Round 3 (AI-prompted coding) code execution - see
     # services/execution_service.py, which runs candidate code as a local
-    # subprocess with this as its wall-clock timeout.
+    # subprocess with this as its wall-clock timeout. Used for the
+    # BATCH runs only (scoring_service, against HR's fixed reference
+    # test cases) - short on purpose, since nothing there is waiting on
+    # a human to type.
     execution_timeout_seconds: int = 10
+    # The candidate's own interactive "Run" (see execution_service's
+    # InteractiveSession) needs a much longer ceiling than the batch
+    # timeout above - a human has to actually read each input() prompt
+    # and type a response, which the batch timeout would kill mid-typing.
+    # This bounds the OVERALL session lifetime (a safety net against a
+    # truly abandoned or hung run, not the per-response wait), separate
+    # from and much larger than execution_timeout_seconds.
+    interactive_execution_timeout_seconds: int = 300
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
     # logins instead of open signup: 1 HR + 3 candidates (2x 0-7yrs, 1x 7+yrs).

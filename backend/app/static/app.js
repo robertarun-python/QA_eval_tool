@@ -47,8 +47,35 @@ let userEmail = null; // resolved fresh from GET /auth/me every session load - s
 let currentRound = 1;       // which round's content is showing right now (candidate view)
 let candidateUnlockedRound = 1; // the one round a candidate is allowed into - see refreshCandidateNav()
 let candidateCompletedRounds = [];
+// currentHRRound/hrPage's initial values here are only the very-first-
+// ever-visit default - restoreHRNavState() (called from onLoggedIn)
+// overwrites them from localStorage before anything renders, so a
+// browser refresh lands back on whichever HR page/round was open
+// instead of always resetting to Round 1 - see saveHRNavState, called
+// from selectHRPage/selectHRRound, for the other half of this.
 let currentHRRound = 1;     // which round's scenarios/history HR is authoring/reviewing right now
 let hrPage = "rounds";      // "rounds" (author/review), "candidates" (results dashboard), or "settings"
+const HR_NAV_STORAGE_KEY = "qa_eval_hr_nav";
+
+function saveHRNavState() {
+  try {
+    localStorage.setItem(HR_NAV_STORAGE_KEY, JSON.stringify({ page: hrPage, round: currentHRRound }));
+  } catch (e) {
+    // Private browsing / storage disabled - losing your place on refresh
+    // is the worst case, not a functional break, so fail silently.
+  }
+}
+
+function restoreHRNavState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HR_NAV_STORAGE_KEY) || "null");
+    if (!saved) return;
+    if (["rounds", "candidates", "settings"].includes(saved.page)) hrPage = saved.page;
+    if ([1, 2, 3, 4].includes(saved.round)) currentHRRound = saved.round;
+  } catch (e) {
+    // Corrupt/unreadable value - just keep the defaults above.
+  }
+}
 let candidateSummaryData = null;        // last-generated { round_comments, final_summary } (see generateCandidateSummary) - reused by the PDF download so it doesn't cost a second LLM call
 let candidateDetailSubmissions = [];    // the currently-open candidate's submissions (see openCandidateDetail) - lets generateCandidateSummary label each round comment with its real title/score
 let currentCandidateDetailId = null;    // which candidate's detail panel is open - lets retryScoring/saveScoreOverride re-render the panel they're inside after a successful action
@@ -253,6 +280,7 @@ function onLoggedIn() {
   document.getElementById("candidate-round-nav").innerHTML = "";
   if (role === "hr") {
     document.getElementById("hr-panel").classList.remove("hidden");
+    restoreHRNavState();
     renderHRRoundNav();
     loadLiveScenarioWidget();
     loadScenarios();
@@ -315,6 +343,11 @@ function renderHRRoundNav() {
   } else {
     setPageHeader("HR Console", "Settings", "Pass criteria and re-application handling - HR-editable, applies immediately.");
   }
+  // Every hrPage/currentHRRound change routes through here (selectHRRound,
+  // selectHRPage, and the restore call in onLoggedIn) - persisting once
+  // here instead of at each call site means a refresh always lands back
+  // on whichever page/round was actually last showing.
+  saveHRNavState();
 }
 
 function selectHRRound(n) {
@@ -1428,6 +1461,7 @@ function renderRound3Report(s) {
   const runsHtml = (s.round3_runs || []).map((r) => `
     <div class="panel-inset round3-coding-run">
       <p class="muted">Run at ${formatDate(r.created_at)} - ${r.timed_out ? "timed out" : r.infra_error ? "execution service error" : `exit code ${r.exit_code}`}</p>
+      ${r.stdin_json && r.stdin_json.length > 0 ? `<p class="muted">Typed: ${escapeHtml(r.stdin_json.join(" / "))}</p>` : ""}
       ${r.stdout ? `<pre class="code-snippet">${escapeHtml(r.stdout)}</pre>` : ""}
       ${r.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(r.stderr)}</pre>` : ""}
     </div>
@@ -2027,7 +2061,7 @@ function showRound3CodingIntro() {
         <li>You never write code directly - you direct an assistant with plain-English instructions (variables, loops, data structures, what to read/print), and it writes the actual code.</li>
         <li>Every instruction, including your first one, has to be a single concrete step - not "write a program to..." or "give me the solution." Asking it to build the whole thing, solve the problem, or suggest an approach gets refused; you have to break the work into steps yourself.</li>
         <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
-        <li>You can run your code at any point and see real output (or a real error). Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception, and you won't be able to copy run output out of this page to paste back in. Tell it exactly what to change instead.</li>
+        <li>Run is a real terminal - your code actually executes, and if it asks for input you type your answer right there and it keeps going, exactly like running it yourself. Nothing is pre-filled or guessed for you. Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception. Tell it exactly what to change instead.</li>
         <li>What's scored: correctness, how precisely you specified things, and whether you pushed toward a more efficient solution - not just getting something that happens to work.</li>
         <li>Next, you'll pick your language - your timer starts the moment you start from there.</li>
       </ul>
@@ -2078,6 +2112,30 @@ let round3CodingState = null;
 let round3CodingDraftTimer = null;
 const ROUND3_CODING_DRAFT_DEBOUNCE_MS = 1000;
 
+// ---- Round 3 interactive terminal (the candidate's own Run button) ----
+//
+// Genuinely interactive, not batch: /round/3/run/start kicks off a real,
+// live subprocess server-side (see execution_service.InteractiveSession);
+// this polls /round/3/run/poll every ROUND3_RUN_POLL_MS for new output
+// and lets the candidate answer whatever the program's own input() calls
+// actually ask for via /round/3/run/input, exactly like typing into a
+// real terminal - nothing here ever pre-supplies or guesses a value the
+// candidate didn't type. Kept as a client-side transcript log
+// (round3RunLog), not just "whatever the last poll said", because each
+// poll returns the FULL accumulated output, not a delta - the log is
+// built by diffing each poll against how much of stdout/stderr has
+// already been rendered, and separately recording the candidate's own
+// typed lines (echoed here since a real input() call never echoes them
+// itself) at the exact point they were sent, so replaying the log reads
+// like an actual terminal session in the order things happened.
+const ROUND3_RUN_POLL_MS = 400;
+let round3RunLog = [];
+let round3RunKnownStdoutLen = 0;
+let round3RunKnownStderrLen = 0;
+let round3RunPollHandle = null;
+let round3RunActive = false;
+let round3RunFinalStatus = null; // {timed_out, infra_error, exit_code} once exited
+
 async function renderRound3CodingView(box) {
   try {
     round3CodingState = await api("/candidate/round/3/state");
@@ -2114,20 +2172,6 @@ function renderRound3CodingLayout(box) {
   `).join("");
 
   const latestCode = [...s.turns].reverse().find((t) => t.code_after)?.code_after || "";
-  // no-copy class (CSS: user-select: none) plus inline copy/cut/
-  // contextmenu blockers: run output is the one place a candidate could
-  // lift an exact error/log string and paste it back into the composer
-  // to route around the "diagnose it yourself" rule in
-  // round3_coding_turn.txt - the assistant already refuses that in the
-  // prompt, but not being able to select/copy the text at all is a
-  // stronger, UI-level backstop against the same workaround.
-  const runsHtml = s.runs.slice().reverse().map((r) => `
-    <div class="round3-coding-run no-copy" oncopy="return false" oncut="return false" oncontextmenu="return false">
-      <p class="muted">Run at ${new Date(r.created_at).toLocaleTimeString()} - ${r.timed_out ? "timed out" : r.infra_error ? "execution service error, try again" : `exit code ${r.exit_code}`}</p>
-      ${r.stdout ? `<pre class="code-snippet">${escapeHtml(r.stdout)}</pre>` : ""}
-      ${r.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(r.stderr)}</pre>` : ""}
-    </div>
-  `).join("");
 
   box.innerHTML = `
     <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
@@ -2149,11 +2193,29 @@ function renderRound3CodingLayout(box) {
           <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
           <button class="btn-block" onclick="round3CodingSubmit()">Submit Round 3</button>
         </div>
-        <div id="round3-coding-runs">${runsHtml}</div>
+        <p class="muted round3-pane-label">Terminal <span id="round3-terminal-status" class="muted"></span></p>
+        <p class="muted">Read-only output from your code - you can't type into it.</p>
+        <div class="round3-terminal" id="round3-terminal-output"></div>
+        <div class="row" id="round3-terminal-input-row">
+          <input id="round3-terminal-input" placeholder="Type your answer here, then press Enter" onkeydown="round3TerminalInputKeydown(event)" />
+          <button onclick="round3TerminalSendInput()">Send</button>
+        </div>
       </div>
     </div>
     <p id="round3-coding-status" class="muted"></p>
   `;
+  // Full box.innerHTML re-render on every send/run (see round3CodingSendMessage/
+  // round3CodingRun) resets scroll position to the top of a long, fixed-
+  // height conversation pane - without this, the candidate has to
+  // manually scroll down to their own latest message and the assistant's
+  // reply every single turn, which only gets worse as the transcript
+  // grows. Jump straight to the bottom after each render instead.
+  const turnsBox = document.getElementById("round3-coding-turns");
+  if (turnsBox) turnsBox.scrollTop = turnsBox.scrollHeight;
+  // The terminal transcript (round3RunLog) lives across re-renders the
+  // same way - a chat Send shouldn't wipe out a run still in progress or
+  // just finished, so repaint it from the log rather than starting blank.
+  renderRound3Terminal();
 }
 
 function round3CodingOnComposerInput(value) {
@@ -2188,28 +2250,152 @@ async function round3CodingSendMessage() {
   }
 }
 
+// Starts a real, live run (see execution_service.InteractiveSession) -
+// nothing is fed to it upfront; it runs until its own code either
+// finishes, crashes, or actually blocks on an input() call waiting for
+// the candidate to answer through the terminal box below.
 async function round3CodingRun() {
+  if (round3RunPollHandle) {
+    clearInterval(round3RunPollHandle);
+    round3RunPollHandle = null;
+  }
+  round3RunLog = [];
+  round3RunKnownStdoutLen = 0;
+  round3RunKnownStderrLen = 0;
+  round3RunFinalStatus = null;
+  round3RunActive = true;
+  renderRound3Terminal();
+
   const statusEl = document.getElementById("round3-coding-status");
   const runBtn = document.getElementById("round3-coding-run-btn");
   runBtn.disabled = true;
   statusEl.className = "muted";
-  statusEl.textContent = "Running...";
+  statusEl.textContent = "";
   try {
-    // No candidate-supplied stdin (see the removed "Input values" box) -
-    // HR's own reference test cases are what actually gets run against
-    // this code, at scoring time (scoring_service.score_round3_submission),
-    // completely independent of this button. Run exists purely so the
-    // candidate can see their code execute and read a real error, not as
-    // a way to check correctness against specific inputs.
-    await api("/candidate/round/3/run", { method: "POST", body: JSON.stringify({ stdin: [] }) });
-    round3CodingState = await api("/candidate/round/3/state");
-    renderRound3CodingLayout(document.getElementById("round-view"));
-    statusEl.textContent = "";
+    const result = await api("/candidate/round/3/run/start", { method: "POST" });
+    round3ApplyRunPoll(result);
   } catch (e) {
+    round3RunActive = false;
     statusEl.className = "error-text";
     statusEl.textContent = e.message;
+    renderRound3Terminal();
   } finally {
     runBtn.disabled = false;
+  }
+}
+
+// Applies one poll's worth of FULL accumulated stdout/stderr - diffs
+// each against how much has already been appended to round3RunLog so
+// only the genuinely NEW slice gets added (see this section's opening
+// comment for why a delta, not the whole string, is what goes in the log).
+function round3ApplyRunPoll(result) {
+  const newStdout = result.stdout.slice(round3RunKnownStdoutLen);
+  round3RunKnownStdoutLen = result.stdout.length;
+  if (newStdout) round3RunLog.push({ type: "output", text: newStdout });
+
+  const newStderr = result.stderr.slice(round3RunKnownStderrLen);
+  round3RunKnownStderrLen = result.stderr.length;
+  if (newStderr) round3RunLog.push({ type: "stderr", text: newStderr });
+
+  if (result.exited) {
+    round3RunActive = false;
+    round3RunFinalStatus = { timed_out: result.timed_out, infra_error: result.infra_error, exit_code: result.exit_code };
+    if (round3RunPollHandle) {
+      clearInterval(round3RunPollHandle);
+      round3RunPollHandle = null;
+    }
+    // Refreshes round3CodingState so the now-persisted Round3ExecutionRun
+    // shows up in history too (e.g. an HR report later) - deliberately
+    // NOT re-rendering the whole layout from it, which would disrupt the
+    // terminal transcript already sitting on screen for no reason.
+    api("/candidate/round/3/state").then((s) => { round3CodingState = s; }).catch(() => {});
+  } else if (!round3RunPollHandle) {
+    round3RunPollHandle = setInterval(round3PollRun, ROUND3_RUN_POLL_MS);
+  }
+  renderRound3Terminal();
+}
+
+async function round3PollRun() {
+  // The candidate navigated away from this view (e.g. switched to
+  // another round or logged out) - nothing left to poll into, and no
+  // Round 3 elements left in the DOM to check against next time either.
+  if (!document.getElementById("round3-terminal-output")) {
+    clearInterval(round3RunPollHandle);
+    round3RunPollHandle = null;
+    return;
+  }
+  try {
+    const result = await api("/candidate/round/3/run/poll");
+    round3ApplyRunPoll(result);
+  } catch (e) {
+    clearInterval(round3RunPollHandle);
+    round3RunPollHandle = null;
+    round3RunActive = false;
+    round3RunFinalStatus = { timed_out: false, infra_error: true, exit_code: null };
+    renderRound3Terminal();
+  }
+}
+
+function round3TerminalInputKeydown(event) {
+  if (event.key === "Enter") round3TerminalSendInput();
+}
+
+// Echoes the candidate's own typed line into the log immediately (a
+// real input() call never echoes what was typed back to stdout itself -
+// this is purely a client-side "here's what you just sent" record,
+// placed at exactly the right point in the transcript since it's
+// appended before the next poll's output arrives) and sends it to the
+// live process for real.
+async function round3TerminalSendInput() {
+  if (!round3RunActive) return;
+  const inputEl = document.getElementById("round3-terminal-input");
+  const line = inputEl.value;
+  inputEl.value = "";
+  round3RunLog.push({ type: "stdin", text: line + "\n" });
+  renderRound3Terminal();
+  try {
+    await api("/candidate/round/3/run/input", { method: "POST", body: JSON.stringify({ line }) });
+  } catch (e) {
+    // A stale/already-exited session - the next poll (or its absence)
+    // already reflects that; nothing further to do here.
+  }
+}
+
+function round3TerminalStatusText() {
+  if (round3RunActive) return "- running...";
+  if (!round3RunFinalStatus) return "";
+  if (round3RunFinalStatus.timed_out) return "- timed out";
+  if (round3RunFinalStatus.infra_error) return "- execution service error, try again";
+  return `- exited with code ${round3RunFinalStatus.exit_code}`;
+}
+
+function round3TerminalLogHtml() {
+  if (round3RunLog.length === 0) return `<p class="muted">Click Run to execute your code.</p>`;
+  return `<pre class="round3-terminal-pre">${round3RunLog.map((seg) => {
+    const text = escapeHtml(seg.text);
+    if (seg.type === "stdin") return `<span class="round3-terminal-stdin">${text}</span>`;
+    if (seg.type === "stderr") return `<span class="round3-terminal-stderr">${text}</span>`;
+    return text;
+  }).join("")}</pre>`;
+}
+
+// Targeted update of just the terminal region - called on every poll
+// tick (every ROUND3_RUN_POLL_MS) as well as after a full layout
+// re-render, so it deliberately never touches the rest of the page
+// (the conversation pane, composer draft, etc.) the way re-rendering
+// the whole layout on each poll would.
+function renderRound3Terminal() {
+  const outputBox = document.getElementById("round3-terminal-output");
+  if (!outputBox) return; // not on the Round 3 view right now
+  outputBox.innerHTML = round3TerminalLogHtml();
+  outputBox.scrollTop = outputBox.scrollHeight;
+  const statusEl = document.getElementById("round3-terminal-status");
+  if (statusEl) statusEl.textContent = round3TerminalStatusText();
+  const inputRow = document.getElementById("round3-terminal-input-row");
+  if (inputRow) inputRow.classList.toggle("hidden", !round3RunActive);
+  if (round3RunActive) {
+    const inputEl = document.getElementById("round3-terminal-input");
+    if (inputEl && document.activeElement !== inputEl) inputEl.focus();
   }
 }
 

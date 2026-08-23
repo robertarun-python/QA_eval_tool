@@ -123,7 +123,7 @@ def test_round3_coding_full_happy_path(client, monkeypatch):
     assert state["turns"] == []
 
     # Can't run before any code exists.
-    res = client.post("/candidate/round/3/run", json={"stdin": ["2", "3"]}, cookies=_auth(cand_token))
+    res = client.post("/candidate/round/3/run/start", cookies=_auth(cand_token))
     assert res.status_code == 400
 
     monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {
@@ -135,12 +135,31 @@ def test_round3_coding_full_happy_path(client, monkeypatch):
     assert turn_res.json()["response_kind"] == "code_edit"
     assert "a + b" in turn_res.json()["code_after"]
 
+    # Two DIFFERENT execution_service entry points need mocking here,
+    # not one - start_interactive (the candidate's own Run button, a
+    # real live subprocess - see InteractiveSession) and run_code (the
+    # separate BATCH call scoring_service makes at submit time against
+    # HR's fixed reference test suite). Mocking only one and letting the
+    # other actually execute would run this test's deliberately-simple
+    # candidate code ("a = int(input()); b = int(input())", two separate
+    # lines) against FAKE_ROUND3_CODING_REFERENCE's single-line "2 3"
+    # input at scoring time and get a real ValueError - not what this
+    # test is checking.
+    async def fake_start_interactive(language, code):
+        session = execution_service.InteractiveSession()
+        session.stdout_buffer = "5\n"
+        session.exit_code = 0
+        session.exited = True
+        return session
+
+    monkeypatch.setattr(execution_service, "start_interactive", fake_start_interactive)
     monkeypatch.setattr(execution_service, "run_code", lambda **kwargs: execution_service.ExecutionResult(
         stdout="5\n", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=42,
     ))
-    run_res = client.post("/candidate/round/3/run", json={"stdin": ["2", "3"]}, cookies=_auth(cand_token))
+    run_res = client.post("/candidate/round/3/run/start", cookies=_auth(cand_token))
     assert run_res.status_code == 201
     assert run_res.json()["stdout"] == "5\n"
+    assert run_res.json()["exited"] is True
 
     state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
     assert len(state["turns"]) == 1
@@ -166,6 +185,78 @@ def test_round3_coding_full_happy_path(client, monkeypatch):
     assert report_round3["score"]["test_results_json"] == [
         {"input": "2 3", "expected_output": "5", "description": "basic sum", "actual_output": "5", "passed": True},
     ]
+
+
+def test_round3_coding_run_is_genuinely_interactive_end_to_end(client, monkeypatch):
+    """The whole point of the interactive Run endpoints
+    (start/poll/input/stop) - a real subprocess actually waits on its
+    own input() call until the candidate sends a real value through
+    /run/input, exactly like running the program in a terminal. No
+    pre-supplied or guessed stdin anywhere in this flow. Exercises the
+    real execution_service.start_interactive (not mocked) end-to-end
+    over the actual HTTP endpoints, not just at the service level (see
+    test_execution_service.py for that layer)."""
+    import time as time_module
+    from app.services import llm_service
+    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Echo", band="7+")
+
+    cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {
+        "response_kind": "code_edit", "response_message": "Echoes whatever the user types.",
+        "code_after": "name = input('What is your name? ')\nprint('Hello, ' + name)",
+    })
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "read a name and print a greeting"}, cookies=_auth(cand_token))
+
+    start_res = client.post("/candidate/round/3/run/start", cookies=_auth(cand_token))
+    assert start_res.status_code == 201
+    assert start_res.json()["exited"] is False  # blocked on input(), not guessed/pre-fed anything
+
+    def poll():
+        return client.get("/candidate/round/3/run/poll", cookies=_auth(cand_token)).json()
+
+    # Give the real subprocess a moment to actually start and print its
+    # prompt - poll a few times rather than a single fixed sleep.
+    for _ in range(20):
+        state = poll()
+        if "What is your name?" in state["stdout"]:
+            break
+        time_module.sleep(0.1)
+    else:
+        raise AssertionError("prompt never appeared - process didn't actually run/block on input()")
+    assert state["exited"] is False
+
+    input_res = client.post("/candidate/round/3/run/input", json={"line": "Ada"}, cookies=_auth(cand_token))
+    assert input_res.status_code == 204
+
+    for _ in range(20):
+        state = poll()
+        if state["exited"]:
+            break
+        time_module.sleep(0.1)
+    else:
+        raise AssertionError("session never exited after real input was sent")
+    assert "Hello, Ada" in state["stdout"]
+    assert state["exit_code"] == 0
+
+    # Persisted once the poll observed it exited - visible in state
+    # history exactly like a batch run, and carries the real typed line.
+    full_state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert len(full_state["runs"]) == 1
+    assert full_state["runs"][0]["stdin_json"] == ["Ada"]
+    assert "Hello, Ada" in full_state["runs"][0]["stdout"]
 
 
 def test_round3_coding_turn_asking_which_loop_is_correct_gets_refused(client, monkeypatch):
