@@ -608,6 +608,8 @@ class Round3CodingTurnResponse(BaseModel):
     def _code_after_required_for_code_edit(self):
         if self.response_kind == "code_edit" and not self.code_after:
             raise ValueError("code_after is required when response_kind is 'code_edit'")
+        if self.response_kind != "code_edit" and self.code_after:
+            raise ValueError("code_after must not be set when response_kind is 'clarify' or 'refuse'")
         return self
 
 
