@@ -127,21 +127,40 @@ def test_round4_dedicated_submit_endpoint_is_reached_not_the_generic_one(client,
     /candidate/round/{n}/submit (round 1 only now, expects a `content`
     list it would 422 on). No round 4 scenario is published in this
     test, so the dedicated handler's own 404 ("no published scenario")
-    is what proves it was reached instead."""
-    from app.services import llm_service
+    is what proves it was reached instead.
+
+    Round 3 has to be completed too, not just 1/2 - ROUND_SEQUENCE is
+    (1, 2, 3, 4) now that round 3 (AI-prompted coding) is a real round
+    again, so round 4 stays locked (403) behind it otherwise, and this
+    test would never reach the dedicated handler it's trying to prove
+    gets reached at all."""
+    from app.services import llm_service, execution_service
     # Both submits below fire real background scoring calls unless mocked.
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
     monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {"response_kind": "code_edit", "response_message": "ok", "code_after": "print(1)"})
+    monkeypatch.setattr(llm_service, "score_round3_coding", lambda **kwargs: {
+        "correctness_score": 100, "precision_score": 100, "efficiency_score": 100,
+        "independent_judgment_score": 100, "final_score": 100,
+        "misses": [], "guardrail_violations": [], "feedback_text": "ok",
+    })
+    monkeypatch.setattr(execution_service, "run_code", lambda **kwargs: execution_service.ExecutionResult(
+        stdout="", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1,
+    ))
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="R3")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     client.post("/candidate/round/1/start", cookies=_auth(cand_token))
     client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
     client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     client.post("/candidate/round/2/submit", json={"investigation": FAKE_INVESTIGATION, "root_cause": FAKE_ROOT_CAUSE}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
 
     res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
     assert res.status_code == 404

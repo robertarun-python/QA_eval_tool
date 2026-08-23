@@ -31,7 +31,7 @@ FAKE_SCORE = {
 }
 
 
-def _complete_round1_and_2(client, cand_token, monkeypatch):
+def _complete_round1_and_2(client, hr_token, cand_token, monkeypatch):
     # Submitting either round fires a background scoring call (see
     # candidate.py's _score_round1_in_background/_score_round2_in_background)
     # - without mocking these too (separate functions from the reference
@@ -40,7 +40,17 @@ def _complete_round1_and_2(client, cand_token, monkeypatch):
     # background thread, which is also where the rare "JSONDecodeError"
     # flakiness came from (a real response occasionally not being clean
     # JSON) - not a bug in round 4 itself.
-    from app.services import llm_service
+    #
+    # Also completes round 3 (AI-prompted coding): round 4 now requires
+    # it (see ROUND_SEQUENCE in routers/candidate.py - round 3 was
+    # reintroduced as a real round after this helper was first written),
+    # the same way it already required rounds 1/2. Round 3 needs its own
+    # scenario published too, unlike rounds 1/2 (published by each test
+    # itself, before calling this helper) - no caller of this helper ever
+    # needed a live round 3 scenario for anything else, so publishing it
+    # here as a side effect keeps every existing call site a one-line
+    # change (passing hr_token) instead of a several-line one.
+    from app.services import llm_service, execution_service
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"},
@@ -48,6 +58,24 @@ def _complete_round1_and_2(client, cand_token, monkeypatch):
     monkeypatch.setattr(
         llm_service, "score_round2_submission",
         lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"},
+    )
+    monkeypatch.setattr(
+        llm_service, "round3_coding_turn",
+        lambda **kwargs: {"response_kind": "code_edit", "response_message": "ok", "code_after": "print(1)"},
+    )
+    monkeypatch.setattr(
+        llm_service, "score_round3_coding",
+        lambda **kwargs: {
+            "correctness_score": 100, "precision_score": 100, "efficiency_score": 100,
+            "independent_judgment_score": 100, "final_score": 100,
+            "misses": [], "guardrail_violations": [], "feedback_text": "ok",
+        },
+    )
+    monkeypatch.setattr(
+        execution_service, "run_code",
+        lambda **kwargs: execution_service.ExecutionResult(
+            stdout="", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1,
+        ),
     )
     client.post("/candidate/round/1/start", cookies=_auth(cand_token))
     client.post(
@@ -61,6 +89,10 @@ def _complete_round1_and_2(client, cand_token, monkeypatch):
         json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
         cookies=_auth(cand_token),
     )
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
 
 
 def test_round4_scenario_generates_environment_and_requires_it_to_publish(client, monkeypatch):
@@ -206,7 +238,7 @@ def test_round4_state_requires_start_first(client, monkeypatch):
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
 
     res = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
     assert res.status_code == 404
@@ -233,7 +265,7 @@ def test_round4_test_cases_are_freeform_and_independently_addressable(client, mo
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Login happy path")
@@ -256,7 +288,7 @@ def test_round4_turn_is_scoped_to_its_test_case_with_no_turn_cap(client, monkeyp
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Login happy path")
@@ -299,7 +331,7 @@ def test_round4_turn_rejects_a_malformed_llm_response_without_corrupting_state(c
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
 
@@ -372,7 +404,7 @@ def test_round4_draft_autosave_round_trips_and_is_ownership_checked(client, monk
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
 
@@ -397,7 +429,7 @@ def test_round4_draft_autosave_round_trips_and_is_ownership_checked(client, monk
     # candidate's test case.
     from .conftest import CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD
     cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
-    _complete_round1_and_2(client, cand2_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand2_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand2_token))
     res = client.patch(
         f"/candidate/round/4/test-case/{tc['id']}/draft",
@@ -418,7 +450,7 @@ def test_round4_submit_requires_at_least_one_test_case_with_a_turn(client, monke
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     # No test cases at all.
@@ -447,7 +479,7 @@ def test_round4_full_session_scored_and_visible_to_hr(client, monkeypatch):
     _publish_round4_scenario(client, hr_token, monkeypatch, title="Automate the search feature")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Search returns matching results")
@@ -496,7 +528,7 @@ def test_round4_code_snippet_generates_for_the_owner(client, monkeypatch):
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
     turn = client.post(
@@ -538,7 +570,7 @@ def test_round4_code_snippet_is_persisted_not_regenerated_on_repeat_views(client
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
     turn = client.post(
@@ -596,7 +628,7 @@ def test_round4_code_snippet_rechecks_the_cache_after_acquiring_the_lock(client,
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
     turn = client.post(
@@ -643,7 +675,7 @@ def test_round4_code_snippet_rejects_invalid_language_and_foreign_turn(client, m
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand1_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand1_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand1_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand1_token))
     tc = _create_round4_test_case(client, cand1_token, title="Login happy path")
     turn = client.post(
@@ -659,7 +691,7 @@ def test_round4_code_snippet_rejects_invalid_language_and_foreign_turn(client, m
     # from the round-gating check (which would also block an un-unlocked
     # candidate2, but for the wrong reason).
     cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
-    _complete_round1_and_2(client, cand2_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand2_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand2_token))
     res = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=python", cookies=_auth(cand2_token))
     assert res.status_code == 404
@@ -743,7 +775,7 @@ def test_round4_resync_skipped_while_a_candidate_is_mid_round4(client, monkeypat
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     calls = []
@@ -784,7 +816,7 @@ def test_round4_config_blocked_while_a_candidate_is_mid_round4(client, monkeypat
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(f"/hr/scenarios/{round4['id']}/round4-config", json={"assistance_pct": 45}, cookies=_auth(hr_token))
@@ -868,7 +900,7 @@ def test_round4_instructions_blocked_while_a_candidate_is_mid_round4(client, mon
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(
@@ -932,7 +964,7 @@ def test_round4_regenerate_reference_blocked_while_a_candidate_is_mid_round4(cli
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, cand_token, monkeypatch)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.post(f"/hr/scenarios/{round4['id']}/regenerate-reference", cookies=_auth(hr_token))

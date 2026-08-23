@@ -204,18 +204,34 @@ def test_expired_round4_in_progress_submission_no_longer_blocks_round4_config_ed
     own in-progress guard (_require_round4_not_in_progress) - it must
     also lazily close an abandoned-past-deadline submission before
     counting, or an abandoned round 4 candidate blocks HR from ever
-    editing that scenario's config again."""
+    editing that scenario's config again.
+
+    Round 3 has to be completed too, not just 1/2, before round 4/start
+    is reachable - ROUND_SEQUENCE is (1, 2, 3, 4) now that round 3
+    (AI-prompted coding) is a real round again."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
     published = _publish_round4_scenario(client, hr_token, monkeypatch)
-    from app.services import llm_service
+    from app.services import llm_service, execution_service
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {
         "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
     })
     monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {
         "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
     })
+    monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {
+        "response_kind": "code_edit", "response_message": "ok", "code_after": "print(1)",
+    })
+    monkeypatch.setattr(llm_service, "score_round3_coding", lambda **kwargs: {
+        "correctness_score": 100, "precision_score": 100, "efficiency_score": 100,
+        "independent_judgment_score": 100, "final_score": 100,
+        "misses": [], "guardrail_violations": [], "feedback_text": "ok",
+    })
+    monkeypatch.setattr(execution_service, "run_code", lambda **kwargs: execution_service.ExecutionResult(
+        stdout="", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1,
+    ))
     monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
         "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
     })
@@ -232,6 +248,9 @@ def test_expired_round4_in_progress_submission_no_longer_blocks_round4_config_ed
         json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
         cookies=_auth(cand_token),
     )
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(

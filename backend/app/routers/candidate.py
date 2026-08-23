@@ -2,10 +2,10 @@
 Candidate-only endpoints: fetch the one live (published) scenario for the
 current round + the candidate's own band, start the timer, submit, and view
 past results. Rounds are gated in a fixed sequence (see ROUND_SEQUENCE
-below) rather than by raw round-number arithmetic - round_number 3 is
-currently unused (freed up by the Round 3 -> Round 4 renumbering) and
-isn't part of that sequence, so a candidate reaches round 4 as soon as
-round 2 is submitted, not round 3.
+below) rather than by raw round-number arithmetic - round_number 3 was
+freed up by the Round 3 -> Round 4 renumbering and has since been reused
+for a new round (AI-prompted coding), unrelated to the manual-testing
+round that used to live at that number.
 """
 import threading
 from datetime import datetime, timedelta
@@ -15,15 +15,17 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, Submission, RoundStatus, ConversationTurn, Round4TestCase, CandidateAppearance
+from ..models import User, Scenario, Submission, RoundStatus, ConversationTurn, Round4TestCase, CandidateAppearance, Round3Turn, Round3ExecutionRun
 from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
     Round1ContextOut, Round4StateOut, Round4TurnCreate, Round4TurnOut,
     Round4TestCaseCreate, Round4TestCaseOut, Round4DraftUpdate, Round4EnvironmentOut,
     Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload,
+    Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut,
+    Round3RunCreate, Round3RunOut, Round3StateOut,
 )
 from ..dependencies import require_candidate
-from ..services import llm_service
+from ..services import llm_service, execution_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 ROUND4_CODE_LANGUAGES = ("python", "java", "javascript", "typescript")
@@ -138,14 +140,12 @@ def _current_appearance_id(db: Session, candidate: User) -> int | None:
 
 
 # The actual round sequence a candidate progresses through, in order.
-# NOT contiguous integers: round_number 3 was freed up by the Round 3 ->
-# Round 4 renumbering (see migrate_round_renumber.py) and isn't reused by
-# THIS round - it'll be a different, unrelated round once a later plan
-# adds one back. Gating has to walk this explicit sequence rather than
-# comparing raw numbers (round_number > max_completed + 1), or round 4
-# would stay permanently locked behind a round 3 that no candidate can
-# ever complete.
-ROUND_SEQUENCE = (1, 2, 4)
+# Gating walks this explicit sequence rather than comparing raw numbers
+# (round_number > max_completed + 1) - see migrate_round_renumber.py /
+# the Round 3 (AI-prompted coding) design spec for why round_number 3 was
+# freed up and then reused for a different round than the one that used
+# to occupy it.
+ROUND_SEQUENCE = (1, 2, 3, 4)
 
 
 def _require_round_unlocked(round_number: int, db: Session, candidate: User) -> None:
@@ -224,6 +224,176 @@ def submit_round2(
     db.commit()
     db.refresh(submission)
 
+    background_tasks.add_task(score_submission_in_background, submission.id)
+    return submission
+
+
+# ---- Round 3 (AI-prompted coding: the candidate never writes code
+# directly - they direct the LLM turn by turn via dedicated endpoints
+# below, registered ahead of the generic /round/{round_number}/... routes
+# for the same routing-order reason Round 2/4's dedicated endpoints are -
+# see those sections' comments.) ----
+
+def _round3_coding_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+    scenario = _live_scenario(db, 3, candidate)
+    if scenario is None:
+        raise HTTPException(404, "No published scenario for round 3 yet - check back once HR has published one.")
+    submission = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+    if submission is None:
+        raise HTTPException(404, "Round 3 hasn't been started yet - call /round/3/start first.")
+    return scenario, submission
+
+
+@router.post("/round/3/start", response_model=SubmissionOut, status_code=201)
+def start_round3(payload: Round3StartRequest, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    scenario = _live_scenario(db, 3, candidate)
+    if scenario is None:
+        raise HTTPException(404, "No published scenario for round 3 yet - check back once HR has published one.")
+
+    existing = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+    if existing is not None:
+        return existing  # idempotent: same started_at, same language, same timer deadline
+
+    submission = Submission(
+        user_id=candidate.id, scenario_id=scenario.id, round_number=3,
+        status=RoundStatus.in_progress, started_at=datetime.utcnow(),
+        content={"language": payload.language, "draft_prompt": ""},
+        appearance_id=_current_appearance_id(db, candidate),
+    )
+    db.add(submission)
+    db.commit()
+    db.refresh(submission)
+    return submission
+
+
+@router.patch("/round/3/draft", status_code=204)
+def round3_coding_save_draft(payload: Round3DraftUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    _, submission = _round3_coding_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+    submission.content = {**(submission.content or {}), "draft_prompt": payload.draft_prompt}
+    db.commit()
+
+
+@router.post("/round/3/turn", response_model=Round3TurnOut, status_code=201)
+def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    scenario, submission = _round3_coding_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+
+    language = (submission.content or {}).get("language")
+    existing_turns = submission.round3_turns
+    conversation_so_far = [
+        {
+            "turn_number": t.turn_number, "candidate_prompt": t.candidate_prompt,
+            "response_kind": t.response_kind, "response_message": t.response_message,
+            "code_after": t.code_after,
+        }
+        for t in existing_turns
+    ]
+    current_code = next((t.code_after for t in reversed(existing_turns) if t.code_after), None)
+    turn_number = len(existing_turns) + 1
+
+    # Called synchronously in the request path (same reasoning as Round
+    # 4's round4_turn - see that function's comment): nothing is
+    # persisted below until the LLM call succeeds and validates.
+    try:
+        response = llm_service.round3_coding_turn(
+            scenario_description=scenario.description,
+            language=language,
+            conversation_so_far=conversation_so_far,
+            current_code=current_code,
+            candidate_prompt=payload.candidate_prompt,
+            turn_number=turn_number,
+        )
+    except Exception:
+        raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+
+    turn = Round3Turn(
+        submission_id=submission.id,
+        turn_number=turn_number,
+        candidate_prompt=payload.candidate_prompt,
+        language=language,
+        response_kind=response["response_kind"],
+        response_message=response["response_message"],
+        code_after=response.get("code_after"),
+    )
+    db.add(turn)
+    submission.content = {**(submission.content or {}), "draft_prompt": ""}
+    db.commit()
+    db.refresh(turn)
+    return turn
+
+
+@router.post("/round/3/run", response_model=Round3RunOut, status_code=201)
+def round3_coding_run(payload: Round3RunCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    _, submission = _round3_coding_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+
+    latest_turn = next((t for t in reversed(submission.round3_turns) if t.code_after), None)
+    if latest_turn is None:
+        raise HTTPException(400, "There's no code to run yet - direct the assistant to write some first.")
+
+    language = (submission.content or {}).get("language")
+    result = execution_service.run_code(language=language, code=latest_turn.code_after, stdin=payload.stdin)
+
+    run = Round3ExecutionRun(
+        submission_id=submission.id,
+        turn_id=latest_turn.id,
+        language=language,
+        code_snapshot=latest_turn.code_after,
+        stdin_json=payload.stdin,
+        stdout=result.stdout,
+        stderr=result.stderr,
+        exit_code=result.exit_code,
+        timed_out=result.timed_out,
+        infra_error=result.infra_error,
+        duration_ms=result.duration_ms,
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    return run
+
+
+@router.get("/round/3/state", response_model=Round3StateOut)
+def round3_coding_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    scenario, submission = _round3_coding_scenario_and_submission(candidate, db)
+    return Round3StateOut(
+        scenario=scenario, submission=submission,
+        language=(submission.content or {}).get("language"),
+        turns=submission.round3_turns, runs=submission.round3_execution_runs,
+    )
+
+
+@router.post("/round/3/submit", response_model=SubmissionOut, status_code=201)
+def round3_coding_submit(background_tasks: BackgroundTasks, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    scenario, submission = _round3_coding_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+    _require_within_time_limit(submission, scenario)
+
+    if not submission.round3_turns:
+        raise HTTPException(400, "Send at least one message before submitting.")
+
+    submission.status = RoundStatus.submitted
+    db.commit()
+    db.refresh(submission)
     background_tasks.add_task(score_submission_in_background, submission.id)
     return submission
 
@@ -485,8 +655,8 @@ def round4_submit(
 
 @router.get("/round/{round_number}", response_model=RoundStateOut)
 def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    if round_number not in (1, 2, 4):
-        raise HTTPException(400, "round_number must be 1, 2, or 4")
+    if round_number not in (1, 2, 3, 4):
+        raise HTTPException(400, "round_number must be 1, 2, 3, or 4")
 
     # Lazily close out any of this candidate's abandoned-and-expired
     # submissions before checking round-gating below - unlike the write
@@ -607,8 +777,8 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     tab_switch_events_json). Silently a no-op if there's nothing
     in-progress to attach it to (the round may have already ended by the
     time this request lands)."""
-    if round_number not in (1, 2, 4):
-        raise HTTPException(400, "round_number must be 1, 2, or 4")
+    if round_number not in (1, 2, 3, 4):
+        raise HTTPException(400, "round_number must be 1, 2, 3, or 4")
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         return
@@ -700,8 +870,8 @@ def expire_round(
     outcome, not a reason to strand the round. Requires the deadline to
     have genuinely passed server-side, not just claimed by the client, so
     this can't be used to skip a round early."""
-    if round_number not in (1, 2, 4):
-        raise HTTPException(400, "round_number must be 1, 2, or 4")
+    if round_number not in (1, 2, 3, 4):
+        raise HTTPException(400, "round_number must be 1, 2, 3, or 4")
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
@@ -726,9 +896,10 @@ def expire_round(
             ],
             "root_cause": payload.root_cause or "",
         }
-    # Round 4 has no content field to set here - its state already lives
-    # in round4_test_cases/conversation_turns, whatever exists (including
-    # none) is what gets scored.
+    # Rounds 3 and 4 have no content field to set here - their state
+    # already lives in round3_turns/round3_execution_runs and
+    # round4_test_cases/conversation_turns respectively; whatever exists
+    # (including none) is what gets scored.
 
     submission.status = RoundStatus.submitted
     submission.auto_closed_reason = "Time limit reached without a manual submit"
