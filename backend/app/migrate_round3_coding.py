@@ -9,6 +9,16 @@ Idempotent - checks table/column presence first, so it's safe to run
 more than once (e.g. after a fresh create_all() already created
 everything for a brand new DB - nothing to do there).
 
+Ordering note: on any DB that needs both, migrate_round_renumber.py must
+run BEFORE this script. That script renames any EXISTING
+app_settings.round3_passing_score (the old automation round's column) to
+round4_passing_score; this script then adds a brand new
+round3_passing_score column for the new round. Run this script first
+instead, and migrate_round_renumber.py would find the fresh
+round3_passing_score column this script just added and rename THAT one
+away to round4_passing_score, breaking AppSettings reads until this
+script is re-run (see migrate_round_renumber.py's own docstring).
+
 Run from backend/: python -m app.migrate_round3_coding
 """
 import sqlite3

@@ -18,7 +18,7 @@ def test_default_settings_row_exists(client):
         "round2_passing_score": 70,
         "round3_passing_score": 70,
         "round4_passing_score": 70,
-        "final_passing_score": 210,
+        "final_passing_score": 280,
         "reapplication_window_months": 6,
         "round4_default_assistance_pct": 60,
     }

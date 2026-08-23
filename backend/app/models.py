@@ -424,6 +424,6 @@ class AppSettings(Base):
     round2_passing_score = Column(Integer, nullable=False, default=70)
     round3_passing_score = Column(Integer, nullable=False, default=70)
     round4_passing_score = Column(Integer, nullable=False, default=70)
-    final_passing_score = Column(Integer, nullable=False, default=210)  # out of 300 (sum of the three rounds)
+    final_passing_score = Column(Integer, nullable=False, default=280)  # out of 400 (sum of the four rounds)
     reapplication_window_months = Column(Integer, nullable=False, default=6)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
