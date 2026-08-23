@@ -10,7 +10,7 @@ the DB layer.
 from datetime import datetime
 from typing import Optional, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---- Auth ----
@@ -58,6 +58,7 @@ class MeOut(BaseModel):
 class AppSettingsOut(BaseModel):
     round1_passing_score: int
     round2_passing_score: int
+    round3_passing_score: int
     round4_passing_score: int
     final_passing_score: int
     reapplication_window_months: int
@@ -75,8 +76,9 @@ class AppSettingsOut(BaseModel):
 class AppSettingsUpdate(BaseModel):
     round1_passing_score: int = Field(ge=0, le=100)
     round2_passing_score: int = Field(ge=0, le=100)
+    round3_passing_score: int = Field(ge=0, le=100)
     round4_passing_score: int = Field(ge=0, le=100)
-    final_passing_score: int = Field(ge=0, le=300)
+    final_passing_score: int = Field(ge=0, le=400)
     reapplication_window_months: int = Field(ge=1)
 
 
@@ -170,7 +172,7 @@ class ScenarioPublicOut(BaseModel):
 
 class ScenarioOut(ScenarioPublicOut):
     """HR-facing shape - includes the reference answer for review/scoring."""
-    reference_json: Optional[list[dict]] = None
+    reference_json: Optional[Any] = None  # list[dict] for rounds 1/2, {"test_cases": [...], "expected_approach": "..."} for round 3
     # Round 4 only: the auto-generated test-environment reference facts
     # and reference UI screens (see Scenario.environment_json/
     # ui_mockup_json). Not on ScenarioPublicOut either - each is included
@@ -569,6 +571,89 @@ class Round4StateOut(BaseModel):
     ui_mockup: Optional[Round4UiMockupOut] = None
     test_cases: list[Round4TestCaseOut]
     turns: list[Round4TurnOut]
+
+
+# ---- Round 3 (AI-prompted coding: the candidate never writes code
+# directly - they direct an LLM turn by turn, and it writes/edits the
+# actual source. See docs/superpowers/specs/2026-08-23-round3-ai-coding-design.md.) ----
+
+
+class Round3StartRequest(BaseModel):
+    language: Literal["python", "java", "javascript"]
+
+
+class Round3DraftUpdate(BaseModel):
+    """PATCH body for autosaving the candidate's in-progress, unsent
+    message - see candidate.py's PATCH /round/3/draft. Submission-scoped,
+    not per-test-case, since round 3 (coding) has a single evolving code
+    buffer, not Round 4's multiple self-titled test cases."""
+    draft_prompt: str
+
+
+class Round3TurnCreate(BaseModel):
+    candidate_prompt: str = Field(min_length=1)
+
+
+class Round3CodingTurnResponse(BaseModel):
+    """The LLM's classified response for one turn - see
+    llm_service.round3_coding_turn and prompts/round3_coding_turn.txt.
+    code_after is required when response_kind is "code_edit" (the full
+    updated code) and must be absent otherwise (clarify/refuse never
+    touch the code)."""
+    response_kind: Literal["clarify", "refuse", "code_edit"]
+    response_message: str
+    code_after: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _code_after_required_for_code_edit(self):
+        if self.response_kind == "code_edit" and not self.code_after:
+            raise ValueError("code_after is required when response_kind is 'code_edit'")
+        return self
+
+
+class Round3TurnOut(BaseModel):
+    id: int
+    turn_number: int
+    candidate_prompt: str
+    language: str
+    response_kind: str
+    response_message: str
+    code_after: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class Round3RunCreate(BaseModel):
+    stdin: list[str] = []
+
+
+class Round3RunOut(BaseModel):
+    id: int
+    language: str
+    stdout: Optional[str] = None
+    stderr: Optional[str] = None
+    exit_code: Optional[int] = None
+    timed_out: bool
+    infra_error: bool
+    duration_ms: Optional[int] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class Round3StateOut(BaseModel):
+    """Everything the round 3 (coding) candidate screen needs in one
+    call: the scenario, their submission (content.language/draft_prompt
+    live inside SubmissionOut.content), the full turn history, and every
+    run's result."""
+    scenario: ScenarioPublicOut
+    submission: SubmissionOut
+    language: Optional[str] = None
+    turns: list[Round3TurnOut]
+    runs: list[Round3RunOut]
 
 
 # ---- HR screening history (per-scenario performance, across everyone
