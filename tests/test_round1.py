@@ -170,6 +170,30 @@ def test_updating_one_scenarios_time_limit_never_touches_another(client, monkeyp
     assert b_after["time_limit_minutes"] == 30
 
 
+def test_editing_reference_json_with_a_non_dict_row_gives_a_clean_error_not_a_raw_exception(client, monkeypatch):
+    """A row that isn't a dict at all (a bare string, here) used to raise
+    a plain TypeError inside TestCaseRow(**row) whose message is Python/
+    pydantic internals ("...argument after ** must be a mapping, not
+    str") - leaked straight into the HTTP response body. Confirms the
+    error is now a clean, purpose-written message instead."""
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: list(FAKE_REFERENCE))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    draft = client.post(
+        "/hr/scenarios",
+        json={"round_number": 1, "title": "Draft", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        cookies=_auth(hr_token),
+    ).json()
+
+    res = client.patch(f"/hr/scenarios/{draft['id']}", json={"reference_json": ["not", "a", "dict"]}, cookies=_auth(hr_token))
+    assert res.status_code == 400
+    detail = res.json()["detail"]
+    assert "argument after **" not in detail
+    assert "must be a mapping" not in detail
+    assert "each row must be an object" in detail
+
+
 def test_time_limit_can_be_changed_on_a_live_published_scenario(client, monkeypatch):
     """The real-world case that matters: HR adjusting the duration of the
     scenario candidates are actually taking right now, not an unpublished

@@ -107,6 +107,15 @@ def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: 
         raise HTTPException(400, "experience_band must be '0-7' or '7+'")
     if payload.time_limit_minutes < 1:
         raise HTTPException(400, "time_limit_minutes must be at least 1")
+    # .strip() so whitespace-only doesn't slip past a bare emptiness
+    # check - checked before the Scenario row is even created, since the
+    # alternative (validate after _generate_reference) would burn a real,
+    # ~20-30s LLM call generating a reference for a title/description
+    # that was never usable in the first place.
+    if not payload.title.strip():
+        raise HTTPException(400, "title is required")
+    if not payload.description.strip():
+        raise HTTPException(400, "description is required")
 
     scenario = Scenario(
         round_number=payload.round_number,
@@ -291,9 +300,19 @@ def _validate_reference_json_for_update(round_number: int, reference_json):
         return reference_json
     if not isinstance(reference_json, list):
         raise HTTPException(400, "reference_json must be a list of test-case rows")
+    # Checked before TestCaseRow(**row) rather than folded into the
+    # except below: a non-dict row (a string, a number, a nested list)
+    # raises a plain TypeError there whose message is Python/pydantic
+    # internals ("...argument after ** must be a mapping, not str"), not
+    # something HR should ever see in an HTTP error body. A ValidationError
+    # (a dict that's just missing/wrong-typed fields) IS a clean,
+    # purpose-built pydantic message, so that one's fine to surface as-is.
+    for row in reference_json:
+        if not isinstance(row, dict):
+            raise HTTPException(400, f"reference_json must be a list of test-case rows: each row must be an object, got {type(row).__name__}")
     try:
         rows = [TestCaseRow(**row) for row in reference_json]
-    except (TypeError, ValidationError) as e:
+    except ValidationError as e:
         raise HTTPException(400, f"reference_json must be a list of test-case rows: {e}")
     return [row.model_dump() for row in rows]
 
