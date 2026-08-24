@@ -20,7 +20,7 @@ def test_default_settings_row_exists(client):
         "round4_passing_score": 70,
         "final_passing_score": 280,
         "reapplication_window_months": 6,
-        "round4_default_assistance_pct": 60,
+        "round4_default_assistance_pct": 50,
     }
 
 
@@ -38,7 +38,7 @@ def test_settings_exposes_the_round4_default_assistance_pct_read_only(client):
     res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
     assert res.status_code == 200
     # Unaffected by the PUT - it isn't part of AppSettingsUpdate.
-    assert res.json()["round4_default_assistance_pct"] == 60
+    assert res.json()["round4_default_assistance_pct"] == 50
 
 
 def test_settings_round_trip(client):
@@ -53,10 +53,10 @@ def test_settings_round_trip(client):
     }
     res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
     assert res.status_code == 200
-    assert res.json() == {**payload, "round4_default_assistance_pct": 60}
+    assert res.json() == {**payload, "round4_default_assistance_pct": 50}
 
     res = client.get("/hr/settings", cookies=_auth(hr_token))
-    assert res.json() == {**payload, "round4_default_assistance_pct": 60}
+    assert res.json() == {**payload, "round4_default_assistance_pct": 50}
 
 
 def test_settings_reject_out_of_range_values(client):

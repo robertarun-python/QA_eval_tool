@@ -367,6 +367,105 @@ def test_round4_turn_rejects_a_malformed_llm_response_without_corrupting_state(c
     assert res.status_code == 201
 
 
+def test_round4_forces_a_flaw_when_the_first_checkable_turn_comes_back_clean(client, monkeypatch):
+    """round4_partial_response.txt asks the model to make the first turn
+    with a genuine checkable outcome wrong on its own - verified live to
+    not reliably comply, twice in a row. This is the deterministic
+    backstop: llm_service._round4_needs_forced_flaw detects an
+    all-"pass"-so-far test case and round4_respond issues a second,
+    narrower call (round4_force_flaw.txt) to revise it. Patches
+    _call_claude (the lowest-level seam) so this exercises the real
+    two-call path, not just round4_respond's own return value."""
+    import json
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round4_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    tc = _create_round4_test_case(client, cand_token, title="Login happy path")
+
+    clean_response = json.dumps(dict(FAKE_TURN_RESPONSE))  # status "pass" - nothing for the candidate to catch
+    forced_response = json.dumps({
+        "response_text": "Logged in and landed on the dashboard.",
+        "steps": [{"description": "Entered credentials and submitted", "status": "pass"}],
+        "observed_result": "Dashboard loaded showing the member as logged out, despite the login call succeeding.",
+        "status": "pass",
+    })
+    calls = []
+
+    def _fake_call_claude(prompt, max_tokens=4096):
+        calls.append(prompt)
+        return forced_response if len(calls) == 2 else clean_response
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fake_call_claude)
+
+    res = client.post(
+        "/candidate/round/4/turn",
+        json={"test_case_id": tc["id"], "candidate_prompt": "Log in with the test account and tell me if it worked"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    assert len(calls) == 2  # the clean first attempt, then the forced-flaw follow-up
+    assert res.json()["model_response"]["observed_result"] == (
+        "Dashboard loaded showing the member as logged out, despite the login call succeeding."
+    )
+
+
+def test_round4_does_not_force_a_flaw_once_an_earlier_turn_already_has_one(client, monkeypatch):
+    """The early-mistake requirement is per test case, not per turn -
+    once any turn has already come back non-"pass", later clean turns in
+    the same test case must NOT trigger the forced-flaw follow-up call."""
+    import json
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round4_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    tc = _create_round4_test_case(client, cand_token, title="Login happy path")
+
+    flawed_first_turn = json.dumps({
+        **FAKE_TURN_RESPONSE,
+        "status": "fail",
+        "steps": [{"description": "Entered credentials and submitted", "status": "fail", "detail": "HTTP 500"}],
+    })
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: flawed_first_turn)
+    res = client.post(
+        "/candidate/round/4/turn",
+        json={"test_case_id": tc["id"], "candidate_prompt": "Log in with the test account"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    assert res.json()["model_response"]["status"] == "fail"
+
+    # Turn 2 comes back clean on the model's own first attempt - since
+    # turn 1 already has a flaw, this must NOT trigger a second call.
+    calls = []
+
+    def _fake_call_claude(prompt, max_tokens=4096):
+        calls.append(prompt)
+        return json.dumps(dict(FAKE_TURN_RESPONSE))
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fake_call_claude)
+    res = client.post(
+        "/candidate/round/4/turn",
+        json={"test_case_id": tc["id"], "candidate_prompt": "Retry the login"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    assert len(calls) == 1  # no forced-flaw follow-up needed
+    assert res.json()["model_response"]["status"] == "pass"
+
+
 def test_round4_environment_generation_rejects_malformed_shape(client, monkeypatch):
     """Same class of gap as the turn-response one above, one step earlier
     in the pipeline: generate_round4_environment only checked for a

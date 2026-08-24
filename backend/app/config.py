@@ -71,8 +71,12 @@ class Settings(BaseSettings):
     # premise of that round is the candidate catching what the assistant
     # gets wrong. HR can still override this per scenario via
     # Scenario.config_json (see llm_service.DEFAULT_ROUND4_CONFIG); this
-    # is only the fallback when a scenario doesn't set its own.
-    round4_default_assistance_pct: int = 60
+    # is only the fallback when a scenario doesn't set its own. Lowered
+    # from 60 - HR found candidates were seeing too few catchable
+    # mistakes to genuinely exercise the round. Applies to new scenarios
+    # only; anything already published keeps whatever config_json it
+    # already has.
+    round4_default_assistance_pct: int = 50
 
     # Round 3 (AI-prompted coding) code execution - see
     # services/execution_service.py, which runs candidate code as a local

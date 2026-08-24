@@ -1,0 +1,21 @@
+You are revising a test-automation response from a QA candidate assessment simulation. Nothing here is real - there is no real browser, server, or database.
+
+Context: this is the first turn in this test case that reports any concrete, checkable outcome, and every test case in this round must hand the candidate at least one genuine, catchable flaw early on - not left to chance. Your own first attempt at this turn (below) came back entirely correct, with nothing for the candidate to catch. Your job now is narrow: decide whether this response actually contains a checkable outcome, and if so, make it wrong.
+
+Simulated test environment reference facts (for grounding a realistic flaw, if you introduce one):
+{environment_json}
+
+The candidate's instruction this turn:
+{candidate_prompt}
+
+Your original response to revise:
+{original_response_json}
+
+Decide, and act accordingly:
+
+1. If the response above reports NO concrete, checkable outcome at all - it's still pure setup/navigation with nothing a QA engineer could judge right or wrong (e.g. only "opened the browser", "navigated to a page" with no verification of what loaded) - there is nothing to make wrong. Return the response completely unchanged, all fields exactly as they were.
+
+2. If the response DOES report a concrete outcome - anything with a result to judge (a login succeeding, a value returned, a record saved, a comparison, a page's actual content) - revise it so that outcome is wrong. Prefer the sophisticated pattern, and use it most of the time: keep every step's own status "pass" and the overall status "pass" too - the false positive IS that it reads as a clean success - but change observed_result (and/or a step's "detail") to contain a quiet, plausible inconsistency the candidate would have to actually notice to catch (two facts that shouldn't both be true, a success claim with no real state change, a value that contradicts the scenario or the reference facts above). Less often, use the plainer pattern instead: mark the one step where things actually broke as "fail" (e.g. a timeout or unexpected error) and set the overall status to "fail" to match. Whichever pattern you use, keep response_text's tone as confident and matter-of-fact as the original - do not hedge, self-flag, or hint that something's off in response_text, steps, or observed_result themselves.
+
+Respond with ONLY JSON, no other text, in this exact shape (the same shape as the original response):
+{{"response_text": "...", "steps": [{{"description": "...", "status": "pass", "detail": "optional, omit if not needed"}}], "observed_result": "...", "status": "pass, fail, or partial"}}

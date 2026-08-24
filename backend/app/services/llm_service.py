@@ -320,6 +320,35 @@ def generate_round4_ui_mockup(app_description: str) -> dict:
         raise ValueError(f"UI mockup response didn't match the expected shape: {e}") from e
 
 
+def _round4_needs_forced_flaw(conversation_so_far: list[dict], response: dict) -> bool:
+    """True exactly when no turn in this test case - every prior one, AND
+    the response that was just generated for this one - has reported
+    anything other than status=='pass'. round4_partial_response.txt
+    already asks the model to force a flaw onto the first turn with a
+    genuine checkable outcome on its own; this is the deterministic
+    backstop for when it doesn't comply (verified in practice to happen
+    often enough that the prompt instruction alone isn't a real
+    guarantee - see round4_force_flaw.txt for the follow-up call this
+    gates). Once any turn has come back non-"pass", the requirement is
+    already satisfied and this returns False for the rest of the test
+    case, same as the prompt-level rule."""
+    prior_all_pass = all(t["model_response"].get("status") == "pass" for t in conversation_so_far)
+    return prior_all_pass and response.get("status") == "pass"
+
+
+def _round4_force_flaw(environment: dict | None, candidate_prompt: str, response: dict) -> dict:
+    prompt = _load_prompt("round4_force_flaw.txt").format(
+        environment_json=json.dumps(environment, indent=2) if environment else "(none provided)",
+        candidate_prompt=candidate_prompt,
+        original_response_json=json.dumps(response, indent=2),
+    )
+    raw = _call_claude(prompt)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the forced-flaw revision, got: {type(result)}")
+    return Round4TurnResponse.model_validate(result).model_dump()
+
+
 def round4_respond(
     test_case_title: str,
     environment: dict | None,
@@ -359,9 +388,23 @@ def round4_respond(
     # instead makes a bad turn a retryable failure, the same as malformed
     # JSON already is, rather than a silent, permanent one.
     try:
-        return Round4TurnResponse.model_validate(result).model_dump()
+        validated = Round4TurnResponse.model_validate(result).model_dump()
     except ValidationError as e:
         raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+
+    if _round4_needs_forced_flaw(conversation_so_far, validated):
+        # Best-effort: if this second call itself fails for ANY reason -
+        # a malformed/unvalidated response, or an API-level failure from
+        # _call_claude itself (a timeout, rate limit, connection error -
+        # none of which are ValueError/ValidationError) - the candidate
+        # still gets the original (clean) turn rather than a 502 on an
+        # otherwise-successful response. A missed early flaw is a worse
+        # experience to recover from than swallowing this is.
+        try:
+            return _round4_force_flaw(environment, candidate_prompt, validated)
+        except Exception:
+            pass
+    return validated
 
 
 # Trial feature (see routers/candidate.py's GET /round/4/turn/{id}/code): an
