@@ -652,6 +652,21 @@ td input, td select, td textarea { margin-bottom: 0; }
   width: 100%; max-width: 26rem; background: var(--surface-elevated); border: 1px solid var(--border);
   box-shadow: var(--shadow-elevated); padding: var(--space-default);
   transform: scale(0.97); opacity: 0; transition: transform 180ms var(--ease), opacity 180ms var(--ease);
+  /* .modal-scrim/.modal-overlay's own padding (space-default, both
+     top+bottom) is the room actually left around the box at 100vh - a
+     long neutral-variant briefing (Round 3/4's pre-start notes run to
+     6-8 bullets) previously had no height limit at all here, so at a
+     real 100% zoom/short viewport the box simply grew past the bottom
+     of the screen with its own confirm button pushed off along with it
+     - unreachable, no way to scroll the PAGE to it since the overlay
+     itself is what's fixed/full-viewport, not the box. Capping the
+     box's own height and scrolling ITS content instead (not the page)
+     keeps the header/actions pattern most dialogs use - if this ever
+     grows real header/footer chrome instead of one flat content block,
+     revisit this as three flex rows (fixed header, scrolling body,
+     fixed actions) rather than one scrolling box. */
+  max-height: calc(100vh - (var(--space-default) * 2));
+  overflow-y: auto;
 }
 .modal-scrim.is-open .modal, .modal-overlay.modal-open .modal-box { transform: scale(1); opacity: 1; }
 .modal-title, .modal-box h3 { font-family: var(--font-body); font-weight: 700; font-size: var(--text-lg); margin-bottom: var(--space-tight); color: var(--text-primary); }
