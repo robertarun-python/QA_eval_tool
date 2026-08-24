@@ -239,6 +239,19 @@ class Score(Base):
     # concept_coverage_json above, so HR's report can show which specific
     # cases passed/failed, not just the aggregate percentage.
     test_results_json = Column(JSON, default=list)
+    # Round 3 only (NULL for other rounds): the sub-score breakdown
+    # behind final_score, exactly as llm_service.score_round3_coding /
+    # round3_coding_scoring.txt produce them - lets HR's report show
+    # WHERE a candidate scored vs missed (precision of instructions,
+    # pushing toward an efficient solution, working independently of the
+    # assistant) rather than only the single blended final_score. Was
+    # previously only written into raw_llm_response_json (audit-only,
+    # never exposed to the frontend) - promoted to their own columns,
+    # same reasoning as test_results_json above.
+    correctness_score = Column(Integer, nullable=True)
+    precision_score = Column(Integer, nullable=True)
+    efficiency_score = Column(Integer, nullable=True)
+    independent_judgment_score = Column(Integer, nullable=True)
     final_score = Column(Integer, nullable=True)      # 0-100
     feedback_text = Column(Text, nullable=True)
     raw_llm_response_json = Column(JSON, default=dict)  # full LLM output, for auditing

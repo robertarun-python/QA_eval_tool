@@ -88,6 +88,14 @@ def test_score_round3_submission_computes_coverage_and_flags_guardrail_violation
         assert score.final_score == 75
         assert "Never asked to validate non-numeric input." in score.misses_json
         assert any("Guardrail" in m and "which loop is correct" in m for m in score.misses_json)
+        # The sub-score breakdown behind final_score (see
+        # models.Score.correctness_score and its siblings) - HR's report
+        # renders these as a "where did they score/miss" breakdown, not
+        # just the single blended final_score.
+        assert score.correctness_score == 100
+        assert score.precision_score == 90
+        assert score.efficiency_score == 80
+        assert score.independent_judgment_score == 40
         db.refresh(submission)
         assert submission.status == RoundStatus.scored
     finally:

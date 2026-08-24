@@ -196,6 +196,10 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     passed_count = sum(1 for r in test_results if r["passed"])
     score.coverage_score = round(passed_count / len(test_results) * 100) if test_results else 0
     score.test_results_json = test_results
+    score.correctness_score = result.get("correctness_score")
+    score.precision_score = result.get("precision_score")
+    score.efficiency_score = result.get("efficiency_score")
+    score.independent_judgment_score = result.get("independent_judgment_score")
     score.misses_json = result.get("misses", []) + [f"Guardrail: {g}" for g in result.get("guardrail_violations", [])]
     score.final_score = result.get("final_score")
     score.feedback_text = result.get("feedback_text")

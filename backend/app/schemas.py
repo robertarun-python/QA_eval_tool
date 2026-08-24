@@ -241,6 +241,12 @@ class ScoreOut(BaseModel):
     # Round 3 only - see models.Score.test_results_json. Empty list for
     # other rounds.
     test_results_json: list = Field(default_factory=list)
+    # Round 3 only - see models.Score.correctness_score and its sibling
+    # columns. None for other rounds.
+    correctness_score: Optional[int] = None
+    precision_score: Optional[int] = None
+    efficiency_score: Optional[int] = None
+    independent_judgment_score: Optional[int] = None
     final_score: Optional[int]
     feedback_text: Optional[str]
     # Human-override audit trail (see hr.py's PATCH /submissions/{id}/score) -

@@ -185,6 +185,14 @@ def test_round3_coding_full_happy_path(client, monkeypatch):
     assert report_round3["score"]["test_results_json"] == [
         {"input": "2 3", "expected_output": "5", "description": "basic sum", "actual_output": "5", "passed": True},
     ]
+    # The sub-score breakdown (see models.Score.correctness_score and its
+    # siblings) round-trips through the same report endpoint - HR's
+    # report renders these as a marks-split breakdown alongside
+    # final_score, not just the single blended number.
+    assert report_round3["score"]["correctness_score"] == 100
+    assert report_round3["score"]["precision_score"] == 90
+    assert report_round3["score"]["efficiency_score"] == 80
+    assert report_round3["score"]["independent_judgment_score"] == 90
 
 
 def test_round3_coding_run_is_genuinely_interactive_end_to_end(client, monkeypatch):

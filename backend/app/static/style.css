@@ -654,6 +654,24 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 .round3-coding-response-refuse { color: var(--bad); }
 .round3-coding-stderr { color: var(--bad); }
 .round3-coding-run { margin-bottom: 0.75rem; } /* HR's report run-history list - see renderRound3Report */
+
+/* HR report's Round 3 score breakdown (see renderRound3ScoreBreakdown) -
+   one labeled bar per sub-score (correctness/precision/efficiency/
+   independent judgment), so the split behind final_score reads at a
+   glance rather than as four bare numbers. */
+.round3-score-breakdown { display: flex; flex-direction: column; gap: 0.5rem; }
+.round3-score-dim { display: flex; align-items: center; gap: 0.6rem; }
+.round3-score-dim-label { flex: 0 0 9.5rem; font-size: 0.85rem; color: var(--text-dim); }
+.round3-score-bar {
+  flex: 1;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.round3-score-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
+.round3-score-dim-value { flex: 0 0 3rem; text-align: right; font-size: 0.85rem; color: var(--text-dim); }
 /* Backs up the copy/cut/contextmenu blockers on .no-copy elements (see
    renderRound3CodingLayout/round3TerminalLogHtml) - stops the candidate
    selecting terminal output to paste it back into the composer as a way

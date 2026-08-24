@@ -543,8 +543,17 @@ async function createScenario() {
   }
 }
 
+// Set at the end of every loadScenarios() call - lets deleteScenarioFromList
+// look up a scenario's title (for the confirm dialog) by id without
+// embedding free-text HR-authored titles into an inline onclick="..."
+// attribute, which escapeHtml doesn't make safe (it escapes for a text
+// node, not for sitting inside a quoted HTML attribute - an apostrophe
+// or quote in a title could break the attribute or inject markup).
+let lastLoadedScenarios = [];
+
 async function loadScenarios() {
   const scenarios = (await api("/hr/scenarios")).filter((s) => s.round_number === currentHRRound);
+  lastLoadedScenarios = scenarios;
   const list = document.getElementById("scenario-list");
   if (scenarios.length === 0) {
     list.innerHTML = `<div class="empty-state">No Round ${currentHRRound} scenarios yet - create one to get started.</div>`;
@@ -557,6 +566,7 @@ async function loadScenarios() {
     ${renderPublishedTable(published)}
     <h4>Drafts</h4>
     ${renderDraftTable(drafts)}
+    <p id="scenario-list-status" class="muted"></p>
   `;
 }
 
@@ -565,7 +575,7 @@ function renderPublishedTable(published) {
   return `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Publish for screening</th><th>Band</th><th>Title</th><th></th></tr></thead>
+        <thead><tr><th>Publish for screening</th><th>Band</th><th>Title</th><th></th><th></th></tr></thead>
         <tbody>
           ${published.map((s) => `
             <tr>
@@ -577,6 +587,10 @@ function renderPublishedTable(published) {
               <td>${s.experience_band}</td>
               <td>${escapeHtml(s.title)} ${s.is_live ? '<span class="badge badge-published">LIVE</span>' : ""}</td>
               <td><button onclick="openScenarioDetail(${s.id})">Review</button></td>
+              <td>${s.is_live
+                ? `<button class="btn-ghost" disabled title="Can't delete the live scenario - make a different one live first.">Delete</button>`
+                : `<button class="btn-ghost" onclick="deleteScenarioFromList(${s.id})">Delete</button>`
+              }</td>
             </tr>
           `).join("")}
         </tbody>
@@ -590,13 +604,14 @@ function renderDraftTable(drafts) {
   return `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Band</th><th>Title</th><th></th></tr></thead>
+        <thead><tr><th>Band</th><th>Title</th><th></th><th></th></tr></thead>
         <tbody>
           ${drafts.map((s) => `
             <tr>
               <td>${s.experience_band}</td>
               <td>${escapeHtml(s.title)}</td>
               <td><button onclick="openScenarioDetail(${s.id})">Review</button></td>
+              <td><button class="btn-ghost" onclick="deleteScenarioFromList(${s.id})">Delete</button></td>
             </tr>
           `).join("")}
         </tbody>
@@ -1037,6 +1052,31 @@ async function deleteScenario(id) {
   }
 }
 
+// Delete straight from the Published/Drafts list rows (see
+// renderPublishedTable/renderDraftTable) - unlike deleteScenario above
+// (only ever reachable from a draft's open detail view), this works on
+// EITHER status: the backend (DELETE /hr/scenarios/{id}) now allows
+// deleting a published scenario too, as long as it isn't the live one
+// and nothing has ever submitted against it (see that endpoint's
+// docstring for why those are the two safety gates). Looks the title up
+// from lastLoadedScenarios rather than taking it as a parameter - see
+// that variable's comment for why.
+async function deleteScenarioFromList(id) {
+  const scenario = lastLoadedScenarios.find((s) => s.id === id);
+  const label = scenario ? `"${scenario.title}"` : "this scenario";
+  if (!confirm(`Delete ${label}? This can't be undone.`)) return;
+  const statusEl = document.getElementById("scenario-list-status");
+  try {
+    await api(`/hr/scenarios/${id}`, { method: "DELETE" });
+    loadScenarios();
+  } catch (e) {
+    if (statusEl) {
+      statusEl.className = "error-text";
+      statusEl.textContent = e.message;
+    }
+  }
+}
+
 async function loadCandidates() {
   const box = document.getElementById("candidates-table");
   let candidates;
@@ -1445,9 +1485,94 @@ function renderRound4Report(s) {
 // newest first, since a run isn't tied to one specific turn server-side.
 const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass" };
 
+// The four sub-scores behind Round 3's final_score (see
+// models.Score.correctness_score and its siblings, and
+// round3_coding_scoring.txt's Evaluate section) - shown as a breakdown
+// so HR can see WHERE a candidate scored or fell short, not just the
+// single blended number renderScoreBlock already shows above this.
+const ROUND3_SCORE_DIMENSIONS = [
+  ["correctness_score", "Correctness"],
+  ["precision_score", "Precision"],
+  ["efficiency_score", "Efficiency"],
+  ["independent_judgment_score", "Independent judgment"],
+];
+
+function renderRound3ScoreBreakdown(score) {
+  // Absent for a submission that's never been scored, or one scored
+  // before these columns existed (see migrate_round3_subscores.py) -
+  // never render a breakdown of nothing.
+  if (!score || ROUND3_SCORE_DIMENSIONS.every(([key]) => score[key] == null)) return "";
+  return `
+    <div class="panel-inset">
+      <p class="muted round3-pane-label">Score breakdown</p>
+      <div class="round3-score-breakdown">
+        ${ROUND3_SCORE_DIMENSIONS.map(([key, label]) => {
+          const value = score[key];
+          if (value == null) return "";
+          return `
+            <div class="round3-score-dim">
+              <span class="round3-score-dim-label">${label}</span>
+              <div class="round3-score-bar"><div class="round3-score-bar-fill" style="width:${value}%"></div></div>
+              <span class="round3-score-dim-value">${value}/100</span>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </div>
+  `;
+}
+
+// The candidate's FINAL code's pass/fail result against every one of
+// HR's reference test cases (see models.Score.test_results_json,
+// computed in scoring_service.score_round3_submission) - the objective
+// evidence behind coverage_score, so HR can see exactly which cases
+// passed/failed rather than only the aggregate percentage
+// renderScoreBlock already shows.
+function renderRound3TestResultsTable(score) {
+  if (!score || !score.test_results_json || score.test_results_json.length === 0) return "";
+  const rows = score.test_results_json;
+  const passedCount = rows.filter((r) => r.passed).length;
+  return `
+    <div class="panel-inset">
+      <p class="muted round3-pane-label">Test cases - ${passedCount}/${rows.length} passed</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Input</th><th>Expected</th><th>Actual</th><th></th></tr></thead>
+          <tbody>
+            ${rows.map((r) => `
+              <tr>
+                <td><code>${escapeHtml(r.input)}</code></td>
+                <td><code>${escapeHtml(String(r.expected_output))}</code></td>
+                <td><code>${escapeHtml(r.actual_output == null ? "(none)" : String(r.actual_output))}</code></td>
+                <td><span class="badge ${r.passed ? "badge-pass" : "badge-fail"}">${r.passed ? "Passed" : "Failed"}</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderRound3Report(s) {
   if (!s.round3_turns) return "";
   if (s.round3_turns.length === 0) return `<p class="muted">No messages sent.</p>`;
+
+  // A count per response_kind reads at a glance ("14 turns - 5 code
+  // edits, 6 clarifications, 3 refusals") - the full line-by-line
+  // transcript below is collapsed by default (see the <details> below);
+  // renderScoreBlock's feedback_text (always shown above this, for every
+  // round) is the actual prose summary of how the session went - this is
+  // just enough shape to judge at a glance whether it's worth opening.
+  const counts = s.round3_turns.reduce((acc, t) => {
+    acc[t.response_kind] = (acc[t.response_kind] || 0) + 1;
+    return acc;
+  }, {});
+  const turnSummaryParts = [
+    counts.code_edit ? `${counts.code_edit} code edit${counts.code_edit === 1 ? "" : "s"}` : null,
+    counts.clarify ? `${counts.clarify} clarif${counts.clarify === 1 ? "y" : "ies"}` : null,
+    counts.refuse ? `${counts.refuse} refusal${counts.refuse === 1 ? "" : "s"}` : null,
+  ].filter(Boolean).join(", ");
 
   const turnsHtml = s.round3_turns.map((t) => `
     <div class="panel-inset round3-coding-turn">
@@ -1468,10 +1593,16 @@ function renderRound3Report(s) {
   `).join("") || `<p class="muted">No runs.</p>`;
 
   return `
-    <h5>Conversation</h5>
-    ${turnsHtml}
-    <h5>Run history</h5>
-    ${runsHtml}
+    ${renderRound3ScoreBreakdown(s.score)}
+    ${renderRound3TestResultsTable(s.score)}
+    <details class="hint-box">
+      <summary><strong>Full conversation</strong> - ${s.round3_turns.length} turn${s.round3_turns.length === 1 ? "" : "s"}${turnSummaryParts ? ` (${turnSummaryParts})` : ""}</summary>
+      ${turnsHtml}
+    </details>
+    <details class="hint-box">
+      <summary><strong>Run history</strong> - ${(s.round3_runs || []).length} run${(s.round3_runs || []).length === 1 ? "" : "s"}</summary>
+      ${runsHtml}
+    </details>
   `;
 }
 
@@ -2062,7 +2193,7 @@ function showRound3CodingIntro() {
         <li>Every instruction, including your first one, has to be a single concrete step - not "write a program to..." or "give me the solution." Asking it to build the whole thing, solve the problem, or suggest an approach gets refused; you have to break the work into steps yourself.</li>
         <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
         <li>Run is a real terminal - your code actually executes, and if it asks for input you type your answer right there and it keeps going, exactly like running it yourself. Nothing is pre-filled or guessed for you. Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception. Tell it exactly what to change instead.</li>
-        <li>What's scored: correctness, how precisely you specified things, and whether you pushed toward a more efficient solution - not just getting something that happens to work.</li>
+        <li>When you submit, your final code is automatically run against a set of hidden test cases you never see - correctness is judged by how many of those actually pass, not by how it looked while you were testing it yourself. That's combined with how precisely you specified things and whether you pushed toward a more efficient solution.</li>
         <li>Next, you'll pick your language - your timer starts the moment you start from there.</li>
       </ul>
       <div class="row">
