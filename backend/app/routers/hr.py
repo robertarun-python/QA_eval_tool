@@ -529,9 +529,12 @@ def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User 
 
 def _get_draft_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
     """For actions that only make sense pre-publish: edit, regenerate,
-    delete, (re-)publish. A published scenario may have real candidate
-    submissions scored against it and must stay exactly as it was -
-    move_to_screening is the only thing that still acts on it."""
+    (re-)publish. A published scenario's content must stay exactly as it
+    was reviewed/scored against - move_to_screening is the only thing
+    that still acts on it. Deleting is a separate concern from editing
+    content, so delete_scenario below does NOT use this helper - it
+    allows both draft and published, gated on is_live/submissions
+    instead of status."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
@@ -579,14 +582,35 @@ def get_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Dep
 
 @router.delete("/scenarios/{scenario_id}", status_code=204)
 def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """Discard a draft you don't want (e.g. a bad description, a failed
-    generation). Only drafts - a published scenario can have candidate
-    submissions pointing at it and must never be deleted."""
+    """Discard a scenario HR doesn't want - a bad draft, a duplicate, a
+    published-but-never-actually-used one. Two guards, in both draft and
+    published status:
+    - Never the currently live one - that's what's actively being served
+      to candidates in this round+band right now; deleting it out from
+      under an in-progress candidate (or leaving the band with nothing
+      live at all) is never the right way to retire it. Publish a
+      replacement and make THAT live first (see move_to_screening), then
+      delete this one.
+    - Never one with ANY submission pointing at it - published or draft,
+      archived or not. A submission can only exist by a candidate (or
+      test) actually starting/attempting it, so this is the real
+      signal of "has this scenario ever been used", not scenario.status -
+      a draft can accumulate a submission during dev/testing just like a
+      published one can. Deleting a scenario out from under a real
+      submission would orphan it (its scenario_id would point nowhere),
+      breaking every downstream join that reads submission.scenario
+      (HR's reports, candidate history, aggregate scoring) - the
+      candidate.py comment on Submission.archived explains why archiving
+      instead of deleting is this app's standing pattern for exactly
+      this class of problem; scenarios follow the same rule."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
-    if scenario.status != ScenarioStatus.draft:
-        raise HTTPException(400, f"Scenario is {scenario.status.value}, not draft - can't delete it.")
+    if scenario.is_live:
+        raise HTTPException(400, "Can't delete the live scenario - publish a different one and make it live first.")
+    has_submissions = db.query(Submission.id).filter(Submission.scenario_id == scenario_id).first() is not None
+    if has_submissions:
+        raise HTTPException(400, "Can't delete this scenario - at least one submission (including archived/test ones) points to it.")
     db.delete(scenario)
     db.commit()
 
