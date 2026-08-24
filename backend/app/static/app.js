@@ -344,6 +344,15 @@ function setPageHeader(eyebrow, title, subtitle) {
   document.getElementById("page-eyebrow").textContent = eyebrow || "";
   document.getElementById("page-title").textContent = title;
   document.getElementById("page-subtitle").textContent = subtitle || "";
+  // Every HR round/page switch and every candidate round switch routes
+  // through here (see renderHRRoundNav/renderCandidateRoundNav) - the
+  // single choke point for "the page changed." .app-main is one
+  // persistent scrolling element whose content just gets swapped, not
+  // recreated, so without this its scrollTop carries over from
+  // whatever the previous page was scrolled to - a new page can open
+  // already scrolled halfway down purely because the last one was.
+  const main = document.querySelector(".app-main");
+  if (main) main.scrollTop = 0;
 }
 
 function renderHRRoundNav() {
@@ -1992,6 +2001,16 @@ function openModalOverlay(overlay) {
     box.tabIndex = -1;
     box.focus();
   }
+  // The neutral briefing modals (see showRoundIntro/showRound4Intro/
+  // showRound3CodingIntro) put their only focusable control - the "Got
+  // it" button - at the BOTTOM, after several paragraphs of notes. box
+  // is capped to max-height + overflow-y:auto (see style.css), so the
+  // .focus() call above scrolls that button into view, which lands the
+  // box scrolled to the bottom the instant it opens - the candidate
+  // sees the last line, not the first. Force it back to the top after
+  // focus has already landed, so the notes are readable from the start
+  // regardless of which control ended up focused.
+  box.scrollTop = 0;
 
   overlay._trapKeydown = (e) => {
     if (e.key !== "Tab") return;
@@ -2334,7 +2353,7 @@ function showRound3CodingIntro() {
       <h3>Before you start Round 3</h3>
       <ul>
         <li>You never write code directly - you direct an assistant with plain-English instructions (variables, loops, data structures, what to read/print), and it writes the actual code.</li>
-        <li>Every instruction, including your first one, has to be a single concrete step - not "write a program to..." or "give me the solution." Asking it to build the whole thing, solve the problem, or suggest an approach gets refused; you have to break the work into steps yourself.</li>
+        <li>An instruction can bundle several mechanical steps (e.g. "read two numbers and print their sum") - what it won't do is build the whole thing for you. Asking it to "write a program to...", "give me the solution", or suggest an approach gets refused, including as your first instruction; you have to direct what gets built.</li>
         <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
         <li>Run is a real terminal - your code actually executes, and if it asks for input you type your answer right there and it keeps going, exactly like running it yourself. Nothing is pre-filled or guessed for you. Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception. Tell it exactly what to change instead.</li>
         <li>When you submit, your final code is automatically run against a set of hidden test cases you never see - correctness is judged by how many of those actually pass, not by how it looked while you were testing it yourself. That's combined with how precisely you specified things and whether you pushed toward a more efficient solution.</li>
