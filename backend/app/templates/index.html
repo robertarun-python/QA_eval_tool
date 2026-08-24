@@ -2,7 +2,26 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>QA Eval Tool</title>
+  <script>
+    // Applied before first paint so a returning user's saved theme (or
+    // their OS preference, on a first visit) never flashes the other
+    // theme for a frame - see toggleTheme()/initTheme() in app.js for
+    // the rest of this mechanism.
+    (function () {
+      try {
+        var saved = localStorage.getItem("qa_eval_theme");
+        var theme = saved || (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/style.css?v={{ style_css_version }}" />
 </head>
 <body>
@@ -16,8 +35,10 @@
       </div>
       <p class="muted">Sign in with the account HR gave you.</p>
       <div class="field-group">
-        <input id="email" type="text" placeholder="Email or username" />
-        <input id="password" type="password" placeholder="Password" />
+        <label class="sr-only" for="email">Email or username</label>
+        <input id="email" type="text" placeholder="Email or username" autocomplete="username" />
+        <label class="sr-only" for="password">Password</label>
+        <input id="password" type="password" placeholder="Password" autocomplete="current-password" />
       </div>
       <button class="btn-block" onclick="login()">Log in</button>
       <p id="auth-error" class="error-text"></p>
@@ -37,7 +58,12 @@
 
       <div class="rail-footer">
         <div class="rail-user" id="who"></div>
-        <button class="btn-ghost btn-block" onclick="logout()">Log out</button>
+        <button class="theme-toggle-btn" id="theme-toggle" onclick="toggleTheme()" aria-label="Switch color theme">
+          <svg class="theme-icon theme-icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          <svg class="theme-icon theme-icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span id="theme-toggle-label">Light mode</span>
+        </button>
+        <button class="btn-ghost btn-block" onclick="logout()"><span class="btn-label">Log out</span></button>
       </div>
     </aside>
 
@@ -68,16 +94,21 @@
                 <h3>Create a scenario</h3>
                 <p id="hr-round-context" class="muted"></p>
                 <div class="field-row">
-                  <select id="s-band">
-                    <option value="0-7">0-7 years</option>
-                    <option value="7+">7+ years</option>
-                  </select>
+                  <div class="field-inline field-inline-grow">
+                    <label for="s-band">Experience band</label>
+                    <select id="s-band">
+                      <option value="0-7">0-7 years</option>
+                      <option value="7+">7+ years</option>
+                    </select>
+                  </div>
                   <div class="field-inline">
-                    <span class="muted">min limit</span>
+                    <label for="s-time-limit">Time limit (min)</label>
                     <input id="s-time-limit" type="number" min="1" value="30" />
                   </div>
                 </div>
+                <label for="s-title">Scenario title</label>
                 <input id="s-title" placeholder="Scenario title" oninput="updateCreateBtnState()" />
+                <label for="s-desc">Scenario description</label>
                 <textarea id="s-desc" placeholder="Describe the feature/system the candidate should write test cases for..." oninput="updateCreateBtnState()"></textarea>
                 <button id="s-create-btn" class="btn-block" onclick="createScenario()" disabled>Create &amp; generate reference</button>
                 <p id="hr-create-status" class="muted"></p>
@@ -110,6 +141,7 @@
               <h3>Upload candidates</h3>
               <p class="muted">Excel (.xlsx) or plain text (.txt), two columns: email, exam date (YYYY-MM-DD). Logins are generated automatically - see the results below after uploading.</p>
               <div class="row">
+                <label class="sr-only" for="upload-file">Candidate file</label>
                 <input id="upload-file" type="file" accept=".xlsx,.txt" />
                 <button onclick="uploadCandidates()">Upload</button>
               </div>
@@ -129,14 +161,14 @@
               <h3>Pass criteria</h3>
               <p class="muted">Changes apply immediately across the app - no restart needed.</p>
               <div class="field-row">
-                <div class="field-inline"><span class="muted">Round 1 pass score</span><input id="set-round1" type="number" min="0" max="100" /></div>
-                <div class="field-inline"><span class="muted">Round 2 pass score</span><input id="set-round2" type="number" min="0" max="100" /></div>
-                <div class="field-inline"><span class="muted">Round 3 pass score</span><input id="set-round3" type="number" min="0" max="100" /></div>
-                <div class="field-inline"><span class="muted">Round 4 pass score</span><input id="set-round4" type="number" min="0" max="100" /></div>
+                <div class="field-inline"><label for="set-round1">Round 1 pass score</label><input id="set-round1" type="number" min="0" max="100" /></div>
+                <div class="field-inline"><label for="set-round2">Round 2 pass score</label><input id="set-round2" type="number" min="0" max="100" /></div>
+                <div class="field-inline"><label for="set-round3">Round 3 pass score</label><input id="set-round3" type="number" min="0" max="100" /></div>
+                <div class="field-inline"><label for="set-round4">Round 4 pass score</label><input id="set-round4" type="number" min="0" max="100" /></div>
               </div>
               <div class="field-row">
-                <div class="field-inline"><span class="muted">Final pass score (out of 400)</span><input id="set-final" type="number" min="0" max="400" /></div>
-                <div class="field-inline"><span class="muted">Re-application window (months)</span><input id="set-window" type="number" min="1" /></div>
+                <div class="field-inline"><label for="set-final">Final pass score (out of 400)</label><input id="set-final" type="number" min="0" max="400" /></div>
+                <div class="field-inline"><label for="set-window">Re-application window (months)</label><input id="set-window" type="number" min="1" /></div>
               </div>
               <button onclick="saveAppSettings()">Save</button>
               <p id="settings-status" class="muted"></p>

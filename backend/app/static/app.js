@@ -34,6 +34,38 @@ const ROUND_DESC_PLACEHOLDERS = {
 // decision in this file via passingScoreForRound(), rather than one
 // hardcoded global number (that used to be the case; per-round
 // thresholds need this to be dynamic, HR-editable data, not a constant).
+// ---- Theme (light/dark) ----
+//
+// The actual attribute is set synchronously in index.html's <head>,
+// before first paint, so there's no flash of the wrong theme - this
+// just keeps the toggle button's label/icon in sync and persists a
+// manual choice. Presentation only; nothing here affects app state.
+function currentTheme() {
+  return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+}
+function syncThemeToggleLabel() {
+  const label = document.getElementById("theme-toggle-label");
+  if (label) label.textContent = currentTheme() === "light" ? "Dark mode" : "Light mode";
+}
+function toggleTheme() {
+  const next = currentTheme() === "light" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", next);
+  try {
+    localStorage.setItem("qa_eval_theme", next);
+  } catch (e) {
+    // Private browsing / storage disabled - the toggle still works for
+    // this page view, it just won't be remembered next visit.
+  }
+  syncThemeToggleLabel();
+}
+syncThemeToggleLabel();
+
+// Small inline spinner + label, used instead of bare "Loading..." text
+// for the handful of fetches below that take long enough to notice.
+function loadingHtml(label) {
+  return `<div class="loading-inline"><span class="spinner"></span>${escapeHtml(label || "Loading...")}</div>`;
+}
+
 let appSettings = null;
 
 function passingScoreForRound(roundNumber) {
@@ -184,22 +216,35 @@ async function login() {
   const password = document.getElementById("password").value;
   document.getElementById("auth-error").textContent = "";
 
-  const res = await fetch("/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ identifier, password }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    document.getElementById("auth-error").textContent = apiErrorMessage(data, "Something went wrong");
-    return;
+  try {
+    // fetch() itself can reject (server unreachable, connection reset,
+    // DNS failure) before there's even a response to check .ok on - this
+    // is a user's very first interaction with the app, so unlike most
+    // other call sites here, there's no api() helper wrapping this one;
+    // the try/catch has to live here directly rather than being able to
+    // rely on a shared "some caller up the chain will catch it" pattern.
+    const res = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier, password }),
+    });
+    // .catch(() => null): a non-JSON body (e.g. an HTML error page from
+    // a proxy in front of a down server) would otherwise throw here too,
+    // same reasoning as api()'s identical fallback.
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      document.getElementById("auth-error").textContent = apiErrorMessage(data, "Something went wrong");
+      return;
+    }
+    // The actual session token isn't in this response body at all - it
+    // arrived as an httpOnly Set-Cookie header on the response above,
+    // which this fetch() already accepted (same-origin). role is all the
+    // body carries now, just enough to route to the right view immediately.
+    role = data.role;
+    onLoggedIn();
+  } catch (e) {
+    document.getElementById("auth-error").textContent = "Couldn't reach the server - check your connection and try again.";
   }
-  // The actual session token isn't in this response body at all - it
-  // arrived as an httpOnly Set-Cookie header on the response above,
-  // which this fetch() already accepted (same-origin). role is all the
-  // body carries now, just enough to route to the right view immediately.
-  role = data.role;
-  onLoggedIn();
 }
 
 async function logout() {
@@ -744,7 +789,7 @@ async function openScenarioDetail(id) {
     ${isDraft ? `
       <div class="row">
         <button onclick="publishScenario(${scenario.id})">Publish</button>
-        <button onclick="deleteScenario(${scenario.id})">Delete draft</button>
+        <button class="btn-danger" onclick="deleteScenario(${scenario.id})">Delete draft</button>
       </div>
     ` : ""}
     <p id="scenario-detail-status" class="muted"></p>
@@ -1095,7 +1140,7 @@ async function loadCandidates() {
             <tr>
               <td>${escapeHtml(c.email)} ${c.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}</td>
               <td>
-                <select onchange="setCandidateBand(${c.id}, this.value)">
+                <select class="band-select" onchange="setCandidateBand(${c.id}, this.value)">
                   <option value="" ${!c.experience_band ? "selected" : ""}>-</option>
                   <option value="0-7" ${c.experience_band === "0-7" ? "selected" : ""}>0-7 years</option>
                   <option value="7+" ${c.experience_band === "7+" ? "selected" : ""}>7+ years</option>
@@ -1131,7 +1176,7 @@ async function uploadCandidates() {
     resultEl.innerHTML = `<p class="muted">Choose a file first.</p>`;
     return;
   }
-  resultEl.innerHTML = `<p class="muted">Uploading...</p>`;
+  resultEl.innerHTML = loadingHtml("Uploading...");
   const formData = new FormData();
   formData.append("file", input.files[0]);
   try {
@@ -1376,7 +1421,7 @@ async function loadAppearances(candidateId) {
 
 async function viewAppearance(candidateId, appearanceId) {
   const detailEl = document.getElementById("appearance-detail");
-  detailEl.innerHTML = `<p class="muted">Loading...</p>`;
+  detailEl.innerHTML = loadingHtml();
   const submissions = await api(`/hr/candidates/${candidateId}/appearances/${appearanceId}/report`);
   detailEl.innerHTML = renderSubmissionsPanels(submissions);
 }
@@ -1422,25 +1467,31 @@ async function generateCandidateSummary(id) {
 async function downloadCandidateSummaryPdf(id, email) {
   // Not api() on purpose - that helper always calls res.json(), which
   // would fail on this endpoint's binary PDF response.
-  const res = await fetch(`/hr/candidates/${id}/summary/pdf`, {
-    method: "POST",
-    headers: jsonHeaders(),
-    body: JSON.stringify({
-      round_comments: candidateSummaryData.round_comments,
-      final_summary: candidateSummaryData.final_summary,
-    }),
-  });
-  if (!res.ok) {
-    alert("Couldn't generate the PDF - try again.");
-    return;
+  try {
+    // fetch() itself can reject (network failure) before there's even a
+    // response to check .ok on - same gap login() had, same fix.
+    const res = await fetch(`/hr/candidates/${id}/summary/pdf`, {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({
+        round_comments: candidateSummaryData.round_comments,
+        final_summary: candidateSummaryData.final_summary,
+      }),
+    });
+    if (!res.ok) {
+      alert("Couldn't generate the PDF - try again.");
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${email.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("Couldn't reach the server - check your connection and try again.");
   }
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${email.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
-  a.click();
-  URL.revokeObjectURL(url);
 }
 
 function renderRound4Report(s) {
@@ -1868,15 +1919,83 @@ function renderRoundView(box, n, state) {
 // later so the CSS transition actually has a "before" state to animate
 // from; closing reverses that and waits out the transition before
 // removing the node, so it fades instead of slamming away.
+// Every real, visible, non-disabled control inside a modal - the set
+// Tab is allowed to cycle through while the modal is open (see
+// openModalOverlay's trap handler below). offsetParent === null is the
+// standard cheap "is this actually rendered" check (catches
+// display:none - not currently used inside any modal here, but a
+// correct trap has to filter for it regardless).
+function _modalFocusableElements(box) {
+  return Array.from(box.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+    .filter((el) => !el.disabled && el.offsetParent !== null);
+}
+
+// WAI-ARIA dialog pattern - the three things a hand-rolled modal has to
+// implement itself that a Radix/shadcn Dialog would give for free:
+// role="dialog"+aria-modal so assistive tech knows the rest of the page
+// is inert, focus moving INTO the dialog on open (not left stranded on
+// whatever triggered it, now hidden behind the scrim), and Tab trapped
+// inside it so a keyboard user can never tab out to the inert page
+// behind it. closeModalOverlay below restores focus back to the
+// trigger on close - the other half of this same pattern.
 function openModalOverlay(overlay) {
   document.body.appendChild(overlay);
   requestAnimationFrame(() => requestAnimationFrame(() => overlay.classList.add("modal-open")));
+
+  const box = overlay.querySelector(".modal-box");
+  if (!box) return;
+
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  // Every .modal-box here happens to lead with an <h3> - reused as the
+  // dialog's accessible name rather than asking each call site to name
+  // its own modal a second time.
+  const heading = box.querySelector("h3");
+  if (heading) {
+    if (!heading.id) heading.id = `modal-heading-${Math.random().toString(36).slice(2, 8)}`;
+    box.setAttribute("aria-labelledby", heading.id);
+  }
+
+  overlay._previouslyFocused = document.activeElement;
+  const focusable = _modalFocusableElements(box);
+  if (focusable.length > 0) {
+    focusable[0].focus();
+  } else {
+    // Defensive only - every modal in this app has at least one real
+    // button, so this path shouldn't actually trigger; tabindex="-1"
+    // lets the box itself take focus if a future modal somehow doesn't.
+    box.tabIndex = -1;
+    box.focus();
+  }
+
+  overlay._trapKeydown = (e) => {
+    if (e.key !== "Tab") return;
+    const els = _modalFocusableElements(box);
+    if (els.length === 0) { e.preventDefault(); return; }
+    const first = els[0];
+    const last = els[els.length - 1];
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+  overlay.addEventListener("keydown", overlay._trapKeydown);
 }
 
 function closeModalOverlay(id) {
   const overlay = document.getElementById(id);
   if (!overlay) return;
   overlay.classList.remove("modal-open");
+  if (overlay._trapKeydown) overlay.removeEventListener("keydown", overlay._trapKeydown);
+  // Send focus back to whatever had it before this modal opened (e.g.
+  // the button that triggered it) rather than leaving it stranded on an
+  // element that's about to be removed from the DOM entirely.
+  if (overlay._previouslyFocused && document.body.contains(overlay._previouslyFocused)) {
+    overlay._previouslyFocused.focus();
+  }
   // Tracked on the element itself so a re-open during this 200ms fade
   // (see showFsOverlay) can cancel it - otherwise the delayed remove()
   // still fires and deletes an overlay that was just reopened.
@@ -2716,7 +2835,7 @@ function selectMockupScreen(idPrefix, index) {
 }
 
 async function renderRound4View(box) {
-  box.innerHTML = `<p class="muted">Loading...</p>`;
+  box.innerHTML = loadingHtml();
   try {
     round4State = await api("/candidate/round/4/state");
   } catch (e) {

@@ -1,3 +1,19 @@
+/* ============================================================
+   Design tokens
+   ------------------------------------------------------------
+   Dark is the default palette (":root", no attribute needed) so a
+   blocked/slow theme-init script still renders correctly - see the
+   inline script in index.html's <head> that sets [data-theme] before
+   first paint. Light overrides live in the [data-theme="light"] block
+   below and re-declare every token dark declares, nothing more.
+
+   Button/text colors for the good/bad/warn/accent semantics are kept
+   as separate tokens from their "soft" tint and border uses (see the
+   accent-button note below) - a color picked for a 3:1 border/tint
+   threshold is routinely too light for 4.5:1 text-on-fill, so the two
+   can't share one value.
+   ============================================================ */
+
 :root {
   --bg: #0a0c10;
   --surface: #10131a;
@@ -9,32 +25,127 @@
   --text: #eceef2;
   --text-dim: #c2c7d1;
   --muted: #8a92a3;
+
   --accent: #5b8cff;
   --accent-strong: #4372e6;
   --accent-soft: rgba(91, 140, 255, 0.13);
-  /* Button-specific shades, darker than --accent: white text on --accent
-     itself is only 3.16:1, below WCAG AA's 4.5:1 for normal-size text -
-     even --accent-strong (4.39:1) falls just short. --accent-button is
-     darkened further to clear AA with real margin (4.65:1); --accent-
-     button-hover darker still for visible hover feedback (5.45:1).
-     --accent/--accent-strong stay as-is for borders, links, focus rings,
-     and nav highlights, which only need the looser 3:1 non-text
-     threshold. */
+  /* White text on --accent itself is only 3.16:1, below WCAG AA's
+     4.5:1 for normal-size text - even --accent-strong (4.39:1) falls
+     just short. --accent-button is darkened further to clear AA with
+     real margin (4.65:1); --accent-button-hover darker still for
+     visible hover feedback (5.45:1). --accent/--accent-strong stay as
+     they are for borders, links, focus rings, and nav highlights,
+     which only need the looser 3:1 non-text threshold. */
   --accent-button: #406edf;
   --accent-button-hover: #3a64ca;
+  --accent-button-foreground: white;
+
   --good: #3ecf8e;
   --good-soft: rgba(62, 207, 142, 0.14);
   --bad: #f0616a;
   --bad-soft: rgba(240, 97, 106, 0.14);
   --warn: #e6c766;
+  --warn-soft: rgba(230, 199, 102, 0.14);
+
+  /* Same reasoning as --accent-button: a red/amber picked to read well
+     as text on a dark surface is usually too light for white-on-fill
+     buttons, so destructive/warning buttons get their own darker
+     shade rather than reusing --bad/--warn directly. */
+  --bad-button: #c53341;
+  --bad-button-hover: #ab2836;
+  --bad-button-foreground: white;
+
+  --glow-1: rgba(91, 140, 255, 0.11);
+  --glow-2: rgba(139, 91, 255, 0.09);
+  --topbar-bg: rgba(10, 12, 16, 0.82);
+  --modal-scrim: rgba(5, 6, 9, 0.72);
+
   --radius-sm: 7px;
   --radius-md: 11px;
   --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
   --rail-width: 268px;
+  --rail-width-condensed: 84px;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.24);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.28);
   --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.4);
   --ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+
+  /* 4px spacing scale - used for structural padding/gaps below. Small
+     one-off nudges (0.05rem-style optical corrections) stay literal. */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* Type scale. Body text stays close to the previous 14.5px density
+     deliberately - this is a dense, data-heavy console, not a content
+     site, and a looser scale would mean less visible per screen. */
+  --text-xs: 0.6875rem;   /* 11px - eyebrows, uppercase labels */
+  --text-sm: 0.8125rem;   /* 13px - meta, table cells */
+  --text-base: 0.875rem;  /* 14px - body */
+  --text-md: 0.9375rem;   /* 15px */
+  --text-lg: 1.0625rem;   /* 17px - card/panel titles */
+  --text-xl: 1.25rem;     /* 20px - page title */
+  --text-2xl: 1.5rem;     /* 24px - large metrics */
+
+  /* IBM Plex Sans/Mono (loaded in index.html <head>) share the same
+     design family and x-height, so UI chrome and the data/code it
+     surrounds (scores, timers, IDs, terminal output) read as one
+     coherent voice instead of a body font awkwardly abutting whatever
+     monospace the OS happens to ship. Both fall back to solid system
+     stacks if the font link is blocked or slow. */
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, "Cascadia Code", monospace;
+}
+
+:root[data-theme="light"] {
+  --bg: #f5f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef0f5;
+  --panel: #ffffff;
+  --panel-hover: #f3f5f9;
+  --border: #d7dbe3;
+  --border-soft: #e6e9ef;
+  --text: #12141a;
+  --text-dim: #454b58;
+  --muted: #5a6272;
+
+  --accent: #3457d1;
+  --accent-strong: #2748ad;
+  --accent-soft: rgba(52, 87, 209, 0.08);
+  /* White on #3457d1 clears AA with room (~6.7:1); the hover shade goes
+     darker still, same directional pattern as the dark theme above. */
+  --accent-button: #3457d1;
+  --accent-button-hover: #2748ad;
+  --accent-button-foreground: white;
+
+  --good: #157a4b;
+  --good-soft: rgba(21, 122, 75, 0.1);
+  --bad: #b42318;
+  --bad-soft: rgba(180, 35, 24, 0.09);
+  --warn: #92400e;
+  --warn-soft: rgba(217, 119, 6, 0.12);
+
+  --bad-button: #b42318;
+  --bad-button-hover: #8f1c13;
+  --bad-button-foreground: white;
+
+  --glow-1: rgba(52, 87, 209, 0.05);
+  --glow-2: rgba(139, 91, 255, 0.045);
+  --topbar-bg: rgba(255, 255, 255, 0.82);
+  --modal-scrim: rgba(15, 18, 26, 0.45);
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 8px 20px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 24px 56px rgba(16, 24, 40, 0.16);
 }
 
 * { box-sizing: border-box; }
@@ -43,19 +154,20 @@ html, body { height: 100%; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  font-size: 14.5px;
+  font-size: var(--text-base);
   letter-spacing: -0.005em;
 }
 
-h1, h2, h3, h4, h5 { margin: 0 0 0.5rem; font-weight: 600; letter-spacing: -0.01em; color: var(--text); }
-h3 { font-size: 1rem; }
-h4 { font-size: 0.92rem; }
-h5 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; margin-top: 1rem; }
-p { margin: 0 0 0.6rem; line-height: 1.6; color: var(--text-dim); }
+h1, h2, h3, h4, h5 { margin: 0 0 var(--space-2); font-weight: 600; letter-spacing: -0.01em; color: var(--text); font-family: var(--font-sans); }
+h1 { font-size: var(--text-xl); }
+h3 { font-size: var(--text-lg); }
+h4 { font-size: var(--text-md); }
+h5 { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; margin-top: var(--space-4); }
+p { margin: 0 0 var(--space-3); line-height: 1.6; color: var(--text-dim); }
 /* Scenario descriptions (especially round 2's bug reports) are often
    multi-paragraph HR-authored text - preserve the line breaks HR typed
    instead of collapsing everything into one run-on line. */
@@ -68,13 +180,27 @@ p:empty { display: none; margin: 0; }
 
 .hidden { display: none !important; }
 
+/* Visually hidden but still reachable by screen readers - used for
+   labels whose text would be redundant on screen next to a clear
+   placeholder (the login fields), while still giving the input a real
+   accessible name instead of relying on placeholder alone. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Thin, unobtrusive scrollbars everywhere (webkit) - default chunky
-   scrollbars are one of the fastest tells of an unpolished dark UI. */
+   scrollbars are one of the fastest tells of an unpolished UI. */
 * { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
 *::-webkit-scrollbar { width: 8px; height: 8px; }
 *::-webkit-scrollbar-track { background: transparent; }
 *::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }
-*::-webkit-scrollbar-thumb:hover { background: #313848; }
+*::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 
 /* ---- Login screen ---- */
 
@@ -83,10 +209,10 @@ p:empty { display: none; margin: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
+  padding: var(--space-6);
   background:
-    radial-gradient(circle at 15% 15%, rgba(91, 140, 255, 0.11), transparent 42%),
-    radial-gradient(circle at 85% 85%, rgba(139, 91, 255, 0.09), transparent 42%),
+    radial-gradient(circle at 15% 15%, var(--glow-1), transparent 42%),
+    radial-gradient(circle at 85% 85%, var(--glow-2), transparent 42%),
     var(--bg);
 }
 
@@ -103,23 +229,36 @@ p:empty { display: none; margin: 0; }
 .auth-brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   margin-bottom: 1.75rem;
 }
 
 .field-group {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  margin-bottom: 1.1rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
 }
 .field-group input { margin-bottom: 0; }
 
 .error-text {
   color: var(--bad);
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   min-height: 1.2em;
-  margin: 0.75rem 0 0;
+  margin: var(--space-3) 0 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.error-text:not(:empty)::before {
+  content: "";
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+  margin-top: 0.15em;
+  border-radius: 50%;
+  background: var(--bad);
+  -webkit-mask: radial-gradient(circle at center, transparent 0, transparent 3px, black 3.5px) content-box;
+  mask: radial-gradient(circle at center, transparent 0, transparent 3px, black 3.5px) content-box;
 }
 
 /* ---- Brand mark (reused in login card + rail) ---- */
@@ -134,15 +273,16 @@ p:empty { display: none; margin: 0; }
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.76rem;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
   letter-spacing: 0;
   color: white;
   box-shadow: 0 4px 14px rgba(91, 140, 255, 0.35);
 }
 
 .brand-text { display: flex; flex-direction: column; line-height: 1.3; }
-.brand-text strong { font-size: 0.92rem; font-weight: 700; }
-.brand-text span { font-size: 0.68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+.brand-text strong { font-size: var(--text-md); font-weight: 700; }
+.brand-text span { font-size: var(--text-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 
 /* ---- App shell: fixed-height left rail + scrollable main column ---- */
 
@@ -160,17 +300,18 @@ p:empty { display: none; margin: 0; }
   border-right: 1px solid var(--border-soft);
   display: flex;
   flex-direction: column;
+  transition: width 0.18s var(--ease);
 }
 
 .rail-brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   padding: 1.35rem 1.35rem 1.15rem;
 }
 
 .rail-nav {
-  padding: 0.5rem 0.85rem;
+  padding: var(--space-2) 0.85rem;
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
@@ -180,27 +321,27 @@ p:empty { display: none; margin: 0; }
 .rail-nav:empty { display: none; }
 
 .rail-section-label {
-  font-size: 0.66rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
-  padding: 1rem 0.6rem 0.4rem;
+  padding: var(--space-4) 0.6rem 0.4rem;
 }
 
 .rail-footer {
   margin-top: auto;
-  padding: 1rem 1.35rem;
+  padding: var(--space-4) 1.35rem;
   border-top: 1px solid var(--border-soft);
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: var(--space-3);
 }
 
 /* Identity block: avatar + email/role stack, side by side. Stacked
-   above a full-width logout button (not crammed into one row with it) -
-   an email is too long to share a row with a button at this rail width
-   without wrapping badly. */
+   above the theme toggle and a full-width logout button (not crammed
+   into one row with them) - an email is too long to share a row with
+   a button at this rail width without wrapping badly. */
 .rail-user {
   display: flex;
   align-items: center;
@@ -218,7 +359,7 @@ p:empty { display: none; margin: 0; }
   align-items: center;
   justify-content: center;
   font-weight: 700;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   color: white;
 }
 
@@ -230,7 +371,7 @@ p:empty { display: none; margin: 0; }
 }
 
 .rail-user-email {
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text);
   overflow: hidden;
@@ -242,7 +383,7 @@ p:empty { display: none; margin: 0; }
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   text-transform: capitalize;
   color: var(--muted);
 }
@@ -254,6 +395,27 @@ p:empty { display: none; margin: 0; }
   flex-shrink: 0;
 }
 
+/* Light/dark switch - lives in the rail footer next to Log out. Both
+   icons are always in the DOM; only one is visible per theme (see the
+   [data-theme] rules below), so no JS is needed to swap markup. */
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 0.5rem 0.8rem;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.theme-toggle-btn:hover { background: var(--panel-hover); border-color: var(--border); color: var(--text); box-shadow: none; }
+.theme-icon { flex-shrink: 0; }
+.theme-icon-moon { display: none; }
+:root[data-theme="light"] .theme-icon-sun { display: none; }
+:root[data-theme="light"] .theme-icon-moon { display: inline-block; }
+
 .app-main {
   flex: 1;
   min-width: 0;
@@ -262,7 +424,7 @@ p:empty { display: none; margin: 0; }
   display: flex;
   flex-direction: column;
   background:
-    radial-gradient(circle at 100% 0%, rgba(91, 140, 255, 0.05), transparent 30%),
+    radial-gradient(circle at 100% 0%, var(--glow-1), transparent 30%),
     var(--bg);
 }
 
@@ -270,14 +432,14 @@ p:empty { display: none; margin: 0; }
   position: sticky;
   top: 0;
   z-index: 5;
-  background: rgba(10, 12, 16, 0.82);
+  background: var(--topbar-bg);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-soft);
   padding: 1.35rem 2.25rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1.25rem;
+  gap: var(--space-5);
   flex-wrap: wrap;
 }
 
@@ -290,10 +452,10 @@ p:empty { display: none; margin: 0; }
 /* Overrides .app-topbar p's muted color below (higher specificity via
    the extra .timer class) - the countdown needs its own accent/critical
    coloring, not the topbar's default muted paragraph color. */
-.app-topbar .timer { flex-shrink: 0; font-size: 1.2rem; color: var(--accent); }
+.app-topbar .timer { flex-shrink: 0; font-size: var(--text-lg); color: var(--accent); }
 
 .app-topbar .eyebrow {
-  font-size: 0.68rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -301,22 +463,50 @@ p:empty { display: none; margin: 0; }
   margin-bottom: 0.3rem;
 }
 
-.app-topbar h1 { font-size: 1.32rem; margin-bottom: 0.2rem; }
+.app-topbar h1 { font-size: var(--text-xl); margin-bottom: 0.2rem; }
 .app-topbar p { margin: 0; color: var(--muted); }
 
 .app-content {
   flex: 1;
   width: 100%;
   max-width: 1440px;
-  padding: 2rem 2.25rem 3.5rem;
+  padding: var(--space-8) 2.25rem 3.5rem;
+}
+
+@media (max-width: 1024px) {
+  /* Condensed rail: chips + icons only, labels tucked away - keeps
+     the primary nav reachable without the horizontal-wrap layout
+     below, which only makes sense once there's no room for a rail at
+     all. */
+  :root { --rail-width: var(--rail-width-condensed); }
+  .rail-brand { padding: 1.1rem 0.9rem; justify-content: center; }
+  .rail-brand .brand-text,
+  .nav-btn-copy,
+  .rail-section-label,
+  .rail-user-info,
+  #theme-toggle-label,
+  .rail-footer .btn-label {
+    display: none;
+  }
+  .nav-btn { justify-content: center; padding: 0.6rem; }
+  .rail-user { justify-content: center; }
+  .theme-toggle-btn, .rail-footer .btn-ghost { justify-content: center; padding: 0.55rem; }
 }
 
 @media (max-width: 860px) {
+  :root { --rail-width: auto; }
   .app-shell { flex-direction: column; height: auto; overflow: visible; }
   .app-rail { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .rail-brand { border-right: 1px solid var(--border-soft); }
+  .rail-brand { border-right: 1px solid var(--border-soft); justify-content: flex-start; }
+  .rail-brand .brand-text { display: flex; }
   .rail-nav { flex-direction: row; flex-wrap: wrap; overflow-y: visible; }
-  .rail-footer { margin-top: 0; border-top: none; border-left: 1px solid var(--border-soft); flex: 1 1 220px; }
+  .nav-btn-copy { display: flex; }
+  .rail-section-label { display: block; }
+  .rail-footer { margin-top: 0; border-top: none; border-left: 1px solid var(--border-soft); flex: 1 1 220px; flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .rail-user-info { display: flex; }
+  #theme-toggle-label, .rail-footer .btn-label { display: inline; }
+  .rail-user { flex: 1 1 auto; }
+  .theme-toggle-btn, .rail-footer .btn-ghost { width: auto; flex: 1 1 auto; justify-content: flex-start; padding: 0.5rem 0.8rem; }
   .app-main { height: auto; overflow-y: visible; }
   .app-topbar { position: static; }
 }
@@ -334,7 +524,7 @@ p:empty { display: none; margin: 0; }
   text-align: left;
   padding: 0.55rem 0.65rem;
   border-radius: var(--radius-sm);
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
 }
 
@@ -348,8 +538,9 @@ p:empty { display: none; margin: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.76rem;
+  font-size: var(--text-sm);
   font-weight: 700;
+  font-family: var(--font-mono);
   background: var(--surface-2);
   color: var(--muted);
   transition: background-color 0.15s var(--ease), color 0.15s var(--ease);
@@ -357,7 +548,7 @@ p:empty { display: none; margin: 0; }
 
 .nav-btn-copy { display: flex; flex-direction: column; min-width: 0; gap: 0.05rem; }
 .nav-btn-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nav-btn-note { font-size: 0.71rem; color: var(--muted); font-weight: 500; }
+.nav-btn-note { font-size: var(--text-xs); color: var(--muted); font-weight: 500; }
 
 .nav-btn.active {
   background: var(--accent-soft);
@@ -375,9 +566,9 @@ p:empty { display: none; margin: 0; }
 .card-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
+  gap: var(--space-6);
   align-items: stretch;
-  margin-bottom: 1.5rem;
+  margin-bottom: var(--space-6);
 }
 /* While a scenario's detail is open (see openScenarioDetail), "Create a
    scenario" hides so the Scenarios list isn't competing with two other
@@ -395,9 +586,19 @@ p:empty { display: none; margin: 0; }
   background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  margin-bottom: 1.5rem;
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
   box-shadow: var(--shadow-sm);
+}
+
+/* A panel's title is always its first heading - giving it a hairline
+   divider and its own rhythm reads as a real card header rather than
+   a heading that happens to sit inside a box, without needing every
+   call site that builds a panel's innerHTML to add header markup. */
+.panel > h3:first-child, .card > h3:first-child {
+  padding-bottom: var(--space-3);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
 }
 
 /* Stretched to match its row partner's height (see .card-grid) - the
@@ -416,10 +617,10 @@ p:empty { display: none; margin: 0; }
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-md);
   padding: 1.1rem 1.25rem;
-  margin-bottom: 0.85rem;
+  margin-bottom: var(--space-3);
 }
 
-.table-scroll { overflow-x: auto; margin-bottom: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--border-soft); }
+.table-scroll { overflow-x: auto; margin-bottom: var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--border-soft); }
 
 /* Generic, non-editable format example shown right above a candidate's
    own answer rows (round 1's #tc-rows, round 2's #inv-rows) or above
@@ -440,17 +641,17 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
 table { border-collapse: collapse; width: 100%; min-width: 480px; }
 
 th, td {
-  padding: 0.65rem 0.85rem;
+  padding: 0.7rem 0.9rem;
   text-align: left;
   vertical-align: top;
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   border-bottom: 1px solid var(--border-soft);
 }
 
 th {
   color: var(--muted);
   font-weight: 600;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   background: var(--surface);
@@ -460,8 +661,20 @@ tbody tr { transition: background-color 0.12s var(--ease); }
 tbody tr:hover { background: var(--panel-hover); }
 tbody tr:last-child td { border-bottom: none; }
 
+/* Scores and other pure numerals - tabular figures so a column of
+   them lines up on the decimal/ones place instead of drifting with
+   each digit's natural width, and the mono face makes a number
+   unmistakably a number next to prose in the same row. */
+td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
 td input, td select { width: 100%; margin-bottom: 0; }
 td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
+/* The candidates table's band-editing select (see loadCandidates in
+   app.js) - table auto-layout sizes this column off the short "Band"
+   header text, not the select's own "0-7 years" option text, which
+   left the selected value clipped ("0-7 yea…") even with plenty of
+   room on screen. A firm min-width forces the column wide enough. */
+.band-select { min-width: 8.5rem; }
 
 .side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 
@@ -474,15 +687,15 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   align-items: center;
   gap: 0.35rem;
   padding: 0.2rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.7rem;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.02em;
   background: var(--surface-2);
   color: var(--text-dim);
 }
 
-.badge-draft { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
+.badge-draft { background: var(--warn-soft); color: var(--warn); }
 .badge-published { background: var(--good-soft); color: var(--good); }
 .badge-published::before {
   content: "";
@@ -494,7 +707,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
    just what the assistant claims would happen (see llm_service.round4_respond). */
 .badge-pass { background: var(--good-soft); color: var(--good); }
 .badge-fail { background: var(--bad-soft); color: var(--bad); }
-.badge-partial { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
+.badge-partial { background: var(--warn-soft); color: var(--warn); }
 
 /* Round 3's execution trace - plain-English steps with their own
    pass/fail marker (so a failure is locatable to a specific step, not
@@ -503,7 +716,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
    shows code - see schemas.Round4ExecutionStep. */
 .exec-steps {
   list-style: none;
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-3);
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -513,7 +726,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   display: flex;
   align-items: flex-start;
   gap: 0.55rem;
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   color: var(--text-dim);
 }
 .exec-step-mark {
@@ -521,19 +734,19 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   width: 20px; height: 20px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   margin-top: 0.05rem;
 }
 .exec-step-pass .exec-step-mark { background: var(--good-soft); color: var(--good); }
 .exec-step-fail .exec-step-mark { background: var(--bad-soft); color: var(--bad); }
-.exec-step-partial .exec-step-mark { background: rgba(230, 199, 102, 0.14); color: var(--warn); }
+.exec-step-partial .exec-step-mark { background: var(--warn-soft); color: var(--warn); }
 
 /* A step's optional concrete data point (a field value, a status code, a
    row) - de-emphasized relative to the main execution trace: smaller,
    muted, no bottom margin, so it doesn't compete with the step list. */
-.exec-step-detail summary { font-size: 0.78rem; color: var(--muted); margin-bottom: 0.2rem; font-weight: 400; }
-.exec-step-detail { font-size: 0.82rem; color: var(--text-dim); margin-top: 0.15rem; overflow-wrap: break-word; }
+.exec-step-detail summary { font-size: var(--text-sm); color: var(--muted); margin-bottom: 0.2rem; font-weight: 400; }
+.exec-step-detail { font-size: var(--text-sm); color: var(--text-dim); margin-top: 0.15rem; overflow-wrap: break-word; }
 
 /* Trial "View as code" rendering (see app.js's showRound4Code) - a
    read-only snippet, not an editor. */
@@ -555,16 +768,16 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   display: grid;
   grid-template-columns: var(--r4c1, 0.65fr) 6px var(--r4c2, 1.5fr) 6px var(--r4c3, 1.5fr);
   align-items: start;
-  gap: 0.5rem;
+  gap: var(--space-2);
   margin-bottom: 0.85rem;
 }
 .round4-pane { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
 .round4-pane-label {
   text-transform: uppercase;
-  font-size: 0.68rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
 }
 /* The draggable divider itself - a comfortable 6px hit area with a
    slim 2px line centered inside it, so it's easy to grab without
@@ -600,8 +813,8 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
    height on the next re-render instead of respecting it. The diagonal
    hash mark is a custom-drawn affordance, not decoration for its own
    sake - the native resize grip a browser draws here is small and
-   low-contrast enough on a dark background to go unnoticed entirely,
-   which is exactly what happened before this was added. */
+   low-contrast enough to go unnoticed entirely, which is exactly what
+   happened before this was added. */
 .round4-pane-body {
   overflow: auto;
   resize: vertical;
@@ -636,42 +849,42 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 .round3-coding-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: var(--space-4);
   align-items: start;
 }
 .round3-coding-pane { display: flex; flex-direction: column; min-width: 0; }
 .round3-pane-label {
   text-transform: uppercase;
-  font-size: 0.68rem;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
 }
-.round3-pane-body { overflow-y: auto; max-height: 20rem; margin-bottom: 0.75rem; }
-.round3-coding-turn { margin-bottom: 0.75rem; }
+.round3-pane-body { overflow-y: auto; max-height: 20rem; margin-bottom: var(--space-3); }
+.round3-coding-turn { margin-bottom: var(--space-3); }
 .round3-coding-prompt { margin: 0 0 0.25rem; }
 .round3-coding-response { margin: 0; }
 .round3-coding-response-refuse { color: var(--bad); }
 .round3-coding-stderr { color: var(--bad); }
-.round3-coding-run { margin-bottom: 0.75rem; } /* HR's report run-history list - see renderRound3Report */
+.round3-coding-run { margin-bottom: var(--space-3); } /* HR's report run-history list - see renderRound3Report */
 
 /* HR report's Round 3 score breakdown (see renderRound3ScoreBreakdown) -
    one labeled bar per sub-score (correctness/precision/efficiency/
    independent judgment), so the split behind final_score reads at a
    glance rather than as four bare numbers. */
-.round3-score-breakdown { display: flex; flex-direction: column; gap: 0.5rem; }
+.round3-score-breakdown { display: flex; flex-direction: column; gap: var(--space-2); }
 .round3-score-dim { display: flex; align-items: center; gap: 0.6rem; }
-.round3-score-dim-label { flex: 0 0 9.5rem; font-size: 0.85rem; color: var(--text-dim); }
+.round3-score-dim-label { flex: 0 0 9.5rem; font-size: var(--text-md); color: var(--text-dim); }
 .round3-score-bar {
   flex: 1;
   height: 0.5rem;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--bg);
   border: 1px solid var(--border);
   overflow: hidden;
 }
-.round3-score-bar-fill { height: 100%; background: var(--accent); border-radius: 999px; }
-.round3-score-dim-value { flex: 0 0 3rem; text-align: right; font-size: 0.85rem; color: var(--text-dim); }
+.round3-score-bar-fill { height: 100%; background: var(--accent); border-radius: var(--radius-full); }
+.round3-score-dim-value { flex: 0 0 3rem; text-align: right; font-size: var(--text-md); font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-dim); }
 /* Backs up the copy/cut/contextmenu blockers on .no-copy elements (see
    renderRound3CodingLayout/round3TerminalLogHtml) - stops the candidate
    selecting terminal output to paste it back into the composer as a way
@@ -689,18 +902,18 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 
    Deliberately its own dark "console" look (black background, light
    monospace text, no card border/radius) rather than reusing
-   .code-snippet's light bordered-box style, which reads identically to
-   a real input/textarea (see the shared `input, textarea, select,
-   button` rule below) - next to the terminal-input row, output the
-   candidate can't type into and the box they actually type into looked
-   like the same kind of control. This makes read-only output visually
-   unmistakable at a glance, the same distinction a real terminal
-   window has from an OS text field. */
+   .code-snippet's bordered-box style, which - in the light theme
+   especially - would read identically to a real input/textarea (see
+   the shared `input, textarea, select, button` rule below). This makes
+   read-only output visually unmistakable at a glance, the same
+   distinction a real terminal window has from an OS text field, and
+   it's deliberately theme-independent (a code editor's embedded
+   terminal doesn't switch to a white background in light mode either). */
 .round3-terminal {
   overflow-y: auto;
   max-height: 14rem;
   min-height: 4rem;
-  margin-bottom: 0.5rem;
+  margin-bottom: var(--space-2);
   background: #14161a;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -710,8 +923,8 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace;
-  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
   color: #e2e4e8;
 }
 .round3-terminal-stdin { color: #7cd0ff; font-weight: 600; }
@@ -719,7 +932,7 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
 #round3-terminal-input-row { align-items: center; }
 #round3-terminal-input-row::before {
   content: ">";
-  font-family: ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
   color: var(--accent);
 }
@@ -735,9 +948,9 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 0.9rem 1rem;
-  margin-top: 0.5rem;
-  font-family: ui-monospace, "SF Mono", Consolas, "Cascadia Code", monospace;
-  font-size: 0.82rem;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
   color: var(--text-dim);
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -750,23 +963,24 @@ td textarea { width: 100%; min-height: 3rem; margin-bottom: 0; }
   border-left: 3px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0.7rem 0.9rem;
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   color: var(--text-dim);
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 
 .timer {
   font-weight: 700;
+  font-family: var(--font-mono);
   color: var(--accent);
-  font-size: 1.1rem;
+  font-size: var(--text-lg);
   font-variant-numeric: tabular-nums;
 }
 .timer.timer-critical { color: var(--bad); }
 
-details summary { cursor: pointer; color: var(--accent); margin-bottom: 0.5rem; font-size: 0.88rem; font-weight: 500; }
+details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--space-2); font-size: var(--text-md); font-weight: 500; }
 
 /* ---- Form controls ---- */
 
@@ -780,32 +994,81 @@ input, textarea, select, button {
   transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
 }
 
-input, textarea, select { width: 100%; margin-bottom: 0.65rem; }
+input, textarea, select { width: 100%; margin-bottom: var(--space-3); }
 
 input:focus, textarea:focus, select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
+/* Visible keyboard focus on non-form interactive elements too (nav,
+   buttons, links) - the browser default outline gets suppressed by the
+   border-radius/background combo above on some platforms, so this
+   makes sure focus is never invisible for keyboard/switch users. */
+button:focus-visible, .nav-btn:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 input::placeholder, textarea::placeholder { color: var(--muted); }
 
 textarea { min-height: 130px; resize: vertical; line-height: 1.5; }
 
-.field-row { display: flex; gap: 0.6rem; margin-bottom: 0.65rem; }
+/* A label that's a direct child of a panel/card, ahead of a full-width
+   field below it (e.g. "Scenario title" above #s-title) - small,
+   muted, uppercase, matching the eyebrow/section-label voice used
+   elsewhere so a label always reads as a label rather than another
+   line of body text. Labels inside .field-inline (below) are a
+   different, more compact case - see there. */
+.panel > label, .card > label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: var(--space-1);
+}
+
+.field-row { display: flex; gap: var(--space-3); margin-bottom: var(--space-3); flex-wrap: wrap; }
 .field-row > select { margin-bottom: 0; }
-.field-inline { display: flex; align-items: center; gap: 0.55rem; flex-shrink: 0; }
-.field-inline input { width: 5.5rem; margin-bottom: 0; }
+/* A short "label: control" pair that sits inline with other controls
+   in the same .row/.field-row (e.g. "min limit" next to a time-limit
+   input, next to a Save button) - stays a single row rather than
+   stacking, since these labels are short and the compact layout is
+   what keeps e.g. the live-scenario time-limit editor a one-line
+   affordance instead of a small form of its own. */
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+}
+.field-inline label {
+  font-size: var(--text-md);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.field-inline input, .field-inline select { margin-bottom: 0; }
+.field-inline input { width: 5.5rem; }
+/* flex-basis (not just min-width) is what matters here - without it,
+   a select can be told to shrink below the width it needs to paint
+   its own selected-option text, which some renderers don't clip
+   cleanly and instead let bleed into the label next to it. Giving
+   this a real basis means the group wraps onto its own line below
+   that width instead of being crushed. */
+.field-inline-grow { flex: 1 1 200px; min-width: 200px; }
+.field-inline-grow select { flex: 1; min-width: 0; }
 
 button {
   background: var(--accent-button);
   border: 1px solid var(--accent-button);
-  color: white;
+  color: var(--accent-button-foreground);
   cursor: pointer;
   width: auto;
   margin-bottom: 0;
   font-weight: 600;
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   padding: 0.62rem 1rem;
   transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease), transform 0.1s var(--ease), box-shadow 0.15s var(--ease);
 }
@@ -829,28 +1092,49 @@ button:disabled:hover { background: var(--surface-2); box-shadow: none; }
   border: 1px solid var(--border);
   color: var(--muted);
   padding: 0.42rem 0.8rem;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 .btn-ghost:hover { background: var(--panel-hover); border-color: var(--border); color: var(--text); box-shadow: none; }
 
-.row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+/* Neutral secondary action, next to a primary button - lower visual
+   weight than the default (accent) button without the muted, half-
+   disabled look of .btn-ghost. */
+.btn-secondary {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.btn-secondary:hover { background: var(--panel-hover); border-color: var(--border); box-shadow: none; }
 
-.muted { color: var(--muted); font-size: 0.87rem; }
+/* Destructive actions (deleting a draft, a candidate row, ...) get
+   their own color rather than the default accent blue, so "this
+   removes something" reads before the label text does. */
+.btn-danger {
+  background: var(--bad-button);
+  border-color: var(--bad-button);
+  color: var(--bad-button-foreground);
+}
+.btn-danger:hover { background: var(--bad-button-hover); border-color: var(--bad-button-hover); box-shadow: 0 4px 14px rgba(196, 51, 65, 0.28); }
 
-.score-good { color: var(--good); font-weight: 700; }
-.score-bad { color: var(--bad); font-weight: 700; }
+.row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
 
-code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.35rem; font-size: 0.85em; }
+.muted { color: var(--muted); font-size: var(--text-md); }
+
+.score-good { color: var(--good); font-weight: 700; font-family: var(--font-mono); }
+.score-bad { color: var(--bad); font-weight: 700; font-family: var(--font-mono); }
+
+code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.35rem; font-size: 0.85em; font-family: var(--font-mono); }
 
 .hint-box {
   background: var(--accent-soft);
-  border: 1px solid rgba(91, 140, 255, 0.3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-md);
   padding: 0.9rem 1.1rem;
-  margin-bottom: 0.85rem;
+  margin-bottom: var(--space-3);
   color: var(--text-dim);
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   line-height: 1.55;
 }
 
@@ -860,14 +1144,14 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
 .env-fields {
   display: grid;
   grid-template-columns: max-content 1fr;
-  gap: 0.2rem 0.75rem;
-  margin: 0.5rem 0;
+  gap: 0.2rem var(--space-3);
+  margin: var(--space-2) 0;
 }
 .env-fields dt { color: var(--muted); font-weight: 500; }
 .env-fields dd {
   margin: 0;
   color: var(--text);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
   white-space: pre-line; /* multi-line values, e.g. a list of API endpoints */
 }
@@ -886,7 +1170,7 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
 .mockup-screen {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  margin-bottom: 0.6rem;
+  margin-bottom: var(--space-2);
   background: var(--surface);
   overflow: hidden;
 }
@@ -904,9 +1188,10 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   margin-left: 0.3rem;
   background: var(--bg);
   border: 1px solid var(--border-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 0.22rem 0.75rem;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
+  font-family: var(--font-mono);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -917,9 +1202,9 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 0.6rem 0.9rem;
-  padding: 1rem;
+  padding: var(--space-4);
 }
-.mockup-el { font-size: 0.85rem; color: var(--text-dim); }
+.mockup-el { font-size: var(--text-md); color: var(--text-dim); }
 /* A label/standalone text block reads as a section heading or status
    message, not a control - forcing it onto its own line (flex-basis
    100% inside the wrapping row above) keeps it from blending into the
@@ -938,7 +1223,7 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   gap: 0.6rem;
   flex-basis: 100%;
 }
-.mockup-el-field-label { color: var(--muted); font-size: 0.76rem; font-weight: 600; flex-shrink: 0; }
+.mockup-el-field-label { color: var(--muted); font-size: var(--text-sm); font-weight: 600; flex-shrink: 0; }
 .mockup-el-field-value { color: var(--text-dim); }
 .mockup-el-button {
   background: var(--surface-2);
@@ -952,10 +1237,10 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
 .mockup-el-input {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--space-2);
   flex: 1 1 220px;
 }
-.mockup-el-caption { color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+.mockup-el-caption { color: var(--muted); font-size: var(--text-sm); white-space: nowrap; }
 .mockup-el-box {
   flex: 1;
   min-width: 0;
@@ -969,12 +1254,33 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
 .empty-state {
   border: 1px dashed var(--border);
   border-radius: var(--radius-md);
-  padding: 2rem 1.25rem;
+  padding: 2.25rem 1.5rem;
   text-align: center;
   color: var(--muted);
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   background: var(--surface);
 }
+
+/* Small inline loading indicator - replaces bare "Loading..."/
+   "Uploading..." text at the handful of call sites long enough for a
+   spinner to be worth the extra markup (see loadingHtml() in app.js). */
+.loading-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--text-md);
+  padding: var(--space-1) 0;
+}
+.spinner {
+  width: 15px; height: 15px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Tab-switch guard's passive notice (see app.js's showTabSwitchToast) -
    non-blocking, dismissible, auto-fades - never sits in front of or
@@ -989,14 +1295,14 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   z-index: 1000;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: var(--space-3);
   max-width: 28rem;
   background: var(--panel);
   border: 1px solid var(--warn);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   padding: 0.75rem 1rem;
-  font-size: 0.87rem;
+  font-size: var(--text-md);
   color: var(--text-dim);
 }
 .toast.toast-open { transform: translate(-50%, 0); opacity: 1; }
@@ -1022,8 +1328,8 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.25rem;
-  background: rgba(5, 6, 9, 0.72);
+  padding: var(--space-5);
+  background: var(--modal-scrim);
   backdrop-filter: blur(2px);
   opacity: 0;
   transition: opacity 180ms var(--ease);
@@ -1036,7 +1342,7 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
   border: 1px solid var(--bad);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  padding: 1.5rem;
+  padding: var(--space-6);
   transform: scale(0.96);
   opacity: 0;
   transition: transform 200ms var(--ease), opacity 200ms var(--ease);
@@ -1067,4 +1373,5 @@ code, pre { background: var(--surface-2); border-radius: 4px; padding: 0.1rem 0.
 @media (prefers-reduced-motion: reduce) {
   .modal-box, .modal-overlay.modal-open .modal-box { transform: none; transition: opacity 150ms ease; }
   .toast, .toast.toast-open { transform: translate(-50%, 0); transition: opacity 150ms ease; }
+  .app-rail { transition: none; }
 }
