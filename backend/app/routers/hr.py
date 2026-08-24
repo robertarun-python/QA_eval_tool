@@ -651,6 +651,7 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
     submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     aggregate_score = None
+    all_four_scored = True
     for round_number in (1, 2, 3, 4):
         submission = submissions_by_round.get(round_number)
         if submission is None:
@@ -659,14 +660,31 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
         else:
             status = submission.status.value
             final_score = submission.score.final_score if submission.score else None
+        if status != "scored":
+            all_four_scored = False
         if final_score is not None:
             aggregate_score = (aggregate_score or 0) + final_score
         tab_switch_count = submission.tab_switch_count if submission else 0
         auto_closed_reason = submission.auto_closed_reason if submission else None
         rounds.append(CandidateRoundSummary(
             round_number=round_number, status=status, final_score=final_score,
+            submitted_at=submission.submitted_at if submission else None,
             tab_switch_count=tab_switch_count, auto_closed_reason=auto_closed_reason,
         ))
+
+    # "selected"/"not_selected" only once every round is actually
+    # scored - a partial aggregate mid-assessment (or one round stuck at
+    # scoring_failed) is never a real verdict, so it stays "in_progress"
+    # until all four genuinely have a final_score. Aggregate-only against
+    # AppSettings.final_passing_score, per the app's existing convention
+    # (see the aggregate-score color-coding this same comparison already
+    # drives in app.js) - not also gated on each round's own per-round
+    # passing_score individually.
+    if all_four_scored:
+        app_settings = get_settings(db)
+        result = "selected" if (aggregate_score or 0) >= app_settings.final_passing_score else "not_selected"
+    else:
+        result = "in_progress"
 
     current_appearance = next((a for a in candidate.appearances if a.is_current), None)
     return CandidateSummaryOut(
@@ -677,6 +695,7 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
         exam_date=current_appearance.exam_date if current_appearance else None,
         aggregate_score=aggregate_score,
         reapplied_within_window=current_appearance.reapplied_within_window if current_appearance else False,
+        result=result,
     )
 
 

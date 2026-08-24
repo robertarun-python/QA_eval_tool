@@ -357,6 +357,12 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
         # (including none) is what gets scored.
 
         submission.status = RoundStatus.submitted
+        # The round's own deadline, not `now` - this check can run
+        # arbitrarily later than the actual expiry (whenever HR next
+        # views the dashboard), and `now` would misrepresent "when the
+        # candidate finished" as that later moment instead of when time
+        # genuinely ran out.
+        submission.submitted_at = deadline
         submission.auto_closed_reason = "Time limit reached without a manual submit"
         db.commit()
         db.refresh(submission)

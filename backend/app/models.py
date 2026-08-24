@@ -143,6 +143,17 @@ class Submission(Base):
     # row-creation time - this is the timer's zero point, kept
     # server-side so a page refresh can't reset the candidate's clock.
     started_at = Column(DateTime, nullable=True)
+    # Set the moment status actually transitions to "submitted" - a real
+    # submit (routers/candidate.py's 4 submit endpoints), a candidate-
+    # triggered timeout (expire_round), or a lazy server-side timeout
+    # close (scoring_service.close_expired_submissions, which backdates
+    # this to the round's own deadline rather than whenever HR happened
+    # to trigger the lazy check - see that function). NULL for anything
+    # still in_progress. This is the real "when did they finish" signal
+    # HR's dashboard needs - created_at is row-creation time (~equal to
+    # started_at, not when the round ended), and status alone carries no
+    # timestamp of its own.
+    submitted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     # Re-application handling (see CandidateAppearance): a reset moves
     # every one of the candidate's current submissions to archived=True

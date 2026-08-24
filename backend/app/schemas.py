@@ -311,6 +311,10 @@ class SubmissionOut(BaseModel):
     # Round4TestCaseOut/Round4TurnOut) are the round 4 submission.
     content: Optional[Any] = None
     started_at: Optional[datetime] = None
+    # See models.Submission.submitted_at - when this round actually
+    # finished (real submit, candidate timeout, or lazy server-side
+    # timeout close). None while still in_progress.
+    submitted_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
@@ -367,6 +371,9 @@ class CandidateRoundSummary(BaseModel):
     round_number: int
     status: str  # "not_started" | "in_progress" | "submitted" | "scored" | "scoring_failed"
     final_score: Optional[int] = None
+    # See models.Submission.submitted_at - when this specific round
+    # actually finished. None for not_started/in_progress.
+    submitted_at: Optional[datetime] = None
     # Surfaced here too (not just the drill-down report) so it's visible
     # on the first screen HR sees - see Submission.tab_switch_count.
     tab_switch_count: int = 0
@@ -382,8 +389,16 @@ class CandidateSummaryOut(BaseModel):
     # Populated only for bulk-uploaded candidates (see CandidateAppearance)
     # - None for the 3 seeded accounts, which never went through upload.
     exam_date: Optional[datetime] = None
-    aggregate_score: Optional[int] = None  # sum of the 3 rounds' final_score, out of 300 - None until at least one is scored
+    aggregate_score: Optional[int] = None  # sum of the 4 rounds' final_score, out of 400 - None until at least one is scored
     reapplied_within_window: bool = False
+    # "selected"/"not_selected" only once every round has actually been
+    # scored (a partial aggregate_score mid-assessment is not a real
+    # verdict) - "in_progress" otherwise, covering not-started, still
+    # in-progress, and a scoring_failed round blocking a final read the
+    # same way. Computed in hr.py's _build_candidate_summary against
+    # AppSettings.final_passing_score - see that function for why this
+    # lives server-side rather than being re-derived in the frontend.
+    result: Literal["selected", "not_selected", "in_progress"] = "in_progress"
 
 
 # ---- Bulk candidate upload (see routers/hr.py's POST /candidates/upload,

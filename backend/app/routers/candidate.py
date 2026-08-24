@@ -222,6 +222,7 @@ def submit_round2(
         "root_cause": payload.root_cause,
     }
     submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
     db.commit()
     db.refresh(submission)
 
@@ -468,6 +469,7 @@ def round3_coding_submit(background_tasks: BackgroundTasks, db: Session = Depend
         raise HTTPException(400, "Send at least one message before submitting.")
 
     submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
     db.commit()
     db.refresh(submission)
     background_tasks.add_task(score_submission_in_background, submission.id)
@@ -722,6 +724,7 @@ def round4_submit(
         raise HTTPException(400, "Send at least one message in a test case before submitting.")
 
     submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
     db.commit()
     db.refresh(submission)
 
@@ -831,6 +834,7 @@ def submit_round(
 
     submission.content = [row.model_dump() for row in payload.content]
     submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
     db.commit()
     db.refresh(submission)
 
@@ -978,6 +982,7 @@ def expire_round(
     # (including none) is what gets scored.
 
     submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
     submission.auto_closed_reason = "Time limit reached without a manual submit"
     db.commit()
     db.refresh(submission)
