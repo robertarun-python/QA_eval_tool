@@ -348,32 +348,24 @@ function setPageHeader(eyebrow, title, subtitle) {
 
 function renderHRRoundNav() {
   const nav = document.getElementById("hr-round-nav");
+  // HR authors rounds in any order - no done/locked state here, just
+  // which one's open right now (see the candidate nav below for the
+  // sequence-with-real-state version of this same rail language).
   nav.innerHTML = `
     <div class="rail-section-label">Author scenarios</div>
-    ${[1, 2, 3, 4].map((n) => `
-      <button class="nav-btn ${hrPage === "rounds" && n === currentHRRound ? "active" : ""}" onclick="selectHRRound(${n})">
-        <span class="nav-chip">${n}</span>
-        <span class="nav-btn-copy">
-          <span class="nav-btn-label">Round ${n}</span>
-          <span class="nav-btn-note">${ROUND_LABELS[n]}</span>
-        </span>
-      </button>
-    `).join("")}
-    <div class="rail-section-label">Reporting</div>
-    <button class="nav-btn ${hrPage === "candidates" ? "active" : ""}" onclick="selectHRPage('candidates')">
-      <span class="nav-chip">C</span>
-      <span class="nav-btn-copy">
-        <span class="nav-btn-label">Candidates</span>
-        <span class="nav-btn-note">Results dashboard</span>
-      </span>
-    </button>
-    <button class="nav-btn ${hrPage === "settings" ? "active" : ""}" onclick="selectHRPage('settings')">
-      <span class="nav-chip">S</span>
-      <span class="nav-btn-copy">
-        <span class="nav-btn-label">Settings</span>
-        <span class="nav-btn-note">Pass criteria</span>
-      </span>
-    </button>
+    <nav class="tick-rail">
+      ${[1, 2, 3, 4].map((n) => `
+        <button class="tick ${hrPage === "rounds" && n === currentHRRound ? "active" : ""}" onclick="selectHRRound(${n})">
+          <span class="tick-num">${n}</span>
+          <span class="tick-label">${ROUND_LABELS[n]}</span>
+        </button>
+      `).join("")}
+    </nav>
+    <div class="rail-divider">
+      <div class="rail-section-label">Reporting</div>
+      <button class="index-item ${hrPage === "candidates" ? "active" : ""}" onclick="selectHRPage('candidates')"><span>Candidates</span></button>
+      <button class="index-item ${hrPage === "settings" ? "active" : ""}" onclick="selectHRPage('settings')"><span>Settings</span></button>
+    </div>
   `;
 
   document.getElementById("hr-page-rounds").classList.toggle("hidden", hrPage !== "rounds");
@@ -1134,7 +1126,7 @@ async function loadCandidates() {
   box.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th><th>Aggregate</th><th></th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th><th>Aggregate</th><th>Result</th><th></th></tr></thead>
         <tbody>
           ${candidates.map((c) => `
             <tr>
@@ -1149,6 +1141,7 @@ async function loadCandidates() {
               <td>${c.exam_date ? formatDate(c.exam_date) : "-"}</td>
               ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
               <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 280) ? "score-good" : "score-bad"}">${c.aggregate_score}/400</strong>` : `<span class="muted">-</span>`}</td>
+              <td>${resultBadge(c.result)}</td>
               <td><button onclick="openCandidateDetail(${c.id})">View</button></td>
             </tr>
           `).join("")}
@@ -1156,6 +1149,19 @@ async function loadCandidates() {
       </table>
     </div>
   `;
+}
+
+// "selected"/"not_selected"/"in_progress" - see hr.py's
+// _build_candidate_summary for the actual determination (aggregate_score
+// vs AppSettings.final_passing_score, only once every round is scored).
+// Reuses the existing badge-published/badge-fail/badge-draft classes
+// (green/red/amber) rather than inventing new ones, matching the same
+// visual vocabulary published/failed/draft-status badges already use
+// elsewhere in this dashboard.
+function resultBadge(result) {
+  if (result === "selected") return `<span class="badge badge-published">Selected</span>`;
+  if (result === "not_selected") return `<span class="badge badge-fail">Not selected</span>`;
+  return `<span class="badge badge-draft">In progress</span>`;
 }
 
 async function setCandidateBand(id, band) {
@@ -1224,11 +1230,17 @@ function roundStatusCell(r) {
   const autoClosedFlag = r.auto_closed_reason
     ? ` <span class="badge badge-draft" title="${escapeHtml(r.auto_closed_reason)}">Auto-closed</span>`
     : "";
+  // Real completion timestamp (see models.Submission.submitted_at) on
+  // hover - a title attribute rather than its own table column, so the
+  // already-wide dashboard doesn't grow a column per round just for
+  // this. Only ever set once a round has actually finished, so this
+  // naturally never appears on a not_started/in_progress cell.
+  const submittedTitle = r.submitted_at ? ` title="Submitted ${formatDateTime(r.submitted_at)}"` : "";
   if (r.final_score != null) {
     const cls = r.final_score >= passingScoreForRound(r.round_number) ? "score-good" : "score-bad";
-    return `<span class="${cls}">${r.final_score}/100</span>${flag}${autoClosedFlag}`;
+    return `<span class="${cls}"${submittedTitle}>${r.final_score}/100</span>${flag}${autoClosedFlag}`;
   }
-  return `<span class="muted">${r.status.replace("_", " ")}</span>${flag}${autoClosedFlag}`;
+  return `<span class="muted"${submittedTitle}>${r.status.replace("_", " ")}</span>${flag}${autoClosedFlag}`;
 }
 
 // Shared by the live candidate-detail view and the "Past appearances"
@@ -1242,6 +1254,7 @@ function renderSubmissionsPanels(submissions) {
         ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDate).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
         ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeHtml(s.auto_closed_reason)}">Auto-closed</span>` : ""}
       </h4>
+      <p class="muted">${s.started_at ? `Started ${formatDateTime(s.started_at)}` : ""}${s.started_at && s.submitted_at ? " · " : ""}${s.submitted_at ? `Submitted ${formatDateTime(s.submitted_at)}` : ""}</p>
       ${renderScoreBlock(s)}
       ${s.round_number === 4 ? renderRound4Report(s)
         : s.round_number === 3 ? renderRound3Report(s)
@@ -1780,6 +1793,16 @@ function formatDate(iso) {
   return new Date(iso + "Z").toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
+// Date AND time - for real event timestamps (a round actually starting/
+// finishing) as opposed to formatDate's date-only use (HR's uploaded
+// exam_date, which is genuinely date-only data - see
+// candidate_upload_service._parse_exam_date's "%Y-%m-%d" format, no time
+// component exists there to show).
+function formatDateTime(iso) {
+  if (!iso) return "-";
+  return new Date(iso + "Z").toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 // ==================== Candidate ====================
 //
 // No scores, no "what did I miss", no comparison against the reference
@@ -1819,22 +1842,24 @@ async function refreshCandidateNav() {
 
 function renderCandidateRoundNav() {
   const nav = document.getElementById("candidate-round-nav");
+  // done/current/locked are the three states a candidate actually
+  // spends their time looking at - each gets its own tick treatment
+  // (checkmark / accent / dimmed) rather than one generic "active" flag.
   nav.innerHTML = `
     <div class="rail-section-label">Assessment</div>
-    ${[1, 2, 3, 4].map((n) => {
-      const done = candidateCompletedRounds.includes(n);
-      const isUnlocked = n === candidateUnlockedRound && !done;
-      const note = done ? "Submitted" : n === candidateUnlockedRound ? "In progress" : "Locked";
-      return `
-        <button class="nav-btn ${n === currentRound ? "active" : ""}" ${isUnlocked ? "" : "disabled"} onclick="loadRound(${n})">
-          <span class="nav-chip">${n}</span>
-          <span class="nav-btn-copy">
-            <span class="nav-btn-label">Round ${n}</span>
-            <span class="nav-btn-note">${note}</span>
-          </span>
-        </button>
-      `;
-    }).join("")}
+    <nav class="tick-rail">
+      ${[1, 2, 3, 4].map((n) => {
+        const done = candidateCompletedRounds.includes(n);
+        const isUnlocked = n === candidateUnlockedRound && !done;
+        const stateClass = done ? "done" : n === currentRound ? "active" : !isUnlocked ? "locked" : "";
+        return `
+          <button class="tick ${stateClass}" ${isUnlocked ? "" : "disabled"} onclick="loadRound(${n})">
+            <span class="tick-num">${done ? "&#10003;" : n}</span>
+            <span class="tick-label">${ROUND_LABELS[n]}</span>
+          </button>
+        `;
+      }).join("")}
+    </nav>
   `;
   if (currentRound >= 1 && currentRound <= 4) {
     setPageHeader("Candidate Assessment", `Round ${currentRound} · ${ROUND_LABELS[currentRound]}`, "");

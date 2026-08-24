@@ -4,15 +4,13 @@
    Approved direction: an instrument, not a dashboard. Ticks instead
    of icons, readouts instead of stat cards, hairlines instead of
    card shadows. See the "Calibration" artifact for the rationale
-   behind every decision below.
+   behind every decision below - this file is that direction made
+   real, nothing added or dropped in the translation.
 
-   Sections 1-15 are the canonical system (tokens through responsive
-   breakpoints) - new markup should be written against these classes
-   directly. Section 16 is a compatibility layer mapping the app's
-   existing class names onto the same tokens, so every page already
-   consumes this system today; each one gets migrated to the
-   canonical classes as its markup is next touched, rather than in
-   one single high-risk rewrite of every generated string at once.
+   This file stands alone for now - it is not yet linked from
+   index.html. Wiring it into the live pages is the next, separate
+   step; landing the system first means every page can be checked
+   against one finished reference instead of drifting page by page.
 
    Contents:
      1. Tokens - colour, type, spacing, radius, shadow, motion
@@ -30,7 +28,6 @@
     13. Empty / loading / error states
     14. Icons
     15. Responsive breakpoints
-    16. Legacy compatibility
    ============================================================ */
 
 
@@ -263,12 +260,14 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
 /* ============================================================
    3. LAYOUT SHELL
    ------------------------------------------------------------
-   Fixed calibration rail + sticky topbar + scrollable content.
+   Fixed calibration rail + sticky topbar + scrollable content -
+   the same three-part shell as before, restyled. Structure isn't
+   what changed; the visual language riding on it is.
    ============================================================ */
 
-.shell, .app-shell { display: flex; height: 100vh; overflow: hidden; }
+.shell { display: flex; height: 100vh; overflow: hidden; }
 
-.rail, .app-rail {
+.rail {
   width: 15.5rem;
   flex-shrink: 0;
   height: 100vh;
@@ -289,15 +288,10 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
   font-family: var(--font-mono); font-weight: 700; font-size: var(--text-xs);
 }
 .brand-text { display: flex; flex-direction: column; line-height: 1.3; }
-/* The wordmark - one of the two places Bricolage is allowed (see
-   .display-hero, section 2) - set directly rather than relying on
-   that class here, since .brand-text strong's own specificity would
-   otherwise win the font-family property and silently drop it. */
-.brand-text strong { font-family: var(--font-display); font-weight: 600; font-size: var(--text-md); color: var(--text-primary); }
+.brand-text strong { font-family: var(--font-body); font-weight: 700; font-size: var(--text-md); color: var(--text-primary); }
 .brand-text span { font-size: var(--text-xs); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; }
 
-.rail-scroll, .rail-nav { flex: 1; overflow-y: auto; padding: var(--space-tight) var(--space-compact); }
-.rail-nav:empty { display: none; }
+.rail-scroll { flex: 1; overflow-y: auto; padding: var(--space-tight) var(--space-compact); }
 
 .rail-footer {
   padding: var(--space-compact) var(--space-default);
@@ -316,9 +310,9 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
 .rail-user-role { display: flex; align-items: center; gap: 0.4rem; font-size: var(--text-xs); color: var(--text-muted); text-transform: capitalize; }
 .rail-user-role::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 
-.main, .app-main { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; background: var(--canvas); }
+.main { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; background: var(--canvas); }
 
-.topbar, .app-topbar {
+.topbar {
   position: sticky; top: 0; z-index: 5;
   background: color-mix(in srgb, var(--canvas) 88%, transparent);
   backdrop-filter: blur(8px);
@@ -326,11 +320,11 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
   padding: var(--space-default) var(--space-comfortable);
   display: flex; align-items: center; justify-content: space-between; gap: var(--space-default); flex-wrap: wrap;
 }
-.topbar h1, .app-topbar h1 { font-size: var(--text-xl); margin-bottom: 0.15rem; }
-.topbar .eyebrow, .app-topbar .eyebrow { margin-bottom: 0.3rem; color: var(--accent); }
-.topbar p, .app-topbar p { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+.topbar h1 { font-size: var(--text-xl); margin-bottom: 0.15rem; }
+.topbar .eyebrow { margin-bottom: 0.3rem; color: var(--accent); }
+.topbar p { margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
 
-.content, .app-content { flex: 1; width: 100%; max-width: 90rem; padding: var(--space-comfortable) var(--space-comfortable) var(--space-page); }
+.content { flex: 1; width: 100%; max-width: 90rem; padding: var(--space-comfortable) var(--space-comfortable) var(--space-page); }
 
 
 /* ============================================================
@@ -375,11 +369,7 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
 .tick.done .tick-label { color: var(--text-secondary); }
 .tick.done::before { background: var(--success); }
 
-/* Only .locked dims - a done round is also disabled (not
-   re-enterable) but should read as accomplished, not unavailable, so
-   dimming must not trigger off :disabled alone. */
 .tick.locked { opacity: 0.42; cursor: not-allowed; }
-.tick:disabled:not(.done):not(.locked) { cursor: not-allowed; }
 
 .rail-divider { margin-top: var(--space-compact); }
 .index-item {
@@ -400,7 +390,7 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
 /* Tablet: condense to an icon/tick-only rail - labels hide, the rail
    narrows, ticks and index markers stay (still usable, just denser). */
 @media (max-width: 68rem) {
-  .rail, .app-rail { width: 4.75rem; }
+  .rail { width: 4.75rem; }
   .rail-brand .brand-text,
   .rail-user-info,
   .rail-section-label,
@@ -414,15 +404,15 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
 
 /* Narrow: full stack, rail becomes a top row. */
 @media (max-width: 47.5rem) {
-  .shell, .app-shell { flex-direction: column; height: auto; overflow: visible; }
-  .rail, .app-rail { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; border-right: none; border-bottom: 1px solid var(--border); }
+  .shell { flex-direction: column; height: auto; overflow: visible; }
+  .rail { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; border-right: none; border-bottom: 1px solid var(--border); }
   .rail-brand .brand-text, .rail-user-info, .rail-section-label, .tick-label, .index-item span { display: flex; }
-  .rail-scroll, .rail-nav { display: flex; flex-direction: row; flex-wrap: wrap; padding: var(--space-tight); }
+  .rail-scroll { display: flex; flex-direction: row; flex-wrap: wrap; padding: var(--space-tight); }
   .tick-rail, .rail-divider { padding-left: var(--space-tight); }
   .tick-rail::before { display: none; }
   .tick::before, .index-item::before { display: none; }
-  .main, .app-main { height: auto; overflow-y: visible; }
-  .topbar, .app-topbar { position: static; }
+  .main { height: auto; overflow-y: visible; }
+  .topbar { position: static; }
 }
 
 
@@ -430,17 +420,16 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
    5. BUTTONS
    ============================================================ */
 
-.btn, button {
+.btn {
   font-family: var(--font-body); font-size: var(--text-sm); font-weight: 600;
   padding: 0.6rem 1.05rem; border-radius: var(--radius); border: 1px solid transparent;
   cursor: pointer; transition: background-color var(--duration-fast) var(--ease), border-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease), transform var(--duration-fast) var(--ease);
-  width: auto; background: var(--accent); color: var(--accent-ink); border-color: var(--accent);
 }
-.btn:active, button:active { transform: translateY(1px); }
-.btn:disabled, button:disabled { cursor: not-allowed; opacity: 0.5; }
+.btn:active { transform: translateY(1px); }
+.btn:disabled { cursor: not-allowed; opacity: 0.5; }
 
 .btn-primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
-.btn-primary:hover:not(:disabled), button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); border-color: color-mix(in srgb, var(--accent) 88%, black); }
+.btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, black); border-color: color-mix(in srgb, var(--accent) 88%, black); }
 
 .btn-secondary { background: var(--surface-interactive); color: var(--text-primary); border-color: var(--border); }
 .btn-secondary:hover:not(:disabled) { background: var(--border); }
@@ -450,7 +439,7 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
   text-decoration: underline; text-underline-offset: 3px; text-decoration-color: transparent;
   transition: text-decoration-color var(--duration-fast) var(--ease), color var(--duration-fast) var(--ease);
 }
-.btn-ghost:hover:not(:disabled) { color: var(--text-primary); text-decoration-color: var(--text-secondary); background: none; }
+.btn-ghost:hover:not(:disabled) { color: var(--text-primary); text-decoration-color: var(--text-secondary); }
 
 /* Visible at rest (tint), not only on hover/press - hover never
    fires on a touchscreen, and a destructive action can't rely on it
@@ -480,10 +469,11 @@ code { background: var(--surface-interactive); border-radius: var(--radius-sm); 
 .field-hint { font-size: var(--text-xs); color: var(--text-muted); }
 .field-error { font-size: var(--text-xs); color: var(--error); display: flex; align-items: center; gap: 0.35rem; }
 
-input, textarea, select {
+input[type="text"], input[type="email"], input[type="password"], input[type="number"],
+input[type="file"], textarea, select {
   font: inherit; font-size: var(--text-base); color: var(--text-primary);
   background: var(--surface); border: none; border-bottom: 1px solid var(--border);
-  padding: 0.55rem 0.15rem; width: 100%; margin-bottom: var(--space-compact);
+  padding: 0.55rem 0.15rem; width: 100%;
   transition: border-color var(--duration-base) var(--ease), padding-bottom var(--duration-base) var(--ease);
 }
 input::placeholder, textarea::placeholder { color: var(--text-muted); }
@@ -510,8 +500,7 @@ select {
   border: 2px solid var(--accent); padding: calc(0.55rem - 1px) calc(0.7rem - 1px);
 }
 
-.field-row { display: flex; gap: var(--space-compact); flex-wrap: wrap; align-items: flex-end; margin-bottom: var(--space-compact); }
-.field-row > select, .field-row > input { margin-bottom: 0; }
+.field-row { display: flex; gap: var(--space-compact); flex-wrap: wrap; align-items: flex-end; }
 .field-row > .field { flex: 1; min-width: 10rem; margin-bottom: 0; }
 
 
@@ -544,7 +533,6 @@ tbody tr:hover { background: var(--surface-interactive); }
 td.num, .tabular { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--text-primary); }
 
 th + th, td + td { padding-left: var(--space-compact); }
-td input, td select, td textarea { margin-bottom: 0; }
 
 /* Loading placeholder for a table's own rows - see section 13. */
 .table-skeleton td { padding: 0.9rem 0; }
@@ -555,7 +543,7 @@ td input, td select, td textarea { margin-bottom: 0; }
    8. SURFACES / CARDS
    ============================================================ */
 
-.surface, .panel {
+.surface {
   background: var(--surface); border: 1px solid var(--border);
   padding: var(--space-default); margin-bottom: var(--space-default);
 }
@@ -564,22 +552,14 @@ td input, td select, td textarea { margin-bottom: 0; }
    the actual work of reading as "floating above" everything else. */
 .surface-elevated { background: var(--surface-elevated); border: 1px solid var(--border); box-shadow: var(--shadow-elevated); }
 
-.surface > h3:first-child, .surface > h2:first-child,
-.panel > h3:first-child, .panel > h2:first-child {
+.surface > h3:first-child, .surface > h2:first-child {
   padding-bottom: var(--space-tight); margin-bottom: var(--space-tight); border-bottom: 1px solid var(--border);
 }
 
-/* .card: a surface that stretches to match a row partner's height
-   (see .surface-grid) - the description field is the one element
-   with genuinely elastic content, so it absorbs the extra height. */
-.card { margin-bottom: 0; display: flex; flex-direction: column; }
-.card textarea { flex: 1; }
+.surface-inset { background: var(--canvas); border: 1px solid var(--border); padding: var(--space-compact); margin-bottom: var(--space-tight); }
 
-.surface-inset, .panel-inset { background: var(--canvas); border: 1px solid var(--border); padding: var(--space-compact); margin-bottom: var(--space-tight); }
-
-.surface-grid, .card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-default); align-items: stretch; margin-bottom: var(--space-default); }
-@media (max-width: 62.5rem) { .surface-grid, .card-grid { grid-template-columns: 1fr; } }
-.scenarios-list-panel-full { grid-column: 1 / -1; }
+.surface-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-default); align-items: stretch; }
+@media (max-width: 62.5rem) { .surface-grid { grid-template-columns: 1fr; } }
 
 
 /* ============================================================
@@ -642,30 +622,26 @@ td input, td select, td textarea { margin-bottom: 0; }
    11. MODAL / DIALOG
    ============================================================ */
 
-.modal-scrim, .modal-overlay {
+.modal-scrim {
   position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
   padding: var(--space-default); background: var(--scrim);
   opacity: 0; transition: opacity 180ms var(--ease);
 }
-.modal-scrim.is-open, .modal-overlay.modal-open { opacity: 1; }
-.modal, .modal-box {
+.modal-scrim.is-open { opacity: 1; }
+.modal {
   width: 100%; max-width: 26rem; background: var(--surface-elevated); border: 1px solid var(--border);
   box-shadow: var(--shadow-elevated); padding: var(--space-default);
   transform: scale(0.97); opacity: 0; transition: transform 180ms var(--ease), opacity 180ms var(--ease);
 }
-.modal-scrim.is-open .modal, .modal-overlay.modal-open .modal-box { transform: scale(1); opacity: 1; }
-.modal-title, .modal-box h3 { font-family: var(--font-body); font-weight: 700; font-size: var(--text-lg); margin-bottom: var(--space-tight); color: var(--text-primary); }
-.modal-title.is-danger, .modal-box h3 { color: var(--error); }
-.modal-box.neutral h3 { color: var(--accent); }
+.modal-scrim.is-open .modal { transform: scale(1); opacity: 1; }
+.modal-title { font-family: var(--font-body); font-weight: 700; font-size: var(--text-lg); margin-bottom: var(--space-tight); }
+.modal-title.is-danger { color: var(--error); }
 .modal-body { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6; margin-bottom: var(--space-default); }
-.modal-box p { font-size: var(--text-sm); }
-.modal-box.neutral ul { margin: 0 0 var(--space-default); padding-left: 1.2rem; }
-.modal-box.neutral li { margin-bottom: 0.65rem; color: var(--text-secondary); line-height: 1.55; }
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-tight); }
 
 @media (prefers-reduced-motion: reduce) {
-  .modal-scrim, .modal, .modal-overlay, .modal-box { transition: opacity 100ms linear; }
-  .modal, .modal-box { transform: none; }
+  .modal-scrim, .modal { transition: opacity 100ms linear; }
+  .modal { transform: none; }
 }
 
 
@@ -683,16 +659,16 @@ td input, td select, td textarea { margin-bottom: 0; }
   background: var(--surface-elevated); border: 1px solid var(--border); box-shadow: var(--shadow-elevated);
   padding: 0.85rem 1.1rem; font-size: var(--text-sm); color: var(--text-secondary);
 }
-.toast.is-open, .toast.toast-open { transform: translate(-50%, 0); opacity: 1; }
-.toast-icon { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--warning); }
+.toast.is-open { transform: translate(-50%, 0); opacity: 1; }
+.toast-icon { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); }
 .toast.is-warning .toast-icon { background: var(--warning); }
 .toast.is-error .toast-icon { background: var(--error); }
 .toast.is-success .toast-icon { background: var(--success); }
 .toast-dismiss { background: none; border: none; box-shadow: none; padding: 0 0.25rem; color: var(--text-muted); font-size: 1.1rem; line-height: 1; cursor: pointer; }
-.toast-dismiss:hover { color: var(--text-primary); background: none; }
+.toast-dismiss:hover { color: var(--text-primary); }
 
 @media (prefers-reduced-motion: reduce) {
-  .toast, .toast.is-open, .toast.toast-open { transform: translate(-50%, 0); transition: opacity 120ms linear; }
+  .toast, .toast.is-open { transform: translate(-50%, 0); transition: opacity 120ms linear; }
 }
 
 
@@ -703,17 +679,14 @@ td input, td select, td textarea { margin-bottom: 0; }
 /* Empty: a dashed hairline, a short mono eyebrow, a plain sentence
    explaining what's missing, and - where there's an obvious next
    step - one action. Never a generic illustration. */
-.empty, .empty-state {
-  border-top: 1px dashed var(--border-strong); padding: var(--space-compact) 0 0;
-  text-align: left; color: var(--text-secondary); font-size: var(--text-sm); background: none;
-}
+.empty { border-top: 1px dashed var(--border-strong); padding-top: var(--space-compact); }
 .empty-eyebrow { font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); margin-bottom: var(--space-hairline); }
-.empty p, .empty-state { color: var(--text-secondary); font-size: var(--text-sm); max-width: 34ch; margin-bottom: var(--space-compact); }
+.empty p { color: var(--text-secondary); font-size: var(--text-sm); max-width: 34ch; margin-bottom: var(--space-compact); }
 
 /* Loading: the same "calibration sweep" motif at two sizes - a
    thin animated highlight travels a track, rather than a spinner.
    Section-level (.sweep) for a panel/page still loading; inline
-   (.loading-inline) replaces bare "Loading..." text next to a label. */
+   (.sweep-inline) replaces bare "Loading..." text next to a label. */
 .sweep { height: 2px; background: var(--border); position: relative; overflow: hidden; margin: var(--space-tight) 0; }
 .sweep::after {
   content: ""; position: absolute; top: 0; left: -30%; width: 30%; height: 100%; background: var(--accent);
@@ -721,16 +694,6 @@ td input, td select, td textarea { margin-bottom: 0; }
 }
 .loading-inline { display: flex; align-items: center; gap: var(--space-tight); color: var(--text-muted); font-size: var(--text-sm); }
 .loading-inline .sweep { width: 3rem; margin: 0; }
-/* .spinner - the pre-existing inline loading mark (see loadingHtml()
-   in app.js) - kept and re-tokened rather than requiring every call
-   site to switch to .sweep; both read as "still working," and a
-   rotating ring is exactly as legible next to a short status word. */
-.spinner {
-  width: 15px; height: 15px; flex-shrink: 0; border-radius: 50%;
-  border: 2px solid var(--border); border-top-color: var(--accent);
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
 @keyframes sweep { 0% { left: -30%; } 100% { left: 100%; } }
 @media (prefers-reduced-motion: reduce) {
   .sweep::after { animation: none; left: 0; width: 100%; opacity: 0.6; }
@@ -748,14 +711,11 @@ td input, td select, td textarea { margin-bottom: 0; }
 @keyframes shimmer { 100% { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .skeleton-block::after { animation: none; display: none; } }
 
-/* Error: an inline field message (.error-text/.field-error) for one
-   control, or a banner for a whole form/section. The banner's left
-   border is a semantic urgency signal, not the decorative accent-
-   bar-on-card pattern this system otherwise avoids. */
-.error-text, .field-error {
-  color: var(--error); font-size: var(--text-sm); min-height: 1.2em; margin: var(--space-tight) 0 0;
-  display: flex; align-items: flex-start; gap: 0.4rem;
-}
+/* Error: an inline field message (see .field-error, section 6) for
+   one control, or a banner for a whole form/section. The banner's
+   left border is a semantic urgency signal, not the decorative
+   accent-bar-on-card pattern this system otherwise avoids - it only
+   ever appears colour-matched to what it's reporting. */
 .banner {
   display: flex; gap: var(--space-tight); align-items: flex-start;
   background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--text-muted);
@@ -792,203 +752,7 @@ td input, td select, td textarea { margin-bottom: 0; }
    ============================================================ */
 
 @media (max-width: 31.25rem) {
-  .content, .app-content { padding: var(--space-default) var(--space-compact) var(--space-comfortable); }
-  .topbar, .app-topbar { padding: var(--space-compact) var(--space-compact); }
+  .content { padding: var(--space-default) var(--space-compact) var(--space-comfortable); }
+  .topbar { padding: var(--space-compact) var(--space-compact); }
   :root { --text-3xl: 2rem; --text-2xl: 1.5rem; }
 }
-
-
-/* ============================================================
-   16. LEGACY COMPATIBILITY
-   ------------------------------------------------------------
-   The app's generated markup (app.js) is migrated to the canonical
-   classes above incrementally, not in one pass - this section keeps
-   every existing page fully on-system in the meantime. Nothing here
-   is a one-off: each rule maps an existing class straight onto the
-   same tokens the canonical components use.
-   ============================================================ */
-
-/* ---- Login screen ---- */
-.auth-screen {
-  min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: var(--space-default);
-  background: var(--canvas);
-}
-.auth-card { width: 100%; max-width: 22rem; background: var(--surface); border: 1px solid var(--border); padding: 2.25rem 2rem; }
-.auth-brand { display: flex; align-items: center; gap: var(--space-tight); margin-bottom: var(--space-comfortable); }
-.field-group { display: flex; flex-direction: column; gap: var(--space-tight); margin-bottom: var(--space-compact); }
-.field-group input { margin-bottom: 0; }
-
-/* ---- Theme toggle ---- */
-.theme-toggle-btn {
-  display: flex; align-items: center; gap: 0.55rem; width: 100%; background: none; border: 1px solid var(--border);
-  color: var(--text-secondary); padding: 0.5rem 0.8rem; font-size: var(--text-sm); font-weight: 500;
-}
-.theme-toggle-btn:hover { background: var(--surface-interactive); color: var(--text-primary); }
-.theme-icon { flex-shrink: 0; }
-.theme-icon-moon { display: none; }
-:root[data-theme="light"] .theme-icon-sun { display: none; }
-:root[data-theme="light"] .theme-icon-moon { display: inline-block; }
-
-/* ---- Badges (old pill vocabulary -> tag/status tokens) ---- */
-.badge {
-  display: inline-flex; align-items: center; gap: 0.35rem; font-family: var(--font-mono); font-size: var(--text-xs);
-  font-weight: 500; padding: 0.2rem 0.55rem; border: 1px solid var(--border-strong); color: var(--text-secondary);
-}
-.badge-draft { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
-.badge-published { color: var(--success); border-color: var(--success); background: var(--success-soft); }
-.badge-published::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--success); }
-.badge-pass { color: var(--success); border-color: var(--success); background: var(--success-soft); }
-.badge-fail { color: var(--error); border-color: var(--error); background: var(--error-soft); }
-.badge-partial { color: var(--warning); border-color: var(--warning); background: var(--warning-soft); }
-
-/* ---- Status text used inline (round scores, "not started" ...) ---- */
-.muted { color: var(--text-muted); font-size: var(--text-md); }
-.score-good { color: var(--success); font-weight: 700; font-family: var(--font-mono); }
-.score-bad { color: var(--error); font-weight: 700; font-family: var(--font-mono); }
-.timer { font-weight: 700; font-family: var(--font-mono); color: var(--accent); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
-.timer.timer-critical { color: var(--error); }
-
-/* ---- Layout helpers already used throughout app.js ---- */
-.row { display: flex; gap: var(--space-tight); flex-wrap: wrap; margin-bottom: var(--space-tight); }
-.side-by-side { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-compact); }
-@media (max-width: 43.75rem) { .side-by-side { grid-template-columns: 1fr; } }
-.field-inline { display: flex; align-items: center; gap: 0.55rem; flex-shrink: 0; }
-.field-inline label, .field-inline .muted { font-size: var(--text-md); color: var(--text-muted); white-space: nowrap; }
-.field-inline input, .field-inline select { margin-bottom: 0; }
-.field-inline input { width: 5.5rem; }
-.field-inline-grow { flex: 1 1 200px; min-width: 200px; }
-.field-inline-grow select { flex: 1; min-width: 0; }
-.band-select { min-width: 8.5rem; }
-.panel > label, .card > label { display: block; font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-muted); margin-bottom: var(--space-hairline); }
-
-/* Format example rows (round 1/2's "Ex" row) - visually distinct so
-   never mistaken for a candidate's own row. */
-tr.example-row { background: var(--surface-interactive); font-style: italic; color: var(--text-muted); }
-tr.example-row td { border-bottom: 1px dashed var(--border); }
-.panel-inset.example-row { background: var(--surface-interactive); border-style: dashed; }
-.example-note { font-style: italic; }
-
-.hint-box {
-  background: var(--accent-soft); border: 1px solid var(--border); border-left: 3px solid var(--accent);
-  padding: 0.9rem 1.1rem; margin-bottom: var(--space-compact); color: var(--text-secondary); font-size: var(--text-md); line-height: 1.55;
-}
-/* HR-authored scenario descriptions preserve the line breaks HR
-   typed, instead of collapsing multi-paragraph text into one line. */
-.scenario-description { white-space: pre-line; }
-
-/* Small tab-switcher pills (round 3/4's mockup-screen picker, see
-   selectMockupScreen in app.js) - the main rail nav uses .tick/
-   .index-item instead; this is the one place a compact horizontal
-   tab still makes sense. */
-.nav-btn {
-  display: inline-flex; align-items: center; gap: 0.4rem; background: none; border: 1px solid var(--border);
-  color: var(--text-secondary); padding: 0.35rem 0.65rem; font-size: var(--text-xs); font-family: var(--font-mono);
-  cursor: pointer; margin-right: 0.35rem; margin-bottom: 0.35rem;
-}
-.nav-btn:hover:not(:disabled) { background: var(--surface-interactive); }
-.nav-btn.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text-primary); }
-.nav-btn-chip, .nav-chip { font-weight: 700; }
-.nav-btn-copy { display: inline-flex; flex-direction: column; }
-.nav-btn-label { font-weight: 600; }
-.nav-btn-note { font-size: var(--text-xs); color: var(--text-muted); }
-.nav-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-.env-fields { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem var(--space-compact); margin: var(--space-tight) 0; }
-.env-fields dt { color: var(--text-muted); font-weight: 500; }
-.env-fields dd { margin: 0; color: var(--text-primary); font-family: var(--font-mono); font-size: 0.85em; white-space: pre-line; }
-
-.observed-box {
-  background: var(--canvas); border: 1px solid var(--border); border-left: 3px solid var(--border-strong);
-  padding: 0.7rem 0.9rem; font-size: var(--text-md); color: var(--text-secondary); display: flex; align-items: baseline; gap: var(--space-tight); flex-wrap: wrap;
-}
-.code-snippet {
-  background: var(--canvas); border: 1px solid var(--border); padding: 0.9rem 1rem; margin-top: var(--space-tight);
-  font-family: var(--font-mono); font-size: var(--text-md); color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: break-word; overflow-x: auto;
-}
-details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--space-tight); font-size: var(--text-md); font-weight: 500; }
-
-/* ---- Round 3/4 reference mockup screens ---- */
-.mockup-details summary { font-size: inherit; }
-.mockup-screen { border: 1px solid var(--border); margin-bottom: var(--space-tight); background: var(--surface); overflow: hidden; }
-.mockup-screen-chrome { display: flex; align-items: center; gap: 0.4rem; padding: 0.55rem 0.75rem; background: var(--surface-interactive); border-bottom: 1px solid var(--border); }
-.mockup-screen-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); flex-shrink: 0; }
-.mockup-screen-url { flex: 1; margin-left: 0.3rem; background: var(--canvas); border: 1px solid var(--border); padding: 0.22rem 0.75rem; font-size: var(--text-xs); font-family: var(--font-mono); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mockup-screen-body { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.6rem 0.9rem; padding: var(--space-compact); }
-.mockup-el { font-size: var(--text-md); color: var(--text-secondary); }
-.mockup-el-label, .mockup-el-text { flex-basis: 100%; color: var(--text-muted); font-weight: 600; }
-.mockup-el-field { display: flex; align-items: baseline; gap: 0.6rem; flex-basis: 100%; }
-.mockup-el-field-label { color: var(--text-muted); font-size: var(--text-sm); font-weight: 600; flex-shrink: 0; }
-.mockup-el-field-value { color: var(--text-secondary); }
-.mockup-el-button { background: var(--surface-interactive); border: 1px solid var(--border); padding: 0.45rem 0.9rem; font-weight: 600; color: var(--text-primary); }
-.mockup-el-link { color: var(--accent); text-decoration: underline; align-self: center; }
-.mockup-el-input { display: flex; align-items: center; gap: var(--space-tight); flex: 1 1 220px; }
-.mockup-el-caption { color: var(--text-muted); font-size: var(--text-sm); white-space: nowrap; }
-.mockup-el-box { flex: 1; min-width: 0; height: 1.6rem; max-width: 16rem; border: 1px solid var(--border); background: var(--surface-interactive); }
-
-/* ---- Round 3's execution trace checklist - reuses the .status dot
-   language (section 9) rather than a bespoke marker set. ---- */
-.exec-steps { list-style: none; margin: 0 0 var(--space-compact); padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
-.exec-step { display: flex; align-items: flex-start; gap: 0.55rem; font-size: var(--text-md); color: var(--text-secondary); }
-.exec-step-mark { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: var(--text-xs); font-weight: 700; margin-top: 0.05rem; }
-.exec-step-pass .exec-step-mark { background: var(--success-soft); color: var(--success); }
-.exec-step-fail .exec-step-mark { background: var(--error-soft); color: var(--error); }
-.exec-step-partial .exec-step-mark { background: var(--warning-soft); color: var(--warning); }
-.exec-step-detail summary { font-size: var(--text-sm); color: var(--text-muted); margin-bottom: 0.2rem; font-weight: 400; }
-.exec-step-detail { font-size: var(--text-sm); color: var(--text-secondary); margin-top: 0.15rem; overflow-wrap: break-word; }
-
-/* ---- Round 4's prompt|result|code trial grid ---- */
-.round4-turn-grid {
-  display: grid; grid-template-columns: var(--r4c1, 0.65fr) 6px var(--r4c2, 1.5fr) 6px var(--r4c3, 1.5fr);
-  align-items: start; gap: var(--space-tight); margin-bottom: 0.85rem;
-}
-.round4-pane { margin-bottom: 0; display: flex; flex-direction: column; min-width: 0; }
-.round4-pane-label { text-transform: uppercase; font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; margin-bottom: var(--space-tight); color: var(--text-muted); }
-.round4-col-resizer { align-self: stretch; width: 6px; cursor: col-resize; position: relative; }
-.round4-col-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: var(--border); transition: background-color var(--duration-fast) var(--ease); }
-.round4-col-resizer:hover::after { background: var(--accent); }
-.round4-pane-body {
-  overflow: auto; resize: vertical; flex-shrink: 0; min-height: 5.5rem; max-height: 34rem; padding-bottom: 0.9rem;
-  background-image: linear-gradient(135deg, transparent 0 6px, var(--text-muted) 6px 8px, transparent 8px 10px, var(--text-muted) 10px 12px, transparent 12px 14px, var(--text-muted) 14px 16px, transparent 16px);
-  background-position: bottom right; background-repeat: no-repeat; background-size: 16px 16px;
-}
-@media (max-width: 53.75rem) {
-  .round4-turn-grid { grid-template-columns: 1fr; }
-  .round4-pane-body { resize: none; max-height: none; background-image: none; }
-  .round4-col-resizer { display: none; }
-}
-
-/* ---- Round 3's conversation|code trial grid ---- */
-.round3-coding-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-compact); align-items: start; }
-.round3-coding-pane { display: flex; flex-direction: column; min-width: 0; }
-.round3-pane-label { text-transform: uppercase; font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.06em; margin-bottom: var(--space-tight); color: var(--text-muted); }
-.round3-pane-body { overflow-y: auto; max-height: 20rem; margin-bottom: var(--space-compact); }
-.round3-coding-turn { margin-bottom: var(--space-compact); }
-.round3-coding-prompt { margin: 0 0 0.25rem; }
-.round3-coding-response { margin: 0; }
-.round3-coding-response-refuse { color: var(--error); }
-.round3-coding-stderr { color: var(--error); }
-.round3-coding-run { margin-bottom: var(--space-compact); }
-.no-copy { user-select: none; -webkit-user-select: none; }
-#round3-coding-message { min-height: 4rem; }
-#round3-coding-code { min-height: 8rem; white-space: pre-wrap; }
-@media (max-width: 56.25rem) { .round3-coding-grid { grid-template-columns: 1fr; } }
-
-/* Deliberately theme-independent - a real terminal, same as a code
-   editor's own embedded console doesn't switch to a white background
-   in light mode either. */
-.round3-terminal { overflow-y: auto; max-height: 14rem; min-height: 4rem; margin-bottom: var(--space-tight); background: #14161a; border: 1px solid var(--border); padding: 0.9rem 1rem; }
-.round3-terminal-pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: var(--text-md); color: #e2e4e8; }
-.round3-terminal-stdin { color: #7cd0ff; font-weight: 600; }
-.round3-terminal-stderr { color: #ff8f8f; }
-#round3-terminal-input-row { align-items: center; }
-#round3-terminal-input-row::before { content: ">"; font-family: var(--font-mono); font-weight: 700; color: var(--accent); }
-#round3-terminal-input { flex: 1; margin-bottom: 0; }
-#round3-terminal-status { text-transform: none; font-weight: 400; letter-spacing: normal; }
-
-/* ---- Round 3 score breakdown bars -> .meter tokens ---- */
-.round3-score-breakdown { display: flex; flex-direction: column; gap: var(--space-tight); }
-.round3-score-dim { display: flex; align-items: center; gap: 0.6rem; }
-.round3-score-dim-label { flex: 0 0 9.5rem; font-size: var(--text-md); color: var(--text-secondary); }
-.round3-score-bar { flex: 1; height: 0.5rem; background: var(--canvas); border: 1px solid var(--border); overflow: hidden; }
-.round3-score-bar-fill { height: 100%; background: var(--accent); }
-.round3-score-dim-value { flex: 0 0 3rem; text-align: right; font-size: var(--text-md); font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-secondary); }
