@@ -763,6 +763,7 @@ async function openScenarioDetail(id) {
         <button onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
       </div>
     `}
+    <h4>Question</h4>
     ${formatScenarioDescription(scenario.description)}
     <h4>Reference answer ${isDraft ? "(review before publishing)" : ""}</h4>
     <div class="table-scroll">
@@ -1264,6 +1265,12 @@ function renderSubmissionsPanels(submissions) {
         ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeHtml(s.auto_closed_reason)}">Auto-closed</span>` : ""}
       </h4>
       <p class="muted">${s.started_at ? `Started ${formatDateTime(s.started_at)}` : ""}${s.started_at && s.submitted_at ? " · " : ""}${s.submitted_at ? `Submitted ${formatDateTime(s.submitted_at)}` : ""}</p>
+      ${s.scenario ? `
+        <details class="scenario-question" open>
+          <summary>Question</summary>
+          ${formatScenarioDescription(s.scenario.description)}
+        </details>
+      ` : ""}
       ${renderScoreBlock(s)}
       ${s.round_number === 4 ? renderRound4Report(s)
         : s.round_number === 3 ? renderRound3Report(s)

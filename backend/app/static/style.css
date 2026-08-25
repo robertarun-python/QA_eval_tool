@@ -922,6 +922,21 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
 }
 details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--space-tight); font-size: var(--text-md); font-weight: 500; }
 
+/* The scenario question shown above a candidate's submission in HR's
+   review/scoring view (see renderSubmissionsPanels) - open by default
+   (evaluating an answer without the question on screen is exactly the
+   friction this exists to remove), collapsible once HR has read it. A
+   hairline instead of a full surface/border keeps it from competing
+   with the score block right below it for attention. */
+.scenario-question {
+  border-top: 1px dashed var(--border-strong);
+  border-bottom: 1px dashed var(--border-strong);
+  padding: var(--space-tight) 0;
+  margin-bottom: var(--space-compact);
+}
+.scenario-question summary { margin-bottom: 0; }
+.scenario-question[open] summary { margin-bottom: var(--space-tight); }
+
 /* ---- Round 3/4 reference mockup screens ---- */
 .mockup-details summary { font-size: inherit; }
 .mockup-screen { border: 1px solid var(--border); margin-bottom: var(--space-tight); background: var(--surface); overflow: hidden; }
