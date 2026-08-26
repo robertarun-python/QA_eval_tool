@@ -60,6 +60,53 @@ class ExecutionResult:
         self.duration_ms = duration_ms
 
 
+class _PreparedRun:
+    """What run_code and start_interactive both need before they can
+    actually launch the candidate's process: either a command to run, or
+    the reason they can't (missing interpreter/compiler, or a Java
+    compile failure) - each caller maps this onto its own return shape
+    (ExecutionResult vs. InteractiveSession)."""
+
+    def __init__(self, run_cmd: list[str] | None = None, infra_error: bool = False, compile_stderr: str | None = None, compile_exit_code: int | None = None):
+        self.run_cmd = run_cmd
+        self.infra_error = infra_error
+        self.compile_stderr = compile_stderr
+        self.compile_exit_code = compile_exit_code
+
+
+def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: int, *, unbuffered_python: bool) -> _PreparedRun:
+    """Resolves `language` to a runnable command, compiling first for
+    Java. Shared by run_code (batch) and start_interactive (the
+    candidate's Run button) - the only difference between the two is
+    unbuffered_python (see start_interactive's -u flag comment)."""
+    if language == "python":
+        interpreter = [sys.executable, "-u", str(source)] if unbuffered_python else [sys.executable, str(source)]
+        return _PreparedRun(run_cmd=interpreter)
+    elif language == "javascript":
+        node = shutil.which("node")
+        if node is None:
+            return _PreparedRun(infra_error=True)
+        return _PreparedRun(run_cmd=[node, str(source)])
+    else:  # java
+        javac = shutil.which("javac")
+        java = shutil.which("java")
+        if javac is None or java is None:
+            return _PreparedRun(infra_error=True)
+        compile_proc = subprocess.run(
+            [javac, source.name], cwd=tmp_path, capture_output=True, text=True,
+            timeout=timeout_seconds,
+        )
+        if compile_proc.returncode != 0:
+            # Same "[compile]" prefix convention the old Piston
+            # integration used, so HR/candidates keep seeing a compile
+            # failure clearly distinguished from a runtime one - a real
+            # candidate-code fault, not infra_error.
+            compile_stderr = compile_proc.stderr.strip()
+            stderr = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
+            return _PreparedRun(compile_stderr=stderr, compile_exit_code=compile_proc.returncode)
+        return _PreparedRun(run_cmd=[java, "-cp", str(tmp_path), "Main"])
+
+
 def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds: int) -> tuple[str, str, int | None, bool]:
     """Runs one subprocess to completion, feeding it stdin_text and
     capturing everything - the one place that actually shells out, same
@@ -111,32 +158,12 @@ def run_code(language: str, code: str, stdin: list[str]) -> ExecutionResult:
             source = tmp_path / filename
             source.write_text(code, encoding="utf-8")
 
-            if language == "python":
-                interpreter = sys.executable
-                run_cmd = [interpreter, str(source)]
-            elif language == "javascript":
-                node = shutil.which("node")
-                if node is None:
-                    return ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
-                run_cmd = [node, str(source)]
-            else:  # java
-                javac = shutil.which("javac")
-                java = shutil.which("java")
-                if javac is None or java is None:
-                    return ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
-                compile_proc = subprocess.run(
-                    [javac, source.name], cwd=tmp_path, capture_output=True, text=True,
-                    timeout=timeout_seconds,
-                )
-                if compile_proc.returncode != 0:
-                    # Same "[compile]" prefix convention the old Piston
-                    # integration used, so HR/candidates keep seeing a
-                    # compile failure clearly distinguished from a runtime
-                    # one - a real candidate-code fault, not infra_error.
-                    compile_stderr = compile_proc.stderr.strip()
-                    stderr = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
-                    return ExecutionResult(stdout="", stderr=stderr, exit_code=compile_proc.returncode, timed_out=False, infra_error=False)
-                run_cmd = [java, "-cp", str(tmp_path), "Main"]
+            prepared = _prepare_run(language, source, tmp_path, timeout_seconds, unbuffered_python=False)
+            if prepared.infra_error:
+                return ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
+            if prepared.compile_stderr is not None:
+                return ExecutionResult(stdout="", stderr=prepared.compile_stderr, exit_code=prepared.compile_exit_code, timed_out=False, infra_error=False)
+            run_cmd = prepared.run_cmd
 
             start = time.monotonic()
             stdout, stderr, exit_code, timed_out = _run_subprocess(run_cmd, tmp_path, stdin_text, timeout_seconds)
@@ -297,42 +324,24 @@ async def start_interactive(language: str, code: str) -> InteractiveSession:
     source = tmp_path / filename
     source.write_text(code, encoding="utf-8")
 
-    if language == "python":
-        # -u: unbuffered stdout/stderr. Without it, CPython fully
-        # buffers stdout when it's a pipe rather than a real terminal -
-        # an input() prompt's text would sit in that buffer instead of
-        # actually reaching the poll loop (and the candidate) before the
-        # process blocks waiting for a reply, which would look like the
-        # program had silently hung.
-        run_cmd = [sys.executable, "-u", str(source)]
-    elif language == "javascript":
-        node = shutil.which("node")
-        if node is None:
-            tmp_dir.cleanup()
-            session.infra_error = True
-            session.exited = True
-            return session
-        run_cmd = [node, str(source)]
-    else:  # java
-        javac = shutil.which("javac")
-        java = shutil.which("java")
-        if javac is None or java is None:
-            tmp_dir.cleanup()
-            session.infra_error = True
-            session.exited = True
-            return session
-        compile_proc = subprocess.run(
-            [javac, source.name], cwd=tmp_path, capture_output=True, text=True,
-            timeout=settings.execution_timeout_seconds,
-        )
-        if compile_proc.returncode != 0:
-            tmp_dir.cleanup()
-            compile_stderr = compile_proc.stderr.strip()
-            session.stderr_buffer = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
-            session.exit_code = compile_proc.returncode
-            session.exited = True
-            return session
-        run_cmd = [java, "-cp", str(tmp_path), "Main"]
+    # unbuffered_python=True: without it, CPython fully buffers stdout
+    # when it's a pipe rather than a real terminal - an input() prompt's
+    # text would sit in that buffer instead of actually reaching the
+    # poll loop (and the candidate) before the process blocks waiting for
+    # a reply, which would look like the program had silently hung.
+    prepared = _prepare_run(language, source, tmp_path, settings.execution_timeout_seconds, unbuffered_python=True)
+    if prepared.infra_error:
+        tmp_dir.cleanup()
+        session.infra_error = True
+        session.exited = True
+        return session
+    if prepared.compile_stderr is not None:
+        tmp_dir.cleanup()
+        session.stderr_buffer = prepared.compile_stderr
+        session.exit_code = prepared.compile_exit_code
+        session.exited = True
+        return session
+    run_cmd = prepared.run_cmd
 
     try:
         # Popen itself is effectively non-blocking (it returns as soon as

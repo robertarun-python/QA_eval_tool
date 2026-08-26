@@ -389,6 +389,17 @@ class Round3Turn(Base):
 
     submission = relationship("Submission", back_populates="round3_turns")
 
+    def to_conversation_payload(self) -> dict:
+        """The shape both the live turn-generation prompt (routers/
+        candidate.py) and final scoring (services/scoring_service.py)
+        feed the LLM as conversation history - kept in one place so the
+        two call sites can never drift apart on what a turn looks like."""
+        return {
+            "turn_number": self.turn_number, "candidate_prompt": self.candidate_prompt,
+            "response_kind": self.response_kind, "response_message": self.response_message,
+            "code_after": self.code_after,
+        }
+
 
 class Round3ExecutionRun(Base):
     """Round 3 only (AI-prompted coding): one Run click's result.

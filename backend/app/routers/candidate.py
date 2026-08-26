@@ -97,6 +97,19 @@ def _live_scenario(db: Session, round_number: int, candidate: User) -> Scenario 
     )
 
 
+def _current_submission(db: Session, candidate: User, scenario: Scenario) -> Submission | None:
+    """The candidate's live (non-archived) submission for this scenario,
+    if one exists yet. Shared by every round endpoint below that needs
+    to find or check for an in-progress/submitted row - keeping this in
+    one place means a future change to what "current" means (e.g. an
+    added exclusion) only has to happen once."""
+    return (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
+        .first()
+    )
+
+
 def _max_completed_round(db: Session, candidate: User) -> int:
     """Highest round number the candidate has submitted (or scored) in
     their CURRENT cycle. 0 if none yet. Excludes archived submissions
@@ -198,11 +211,7 @@ def submit_round2(
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
 
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None:
         # Allow submitting without an explicit prior /start call too (e.g.
         # tests, or a client that just posts straight through).
@@ -240,11 +249,7 @@ def _round3_coding_scenario_and_submission(candidate: User, db: Session) -> tupl
     scenario = _live_scenario(db, 3, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for round 3 yet - check back once HR has published one.")
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None:
         raise HTTPException(404, "Round 3 hasn't been started yet - call /round/3/start first.")
     return scenario, submission
@@ -257,11 +262,7 @@ def start_round3(payload: Round3StartRequest, db: Session = Depends(get_db), can
     if scenario is None:
         raise HTTPException(404, "No published scenario for round 3 yet - check back once HR has published one.")
 
-    existing = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    existing = _current_submission(db, candidate, scenario)
     if existing is not None:
         return existing  # idempotent: same started_at, same language, same timer deadline
 
@@ -296,14 +297,7 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
 
     language = (submission.content or {}).get("language")
     existing_turns = submission.round3_turns
-    conversation_so_far = [
-        {
-            "turn_number": t.turn_number, "candidate_prompt": t.candidate_prompt,
-            "response_kind": t.response_kind, "response_message": t.response_message,
-            "code_after": t.code_after,
-        }
-        for t in existing_turns
-    ]
+    conversation_so_far = [t.to_conversation_payload() for t in existing_turns]
     current_code = next((t.code_after for t in reversed(existing_turns) if t.code_after), None)
     turn_number = len(existing_turns) + 1
 
@@ -517,11 +511,7 @@ def _round4_scenario_and_submission(candidate: User, db: Session) -> tuple[Scena
     scenario = _live_scenario(db, 4, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for round 4 yet - check back once HR has published one.")
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None:
         raise HTTPException(404, "Round 4 hasn't been started yet - call /round/4/start first.")
     return scenario, submission
@@ -757,11 +747,7 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
     if scenario is None:
         return RoundStateOut(scenario=None, submission=None)
 
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     return RoundStateOut(scenario=scenario, submission=submission)
 
 
@@ -775,11 +761,7 @@ def start_round(round_number: int, db: Session = Depends(get_db), candidate: Use
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round yet - check back once HR has published one.")
 
-    existing = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    existing = _current_submission(db, candidate, scenario)
     if existing is not None:
         return existing  # idempotent: same started_at, same timer deadline
 
@@ -813,11 +795,7 @@ def submit_round(
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
 
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None:
         # Allow submitting without an explicit prior /start call too (e.g.
         # tests, or a client that just posts straight through).
@@ -862,11 +840,7 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         return
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None or submission.status != RoundStatus.in_progress:
         return
     # A fresh list, not an in-place mutation of the loaded one - SQLAlchemy
@@ -903,11 +877,7 @@ def save_round_draft(
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None or submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round isn't in progress - nothing to autosave.")
 
@@ -955,11 +925,7 @@ def expire_round(
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
-    submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.scenario_id == scenario.id, Submission.archived.is_(False))
-        .first()
-    )
+    submission = _current_submission(db, candidate, scenario)
     if submission is None or submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round isn't in progress - nothing to expire.")
     if submission.started_at is not None:

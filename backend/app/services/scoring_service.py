@@ -175,14 +175,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                 "passed": expected_output is not None and actual_output == str(expected_output).strip(),
             })
 
-    conversation_payload = [
-        {
-            "turn_number": t.turn_number, "candidate_prompt": t.candidate_prompt,
-            "response_kind": t.response_kind, "response_message": t.response_message,
-            "code_after": t.code_after,
-        }
-        for t in turns
-    ]
+    conversation_payload = [t.to_conversation_payload() for t in turns]
 
     result = llm_service.score_round3_coding(
         scenario_description=scenario.description,
