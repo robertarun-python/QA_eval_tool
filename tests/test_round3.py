@@ -11,12 +11,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 from .conftest import HR_EMAIL, HR_PASSWORD, FAKE_ROUND3_CODING_REFERENCE, _login, _auth, _publish_scenario
 
 
-def _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Add two numbers"):
+def _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Add two numbers", band="0-7"):
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "generate_round3_reference", lambda **kwargs: dict(FAKE_ROUND3_CODING_REFERENCE))
     return client.post(
         "/hr/scenarios",
-        json={"round_number": 3, "title": title, "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        json={"round_number": 3, "title": title, "description": "desc", "experience_band": band, "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     ).json()
 
@@ -337,3 +337,67 @@ def test_round3_coding_current_code_threads_between_turns(client, monkeypatch):
     assert captured["turn_number"] == 2
     assert len(captured["conversation_so_far"]) == 1
     assert captured["conversation_so_far"][0]["candidate_prompt"] == "first"
+
+
+def test_round3_coding_declared_constructs_persist_and_thread_between_turns(client, monkeypatch):
+    """Verifies THIS APP's own code correctly reads the prior turn's
+    declared_constructs_json and threads it into the next LLM call - not
+    a claim about what the (mocked) LLM does with it, which is
+    llm_service's own concern (see test_llm_service_round3_coding.py)."""
+    from app.services import llm_service
+    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration"]}},
+        cookies=_auth(hr_token),
+    )
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
+
+    cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    captured_first = {}
+
+    def fake_turn_1(**kwargs):
+        captured_first.update(kwargs)
+        return {
+            "response_kind": "clarify", "response_message": "How do you want to represent that information?",
+            "code_after": None, "declared_constructs": {"collection": "a list called salaries"},
+        }
+
+    monkeypatch.setattr(llm_service, "round3_coding_turn", fake_turn_1)
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "I need to store the salaries"}, cookies=_auth(cand_token))
+    assert captured_first["required_constructs"] == ["collection", "iteration"]
+    assert captured_first["declared_constructs"] == {}
+
+    captured_second = {}
+
+    def fake_turn_2(**kwargs):
+        captured_second.update(kwargs)
+        return {
+            "response_kind": "code_edit", "response_message": "Added the loop.",
+            "code_after": "for s in salaries: print(s)",
+            "declared_constructs": {"collection": "a list called salaries", "iteration": "a for loop"},
+        }
+
+    monkeypatch.setattr(llm_service, "round3_coding_turn", fake_turn_2)
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "loop through them"}, cookies=_auth(cand_token))
+    # The previous turn's declared state is read back and threaded into
+    # the next call - the candidate never has to repeat "a list called
+    # salaries" for it to still count as settled.
+    assert captured_second["declared_constructs"] == {"collection": "a list called salaries"}
+
+    state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert len(state["turns"]) == 2

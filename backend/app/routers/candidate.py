@@ -300,6 +300,10 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
     conversation_so_far = [t.to_conversation_payload() for t in existing_turns]
     current_code = next((t.code_after for t in reversed(existing_turns) if t.code_after), None)
     turn_number = len(existing_turns) + 1
+    required_constructs = (scenario.reference_json or {}).get("required_constructs", [])
+    # Every turn writes this (see models.Round3Turn.declared_constructs_json)
+    # - `or {}` only guards a row written before this column existed.
+    declared_constructs = (existing_turns[-1].declared_constructs_json if existing_turns else None) or {}
 
     # Called synchronously in the request path (same reasoning as Round
     # 4's round4_turn - see that function's comment): nothing is
@@ -312,6 +316,8 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
             current_code=current_code,
             candidate_prompt=payload.candidate_prompt,
             turn_number=turn_number,
+            required_constructs=required_constructs,
+            declared_constructs=declared_constructs,
         )
     except Exception:
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -324,6 +330,7 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
         response_kind=response["response_kind"],
         response_message=response["response_message"],
         code_after=response.get("code_after"),
+        declared_constructs_json=response.get("declared_constructs", declared_constructs),
     )
     db.add(turn)
     submission.content = {**(submission.content or {}), "draft_prompt": ""}
