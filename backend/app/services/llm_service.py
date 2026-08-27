@@ -333,6 +333,21 @@ def round3_syntax_fix(
     except ValidationError as e:
         raise ValueError(f"Syntax-fix response didn't match the expected shape: {e}") from e
 
+    if parsed.response_kind != "direct_edit":
+        # Model drift, not candidate error: the prompt only ever
+        # describes "direct_edit", but the shared schema still legally
+        # accepts "clarify"/"refuse"/"code_edit" too. Those shapes are
+        # allowed to have code_after=None and a response_message that is
+        # literally a candidate-facing question - neither is acceptable
+        # on this path (spec §4: "no gap-flagging... nothing is shown to
+        # the candidate"). Fail safe: the candidate's own code is never
+        # lost, and nothing resembling a question ever reaches them.
+        return {
+            "response_message": "I couldn't process that as a syntax fix - your code was saved unchanged.",
+            "code_after": code,
+            "declared_constructs": dict(declared_constructs),
+        }
+
     category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
     updated_state = round3_construct_engine.merge_declared(category_status, declared_constructs, required_constructs)
 
