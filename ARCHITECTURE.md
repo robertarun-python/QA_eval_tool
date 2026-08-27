@@ -3,13 +3,22 @@
 ## What this is
 
 A candidate-screening platform that replaces manual QA interviews with a
-systematic, three-round assessment. HR authors each round's scenario and
+systematic, four-round assessment. HR authors each round's scenario and
 reviews an LLM-generated "superhuman" reference answer before publishing
 it; candidates then write test cases (round 1), debug a seeded bug (round
-2), and prompt-engineer an LLM into producing correct automated tests
-(round 3). Every round is scored automatically by comparing the
+2), prompt an LLM into writing and running real code against a spec
+(round 3), and prompt-engineer an LLM into producing correct automated
+tests (round 4). Every round is scored automatically by comparing the
 candidate's work against the same HR-approved reference, and HR gets a
 running per-candidate, per-round report.
+
+Round 3 and round 4 were built in that historical order but under
+swapped numbers — the original "round 3" (prompt-driven test automation,
+no code shown) was renumbered to round 4, and what's now round 3
+("AI-prompted coding", a real terminal running candidate-directed code)
+took its place. See `docs/superpowers/specs/2026-08-23-round3-ai-coding-design.md`
+and `backend/app/migrate_round_renumber.py` for that history if the
+numbering in old commits looks backwards.
 
 This doc exists so the build stays coherent as it grows in later
 sessions, and so it can double as a system-design worked example (one of
@@ -72,6 +81,17 @@ what the model is and isn't allowed to say without touching Python. This
 directly serves your "control over what the LLM is allowed to respond
 with" requirement.
 
+**Round 3 code execution: local subprocess, not a hosted sandbox.**
+`execution_service.py` runs candidate/LLM-written code as a plain local
+subprocess (batch stdin, wall-clock timeout only — no network isolation,
+filesystem restriction, or memory/CPU cap). It originally used the hosted
+Piston API; that went whitelist-only in Feb 2026 with no self-hosting
+option available here, so this switched to local subprocess execution.
+Acceptable trust boundary for "one HR user running it locally, scoring
+LLM-written code" — would need real isolation (containers/VM/gVisor)
+before this tool could ever run untrusted code in a multi-tenant
+deployment.
+
 **Frontend: server-rendered Jinja2 template + a little vanilla JS.**
 No React/Node build step to debug on top of everything else you're
 learning. Once the backend API is solid, swapping the template for a
@@ -86,7 +106,7 @@ users
   experience_band ('0-7' | '7+' | NULL for HR), created_at
 
 scenarios
-  id, round_number (1 | 2 | 3), title, description,
+  id, round_number (1 | 2 | 3 | 4), title, description,
   experience_band ('0-7' | '7+'), created_by (users.id),
   status ('draft' | 'published' | 'archived'),
   reference_json (the HR-approved reference answer),
@@ -103,13 +123,32 @@ scores
   id, submission_id, coverage_score, misses_json, final_score,
   feedback_text, raw_llm_response_json, created_at
 
-round3_test_cases   -- Round 3 only: the candidate's own, self-titled
+round3_turns   -- Round 3 only (AI-prompted coding): one evolving code
+  id, submission_id, turn_number, candidate_prompt, language,           -- buffer per submission, not per test case
+  response_kind ('clarify' | 'refuse' | 'code_edit'), response_message,
+  code_after (full snapshot, NULL for clarify/refuse), created_at
+
+round3_execution_runs   -- Round 3 only: one "Run" click's result
+  id, submission_id, turn_id (nullable), language, code_snapshot,
+  stdin_json, stdout, stderr, exit_code, timed_out, infra_error,
+  duration_ms, created_at
+
+round4_test_cases   -- Round 4 only: the candidate's own, self-titled
   id, submission_id, title (nullable), draft_prompt (autosave target),
   created_at
 
-conversation_turns   -- Round 3 only: the prompt-refinement dialogue,
+conversation_turns   -- Round 4 only: the prompt-refinement dialogue,
   id, submission_id, test_case_id, turn_number, candidate_prompt,        -- scoped to one test case
-  model_response, created_at
+  model_response, generated_code_json (lazy, trial-view only), created_at
+
+candidate_appearances   -- one row per bulk-upload event for a candidate;
+  id, user_id, email, exam_date, is_current, reapplied_within_window,    -- drives the reapplication-window check
+  created_at                                                             -- and re-archives old submissions on reupload
+
+app_settings   -- singleton row (id=1), HR-editable at runtime, no restart
+  id, round1_passing_score, round2_passing_score, round3_passing_score,
+  round4_passing_score, final_passing_score (out of 400),
+  reapplication_window_months, updated_at
 ```
 
 ## Round mechanics (from the design notes)
@@ -145,7 +184,25 @@ conversation_turns   -- Round 3 only: the prompt-refinement dialogue,
   `prompts/round2_debug_scoring.txt`, `scoring_service.score_round2_investigation`).
   One-shot, not conversational — the candidate writes their full
   investigation in one sitting, there's no back-and-forth clue reveal.
-- **Round 3 — prompt-driven test automation.** Candidate automates their
+- **Round 3 — AI-prompted coding.** Candidate directs an LLM (never
+  writing code themselves) to build a solution against the scenario spec
+  through a real 3-pane terminal-style UI (instructions, evolving code,
+  run output) with a genuine "Run" button — code executes for real via
+  `execution_service.py`, not simulated. Each candidate instruction gets
+  classified into exactly one of three kinds (`prompts/round3_coding_turn.txt`):
+  `clarify` (the LLM refuses to invent a name or technique the candidate
+  didn't specify — asks one bare question instead), `refuse` (candidate
+  asked the LLM to make a design/algorithm call, self-diagnose an error,
+  or "solve it" end-to-end instead of directing specific work), or
+  `code_edit` (does exactly and only what was asked, returns the full
+  code, never a diff — see `Round3Turn.code_after`). The LLM never
+  fixes, refactors, or second-guesses anything the candidate didn't
+  explicitly ask it to touch, and never hints that an edge case might be
+  unhandled — discovering that from a bad run is the point of the round.
+  Scored on how precisely and completely the candidate directs the LLM,
+  not on whether the resulting code happens to work (`prompts/round3_coding_scoring.txt`,
+  `scoring_service.score_round3_coding`).
+- **Round 4 — prompt-driven test automation.** Candidate automates their
   own Round 1 test cases by directing Claude through conversation,
   writing as many self-titled test cases as they judge the scenario
   needs (no fixed UI/API/DB category or count assigned to them - picking
@@ -153,21 +210,26 @@ conversation_turns   -- Round 3 only: the prompt-refinement dialogue,
   autosaves as a draft per test case (survives switching tabs and a page
   refresh) until it's actually sent. Nothing really executes - Claude
   invents an execution trace (plain-English steps, each pass/fail/
-  partial, plus an "observed result") in the same call, deliberately
-  correct only ~60% of the time, preferring a quiet contradiction in the
-  observed result over an outright crash. No code is ever shown to the
-  candidate (see `schemas.Round3ExecutionStep`) - the candidate reasons
-  from what a manual tester would see, not from reading an
-  implementation, so coding fluency can't substitute for automation
-  judgment. HR gets an auto-generated "Test environment" reference sheet
-  (fictional credentials, API base URL, ...) per scenario, shown to
-  every candidate alongside the description (`Scenario.environment_json`,
-  same generate/review/regenerate/publish-gate lifecycle as `reference_json`
-  for rounds 1/2 - see `llm_service.generate_round3_environment`). One
-  holistic score per submission, weighted toward methodical verification
-  (catching the assistant's flaws, not just accepting the first answer)
-  and independent breadth of judgment about what to test (see
-  `prompts/round3_scoring.txt`).
+  partial, plus an "observed result") in the same call, with a
+  HR-editable default accuracy (50%) and a guarantee that at least one
+  early step contains a catchable mistake, preferring a quiet
+  contradiction in the observed result over an outright crash. No code
+  is shown to the candidate by default (see `schemas.Round4ExecutionStep`)
+  - the candidate reasons from what a manual tester would see, not from
+  reading an implementation, so coding fluency can't substitute for
+  automation judgment; a generated code snippet is available as an
+  on-demand, persisted "trial view" per turn/language, never part of the
+  default reasoning flow. HR gets an auto-generated "Test environment"
+  reference sheet (fictional credentials, API base URL, product URL, ...)
+  per scenario, shown to every candidate alongside the description
+  (`Scenario.environment_json`, same generate/review/regenerate/
+  publish-gate lifecycle as `reference_json` for rounds 1/2 - see
+  `llm_service.generate_round4_environment`). One holistic score per
+  submission, weighted toward methodical verification (catching the
+  assistant's flaws, not just accepting the first answer) and
+  independent breadth of judgment about what to test, with category
+  breadth counted as extra credit rather than a hard requirement (see
+  `prompts/round4_scoring.txt`).
 
 Both bands (0-7 years / 7+ years) reuse the same round logic; the
 difference is which scenario is published for a candidate's band and how
@@ -177,15 +239,28 @@ prompt files), not separate code paths.
 
 ## What's built in this pass vs. stubbed
 
-Built end-to-end: seeded auth (1 HR + 3 candidates, no signup), HR
-scenario authoring with draft→publish lifecycle and reference/
-environment review/regenerate/hand-edit, round-gating, a
-server-authoritative per-round timer with client auto-submit, all three
-rounds' full flow (start → submit → LLM scoring → HR dashboard +
-per-candidate drill-down report), and a screening-history dashboard
-aggregating clear rate and common misses per scenario (round-agnostic —
-covers rounds 1 and 2 today; round 3's conversational shape doesn't fit
-the same misses-pattern aggregation).
+Built end-to-end: seeded auth (1 HR + 3 candidates, no signup, now with
+bulk candidate upload and a reapplication-window check via
+`candidate_appearances`), HR scenario authoring with draft→publish
+lifecycle and reference/environment review/regenerate/hand-edit,
+round-gating, a server-authoritative per-round timer with client
+auto-submit, all four rounds' full flow (start → submit → LLM scoring →
+HR dashboard + per-candidate drill-down report, including a per-turn/
+per-test-case score breakdown for rounds 3 and 4), real (not simulated)
+local code execution for round 3, HR-editable runtime settings
+(per-round passing scores, reapplication window — `app_settings`) and
+manual score override, a tab-switch/fullscreen guard during timed
+rounds, and a screening-history dashboard aggregating clear rate and
+common misses per scenario (round-agnostic — covers rounds 1 and 2
+today; rounds 3/4's conversational/coding shape doesn't fit the same
+misses-pattern aggregation). Frontend is a token-based "Calibration"
+design system (light + dark themes), not the original bare Jinja2 page.
+
+In progress (design spec + plan written, not yet implemented on `main`):
+a "construct-checklist" clarify engine for Round 3, refining how/when
+the LLM asks a clarifying question — see
+`docs/superpowers/specs/2026-08-27-round3-construct-checklist-design.md`
+and the matching plan in `docs/superpowers/plans/`.
 
 ## Folder layout
 
@@ -206,6 +281,7 @@ qa-eval-tool/
       security.py          # password hashing, JWT
       dependencies.py       # FastAPI auth dependencies
       seed.py              # creates the 1 HR + 3 candidate accounts
+      credential_service.py  # bulk candidate upload / credential generation
       routers/
         auth.py            # login only
         hr.py              # scenario authoring + candidate dashboard
@@ -213,8 +289,14 @@ qa-eval-tool/
       services/
         llm_service.py      # all Claude API calls live here
         scoring_service.py    # turns LLM output into Score rows
-      prompts/             # editable text files, not inline strings
+        execution_service.py  # round 3's real local subprocess code execution
+        candidate_upload_service.py
+      prompts/             # editable text files, not inline strings (per-round + shared)
       templates/            # single Jinja2 page (index.html)
-      static/              # app.js, style.css
+      static/              # app.js, style.css ("Calibration" design system)
+      migrate_*.py         # one-off SQLite migration scripts, run manually as the schema grew
+  docs/superpowers/
+    specs/                 # design specs (incl. in-progress round 3 work)
+    plans/                 # matching implementation plans
   tests/
 ```
