@@ -385,6 +385,14 @@ class Round3Turn(Base):
     # model section for why a full snapshot per turn is the right
     # tradeoff at this scale (one candidate, one submission, SQLite).
     code_after = Column(Text, nullable=True)
+    # Cumulative snapshot of which required constructs (see
+    # services/round3_constructs.py) the candidate has explicitly
+    # declared as of this turn - written on every turn, not just
+    # code_edit ones, so "what's currently known" is always a plain read
+    # of the latest turn. NULL only for rows written before this column
+    # existed. See
+    # docs/superpowers/specs/2026-08-27-round3-construct-checklist-design.md.
+    declared_constructs_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     submission = relationship("Submission", back_populates="round3_turns")
