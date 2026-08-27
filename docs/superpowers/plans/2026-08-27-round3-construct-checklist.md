@@ -168,15 +168,31 @@ GENERIC_VOCAB = {
 # for Python's "def" leaking, because it's simply not in their set.
 LANGUAGE_CONSTRUCTS = {
     "python": {
-        "collection": {"list", "tuple", "set", "dict", "dictionary"},
+        # "list"/"dict"/"tuple" stay bare - they're specific enough to
+        # the collection concept that the risk of colliding with
+        # ordinary English is accepted (same tradeoff as elsewhere in
+        # this module). Bare "set" is a genuinely common English word
+        # ("set the value", "a set of two") - the parenthesized
+        # constructor form still catches a real leak without that
+        # collision, matching the "int(" pattern already used below.
+        "collection": {"list", "tuple", "dict", "dictionary", "set("},
         "element_access": {"square brackets"},
-        "iteration": {"for", "while", "for loop", "while loop", "range("},
-        "condition": {"if", "elif", "else"},
+        # Bare "for"/"while" are ordinary English words too common to
+        # block outright (see the multi-word forms kept below, and the
+        # GENERIC_VOCAB "loop"/"iterate" layer that still applies).
+        "iteration": {"for loop", "while loop", "range("},
+        # Bare "if" and "else" are ordinary English; "elif" alone is
+        # unambiguous and Python-specific.
+        "condition": {"elif"},
         "comparison": {"==", "!=", ">=", "<="},
         "boolean_logic": set(),  # see the GENERIC_VOCAB comment above
         "function": {"def", "lambda"},
         "return_value": {"return"},
-        "arithmetic_operation": {"+", "-", "*", "/", "//", "%", "**"},
+        # Bare arithmetic symbols removed - "-"/"/" collide with
+        # ordinary punctuation (a hyphen, a slash) in any neutral
+        # question; GENERIC_VOCAB's "add"/"subtract"/"multiply"/
+        # "divide" already catches every realistic natural-language leak.
+        "arithmetic_operation": set(),
         "string_operation": {".join(", ".split(", "f-string"},
         "type_conversion": {"int(", "str(", "float(", "list("},
         "input": {"input("},
@@ -185,28 +201,30 @@ LANGUAGE_CONSTRUCTS = {
     "java": {
         "collection": {"array", "arraylist", "hashmap", "hashset", "linkedlist"},
         "element_access": {"square brackets", ".get("},
-        "iteration": {"for", "while", "do-while", "enhanced-for", "for-each"},
-        "condition": {"if", "else if", "switch"},
+        "iteration": {"do-while", "enhanced-for", "for-each"},
+        "condition": {"else if", "switch"},
         "comparison": {"==", "!=", ">=", "<=", ".equals("},
         "boolean_logic": {"&&", "||"},
         "function": {"method", "public", "private", "static"},
         "return_value": {"return"},
-        "arithmetic_operation": {"+", "-", "*", "/", "%"},
+        "arithmetic_operation": set(),
         "string_operation": {".concat(", ".substring(", "stringbuilder"},
         "type_conversion": {"(int)", "(double)", "integer.parseint", "string.valueof"},
         "input": {"scanner", "system.in", "bufferedreader"},
         "output": {"system.out.println", "system.out.print"},
     },
     "javascript": {
-        "collection": {"array", "object", "map", "set"},
+        # Bare "object"/"map"/"set" are ordinary English words; "array"
+        # is specific enough to keep.
+        "collection": {"array"},
         "element_access": {"square brackets"},
-        "iteration": {"for", "while", "for-of", "for-in", "foreach", "for each"},
-        "condition": {"if", "else if", "switch"},
+        "iteration": {"for-of", "for-in", "foreach", "for each"},
+        "condition": {"else if", "switch"},
         "comparison": {"===", "!==", "==", "!=", ">=", "<="},
         "boolean_logic": {"&&", "||"},
         "function": {"function", "arrow function", "=>"},
         "return_value": {"return"},
-        "arithmetic_operation": {"+", "-", "*", "/", "%"},
+        "arithmetic_operation": set(),
         "string_operation": {"template literal", ".concat(", "${"},
         "type_conversion": {"parseint", "parsefloat", "number(", "string(", "tostring"},
         "input": {"prompt(", "readline"},
@@ -368,6 +386,21 @@ def test_decide_honors_an_explicit_correction_to_an_already_declared_category():
     assert decision.final_kind == "proceed"
 
 
+def test_decide_ignores_a_stray_attempted_vague_status_on_an_already_declared_category():
+    # A model that misclassifies an already-settled category as still
+    # "attempted_but_vague" (schema-legal, but not what the prompt asks
+    # for) must never get re-asked about it, and must never crowd out
+    # the real open gap.
+    category_status = {
+        "collection": {"status": "attempted_but_vague", "neutral_question": "How should this be represented?"},
+        "iteration": {"status": "not_addressed"},
+    }
+    decision = round3_construct_engine.decide(
+        category_status, {"collection": "a list"}, REQUIRED,
+    )
+    assert decision.ask_categories == ["iteration"]
+
+
 def test_leaking_categories_flags_a_question_that_names_the_construct():
     category_status = {"iteration": {"status": "attempted_but_vague", "neutral_question": "Should this be a for loop?"}}
     leaked = round3_construct_engine.leaking_categories(["iteration"], category_status, "python")
@@ -441,12 +474,20 @@ def decide(category_status: dict, cumulative_state: dict, required_constructs: l
     if attempted_vague:
         # This message tried to address more than one gap at once - ask
         # about all of them together, not one round trip each (see spec
-        # §4, "bundled instructions").
-        ask = [c for c in required_constructs if c in attempted_vague]
-        return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=ask)
+        # §4, "bundled instructions"). Filtered to `missing` because the
+        # model isn't guaranteed to only classify categories the prompt
+        # actually showed it as open - an already-declared category
+        # mistakenly re-classified as "attempted_but_vague" must never
+        # get re-asked (the guardrail promises settled choices are final)
+        # or crowd out the real gap.
+        ask = [c for c in required_constructs if c in attempted_vague and c in missing]
+        if ask:
+            return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=ask)
 
-    # Nothing was attempted this turn - probe toward the single earliest
-    # still-unaddressed category, in the scenario's authored order.
+    # Nothing was attempted this turn (or everything "attempted" was
+    # actually already-declared noise, filtered above) - probe toward
+    # the single earliest still-unaddressed category, in the scenario's
+    # authored order.
     return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=[missing[0]])
 
 
@@ -1029,27 +1070,51 @@ def test_round3_coding_turn_falls_back_when_category_status_is_missing_entirely(
 
 
 def test_round3_coding_turn_proceed_passes_through_a_genuine_non_construct_clarify(monkeypatch):
-    # Every required category is already declared coming into this turn,
-    # so the engine says "proceed" - but the model's OWN classification
-    # for this turn is "clarify" (an ordinary missing name, unrelated to
-    # constructs). The engine's "proceed" must never be rewritten into a
-    # code_edit the model didn't actually produce code for.
+    # One required category ("comparison") is still open coming into
+    # this turn, and this turn's instruction genuinely resolves it (the
+    # mocked category_status marks it "declared") - so the engine
+    # computes final_kind == "proceed". But the model's OWN
+    # classification for this turn is "clarify" (an ordinary missing
+    # name, unrelated to constructs). The engine's "proceed" must never
+    # be rewritten into a code_edit the model didn't actually produce
+    # code for - this must genuinely exercise the `proceed` branch, not
+    # the earlier `not open_categories` short-circuit (declared_constructs
+    # is deliberately NOT yet complete on entry, unlike an earlier,
+    # mistaken version of this test).
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
         "response_kind": "clarify", "response_message": "What should I name the running total?", "code_after": None,
+        "category_status": {"comparison": {"status": "declared", "value": "greater than the current highest"}},
     }))
     result = llm_service.round3_coding_turn(
         scenario_description="x", language="python", conversation_so_far=[], current_code="salaries = [1, 2]",
-        candidate_prompt="keep a running total as you go",
-        turn_number=4, required_constructs=["iteration"], declared_constructs={"iteration": "a for loop"},
+        candidate_prompt="keep a running total, and compare each to the current highest as you go",
+        turn_number=4, required_constructs=["iteration", "comparison"], declared_constructs={"iteration": "a for loop"},
     )
     assert result["response_kind"] == "clarify"
     assert result["code_after"] is None
     assert result["response_message"] == "What should I name the running total?"
+    assert result["declared_constructs"] == {"iteration": "a for loop", "comparison": "greater than the current highest"}
+
+
+def test_round3_coding_turn_prompt_keys_code_edit_off_this_turns_classification():
+    # Regression guard for a real bug: the prompt must decide code_edit
+    # eligibility from THIS turn's own Construct classification, not
+    # just the pre-turn checklist snapshot - otherwise the model is
+    # instructed to force "clarify" on the very turn that resolves the
+    # last open category, and that forced clarify has no leak-check
+    # applied to it (the leak-check only runs on the engine's own
+    # clarify branch, never on a passthrough). No LLM call here - this
+    # reads the prompt file's own text.
+    from app.services.llm_service import _load_prompt
+    prompt_text = _load_prompt("round3_coding_turn.txt")
+    assert "per your own Construct classification below" in prompt_text
+    assert 'classified "declared" by THIS instruction' in prompt_text
+    assert "explicitly override one of these, classify that category as \"declared\"" in prompt_text
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pytest tests/test_llm_service_round3_coding.py -v -k "forces_clarify or proceeds_once or ignores_the_checklist or regenerates_once or falls_back or bundles_multiple or retry_only_touches or falls_back_when_category_status or proceed_passes_through"`
+Run: `pytest tests/test_llm_service_round3_coding.py -v -k "forces_clarify or proceeds_once or ignores_the_checklist or regenerates_once or falls_back or bundles_multiple or retry_only_touches or falls_back_when_category_status or proceed_passes_through or prompt_keys_code_edit"`
 Expected: FAIL — `TypeError: round3_coding_turn() got an unexpected keyword argument 'required_constructs'`
 
 - [ ] **Step 3: Rewrite the prompt and the orchestration**
@@ -1075,7 +1140,7 @@ This is turn number {turn_number}. is_first_turn = {is_first_turn}.
 Construct checklist for this problem - categories a correct solution requires, already narrowed to only the ones NOT yet pinned down (anything not listed here is either irrelevant to this problem or already decided - see "Already declared" below). An empty list means there is nothing left to classify - skip the "Construct classification" section entirely and return an empty category_status object:
 {open_categories}
 
-Already declared - these choices are FINAL. Never re-ask about them, never hint they might be wrong, never suggest an alternative; just use them exactly as given for any new code you write. A candidate who wants something different must say so explicitly in a new instruction - you never initiate that:
+Already declared - these choices are FINAL. Never re-ask about them, never hint they might be wrong, never suggest an alternative; just use them exactly as given for any new code you write. A candidate who wants something different must say so explicitly in a new instruction - you never initiate that. If the candidate's new instruction below DOES explicitly override one of these, classify that category as "declared" with the new value in your Construct classification below, exactly as you would for a category that was still open - an explicit override is the candidate's call to make, not yours to resist:
 {declared_constructs}
 
 The candidate's new instruction:
@@ -1087,13 +1152,20 @@ Continuation check - do this BEFORE classifying: look at the LAST entry in the c
 
 Classify this instruction and respond with exactly one of these three response_kind values:
 
-1. "clarify" - use this whenever writing the code requires YOU to invent a NAME or a MECHANICAL TECHNIQUE the candidate didn't state, no matter how small or how "obvious" a reasonable convention might seem to you. This is also the correct response_kind whenever the construct checklist above lists any open category - see "Construct classification" below, which governs exactly how you handle that.
+1. "clarify" - use this whenever writing the code requires YOU to invent a NAME or a MECHANICAL TECHNIQUE the candidate didn't state, no matter how small or how "obvious" a reasonable convention might seem to you:
+   - A name for anything new - a variable, a list, a function, a return value - that the candidate hasn't named themselves.
+   - A specific technique or built-in for HOW to do something the candidate only described at a high level - e.g. they said "read the input" or "store it in a list" but didn't say whether to read one line or many, split on spaces or commas, convert to int/float/string, or which function/method to use to do any of that.
+   Do not change any code this turn. Never guess a name or a technique just because it's the conventional or most obvious choice - if the candidate didn't say it, you don't know it.
+
+   This is also the correct response_kind whenever, after you complete the "Construct classification" section below for THIS instruction, any required category still isn't "declared" - the checklist above tells you which categories were open BEFORE this instruction; your own classification below decides whether they're still open AFTER it. If this instruction is the one that finally supplies a concrete answer for the last open category, classify it "declared" below and this becomes response_kind "code_edit" (see rule 3) - do not force "clarify" just because the checklist above still listed it as open at the start of the turn.
 
    How to ask, for a name or technique unrelated to the construct checklist (the checklist's own categories are governed by "Construct classification" below, which has its own, stricter phrasing rule): ONE bare, minimal question naming only the missing name or technique itself - nothing else. Do not bundle a second question onto it. Do not offer multiple-choice options, examples, or scenarios as part of the question (e.g. never "should it be one line or several, comma or space separated?" - just "how should the input be read?") - listing possibilities is doing the candidate's thinking for them just as much as answering would be.
 
    NEVER clarify about runtime behavior, edge cases, or error conditions - this is the single most important boundary on this rule. If an instruction is syntactically well-defined and you know exactly what code to write for it, WRITE IT, even if you can see it might crash, raise an exception, or produce a weird result for some inputs (an empty list, an out-of-range index, a value that doesn't exist yet, too few elements, division by zero, whatever it may be). Examples of questions you must NEVER ask, because they are exactly this mistake: "what should happen if the list has fewer than 2 elements", "what if the input is empty", "should I handle the case where...". Whether an edge case gets handled at all is the candidate's decision to make (or not make, and then discover from a crash) in a later instruction - never something you flag, hint at, or ask about. This applies no matter how obviously the literal code would break.
 
    If the instruction is so vague that it doesn't identify ANY concrete action at all - a dangling reference with no clear antecedent ("handle it", "fix it", "make it work", "deal with that") - do not try to guess what it might mean or what scenario it might be about. Respond with response_kind "clarify" and a bare response_message such as "I need a specific instruction - what exactly should the code do?" - do not speculate about, name, or hint at what "it" might refer to.
+
+   This is different from re-litigating something already established (see the guardrail below, which is about NOT re-opening settled decisions) - this rule is about never making a NEW decision, however minor, on the candidate's behalf. The candidate discovering their own result is wrong because THEY under-specified something, and correcting it themselves in a later instruction, is the entire point of this round - so the fix is to ask before guessing, not to guess and let them find out later.
 
    Guardrail - once something is already established (named, and its reading/parsing/conversion method already chosen, whether by the candidate or by you in an earlier turn they didn't object to), never re-ask about it or hint it might be wrong; always just use it exactly as it already exists and write the new instruction literally:
    - What type to treat an EXISTING variable/value as, or whether to convert it (e.g. "should I add these as numbers or as strings?" for two variables that already exist) - use whatever type it already is.
@@ -1109,7 +1181,7 @@ Classify this instruction and respond with exactly one of these three response_k
 
    A single instruction is free to bundle several mechanical steps in one message - "read two integers, add them, and print the result" is a normal code_edit, not a refusal - as long as every step is something you can act on directly (no missing name/technique - see "clarify" above) and the instruction as a whole is still the candidate directing specific work rather than restating the problem for you to solve (see (c)).
 
-3. "code_edit" - the candidate gave you an instruction you can act on directly - not a restatement of the overall problem or a request to build "a program"/"the solution" for you to design (see refuse (c) above), AND every category in the construct checklist above is already in "Already declared" (an empty checklist above means there's nothing left to gate on). Write or modify the code to do EXACTLY and ONLY what this instruction asks - including every mechanical step it names, in order, if it names more than one. Do not fix, refactor, optimize, rename, or clean up anything else in the existing code, even if you notice a real bug or bad practice, unless the candidate's instruction explicitly asks you to change that specific thing. Return the FULL updated code in code_after (not a diff, not a fragment).
+3. "code_edit" - the candidate gave you an instruction you can act on directly - not a restatement of the overall problem or a request to build "a program"/"the solution" for you to design (see refuse (c) above), AND, per your own Construct classification below, every category in the construct checklist above is now either already in "Already declared" or classified "declared" by THIS instruction (an empty checklist above means there's nothing left to gate on). Write or modify the code to do EXACTLY and ONLY what this instruction asks - including every mechanical step it names, in order, if it names more than one. Do not fix, refactor, optimize, rename, or clean up anything else in the existing code, even if you notice a real bug or bad practice, unless the candidate's instruction explicitly asks you to change that specific thing. Return the FULL updated code in code_after (not a diff, not a fragment).
 
 There is no special exception for turn 1 (is_first_turn = true): refuse (c) above applies exactly the same way there - an opening instruction that just restates the problem statement in different words instead of giving a real first instruction must still be refused. Turn 1 is "code_edit" whenever the candidate's instruction is something you can act on directly without inventing a name or technique (see "clarify" above), the same as any other turn.
 
@@ -1163,7 +1235,10 @@ def round3_coding_turn(
             declared_constructs=json.dumps(declared_constructs, indent=2),
             regeneration_note=regeneration_note,
         )
-        raw = _call_claude(prompt, max_tokens=2048)
+        # 4096, not the 2048 used before this feature - the response now
+        # carries a full code snapshot AND a category_status block (one
+        # neutral_question per open category) in the same JSON object.
+        raw = _call_claude(prompt, max_tokens=4096)
         result = _parse_json_response(raw)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
@@ -1179,7 +1254,11 @@ def round3_coding_turn(
             "response_kind": parsed.response_kind,
             "response_message": parsed.response_message,
             "code_after": parsed.code_after,
-            "declared_constructs": declared_constructs,
+            # A fresh copy, not the caller's own dict by reference - the
+            # other two return paths below both hand back the engine's
+            # own fresh dict, and two Round3Turn rows must never end up
+            # aliasing the same mutable object.
+            "declared_constructs": dict(declared_constructs),
         }
 
     category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
@@ -1215,11 +1294,16 @@ def round3_coding_turn(
 
     leaked = round3_construct_engine.leaking_categories(checkable, category_status, language)
     if leaked:
+        # Never name the leaking category here - the category's own key
+        # (e.g. "iteration") is itself forbidden vocabulary for that
+        # category, so echoing it back would hand the model exactly the
+        # word it must avoid, one line above asking it not to.
         note = (
-            "Your last attempt named the very construct you were testing for in your "
-            f"question about: {', '.join(leaked)}. Rephrase those specific questions "
-            "without naming the concept, technique, or vocabulary at all - describe "
-            "only the underlying need."
+            "Your last attempt named the very thing it was trying to test for in one "
+            "or more of the questions you drafted for the checklist above. Redraft "
+            "EVERY neutral_question you produce this time so it describes only the "
+            "underlying need - never the concept, technique, or vocabulary itself, "
+            "however that concept is normally referred to in code or in plain English."
         )
         retry = _raw_turn(regeneration_note=note)
         retry_status = {k: v.model_dump() for k, v in retry.category_status.items()}
