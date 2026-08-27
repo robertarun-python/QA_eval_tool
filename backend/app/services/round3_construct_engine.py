@@ -18,16 +18,26 @@ class EngineDecision:
     ask_categories: list  # ordered; empty when final_kind == "proceed"
 
 
-def decide(category_status: dict, cumulative_state: dict, required_constructs: list) -> EngineDecision:
+def merge_declared(category_status: dict, cumulative_state: dict, required_constructs: list) -> dict:
+    """The declared-category merge step, factored out so a caller with
+    no clarify/proceed decision to make (round3_syntax_fix - the code is
+    the answer, there's nothing to ask about) can update state without
+    going through decide()'s branching, which has no meaning there."""
     updated_state = dict(cumulative_state)
-    attempted_vague = []
     for category, entry in category_status.items():
         if category not in required_constructs:
             continue  # off-topic mention - not tracked, not gated on
         if entry["status"] == "declared":
             updated_state[category] = entry["value"]
-        elif entry["status"] == "attempted_but_vague":
-            attempted_vague.append(category)
+    return updated_state
+
+
+def decide(category_status: dict, cumulative_state: dict, required_constructs: list) -> EngineDecision:
+    updated_state = merge_declared(category_status, cumulative_state, required_constructs)
+    attempted_vague = [
+        category for category, entry in category_status.items()
+        if category in required_constructs and entry["status"] == "attempted_but_vague"
+    ]
 
     missing = [c for c in required_constructs if c not in updated_state]
     if not missing:

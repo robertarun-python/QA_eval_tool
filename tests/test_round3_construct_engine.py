@@ -15,6 +15,28 @@ from app.services import round3_construct_engine, round3_constructs
 REQUIRED = ["collection", "iteration", "comparison"]
 
 
+def test_merge_declared_folds_declared_categories_into_state():
+    category_status = {
+        "collection": {"status": "declared", "value": "a list called salaries"},
+        "iteration": {"status": "not_addressed"},
+    }
+    updated = round3_construct_engine.merge_declared(category_status, {}, REQUIRED)
+    assert updated["collection"] == "a list called salaries"
+    assert "iteration" not in updated
+
+
+def test_merge_declared_ignores_categories_outside_the_required_list():
+    category_status = {"recursion": {"status": "declared", "value": "yes"}}
+    updated = round3_construct_engine.merge_declared(category_status, {}, REQUIRED)
+    assert "recursion" not in updated
+
+
+def test_merge_declared_overwrites_a_stale_value():
+    category_status = {"iteration": {"status": "declared", "value": "a while loop, per the pasted code"}}
+    updated = round3_construct_engine.merge_declared(category_status, {"iteration": "a for loop"}, REQUIRED)
+    assert updated["iteration"] == "a while loop, per the pasted code"
+
+
 def test_decide_merges_declared_categories_into_state():
     category_status = {
         "collection": {"status": "declared", "value": "a list called salaries"},
