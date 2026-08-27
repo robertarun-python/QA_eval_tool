@@ -145,3 +145,125 @@ def test_generate_round3_reference_rejects_unknown_required_construct(monkeypatc
     }))
     with pytest.raises(ValueError):
         llm_service.generate_round3_reference(scenario_description="x", experience_band="0-7")
+
+
+def test_round3_coding_turn_forces_clarify_when_a_required_category_is_missing(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "code_edit", "response_message": "Added the loop.",
+        "code_after": "for x in salaries: print(x)",
+        "category_status": {
+            "iteration": {"status": "declared", "value": "a for loop over salaries"},
+            "comparison": {"status": "not_addressed", "neutral_question": "What should determine a match?"},
+        },
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="Find the highest salary", language="python",
+        conversation_so_far=[], current_code=None,
+        candidate_prompt="loop through the salaries",
+        turn_number=2,
+        required_constructs=["iteration", "comparison"],
+        declared_constructs={},
+    )
+    # The model tried to hand back code_edit, but "comparison" is still
+    # missing - the engine, not the model's self-report, must win.
+    assert result["response_kind"] == "clarify"
+    assert result["code_after"] is None
+    assert "What should determine a match?" in result["response_message"]
+    assert result["declared_constructs"]["iteration"] == "a for loop over salaries"
+
+
+def test_round3_coding_turn_proceeds_once_every_required_category_is_declared(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "code_edit", "response_message": "Added the comparison.",
+        "code_after": "if s > highest: highest = s",
+        "category_status": {"comparison": {"status": "declared", "value": "greater than the current highest"}},
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="Find the highest salary", language="python",
+        conversation_so_far=[], current_code="salaries = [1, 2]",
+        candidate_prompt="if greater than the current highest, replace it",
+        turn_number=3,
+        required_constructs=["iteration", "comparison"],
+        declared_constructs={"iteration": "a for loop over salaries"},
+    )
+    assert result["response_kind"] == "code_edit"
+    assert "if s > highest" in result["code_after"]
+    assert result["declared_constructs"] == {
+        "iteration": "a for loop over salaries",
+        "comparison": "greater than the current highest",
+    }
+
+
+def test_round3_coding_turn_ignores_the_checklist_when_none_is_configured(monkeypatch):
+    # No required_constructs at all (an old scenario, or a scoped-out
+    # problem) - behavior must be identical to before this feature.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "code_edit", "response_message": "Added the two variables and printed their sum.",
+        "code_after": "a = int(input())\nb = int(input())\nprint(a + b)",
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="Add two numbers", language="python",
+        conversation_so_far=[], current_code=None,
+        candidate_prompt="I need two int variables read from stdin, then print their sum",
+        turn_number=1,
+    )
+    assert result["response_kind"] == "code_edit"
+    assert result["declared_constructs"] == {}
+
+
+def test_round3_coding_turn_regenerates_once_on_a_vocabulary_leak(monkeypatch):
+    calls = []
+
+    def fake_call_claude(prompt, max_tokens=4096):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return json.dumps({
+                "response_kind": "clarify", "response_message": "...", "code_after": None,
+                "category_status": {"iteration": {"status": "not_addressed", "neutral_question": "Should this be a for loop?"}},
+            })
+        return json.dumps({
+            "response_kind": "clarify", "response_message": "...", "code_after": None,
+            "category_status": {"iteration": {"status": "not_addressed", "neutral_question": "How will it work through them, one at a time?"}},
+        })
+
+    monkeypatch.setattr(llm_service, "_call_claude", fake_call_claude)
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="I need to process the salaries",
+        turn_number=1, required_constructs=["iteration"], declared_constructs={},
+    )
+    assert len(calls) == 2
+    assert "for loop" not in result["response_message"]
+    assert "How will it work through them" in result["response_message"]
+
+
+def test_round3_coding_turn_falls_back_to_template_after_two_leaks(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify", "response_message": "...", "code_after": None,
+        "category_status": {"iteration": {"status": "not_addressed", "neutral_question": "Should this use a for loop or a while loop?"}},
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="I need to process the salaries",
+        turn_number=1, required_constructs=["iteration"], declared_constructs={},
+    )
+    from app.services import round3_constructs
+    assert result["response_message"] == round3_constructs.FALLBACK_QUESTIONS["iteration"]
+
+
+def test_round3_coding_turn_bundles_multiple_gaps_into_one_clarify(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify", "response_message": "...", "code_after": None,
+        "category_status": {
+            "iteration": {"status": "attempted_but_vague", "neutral_question": "How will it work through them, one at a time?"},
+            "comparison": {"status": "attempted_but_vague", "neutral_question": "What should determine a match?"},
+        },
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="loop through the salaries and compare each to the current highest",
+        turn_number=2, required_constructs=["iteration", "comparison"], declared_constructs={},
+    )
+    assert result["response_kind"] == "clarify"
+    assert "How will it work through them, one at a time?" in result["response_message"]
+    assert "What should determine a match?" in result["response_message"]

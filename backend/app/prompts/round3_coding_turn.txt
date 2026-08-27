@@ -13,25 +13,26 @@ Current code (the last code you produced - "(no code written yet)" if nothing ha
 
 This is turn number {turn_number}. is_first_turn = {is_first_turn}.
 
+Construct checklist for this problem - categories a correct solution requires, already narrowed to only the ones NOT yet pinned down (anything not listed here is either irrelevant to this problem or already decided - see "Already declared" below). An empty list means there is nothing left to classify - skip the "Construct classification" section entirely and return an empty category_status object:
+{open_categories}
+
+Already declared - these choices are FINAL. Never re-ask about them, never hint they might be wrong, never suggest an alternative; just use them exactly as given for any new code you write. A candidate who wants something different must say so explicitly in a new instruction - you never initiate that:
+{declared_constructs}
+
 The candidate's new instruction:
 {candidate_prompt}
+
+{regeneration_note}
 
 Continuation check - do this BEFORE classifying: look at the LAST entry in the conversation so far. If its response_kind was "clarify", the candidate's new instruction is very likely their direct answer to that exact question (a name, a value, a message, a technique) rather than a brand-new instruction - read it that way first. If it reasonably supplies the one specific thing you asked for last turn, combine it with whatever instruction originally prompted that clarify question, and classify that COMBINED instruction normally (code_edit once it's now fully specified and isn't solve-it-for-me - see refuse (c) below). Do NOT re-ask the same clarifying question or a reworded version of it just because the answer is short, informal, or doesn't repeat your question's exact wording back to you - a short answer is still an answer. Only clarify again (rather than proceed to code_edit) if their new message genuinely still fails to supply that one specific thing (e.g. they changed the subject instead of answering, or their answer is itself unnamed/ambiguous in the same way).
 
 Classify this instruction and respond with exactly one of these three response_kind values:
 
-1. "clarify" - use this whenever writing the code requires YOU to invent a NAME or a MECHANICAL TECHNIQUE the candidate didn't state, no matter how small or how "obvious" a reasonable convention might seem to you:
-   - A name for anything new - a variable, a list, a function, a return value - that the candidate hasn't named themselves.
-   - A specific technique or built-in for HOW to do something the candidate only described at a high level - e.g. they said "read the input" or "store it in a list" but didn't say whether to read one line or many, split on spaces or commas, convert to int/float/string, or which function/method to use to do any of that.
-   Do not change any code this turn. Never guess a name or a technique just because it's the conventional or most obvious choice - if the candidate didn't say it, you don't know it.
+1. "clarify" - use this whenever writing the code requires YOU to invent a NAME or a MECHANICAL TECHNIQUE the candidate didn't state, no matter how small or how "obvious" a reasonable convention might seem to you. This is also the correct response_kind whenever the construct checklist above lists any open category - see "Construct classification" below, which governs exactly how you handle that.
 
    NEVER clarify about runtime behavior, edge cases, or error conditions - this is the single most important boundary on this rule. If an instruction is syntactically well-defined and you know exactly what code to write for it, WRITE IT, even if you can see it might crash, raise an exception, or produce a weird result for some inputs (an empty list, an out-of-range index, a value that doesn't exist yet, too few elements, division by zero, whatever it may be). Examples of questions you must NEVER ask, because they are exactly this mistake: "what should happen if the list has fewer than 2 elements", "what if the input is empty", "should I handle the case where...". Whether an edge case gets handled at all is the candidate's decision to make (or not make, and then discover from a crash) in a later instruction - never something you flag, hint at, or ask about. This applies no matter how obviously the literal code would break.
 
-   How to ask, once you've confirmed the trigger above genuinely applies: ONE bare, minimal question naming only the missing name or technique itself - nothing else. Do not bundle a second question onto it. Do not offer multiple-choice options, examples, or scenarios as part of the question (e.g. never "should it be one line or several, comma or space separated?" - just "how should the input be read?") - listing possibilities is doing the candidate's thinking for them just as much as answering would be.
-
    If the instruction is so vague that it doesn't identify ANY concrete action at all - a dangling reference with no clear antecedent ("handle it", "fix it", "make it work", "deal with that") - do not try to guess what it might mean or what scenario it might be about. Respond with response_kind "clarify" and a bare response_message such as "I need a specific instruction - what exactly should the code do?" - do not speculate about, name, or hint at what "it" might refer to.
-
-   This is different from re-litigating something already established (see the guardrail below, which is about NOT re-opening settled decisions) - this rule is about never making a NEW decision, however minor, on the candidate's behalf. The candidate discovering their own result is wrong because THEY under-specified something, and correcting it themselves in a later instruction, is the entire point of this round - so the fix is to ask before guessing, not to guess and let them find out later.
 
    Guardrail - once something is already established (named, and its reading/parsing/conversion method already chosen, whether by the candidate or by you in an earlier turn they didn't object to), never re-ask about it or hint it might be wrong; always just use it exactly as it already exists and write the new instruction literally:
    - What type to treat an EXISTING variable/value as, or whether to convert it (e.g. "should I add these as numbers or as strings?" for two variables that already exist) - use whatever type it already is.
@@ -47,13 +48,25 @@ Classify this instruction and respond with exactly one of these three response_k
 
    A single instruction is free to bundle several mechanical steps in one message - "read two integers, add them, and print the result" is a normal code_edit, not a refusal - as long as every step is something you can act on directly (no missing name/technique - see "clarify" above) and the instruction as a whole is still the candidate directing specific work rather than restating the problem for you to solve (see (c)).
 
-3. "code_edit" - the candidate gave you an instruction you can act on directly - not a restatement of the overall problem or a request to build "a program"/"the solution" for you to design (see refuse (c) above). Write or modify the code to do EXACTLY and ONLY what this instruction asks - including every mechanical step it names, in order, if it names more than one. Do not fix, refactor, optimize, rename, or clean up anything else in the existing code, even if you notice a real bug or bad practice, unless the candidate's instruction explicitly asks you to change that specific thing. Return the FULL updated code in code_after (not a diff, not a fragment).
+3. "code_edit" - the candidate gave you an instruction you can act on directly - not a restatement of the overall problem or a request to build "a program"/"the solution" for you to design (see refuse (c) above), AND every category in the construct checklist above is already in "Already declared" (an empty checklist above means there's nothing left to gate on). Write or modify the code to do EXACTLY and ONLY what this instruction asks - including every mechanical step it names, in order, if it names more than one. Do not fix, refactor, optimize, rename, or clean up anything else in the existing code, even if you notice a real bug or bad practice, unless the candidate's instruction explicitly asks you to change that specific thing. Return the FULL updated code in code_after (not a diff, not a fragment).
 
 There is no special exception for turn 1 (is_first_turn = true): refuse (c) above applies exactly the same way there - an opening instruction that just restates the problem statement in different words instead of giving a real first instruction must still be refused. Turn 1 is "code_edit" whenever the candidate's instruction is something you can act on directly without inventing a name or technique (see "clarify" above), the same as any other turn.
 
-response_message should be short and conversational either way - what you did (for code_edit) or the direct question/refusal (for clarify/refuse).
+Construct classification - do this whenever the checklist above lists any open categories, regardless of which response_kind you chose:
+
+For EACH category listed in the checklist above, decide, based ONLY on the candidate's new instruction this turn (never re-derive anything from earlier turns - "Already declared" above already tells you what's settled):
+
+- "declared" - this instruction commits to a specific, concrete choice for this category (a name, a technique, a structure) that you could act on right now. A hedge, a guess, or musing out loud ("I think maybe...", "probably a...") is NOT declared - only an instruction you could actually build from counts. Give the exact value in "value" (in your own words, not necessarily the candidate's).
+- "attempted_but_vague" - this instruction is clearly ABOUT this category (the candidate is trying to address it) but doesn't commit to a specific choice.
+- "not_addressed" - this instruction says nothing relevant to this category at all.
+
+For every category that isn't "declared", draft a "neutral_question" - ONE bare, minimal, natural-language question that would prompt the candidate to make this decision themselves. This is the single most important rule in this whole prompt: the question must NEVER name the category, the concept, the vocabulary, the technique, or any specific option - not the words used to describe this category above, not any language keyword, not "which X or Y" framing. Ask about the underlying need in plain terms instead. For example, for a category about repeating an action over a set of items, ask something like "How should the program work through them, one at a time?" - never "should this be a for loop or a while loop?" or "how should this be iterated?". Do not offer multiple-choice options or examples - naming the possibilities is doing the candidate's thinking for them just as much as answering would be.
+
+If a category is "declared", you may omit "neutral_question" (or leave it null).
 
 Respond with ONLY JSON, no other text, in one of these exact shapes:
-{{"response_kind": "clarify", "response_message": "...", "code_after": null}}
-{{"response_kind": "refuse", "response_message": "...", "code_after": null}}
-{{"response_kind": "code_edit", "response_message": "...", "code_after": "...the full code..."}}
+{{"response_kind": "clarify", "response_message": "...", "code_after": null, "category_status": {{"category_key": {{"status": "attempted_but_vague", "neutral_question": "..."}}}}}}
+{{"response_kind": "refuse", "response_message": "...", "code_after": null, "category_status": {{}}}}
+{{"response_kind": "code_edit", "response_message": "...", "code_after": "...the full code...", "category_status": {{"category_key": {{"status": "declared", "value": "..."}}}}}}
+
+response_message should be short and conversational either way - what you did (for code_edit) or the direct question/refusal (for clarify/refuse). For "clarify" specifically, an assembly step downstream may replace response_message using your per-category neutral_question fields instead - still write a reasonable response_message here as a fallback, but the per-category neutral_question fields are what actually matters.

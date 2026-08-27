@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from ..config import settings
 from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse
 from . import round3_constructs
+from . import round3_construct_engine
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -193,24 +194,79 @@ def round3_coding_turn(
     current_code: str | None,
     candidate_prompt: str,
     turn_number: int,
+    required_constructs: list[str] | None = None,
+    declared_constructs: dict | None = None,
 ) -> dict:
-    prompt = _load_prompt("round3_coding_turn.txt").format(
-        scenario_description=scenario_description,
-        language=language,
-        conversation_so_far=json.dumps(conversation_so_far, indent=2),
-        current_code=current_code or "(no code written yet)",
-        candidate_prompt=candidate_prompt,
-        turn_number=turn_number,
-        is_first_turn="true" if turn_number == 1 else "false",
-    )
-    raw = _call_claude(prompt, max_tokens=2048)
-    result = _parse_json_response(raw)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
-    try:
-        return Round3CodingTurnResponse.model_validate(result).model_dump()
-    except ValidationError as e:
-        raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+    required_constructs = required_constructs or []
+    declared_constructs = declared_constructs or {}
+    open_categories = [c for c in required_constructs if c not in declared_constructs]
+
+    def _raw_turn(regeneration_note: str = "") -> Round3CodingTurnResponse:
+        prompt = _load_prompt("round3_coding_turn.txt").format(
+            scenario_description=scenario_description,
+            language=language,
+            conversation_so_far=json.dumps(conversation_so_far, indent=2),
+            current_code=current_code or "(no code written yet)",
+            candidate_prompt=candidate_prompt,
+            turn_number=turn_number,
+            is_first_turn="true" if turn_number == 1 else "false",
+            open_categories=json.dumps(open_categories),
+            declared_constructs=json.dumps(declared_constructs, indent=2),
+            regeneration_note=regeneration_note,
+        )
+        raw = _call_claude(prompt, max_tokens=2048)
+        result = _parse_json_response(raw)
+        if not isinstance(result, dict):
+            raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
+        try:
+            return Round3CodingTurnResponse.model_validate(result)
+        except ValidationError as e:
+            raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+
+    parsed = _raw_turn()
+
+    if parsed.response_kind == "refuse" or not open_categories:
+        return {
+            "response_kind": parsed.response_kind,
+            "response_message": parsed.response_message,
+            "code_after": parsed.code_after,
+            "declared_constructs": declared_constructs,
+        }
+
+    category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
+    decision = round3_construct_engine.decide(category_status, declared_constructs, required_constructs)
+
+    if decision.final_kind == "proceed":
+        return {
+            "response_kind": "code_edit",
+            "response_message": parsed.response_message,
+            "code_after": parsed.code_after,
+            "declared_constructs": decision.updated_state,
+        }
+
+    # clarify: check for vocabulary leaks, regenerate once, then fall back.
+    leaked = round3_construct_engine.leaking_categories(decision.ask_categories, category_status, language)
+    if leaked:
+        note = (
+            "Your last attempt named the very construct you were testing for in your "
+            f"question about: {', '.join(leaked)}. Rephrase those specific questions "
+            "without naming the concept, technique, or vocabulary at all - describe "
+            "only the underlying need."
+        )
+        retry = _raw_turn(regeneration_note=note)
+        retry_status = {k: v.model_dump() for k, v in retry.category_status.items()}
+        for category in leaked:
+            if category in retry_status:
+                category_status[category] = retry_status[category]
+        leaked = round3_construct_engine.leaking_categories(decision.ask_categories, category_status, language)
+
+    message = round3_construct_engine.assemble_message(decision.ask_categories, category_status, set(leaked))
+    return {
+        "response_kind": "clarify",
+        "response_message": message,
+        "code_after": None,
+        "declared_constructs": decision.updated_state,
+    }
 
 
 def score_round3_coding(
