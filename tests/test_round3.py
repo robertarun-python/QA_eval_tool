@@ -401,3 +401,86 @@ def test_round3_coding_declared_constructs_persist_and_thread_between_turns(clie
 
     state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
     assert len(state["turns"]) == 2
+
+
+def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypatch):
+    """Drives the REAL llm_service.round3_coding_turn orchestration (only
+    _call_claude is mocked, not round3_coding_turn itself) through a
+    multi-turn conversation with a required_constructs checklist: a goal
+    statement gets a single-category probe, a bundled instruction with
+    two gaps gets asked about both together, and once everything is
+    declared the turn finally produces code. Proves the router, the
+    engine, the schema, and persistence all wire together correctly, not
+    just each piece in isolation."""
+    import json as json_module
+    from app.services import llm_service
+    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration", "comparison"]}},
+        cookies=_auth(hr_token),
+    )
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
+
+    cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    responses = [
+        # Turn 1: a goal statement, nothing attempted.
+        {
+            "response_kind": "clarify", "response_message": "(unused - assembled from category_status)", "code_after": None,
+            "category_status": {"collection": {"status": "not_addressed", "neutral_question": "What information do you need to store first?"}},
+        },
+        # Turn 2: a bundled instruction leaving two gaps.
+        {
+            "response_kind": "clarify", "response_message": "(unused)", "code_after": None,
+            "category_status": {
+                "collection": {"status": "declared", "value": "a list called salaries"},
+                "iteration": {"status": "attempted_but_vague", "neutral_question": "How will your program work through them, one at a time?"},
+                "comparison": {"status": "attempted_but_vague", "neutral_question": "What should determine whether one value replaces another?"},
+            },
+        },
+        # Turn 3: resolves both remaining gaps - everything is now
+        # declared, so the engine allows code_edit.
+        {
+            "response_kind": "code_edit", "response_message": "Added the loop and the comparison.",
+            "code_after": "highest = None\nfor s in salaries:\n    if highest is None or s > highest:\n        highest = s\nprint(highest)",
+            "category_status": {
+                "iteration": {"status": "declared", "value": "a for loop over salaries"},
+                "comparison": {"status": "declared", "value": "greater than the current highest"},
+            },
+        },
+    ]
+
+    def fake_call_claude(prompt, max_tokens=4096):
+        return json_module.dumps(responses.pop(0))
+
+    monkeypatch.setattr(llm_service, "_call_claude", fake_call_claude)
+
+    r1 = client.post("/candidate/round/3/turn", json={"candidate_prompt": "I need to find the highest salary"}, cookies=_auth(cand_token))
+    assert r1.json()["response_kind"] == "clarify"
+    assert "What information do you need to store first?" in r1.json()["response_message"]
+
+    r2 = client.post("/candidate/round/3/turn", json={"candidate_prompt": "store the salaries in a list, loop through them, and compare each to the current highest"}, cookies=_auth(cand_token))
+    assert r2.json()["response_kind"] == "clarify"
+    assert "How will your program work through them, one at a time?" in r2.json()["response_message"]
+    assert "What should determine whether one value replaces another?" in r2.json()["response_message"]
+
+    r3 = client.post("/candidate/round/3/turn", json={"candidate_prompt": "use a for loop, and if a salary is greater than the current highest, replace it"}, cookies=_auth(cand_token))
+    assert r3.json()["response_kind"] == "code_edit"
+    assert "highest = None" in r3.json()["code_after"]
+
+    state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert len(state["turns"]) == 3
