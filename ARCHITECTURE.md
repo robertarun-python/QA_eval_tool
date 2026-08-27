@@ -126,7 +126,11 @@ scores
 round3_turns   -- Round 3 only (AI-prompted coding): one evolving code
   id, submission_id, turn_number, candidate_prompt, language,           -- buffer per submission, not per test case
   response_kind ('clarify' | 'refuse' | 'code_edit'), response_message,
-  code_after (full snapshot, NULL for clarify/refuse), created_at
+  code_after (full snapshot, NULL for clarify/refuse),
+  declared_constructs_json (cumulative snapshot of which required        -- construct-checklist state (see below),
+  constructs the candidate has explicitly declared as of this turn -      -- written on every turn, not just code_edit
+  written even on clarify/refuse turns, so the latest row is always
+  the current state), created_at
 
 round3_execution_runs   -- Round 3 only: one "Run" click's result
   id, submission_id, turn_id (nullable), language, code_snapshot,
@@ -199,8 +203,28 @@ app_settings   -- singleton row (id=1), HR-editable at runtime, no restart
   fixes, refactors, or second-guesses anything the candidate didn't
   explicitly ask it to touch, and never hints that an edge case might be
   unhandled — discovering that from a bad run is the point of the round.
-  Scored on how precisely and completely the candidate directs the LLM,
-  not on whether the resulting code happens to work (`prompts/round3_coding_scoring.txt`,
+  On top of that per-turn classification, a **construct-checklist**
+  layer forces the candidate to explicitly decide every programming
+  construct a problem's solution actually needs — which collection
+  type, which iteration mechanism, which comparison, and so on — rather
+  than letting the LLM infer or default to one. HR authors an ordered
+  `required_constructs` list per scenario at creation time (alongside
+  the reference test cases, see `prompts/round3_reference_generation.txt`);
+  a deterministic engine (`services/round3_construct_engine.py`), not
+  the LLM's own self-reported classification, decides turn to turn
+  whether every required construct is now declared before it will allow
+  `code_edit` — see `Round3Turn.declared_constructs_json` above. When a
+  construct is still undeclared, the LLM must ask about it without
+  naming the construct, its vocabulary, or its possible implementations
+  (`services/round3_constructs.py` holds the fixed category taxonomy and
+  a per-language forbidden-word list); a clarifying question that leaks
+  anyway gets mechanically caught, regenerated once, and — if it still
+  leaks — replaced with a hardcoded neutral fallback question, so the
+  "never name it" rule is enforced, not just requested. See
+  `docs/superpowers/specs/2026-08-27-round3-construct-checklist-design.md`
+  for the full design. Scored on how precisely and completely the
+  candidate directs the LLM, not on whether the resulting code happens
+  to work (`prompts/round3_coding_scoring.txt`,
   `scoring_service.score_round3_coding`).
 - **Round 4 — prompt-driven test automation.** Candidate automates their
   own Round 1 test cases by directing Claude through conversation,
@@ -247,7 +271,9 @@ round-gating, a server-authoritative per-round timer with client
 auto-submit, all four rounds' full flow (start → submit → LLM scoring →
 HR dashboard + per-candidate drill-down report, including a per-turn/
 per-test-case score breakdown for rounds 3 and 4), real (not simulated)
-local code execution for round 3, HR-editable runtime settings
+local code execution for round 3, round 3's construct-checklist clarify
+engine (deterministic gating of `code_edit` plus a mechanical vocabulary
+leak-check — see the Round 3 bullet above), HR-editable runtime settings
 (per-round passing scores, reapplication window — `app_settings`) and
 manual score override, a tab-switch/fullscreen guard during timed
 rounds, and a screening-history dashboard aggregating clear rate and
@@ -256,11 +282,11 @@ today; rounds 3/4's conversational/coding shape doesn't fit the same
 misses-pattern aggregation). Frontend is a token-based "Calibration"
 design system (light + dark themes), not the original bare Jinja2 page.
 
-In progress (design spec + plan written, not yet implemented on `main`):
-a "construct-checklist" clarify engine for Round 3, refining how/when
-the LLM asks a clarifying question — see
-`docs/superpowers/specs/2026-08-27-round3-construct-checklist-design.md`
-and the matching plan in `docs/superpowers/plans/`.
+Explicitly deferred (see the construct-checklist design spec's own
+"Explicitly out of scope" section): letting a candidate paste code
+directly for syntax-only correction, and changing the start-of-round
+language picker (it's already locked both server- and client-side; only
+the instructional copy was added).
 
 ## Folder layout
 
@@ -290,13 +316,15 @@ qa-eval-tool/
         llm_service.py      # all Claude API calls live here
         scoring_service.py    # turns LLM output into Score rows
         execution_service.py  # round 3's real local subprocess code execution
+        round3_constructs.py   # round 3's fixed construct taxonomy + per-language leak vocab
+        round3_construct_engine.py  # deterministic clarify/code_edit decision engine (no LLM calls)
         candidate_upload_service.py
       prompts/             # editable text files, not inline strings (per-round + shared)
       templates/            # single Jinja2 page (index.html)
       static/              # app.js, style.css ("Calibration" design system)
       migrate_*.py         # one-off SQLite migration scripts, run manually as the schema grew
   docs/superpowers/
-    specs/                 # design specs (incl. in-progress round 3 work)
+    specs/                 # design specs
     plans/                 # matching implementation plans
   tests/
 ```
