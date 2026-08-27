@@ -22,7 +22,7 @@ from ..schemas import (
     Round1ContextOut, Round4StateOut, Round4TurnCreate, Round4TurnOut,
     Round4TestCaseCreate, Round4TestCaseOut, Round4DraftUpdate, Round4EnvironmentOut,
     Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload,
-    Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut,
+    Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut, Round3DirectEditCreate,
     Round3RunInputCreate, Round3RunPollOut, Round3RunOut, Round3StateOut,
 )
 from ..dependencies import require_candidate
@@ -334,6 +334,45 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
     )
     db.add(turn)
     submission.content = {**(submission.content or {}), "draft_prompt": ""}
+    db.commit()
+    db.refresh(turn)
+    return turn
+
+
+@router.post("/round/3/edit", response_model=Round3TurnOut, status_code=201)
+def round3_coding_direct_edit(payload: Round3DirectEditCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(3, db, candidate)
+    scenario, submission = _round3_coding_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+
+    language = (submission.content or {}).get("language")
+    existing_turns = submission.round3_turns
+    turn_number = len(existing_turns) + 1
+    required_constructs = (scenario.reference_json or {}).get("required_constructs", [])
+    declared_constructs = (existing_turns[-1].declared_constructs_json if existing_turns else None) or {}
+
+    try:
+        response = llm_service.round3_syntax_fix(
+            code=payload.code,
+            language=language,
+            required_constructs=required_constructs,
+            declared_constructs=declared_constructs,
+        )
+    except Exception:
+        raise HTTPException(502, "The assistant had trouble responding just now - try saving again.")
+
+    turn = Round3Turn(
+        submission_id=submission.id,
+        turn_number=turn_number,
+        candidate_prompt=payload.code,
+        language=language,
+        response_kind="direct_edit",
+        response_message=response["response_message"],
+        code_after=response["code_after"],
+        declared_constructs_json=response.get("declared_constructs", declared_constructs),
+    )
+    db.add(turn)
     db.commit()
     db.refresh(turn)
     return turn

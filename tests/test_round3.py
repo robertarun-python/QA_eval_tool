@@ -484,3 +484,84 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
 
     state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
     assert len(state["turns"]) == 3
+
+
+def test_round3_coding_direct_edit_creates_a_turn_and_persists_declared_constructs(client, monkeypatch):
+    from app.services import llm_service
+    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration"]}},
+        cookies=_auth(hr_token),
+    )
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
+
+    cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "round3_syntax_fix", lambda **kwargs: {
+        "response_message": "No syntax issues found.",
+        "code_after": "salaries = [1, 2, 3]\nhighest = None\nfor s in salaries:\n    if highest is None or s > highest:\n        highest = s\nprint(highest)",
+        "declared_constructs": {"collection": "a list called salaries", "iteration": "a for loop over salaries"},
+    })
+    res = client.post(
+        "/candidate/round/3/edit",
+        json={"code": "salaries = [1, 2, 3]\nhighest = None\nfor s in salaries:\n    if highest is None or s > highest:\n        highest = s\nprint(highest)"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["response_kind"] == "direct_edit"
+    assert body["turn_number"] == 1
+    assert "highest = None" in body["code_after"]
+
+    state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert len(state["turns"]) == 1
+    assert state["turns"][0]["response_kind"] == "direct_edit"
+
+    # A follow-up instruction-based turn threads the direct edit's
+    # declared_constructs forward, exactly like it would for any other
+    # turn kind.
+    captured = {}
+
+    def fake_turn(**kwargs):
+        captured.update(kwargs)
+        return {"response_kind": "code_edit", "response_message": "ok", "code_after": "salaries = [1, 2, 3]\nprint(max(salaries))", "declared_constructs": kwargs["declared_constructs"]}
+
+    monkeypatch.setattr(llm_service, "round3_coding_turn", fake_turn)
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "use max() instead"}, cookies=_auth(cand_token))
+    assert captured["declared_constructs"] == {"collection": "a list called salaries", "iteration": "a for loop over salaries"}
+
+
+def test_round3_coding_direct_edit_rejects_empty_code(client, monkeypatch):
+    from app.services import llm_service
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Add two numbers")
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    res = client.post("/candidate/round/3/edit", json={"code": ""}, cookies=_auth(cand_token))
+    assert res.status_code == 422
