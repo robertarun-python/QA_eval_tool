@@ -1270,7 +1270,24 @@ git commit -m "feat: gate Round 3 code_edit turns on the construct checklist, me
 **Interfaces:**
 - Consumes: `llm_service.round3_coding_turn(..., required_constructs, declared_constructs)` returning a dict with `"declared_constructs"` (Task 6), `Round3Turn.declared_constructs_json` (Task 4), `scenario.reference_json["required_constructs"]` (Task 5).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Give `_create_draft_round3_scenario` a `band` parameter**
+
+This existing helper (top of `tests/test_round3.py`) hardcodes `experience_band: "0-7"`, which is fine for its two existing HR-only callers (they never log in as a candidate, so the band never matters) but breaks a candidate-facing test using a 7+-band candidate (CANDIDATE3) — the scenario becomes invisible to them (`_live_scenario`'s band match is a strict `==`, no fallback). Replace its definition with:
+
+```python
+def _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Add two numbers", band="0-7"):
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "generate_round3_reference", lambda **kwargs: dict(FAKE_ROUND3_CODING_REFERENCE))
+    return client.post(
+        "/hr/scenarios",
+        json={"round_number": 3, "title": title, "description": "desc", "experience_band": band, "time_limit_minutes": 30},
+        cookies=_auth(hr_token),
+    ).json()
+```
+
+The two existing call sites (`test_hr_can_edit_a_draft_round3_scenarios_reference_json`, `test_hr_editing_round3_reference_json_rejects_wrong_shapes`) don't pass `band`, so they keep getting `"0-7"` unchanged — this is purely additive.
+
+- [ ] **Step 2: Write the failing test**
 
 Add to `tests/test_round3.py` (after `test_round3_coding_current_code_threads_between_turns`):
 
@@ -1287,7 +1304,7 @@ def test_round3_coding_declared_constructs_persist_and_thread_between_turns(clie
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration"]}},
@@ -1339,12 +1356,12 @@ def test_round3_coding_declared_constructs_persist_and_thread_between_turns(clie
     assert len(state["turns"]) == 2
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 3: Run test to verify it fails**
 
 Run: `pytest tests/test_round3.py -v -k declared_constructs_persist`
 Expected: FAIL — `KeyError: 'required_constructs'` on the `captured_first["required_constructs"]` assertion. The mock is `fake_turn_1(**kwargs)`, which accepts any kwargs silently; the router (not yet updated) simply never passes `required_constructs`/`declared_constructs` at all, so the key is missing from `captured_first` rather than the call raising.
 
-- [ ] **Step 3: Wire the router**
+- [ ] **Step 4: Wire the router**
 
 In `backend/app/routers/candidate.py`, replace the `round3_coding_turn` handler (currently at line 291) with:
 
@@ -1400,12 +1417,12 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
     return turn
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `pytest tests/test_round3.py -v`
 Expected: PASS (all tests, including every pre-existing one — none of them set `required_constructs`, so it defaults to `[]` from `reference_json.get(...)` and behavior is unchanged)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add backend/app/routers/candidate.py tests/test_round3.py
@@ -1444,7 +1461,7 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
     _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration", "comparison"]}},
