@@ -327,19 +327,43 @@ def test_round3_coding_turn_falls_back_when_category_status_is_missing_entirely(
 
 
 def test_round3_coding_turn_proceed_passes_through_a_genuine_non_construct_clarify(monkeypatch):
-    # Every required category is already declared coming into this turn,
-    # so the engine says "proceed" - but the model's OWN classification
-    # for this turn is "clarify" (an ordinary missing name, unrelated to
-    # constructs). The engine's "proceed" must never be rewritten into a
-    # code_edit the model didn't actually produce code for.
+    # One required category ("comparison") is still open coming into
+    # this turn, and this turn's instruction genuinely resolves it (the
+    # mocked category_status marks it "declared") - so the engine
+    # computes final_kind == "proceed". But the model's OWN
+    # classification for this turn is "clarify" (an ordinary missing
+    # name, unrelated to constructs). The engine's "proceed" must never
+    # be rewritten into a code_edit the model didn't actually produce
+    # code for - this must genuinely exercise the `proceed` branch, not
+    # the earlier `not open_categories` short-circuit (declared_constructs
+    # is deliberately NOT yet complete on entry, unlike an earlier,
+    # mistaken version of this test).
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
         "response_kind": "clarify", "response_message": "What should I name the running total?", "code_after": None,
+        "category_status": {"comparison": {"status": "declared", "value": "greater than the current highest"}},
     }))
     result = llm_service.round3_coding_turn(
         scenario_description="x", language="python", conversation_so_far=[], current_code="salaries = [1, 2]",
-        candidate_prompt="keep a running total as you go",
-        turn_number=4, required_constructs=["iteration"], declared_constructs={"iteration": "a for loop"},
+        candidate_prompt="keep a running total, and compare each to the current highest as you go",
+        turn_number=4, required_constructs=["iteration", "comparison"], declared_constructs={"iteration": "a for loop"},
     )
     assert result["response_kind"] == "clarify"
     assert result["code_after"] is None
     assert result["response_message"] == "What should I name the running total?"
+    assert result["declared_constructs"] == {"iteration": "a for loop", "comparison": "greater than the current highest"}
+
+
+def test_round3_coding_turn_prompt_keys_code_edit_off_this_turns_classification():
+    # Regression guard for a real bug: the prompt must decide code_edit
+    # eligibility from THIS turn's own Construct classification, not
+    # just the pre-turn checklist snapshot - otherwise the model is
+    # instructed to force "clarify" on the very turn that resolves the
+    # last open category, and that forced clarify has no leak-check
+    # applied to it (the leak-check only runs on the engine's own
+    # clarify branch, never on a passthrough). No LLM call here - this
+    # reads the prompt file's own text.
+    from app.services.llm_service import _load_prompt
+    prompt_text = _load_prompt("round3_coding_turn.txt")
+    assert "per your own Construct classification below" in prompt_text
+    assert 'classified "declared" by THIS instruction' in prompt_text
+    assert "explicitly override one of these, classify that category as \"declared\"" in prompt_text

@@ -214,7 +214,10 @@ def round3_coding_turn(
             declared_constructs=json.dumps(declared_constructs, indent=2),
             regeneration_note=regeneration_note,
         )
-        raw = _call_claude(prompt, max_tokens=2048)
+        # 4096, not the 2048 used before this feature - the response now
+        # carries a full code snapshot AND a category_status block (one
+        # neutral_question per open category) in the same JSON object.
+        raw = _call_claude(prompt, max_tokens=4096)
         result = _parse_json_response(raw)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
@@ -230,7 +233,11 @@ def round3_coding_turn(
             "response_kind": parsed.response_kind,
             "response_message": parsed.response_message,
             "code_after": parsed.code_after,
-            "declared_constructs": declared_constructs,
+            # A fresh copy, not the caller's own dict by reference - the
+            # other two return paths below both hand back the engine's
+            # own fresh dict, and two Round3Turn rows must never end up
+            # aliasing the same mutable object.
+            "declared_constructs": dict(declared_constructs),
         }
 
     category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
@@ -266,11 +273,16 @@ def round3_coding_turn(
 
     leaked = round3_construct_engine.leaking_categories(checkable, category_status, language)
     if leaked:
+        # Never name the leaking category here - the category's own key
+        # (e.g. "iteration") is itself forbidden vocabulary for that
+        # category, so echoing it back would hand the model exactly the
+        # word it must avoid, one line above asking it not to.
         note = (
-            "Your last attempt named the very construct you were testing for in your "
-            f"question about: {', '.join(leaked)}. Rephrase those specific questions "
-            "without naming the concept, technique, or vocabulary at all - describe "
-            "only the underlying need."
+            "Your last attempt named the very thing it was trying to test for in one "
+            "or more of the questions you drafted for the checklist above. Redraft "
+            "EVERY neutral_question you produce this time so it describes only the "
+            "underlying need - never the concept, technique, or vocabulary itself, "
+            "however that concept is normally referred to in code or in plain English."
         )
         retry = _raw_turn(regeneration_note=note)
         retry_status = {k: v.model_dump() for k, v in retry.category_status.items()}

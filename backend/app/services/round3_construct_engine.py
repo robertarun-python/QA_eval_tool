@@ -36,12 +36,20 @@ def decide(category_status: dict, cumulative_state: dict, required_constructs: l
     if attempted_vague:
         # This message tried to address more than one gap at once - ask
         # about all of them together, not one round trip each (see spec
-        # §4, "bundled instructions").
-        ask = [c for c in required_constructs if c in attempted_vague]
-        return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=ask)
+        # §4, "bundled instructions"). Filtered to `missing` because the
+        # model isn't guaranteed to only classify categories the prompt
+        # actually showed it as open - an already-declared category
+        # mistakenly re-classified as "attempted_but_vague" must never
+        # get re-asked (the guardrail promises settled choices are final)
+        # or crowd out the real gap.
+        ask = [c for c in required_constructs if c in attempted_vague and c in missing]
+        if ask:
+            return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=ask)
 
-    # Nothing was attempted this turn - probe toward the single earliest
-    # still-unaddressed category, in the scenario's authored order.
+    # Nothing was attempted this turn (or everything "attempted" was
+    # actually already-declared noise, filtered above) - probe toward
+    # the single earliest still-unaddressed category, in the scenario's
+    # authored order.
     return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=[missing[0]])
 
 

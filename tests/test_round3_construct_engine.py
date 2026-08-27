@@ -76,6 +76,21 @@ def test_decide_honors_an_explicit_correction_to_an_already_declared_category():
     assert decision.final_kind == "proceed"
 
 
+def test_decide_ignores_a_stray_attempted_vague_status_on_an_already_declared_category():
+    # A model that misclassifies an already-settled category as still
+    # "attempted_but_vague" (schema-legal, but not what the prompt asks
+    # for) must never get re-asked about it, and must never crowd out
+    # the real open gap.
+    category_status = {
+        "collection": {"status": "attempted_but_vague", "neutral_question": "How should this be represented?"},
+        "iteration": {"status": "not_addressed"},
+    }
+    decision = round3_construct_engine.decide(
+        category_status, {"collection": "a list"}, REQUIRED,
+    )
+    assert decision.ask_categories == ["iteration"]
+
+
 def test_leaking_categories_flags_a_question_that_names_the_construct():
     category_status = {"iteration": {"status": "attempted_but_vague", "neutral_question": "Should this be a for loop?"}}
     leaked = round3_construct_engine.leaking_categories(["iteration"], category_status, "python")

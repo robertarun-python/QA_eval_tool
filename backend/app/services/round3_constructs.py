@@ -56,15 +56,31 @@ GENERIC_VOCAB = {
 # for Python's "def" leaking, because it's simply not in their set.
 LANGUAGE_CONSTRUCTS = {
     "python": {
-        "collection": {"list", "tuple", "set", "dict", "dictionary"},
+        # "list"/"dict"/"tuple" stay bare - they're specific enough to
+        # the collection concept that the risk of colliding with
+        # ordinary English is accepted (same tradeoff as elsewhere in
+        # this module). Bare "set" is a genuinely common English word
+        # ("set the value", "a set of two") - the parenthesized
+        # constructor form still catches a real leak without that
+        # collision, matching the "int(" pattern already used below.
+        "collection": {"list", "tuple", "dict", "dictionary", "set("},
         "element_access": {"square brackets"},
-        "iteration": {"for", "while", "for loop", "while loop", "range("},
-        "condition": {"if", "elif", "else"},
+        # Bare "for"/"while" are ordinary English words too common to
+        # block outright (see the multi-word forms kept below, and the
+        # GENERIC_VOCAB "loop"/"iterate" layer that still applies).
+        "iteration": {"for loop", "while loop", "range("},
+        # Bare "if" and "else" are ordinary English; "elif" alone is
+        # unambiguous and Python-specific.
+        "condition": {"elif"},
         "comparison": {"==", "!=", ">=", "<="},
         "boolean_logic": set(),  # see the GENERIC_VOCAB comment above
         "function": {"def", "lambda"},
         "return_value": {"return"},
-        "arithmetic_operation": {"+", "-", "*", "/", "//", "%", "**"},
+        # Bare arithmetic symbols removed - "-"/"/" collide with
+        # ordinary punctuation (a hyphen, a slash) in any neutral
+        # question; GENERIC_VOCAB's "add"/"subtract"/"multiply"/
+        # "divide" already catches every realistic natural-language leak.
+        "arithmetic_operation": set(),
         "string_operation": {".join(", ".split(", "f-string"},
         "type_conversion": {"int(", "str(", "float(", "list("},
         "input": {"input("},
@@ -73,28 +89,30 @@ LANGUAGE_CONSTRUCTS = {
     "java": {
         "collection": {"array", "arraylist", "hashmap", "hashset", "linkedlist"},
         "element_access": {"square brackets", ".get("},
-        "iteration": {"for", "while", "do-while", "enhanced-for", "for-each"},
-        "condition": {"if", "else if", "switch"},
+        "iteration": {"do-while", "enhanced-for", "for-each"},
+        "condition": {"else if", "switch"},
         "comparison": {"==", "!=", ">=", "<=", ".equals("},
         "boolean_logic": {"&&", "||"},
         "function": {"method", "public", "private", "static"},
         "return_value": {"return"},
-        "arithmetic_operation": {"+", "-", "*", "/", "%"},
+        "arithmetic_operation": set(),
         "string_operation": {".concat(", ".substring(", "stringbuilder"},
         "type_conversion": {"(int)", "(double)", "integer.parseint", "string.valueof"},
         "input": {"scanner", "system.in", "bufferedreader"},
         "output": {"system.out.println", "system.out.print"},
     },
     "javascript": {
-        "collection": {"array", "object", "map", "set"},
+        # Bare "object"/"map"/"set" are ordinary English words; "array"
+        # is specific enough to keep.
+        "collection": {"array"},
         "element_access": {"square brackets"},
-        "iteration": {"for", "while", "for-of", "for-in", "foreach", "for each"},
-        "condition": {"if", "else if", "switch"},
+        "iteration": {"for-of", "for-in", "foreach", "for each"},
+        "condition": {"else if", "switch"},
         "comparison": {"===", "!==", "==", "!=", ">=", "<="},
         "boolean_logic": {"&&", "||"},
         "function": {"function", "arrow function", "=>"},
         "return_value": {"return"},
-        "arithmetic_operation": {"+", "-", "*", "/", "%"},
+        "arithmetic_operation": set(),
         "string_operation": {"template literal", ".concat(", "${"},
         "type_conversion": {"parseint", "parsefloat", "number(", "string(", "tostring"},
         "input": {"prompt(", "readline"},
