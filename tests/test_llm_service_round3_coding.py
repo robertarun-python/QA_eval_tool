@@ -12,6 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
 import pytest
+from pydantic import ValidationError
 
 from app.services import llm_service
 
@@ -70,6 +71,45 @@ def test_round3_coding_turn_rejects_code_edit_without_code(monkeypatch):
             scenario_description="x", language="python", conversation_so_far=[],
             current_code=None, candidate_prompt="do it", turn_number=1,
         )
+
+
+def test_round3_coding_turn_response_accepts_category_status():
+    from app.schemas import Round3CodingTurnResponse
+    parsed = Round3CodingTurnResponse.model_validate({
+        "response_kind": "clarify", "response_message": "...", "code_after": None,
+        "category_status": {
+            "iteration": {"status": "attempted_but_vague", "neutral_question": "How will it work through them?"},
+            "collection": {"status": "declared", "value": "a list"},
+        },
+    })
+    assert parsed.category_status["collection"].value == "a list"
+    assert parsed.category_status["iteration"].status == "attempted_but_vague"
+
+
+def test_round3_coding_turn_response_defaults_category_status_to_empty():
+    from app.schemas import Round3CodingTurnResponse
+    parsed = Round3CodingTurnResponse.model_validate({
+        "response_kind": "code_edit", "response_message": "done", "code_after": "x = 1",
+    })
+    assert parsed.category_status == {}
+
+
+def test_category_status_entry_requires_value_when_declared():
+    from app.schemas import Round3CodingTurnResponse
+    with pytest.raises(ValidationError):
+        Round3CodingTurnResponse.model_validate({
+            "response_kind": "clarify", "response_message": "...", "code_after": None,
+            "category_status": {"collection": {"status": "declared"}},
+        })
+
+
+def test_category_status_entry_requires_neutral_question_when_not_declared():
+    from app.schemas import Round3CodingTurnResponse
+    with pytest.raises(ValidationError):
+        Round3CodingTurnResponse.model_validate({
+            "response_kind": "clarify", "response_message": "...", "code_after": None,
+            "category_status": {"collection": {"status": "not_addressed"}},
+        })
 
 
 def test_score_round3_coding_includes_provenance(monkeypatch):

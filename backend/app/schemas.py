@@ -633,15 +633,37 @@ class Round3TurnCreate(BaseModel):
     candidate_prompt: str = Field(min_length=1)
 
 
+class CategoryStatusEntry(BaseModel):
+    """One construct category's classification for a single turn - see
+    llm_service.round3_coding_turn and round3_construct_engine.decide.
+    "declared" commits to a specific choice (value required); anything
+    else must carry the vocabulary-free neutral_question the assistant
+    would ask about it."""
+    status: Literal["declared", "attempted_but_vague", "not_addressed"]
+    value: Optional[str] = None
+    neutral_question: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _fields_match_status(self):
+        if self.status == "declared" and not self.value:
+            raise ValueError("value is required when status is 'declared'")
+        if self.status != "declared" and not self.neutral_question:
+            raise ValueError("neutral_question is required unless status is 'declared'")
+        return self
+
+
 class Round3CodingTurnResponse(BaseModel):
     """The LLM's classified response for one turn - see
     llm_service.round3_coding_turn and prompts/round3_coding_turn.txt.
     code_after is required when response_kind is "code_edit" (the full
     updated code) and must be absent otherwise (clarify/refuse never
-    touch the code)."""
+    touch the code). category_status is empty whenever the turn has no
+    open construct-checklist categories (an unscoped scenario, or every
+    required category already declared) - see round3_construct_engine."""
     response_kind: Literal["clarify", "refuse", "code_edit"]
     response_message: str
     code_after: Optional[str] = None
+    category_status: dict[str, CategoryStatusEntry] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _code_after_required_for_code_edit(self):
