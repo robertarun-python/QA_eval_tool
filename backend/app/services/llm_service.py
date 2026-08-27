@@ -237,15 +237,34 @@ def round3_coding_turn(
     decision = round3_construct_engine.decide(category_status, declared_constructs, required_constructs)
 
     if decision.final_kind == "proceed":
+        # Every required category is now declared, but that only means
+        # constructs are no longer the blocker - the model's OWN
+        # classification for this turn (already schema-valid: code_after
+        # is present iff response_kind == "code_edit") still governs
+        # whether this is actually a code_edit or a non-construct
+        # clarify (e.g. still missing an ordinary name/technique).
+        # "refuse" can't reach here - it already short-circuited above.
         return {
-            "response_kind": "code_edit",
+            "response_kind": parsed.response_kind,
             "response_message": parsed.response_message,
             "code_after": parsed.code_after,
             "declared_constructs": decision.updated_state,
         }
 
     # clarify: check for vocabulary leaks, regenerate once, then fall back.
-    leaked = round3_construct_engine.leaking_categories(decision.ask_categories, category_status, language)
+    # A category the model didn't give a usable neutral_question for -
+    # missing from category_status entirely, or present with
+    # neutral_question absent/None (both schema-legal shapes a live model
+    # can produce) - goes straight to the fallback template rather than
+    # being indexed and crashing.
+    def _has_question(status_map: dict, category: str) -> bool:
+        entry = status_map.get(category)
+        return bool(entry and entry.get("neutral_question"))
+
+    unusable = {c for c in decision.ask_categories if not _has_question(category_status, c)}
+    checkable = [c for c in decision.ask_categories if c not in unusable]
+
+    leaked = round3_construct_engine.leaking_categories(checkable, category_status, language)
     if leaked:
         note = (
             "Your last attempt named the very construct you were testing for in your "
@@ -256,11 +275,21 @@ def round3_coding_turn(
         retry = _raw_turn(regeneration_note=note)
         retry_status = {k: v.model_dump() for k, v in retry.category_status.items()}
         for category in leaked:
-            if category in retry_status:
-                category_status[category] = retry_status[category]
-        leaked = round3_construct_engine.leaking_categories(decision.ask_categories, category_status, language)
+            # Merge only the rephrased question, never the retry's status/
+            # value - a retry that reclassifies the same instruction as
+            # "declared" would otherwise install a None neutral_question
+            # and crash the re-check below, and would also bypass the
+            # cumulative-state merge decide() already computed this turn.
+            if _has_question(retry_status, category):
+                category_status[category]["neutral_question"] = retry_status[category]["neutral_question"]
+            else:
+                unusable.add(category)
+        leaked = round3_construct_engine.leaking_categories(
+            [c for c in leaked if c not in unusable], category_status, language
+        )
 
-    message = round3_construct_engine.assemble_message(decision.ask_categories, category_status, set(leaked))
+    use_fallback_for = set(leaked) | unusable
+    message = round3_construct_engine.assemble_message(decision.ask_categories, category_status, use_fallback_for)
     return {
         "response_kind": "clarify",
         "response_message": message,

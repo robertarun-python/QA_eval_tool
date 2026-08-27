@@ -267,3 +267,79 @@ def test_round3_coding_turn_bundles_multiple_gaps_into_one_clarify(monkeypatch):
     assert result["response_kind"] == "clarify"
     assert "How will it work through them, one at a time?" in result["response_message"]
     assert "What should determine a match?" in result["response_message"]
+
+
+def test_round3_coding_turn_retry_only_touches_the_leaking_category(monkeypatch):
+    # Two categories are asked about together; only "iteration" leaks.
+    # The retry's answer must replace ONLY iteration's question - "comparison"'s
+    # first-pass question must survive untouched, not be overwritten wholesale
+    # by whatever the retry call returns for it.
+    calls = []
+
+    def fake_call_claude(prompt, max_tokens=4096):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return json.dumps({
+                "response_kind": "clarify", "response_message": "...", "code_after": None,
+                "category_status": {
+                    "iteration": {"status": "attempted_but_vague", "neutral_question": "Should this be a for loop?"},
+                    "comparison": {"status": "attempted_but_vague", "neutral_question": "What decides a match?"},
+                },
+            })
+        # The retry call - only asked to rephrase, but even if it also
+        # returns something different for "comparison", that must be ignored.
+        return json.dumps({
+            "response_kind": "clarify", "response_message": "...", "code_after": None,
+            "category_status": {
+                "iteration": {"status": "attempted_but_vague", "neutral_question": "How will it work through them, one at a time?"},
+                "comparison": {"status": "attempted_but_vague", "neutral_question": "A DIFFERENT, unrelated question that must not appear."},
+            },
+        })
+
+    monkeypatch.setattr(llm_service, "_call_claude", fake_call_claude)
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="loop through the salaries and compare each to the current highest",
+        turn_number=2, required_constructs=["iteration", "comparison"], declared_constructs={},
+    )
+    assert len(calls) == 2
+    assert "How will it work through them, one at a time?" in result["response_message"]
+    assert "What decides a match?" in result["response_message"]
+    assert "A DIFFERENT, unrelated question" not in result["response_message"]
+
+
+def test_round3_coding_turn_falls_back_when_category_status_is_missing_entirely(monkeypatch):
+    # Schema-legal but unhelpful: response_kind is "clarify" and
+    # category_status is entirely absent (defaults to {}). The engine
+    # still says "iteration" needs asking about - this must fall back to
+    # the hardcoded template, never crash on a missing dict key.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify", "response_message": "...", "code_after": None,
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="I need to process the salaries",
+        turn_number=1, required_constructs=["iteration"], declared_constructs={},
+    )
+    from app.services import round3_constructs
+    assert result["response_kind"] == "clarify"
+    assert result["response_message"] == round3_constructs.FALLBACK_QUESTIONS["iteration"]
+
+
+def test_round3_coding_turn_proceed_passes_through_a_genuine_non_construct_clarify(monkeypatch):
+    # Every required category is already declared coming into this turn,
+    # so the engine says "proceed" - but the model's OWN classification
+    # for this turn is "clarify" (an ordinary missing name, unrelated to
+    # constructs). The engine's "proceed" must never be rewritten into a
+    # code_edit the model didn't actually produce code for.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify", "response_message": "What should I name the running total?", "code_after": None,
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code="salaries = [1, 2]",
+        candidate_prompt="keep a running total as you go",
+        turn_number=4, required_constructs=["iteration"], declared_constructs={"iteration": "a for loop"},
+    )
+    assert result["response_kind"] == "clarify"
+    assert result["code_after"] is None
+    assert result["response_message"] == "What should I name the running total?"
