@@ -969,11 +969,87 @@ def test_round3_coding_turn_bundles_multiple_gaps_into_one_clarify(monkeypatch):
     assert result["response_kind"] == "clarify"
     assert "How will it work through them, one at a time?" in result["response_message"]
     assert "What should determine a match?" in result["response_message"]
+
+
+def test_round3_coding_turn_retry_only_touches_the_leaking_category(monkeypatch):
+    # Two categories are asked about together; only "iteration" leaks.
+    # The retry's answer must replace ONLY iteration's question - "comparison"'s
+    # first-pass question must survive untouched, not be overwritten wholesale
+    # by whatever the retry call returns for it.
+    calls = []
+
+    def fake_call_claude(prompt, max_tokens=4096):
+        calls.append(prompt)
+        if len(calls) == 1:
+            return json.dumps({
+                "response_kind": "clarify", "response_message": "...", "code_after": None,
+                "category_status": {
+                    "iteration": {"status": "attempted_but_vague", "neutral_question": "Should this be a for loop?"},
+                    "comparison": {"status": "attempted_but_vague", "neutral_question": "What decides a match?"},
+                },
+            })
+        # The retry call - only asked to rephrase, but even if it also
+        # returns something different for "comparison", that must be ignored.
+        return json.dumps({
+            "response_kind": "clarify", "response_message": "...", "code_after": None,
+            "category_status": {
+                "iteration": {"status": "attempted_but_vague", "neutral_question": "How will it work through them, one at a time?"},
+                "comparison": {"status": "attempted_but_vague", "neutral_question": "A DIFFERENT, unrelated question that must not appear."},
+            },
+        })
+
+    monkeypatch.setattr(llm_service, "_call_claude", fake_call_claude)
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="loop through the salaries and compare each to the current highest",
+        turn_number=2, required_constructs=["iteration", "comparison"], declared_constructs={},
+    )
+    assert len(calls) == 2
+    assert "How will it work through them, one at a time?" in result["response_message"]
+    assert "What decides a match?" in result["response_message"]
+    assert "A DIFFERENT, unrelated question" not in result["response_message"]
+
+
+def test_round3_coding_turn_falls_back_when_category_status_is_missing_entirely(monkeypatch):
+    # Schema-legal but unhelpful: response_kind is "clarify" and
+    # category_status is entirely absent (defaults to {}). The engine
+    # still says "iteration" needs asking about - this must fall back to
+    # the hardcoded template, never crash on a missing dict key.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify", "response_message": "...", "code_after": None,
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code=None,
+        candidate_prompt="I need to process the salaries",
+        turn_number=1, required_constructs=["iteration"], declared_constructs={},
+    )
+    from app.services import round3_constructs
+    assert result["response_kind"] == "clarify"
+    assert result["response_message"] == round3_constructs.FALLBACK_QUESTIONS["iteration"]
+
+
+def test_round3_coding_turn_proceed_passes_through_a_genuine_non_construct_clarify(monkeypatch):
+    # Every required category is already declared coming into this turn,
+    # so the engine says "proceed" - but the model's OWN classification
+    # for this turn is "clarify" (an ordinary missing name, unrelated to
+    # constructs). The engine's "proceed" must never be rewritten into a
+    # code_edit the model didn't actually produce code for.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify", "response_message": "What should I name the running total?", "code_after": None,
+    }))
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[], current_code="salaries = [1, 2]",
+        candidate_prompt="keep a running total as you go",
+        turn_number=4, required_constructs=["iteration"], declared_constructs={"iteration": "a for loop"},
+    )
+    assert result["response_kind"] == "clarify"
+    assert result["code_after"] is None
+    assert result["response_message"] == "What should I name the running total?"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pytest tests/test_llm_service_round3_coding.py -v -k "forces_clarify or proceeds_once or ignores_the_checklist or regenerates_once or falls_back or bundles_multiple"`
+Run: `pytest tests/test_llm_service_round3_coding.py -v -k "forces_clarify or proceeds_once or ignores_the_checklist or regenerates_once or falls_back or bundles_multiple or retry_only_touches or falls_back_when_category_status or proceed_passes_through"`
 Expected: FAIL — `TypeError: round3_coding_turn() got an unexpected keyword argument 'required_constructs'`
 
 - [ ] **Step 3: Rewrite the prompt and the orchestration**
@@ -1012,6 +1088,8 @@ Continuation check - do this BEFORE classifying: look at the LAST entry in the c
 Classify this instruction and respond with exactly one of these three response_kind values:
 
 1. "clarify" - use this whenever writing the code requires YOU to invent a NAME or a MECHANICAL TECHNIQUE the candidate didn't state, no matter how small or how "obvious" a reasonable convention might seem to you. This is also the correct response_kind whenever the construct checklist above lists any open category - see "Construct classification" below, which governs exactly how you handle that.
+
+   How to ask, for a name or technique unrelated to the construct checklist (the checklist's own categories are governed by "Construct classification" below, which has its own, stricter phrasing rule): ONE bare, minimal question naming only the missing name or technique itself - nothing else. Do not bundle a second question onto it. Do not offer multiple-choice options, examples, or scenarios as part of the question (e.g. never "should it be one line or several, comma or space separated?" - just "how should the input be read?") - listing possibilities is doing the candidate's thinking for them just as much as answering would be.
 
    NEVER clarify about runtime behavior, edge cases, or error conditions - this is the single most important boundary on this rule. If an instruction is syntactically well-defined and you know exactly what code to write for it, WRITE IT, even if you can see it might crash, raise an exception, or produce a weird result for some inputs (an empty list, an out-of-range index, a value that doesn't exist yet, too few elements, division by zero, whatever it may be). Examples of questions you must NEVER ask, because they are exactly this mistake: "what should happen if the list has fewer than 2 elements", "what if the input is empty", "should I handle the case where...". Whether an edge case gets handled at all is the candidate's decision to make (or not make, and then discover from a crash) in a later instruction - never something you flag, hint at, or ask about. This applies no matter how obviously the literal code would break.
 
@@ -1108,15 +1186,34 @@ def round3_coding_turn(
     decision = round3_construct_engine.decide(category_status, declared_constructs, required_constructs)
 
     if decision.final_kind == "proceed":
+        # Every required category is now declared, but that only means
+        # constructs are no longer the blocker - the model's OWN
+        # classification for this turn (already schema-valid: code_after
+        # is present iff response_kind == "code_edit") still governs
+        # whether this is actually a code_edit or a non-construct
+        # clarify (e.g. still missing an ordinary name/technique).
+        # "refuse" can't reach here - it already short-circuited above.
         return {
-            "response_kind": "code_edit",
+            "response_kind": parsed.response_kind,
             "response_message": parsed.response_message,
             "code_after": parsed.code_after,
             "declared_constructs": decision.updated_state,
         }
 
     # clarify: check for vocabulary leaks, regenerate once, then fall back.
-    leaked = round3_construct_engine.leaking_categories(decision.ask_categories, category_status, language)
+    # A category the model didn't give a usable neutral_question for -
+    # missing from category_status entirely, or present with
+    # neutral_question absent/None (both schema-legal shapes a live model
+    # can produce) - goes straight to the fallback template rather than
+    # being indexed and crashing.
+    def _has_question(status_map: dict, category: str) -> bool:
+        entry = status_map.get(category)
+        return bool(entry and entry.get("neutral_question"))
+
+    unusable = {c for c in decision.ask_categories if not _has_question(category_status, c)}
+    checkable = [c for c in decision.ask_categories if c not in unusable]
+
+    leaked = round3_construct_engine.leaking_categories(checkable, category_status, language)
     if leaked:
         note = (
             "Your last attempt named the very construct you were testing for in your "
@@ -1127,11 +1224,21 @@ def round3_coding_turn(
         retry = _raw_turn(regeneration_note=note)
         retry_status = {k: v.model_dump() for k, v in retry.category_status.items()}
         for category in leaked:
-            if category in retry_status:
-                category_status[category] = retry_status[category]
-        leaked = round3_construct_engine.leaking_categories(decision.ask_categories, category_status, language)
+            # Merge only the rephrased question, never the retry's status/
+            # value - a retry that reclassifies the same instruction as
+            # "declared" would otherwise install a None neutral_question
+            # and crash the re-check below, and would also bypass the
+            # cumulative-state merge decide() already computed this turn.
+            if _has_question(retry_status, category):
+                category_status[category]["neutral_question"] = retry_status[category]["neutral_question"]
+            else:
+                unusable.add(category)
+        leaked = round3_construct_engine.leaking_categories(
+            [c for c in leaked if c not in unusable], category_status, language
+        )
 
-    message = round3_construct_engine.assemble_message(decision.ask_categories, category_status, set(leaked))
+    use_fallback_for = set(leaked) | unusable
+    message = round3_construct_engine.assemble_message(decision.ask_categories, category_status, use_fallback_for)
     return {
         "response_kind": "clarify",
         "response_message": message,
