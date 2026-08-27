@@ -310,6 +310,39 @@ def round3_coding_turn(
     }
 
 
+def round3_syntax_fix(
+    code: str,
+    language: str,
+    required_constructs: list[str] | None = None,
+    declared_constructs: dict | None = None,
+) -> dict:
+    required_constructs = required_constructs or []
+    declared_constructs = declared_constructs or {}
+
+    prompt = _load_prompt("round3_syntax_fix.txt").format(
+        code=code,
+        language=language,
+        required_constructs=json.dumps(required_constructs),
+    )
+    raw = _call_claude(prompt, max_tokens=4096)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the syntax-fix response, got: {type(result)}")
+    try:
+        parsed = Round3CodingTurnResponse.model_validate(result)
+    except ValidationError as e:
+        raise ValueError(f"Syntax-fix response didn't match the expected shape: {e}") from e
+
+    category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
+    updated_state = round3_construct_engine.merge_declared(category_status, declared_constructs, required_constructs)
+
+    return {
+        "response_message": parsed.response_message,
+        "code_after": parsed.code_after,
+        "declared_constructs": updated_state,
+    }
+
+
 def score_round3_coding(
     scenario_description: str,
     expected_approach: str,

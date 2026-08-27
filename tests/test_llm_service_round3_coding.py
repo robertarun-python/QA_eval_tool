@@ -397,3 +397,84 @@ def test_round3_direct_edit_create_accepts_code():
     from app.schemas import Round3DirectEditCreate
     parsed = Round3DirectEditCreate.model_validate({"code": "print('hi')"})
     assert parsed.code == "print('hi')"
+
+
+def test_round3_syntax_fix_returns_code_unchanged_when_already_clean(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "direct_edit", "response_message": "No syntax issues found.",
+        "code_after": "for x in range(3):\n    print(x)",
+        "category_status": {"iteration": {"status": "declared", "value": "a for loop over range(3)"}},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="for x in range(3):\n    print(x)", language="python",
+        required_constructs=["iteration"], declared_constructs={},
+    )
+    assert result["code_after"] == "for x in range(3):\n    print(x)"
+    assert result["declared_constructs"] == {"iteration": "a for loop over range(3)"}
+
+
+def test_round3_syntax_fix_fixes_a_genuine_syntax_error(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "direct_edit", "response_message": "Added the missing colon.",
+        "code_after": "for x in range(3):\n    print(x)",
+        "category_status": {"iteration": {"status": "declared", "value": "a for loop over range(3)"}},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="for x in range(3)\n    print(x)", language="python",
+        required_constructs=["iteration"], declared_constructs={},
+    )
+    assert "for x in range(3):" in result["code_after"]
+
+
+def test_round3_syntax_fix_leaves_unfixable_code_untouched(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "direct_edit",
+        "response_message": "I couldn't confidently identify a fix here - try running it to see the actual error, or fix it yourself and save again.",
+        "code_after": "for x in range(3)\n    prin(x)\n  }",
+        "category_status": {},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="for x in range(3)\n    prin(x)\n  }", language="python",
+        required_constructs=[], declared_constructs={},
+    )
+    assert result["code_after"] == "for x in range(3)\n    prin(x)\n  }"
+    assert "couldn't confidently identify a fix" in result["response_message"]
+
+
+def test_round3_syntax_fix_replaces_a_stale_declared_value_from_the_code(monkeypatch):
+    # "iteration" was declared "a for loop" from an earlier instruction-
+    # based turn, but the pasted code actually uses a while loop - the
+    # code is authoritative, so the stale value must be overwritten.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "direct_edit", "response_message": "No syntax issues found.",
+        "code_after": "i = 0\nwhile i < 3:\n    print(i)\n    i += 1",
+        "category_status": {"iteration": {"status": "declared", "value": "a while loop"}},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="i = 0\nwhile i < 3:\n    print(i)\n    i += 1", language="python",
+        required_constructs=["iteration"], declared_constructs={"iteration": "a for loop"},
+    )
+    assert result["declared_constructs"]["iteration"] == "a while loop"
+
+
+def test_round3_syntax_fix_classifies_against_every_required_category_not_just_open_ones(monkeypatch):
+    captured = {}
+
+    def fake_call_claude(prompt, max_tokens=4096):
+        captured["prompt"] = prompt
+        return json.dumps({
+            "response_kind": "direct_edit", "response_message": "No syntax issues found.",
+            "code_after": "x = 1",
+            "category_status": {},
+        })
+
+    monkeypatch.setattr(llm_service, "_call_claude", fake_call_claude)
+    llm_service.round3_syntax_fix(
+        code="x = 1", language="python",
+        required_constructs=["iteration", "comparison"], declared_constructs={"iteration": "a for loop"},
+    )
+    # Both categories appear in the prompt, including the already-declared
+    # one - the code path classifies everything fresh, it never trusts a
+    # pre-narrowed "open" list the way the instruction path does.
+    assert "iteration" in captured["prompt"]
+    assert "comparison" in captured["prompt"]
