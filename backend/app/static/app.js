@@ -2416,6 +2416,7 @@ async function startRound3Coding(language) {
 let round3CodingState = null;
 let round3CodingDraftTimer = null;
 const ROUND3_CODING_DRAFT_DEBOUNCE_MS = 1000;
+let round3CodingEditingCode = false;
 
 // ---- Round 3 interactive terminal (the candidate's own Run button) ----
 //
@@ -2493,11 +2494,20 @@ function renderRound3CodingLayout(box) {
       </div>
       <div class="panel-inset round3-coding-pane">
         <p class="muted round3-pane-label">Code</p>
-        <pre class="code-snippet" id="round3-coding-code">${escapeHtml(latestCode || "(no code yet)")}</pre>
-        <div class="row">
-          <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
-          <button class="btn-block" onclick="round3CodingSubmit()">Submit Round 3</button>
-        </div>
+        ${round3CodingEditingCode ? `
+          <textarea id="round3-coding-code-edit">${escapeHtml(latestCode)}</textarea>
+          <div class="row">
+            <button onclick="round3CodingSaveDirectEdit()">Save</button>
+            <button onclick="round3CodingCancelDirectEdit()">Cancel</button>
+          </div>
+        ` : `
+          <pre class="code-snippet" id="round3-coding-code">${escapeHtml(latestCode || "(no code yet)")}</pre>
+          <div class="row">
+            <button onclick="round3CodingStartDirectEdit()">Edit code</button>
+            <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
+            <button class="btn-block" onclick="round3CodingSubmit()">Submit Round 3</button>
+          </div>
+        `}
         <p class="muted round3-pane-label">Terminal <span id="round3-terminal-status" class="muted"></span></p>
         <p class="muted">Read-only output from your code - you can't type into it.</p>
         <div class="round3-terminal" id="round3-terminal-output"></div>
@@ -2552,6 +2562,35 @@ async function round3CodingSendMessage() {
     statusEl.textContent = e.message;
   } finally {
     sendBtn.disabled = false;
+  }
+}
+
+function round3CodingStartDirectEdit() {
+  round3CodingEditingCode = true;
+  renderRound3CodingLayout(document.getElementById("round-view"));
+}
+
+function round3CodingCancelDirectEdit() {
+  round3CodingEditingCode = false;
+  renderRound3CodingLayout(document.getElementById("round-view"));
+}
+
+async function round3CodingSaveDirectEdit() {
+  const textarea = document.getElementById("round3-coding-code-edit");
+  const code = textarea.value.trim();
+  const statusEl = document.getElementById("round3-coding-status");
+  if (!code) return;
+  statusEl.className = "muted";
+  statusEl.textContent = "Saving...";
+  try {
+    await api("/candidate/round/3/edit", { method: "POST", body: JSON.stringify({ code }) });
+    round3CodingState = await api("/candidate/round/3/state");
+    round3CodingEditingCode = false;
+    renderRound3CodingLayout(document.getElementById("round-view"));
+    statusEl.textContent = "";
+  } catch (e) {
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
   }
 }
 
