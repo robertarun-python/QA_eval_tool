@@ -565,3 +565,64 @@ def test_round3_coding_direct_edit_rejects_empty_code(client, monkeypatch):
 
     res = client.post("/candidate/round/3/edit", json={"code": ""}, cookies=_auth(cand_token))
     assert res.status_code == 422
+
+
+def test_round3_coding_direct_edit_full_flow_end_to_end(client, monkeypatch):
+    """Drives the REAL llm_service.round3_syntax_fix orchestration (only
+    _call_claude is mocked, not round3_syntax_fix itself) through pasting
+    a complete solution as the very first turn - proving the router, the
+    engine's merge_declared, and persistence all wire together, and that
+    classification genuinely reads the code rather than trusting a mock's
+    say-so."""
+    import json as json_module
+    from app.services import llm_service
+    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration", "comparison"]}},
+        cookies=_auth(hr_token),
+    )
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
+
+    cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    pasted_code = (
+        "salaries = [50000, 72000, 61000]\n"
+        "highest = None\n"
+        "for s in salaries:\n"
+        "    if highest is None or s > highest:\n"
+        "        highest = s\n"
+        "print(highest)"
+    )
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json_module.dumps({
+        "response_kind": "direct_edit", "response_message": "No syntax issues found.",
+        "code_after": pasted_code,
+        "category_status": {
+            "collection": {"status": "declared", "value": "a list called salaries"},
+            "iteration": {"status": "declared", "value": "a for loop over salaries"},
+            "comparison": {"status": "declared", "value": "greater than the current highest"},
+        },
+    }))
+
+    res = client.post("/candidate/round/3/edit", json={"code": pasted_code}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+    assert res.json()["response_kind"] == "direct_edit"
+    assert res.json()["code_after"] == pasted_code
+
+    state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert len(state["turns"]) == 1
+    assert state["turns"][0]["candidate_prompt"] == pasted_code
