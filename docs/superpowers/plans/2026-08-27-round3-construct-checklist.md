@@ -122,6 +122,7 @@ functions, I/O). It's a plain data module by design - extending it to
 OOP/async/recursion categories later is a data-only change, not a
 redesign; nothing that consumes this module cares how many entries exist.
 """
+import re
 
 CONSTRUCT_CATEGORIES = [
     "variable", "collection", "element_access",
@@ -143,7 +144,15 @@ GENERIC_VOCAB = {
     "nested_iteration": {"nested loop", "inner loop", "outer loop", "nested"},
     "condition": {"condition", "conditional", "decision", "branch"},
     "comparison": {"compare", "comparison", "comparison operator"},
-    "boolean_logic": {"boolean logic", "combine conditions", "both conditions", "either condition", " and ", " or ", " not "},
+    # "and"/"or"/"not" are deliberately NOT listed bare here - they are
+    # ordinary English function words ("before", "hold, or", "handle"),
+    # and a bare-word block on them would make almost any natural
+    # sentence about this category unphraseable. The multi-word phrases
+    # below still catch the LLM naming the concept outright; Java/JS
+    # additionally get the unambiguous operator symbols in
+    # LANGUAGE_CONSTRUCTS. Python's mechanical coverage here is
+    # intentionally weaker for this one category - see the design spec.
+    "boolean_logic": {"boolean logic", "combine conditions", "both conditions", "either condition"},
     "function": {"function", "method", "define a function", "subroutine"},
     "parameter": {"parameter", "argument", "input to the function"},
     "return_value": {"return", "return value", "return statement"},
@@ -164,7 +173,7 @@ LANGUAGE_CONSTRUCTS = {
         "iteration": {"for", "while", "for loop", "while loop", "range("},
         "condition": {"if", "elif", "else"},
         "comparison": {"==", "!=", ">=", "<="},
-        "boolean_logic": {"and", "or", "not"},
+        "boolean_logic": set(),  # see the GENERIC_VOCAB comment above
         "function": {"def", "lambda"},
         "return_value": {"return"},
         "arithmetic_operation": {"+", "-", "*", "/", "//", "%", "**"},
@@ -235,14 +244,21 @@ def forbidden_vocab(category: str, language: str) -> set[str]:
 
 
 def contains_forbidden_vocab(text: str, category: str, language: str) -> bool:
-    # Plain substring containment, not word-boundary regex: several
-    # forbidden entries are symbols ("==", "+") or multi-word phrases
-    # that a strict \b-boundary regex handles awkwardly. This can rarely
-    # over-block (e.g. "printer" contains "print") - always the safe
-    # direction, since over-blocking only costs one extra regenerate/
-    # fallback (see round3_construct_engine), never lets a leak through.
+    # Alphabetic words/phrases are matched at word boundaries, so "list"
+    # doesn't falsely trip inside "arraylist" and "or" doesn't falsely
+    # trip inside "before" - but still catches the word used on its own
+    # ("a list of", "combine conditions"). Symbol tokens ("==", "+",
+    # "&&") have no meaningful word boundary, so those fall back to
+    # plain substring containment, which is exactly right for code-shaped
+    # fragments like "int(" appearing inside a longer expression.
     lowered = text.lower()
-    return any(word in lowered for word in forbidden_vocab(category, language))
+    for word in forbidden_vocab(category, language):
+        if all(ch.isalpha() or ch == " " for ch in word):
+            if re.search(r"\b" + re.escape(word) + r"\b", lowered):
+                return True
+        elif word in lowered:
+            return True
+    return False
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
