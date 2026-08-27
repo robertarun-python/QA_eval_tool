@@ -776,10 +776,13 @@ async function openScenarioDetail(id) {
       </table>
     </div>
     ${isCodingReference && scenario.reference_json ? `<p class="muted"><strong>Expected approach:</strong> ${escapeHtml(scenario.reference_json.expected_approach || "")}</p>` : ""}
+    ${isCodingReference && scenario.reference_json && scenario.reference_json.required_constructs && scenario.reference_json.required_constructs.length
+      ? `<p class="muted"><strong>Required concepts:</strong> ${escapeHtml(scenario.reference_json.required_constructs.join(", "))}</p>`
+      : ""}
     ${isDraft ? `
       <details>
         <summary>Edit reference as JSON</summary>
-        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || (isCodingReference ? {test_cases: [], expected_approach: ""} : []), null, 2))}</textarea>
+        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || (isCodingReference ? {test_cases: [], expected_approach: "", required_constructs: []} : []), null, 2))}</textarea>
         <div class="row">
           <button onclick="saveReferenceEdit(${scenario.id})">Save edits</button>
         </div>

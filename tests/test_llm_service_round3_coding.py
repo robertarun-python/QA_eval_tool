@@ -125,3 +125,23 @@ def test_score_round3_coding_includes_provenance(monkeypatch):
     assert result["final_score"] == 85
     assert "_provenance" in result
     assert result["_provenance"]["prompt_file"] == "round3_coding_scoring.txt"
+
+
+def test_generate_round3_reference_returns_required_constructs(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "test_cases": [{"input": "2 3", "expected_output": "5", "description": "basic sum"}],
+        "expected_approach": "Read two integers and add them directly.",
+        "required_constructs": ["variable", "input", "output"],
+    }))
+    result = llm_service.generate_round3_reference(scenario_description="Add two numbers", experience_band="0-7")
+    assert result["required_constructs"] == ["variable", "input", "output"]
+
+
+def test_generate_round3_reference_rejects_unknown_required_construct(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "test_cases": [{"input": "2 3", "expected_output": "5", "description": "basic sum"}],
+        "expected_approach": "...",
+        "required_constructs": ["not_a_real_category"],
+    }))
+    with pytest.raises(ValueError):
+        llm_service.generate_round3_reference(scenario_description="x", experience_band="0-7")
