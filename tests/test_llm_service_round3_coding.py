@@ -367,3 +367,33 @@ def test_round3_coding_turn_prompt_keys_code_edit_off_this_turns_classification(
     assert "per your own Construct classification below" in prompt_text
     assert 'classified "declared" by THIS instruction' in prompt_text
     assert "explicitly override one of these, classify that category as \"declared\"" in prompt_text
+
+
+def test_round3_coding_turn_response_accepts_direct_edit():
+    from app.schemas import Round3CodingTurnResponse
+    parsed = Round3CodingTurnResponse.model_validate({
+        "response_kind": "direct_edit", "response_message": "No syntax issues found.",
+        "code_after": "for x in range(3):\n    print(x)",
+    })
+    assert parsed.response_kind == "direct_edit"
+    assert parsed.code_after is not None
+
+
+def test_round3_coding_turn_response_requires_code_after_for_direct_edit():
+    from app.schemas import Round3CodingTurnResponse
+    with pytest.raises(ValidationError):
+        Round3CodingTurnResponse.model_validate({
+            "response_kind": "direct_edit", "response_message": "...", "code_after": None,
+        })
+
+
+def test_round3_direct_edit_create_rejects_empty_code():
+    from app.schemas import Round3DirectEditCreate
+    with pytest.raises(ValidationError):
+        Round3DirectEditCreate.model_validate({"code": ""})
+
+
+def test_round3_direct_edit_create_accepts_code():
+    from app.schemas import Round3DirectEditCreate
+    parsed = Round3DirectEditCreate.model_validate({"code": "print('hi')"})
+    assert parsed.code == "print('hi')"

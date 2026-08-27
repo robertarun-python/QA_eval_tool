@@ -633,6 +633,13 @@ class Round3TurnCreate(BaseModel):
     candidate_prompt: str = Field(min_length=1)
 
 
+class Round3DirectEditCreate(BaseModel):
+    """POST body for /round/3/edit - the candidate's own raw code, typed
+    or pasted directly into the editable code pane (see
+    docs/superpowers/specs/2026-08-27-round3-direct-code-edit-design.md)."""
+    code: str = Field(min_length=1)
+
+
 class CategoryStatusEntry(BaseModel):
     """One construct category's classification for a single turn - see
     llm_service.round3_coding_turn and round3_construct_engine.decide.
@@ -654,22 +661,25 @@ class CategoryStatusEntry(BaseModel):
 
 class Round3CodingTurnResponse(BaseModel):
     """The LLM's classified response for one turn - see
-    llm_service.round3_coding_turn and prompts/round3_coding_turn.txt.
-    code_after is required when response_kind is "code_edit" (the full
-    updated code) and must be absent otherwise (clarify/refuse never
-    touch the code). category_status is empty whenever the turn has no
-    open construct-checklist categories (an unscoped scenario, or every
-    required category already declared) - see round3_construct_engine."""
-    response_kind: Literal["clarify", "refuse", "code_edit"]
+    llm_service.round3_coding_turn/round3_syntax_fix and
+    prompts/round3_coding_turn.txt/round3_syntax_fix.txt. code_after is
+    required when response_kind is "code_edit" or "direct_edit" (the
+    full updated code) and must be absent otherwise (clarify/refuse
+    never touch the code). category_status is empty whenever the turn
+    has no open construct-checklist categories (an unscoped scenario,
+    or every required category already declared/evidenced) - see
+    round3_construct_engine."""
+    response_kind: Literal["clarify", "refuse", "code_edit", "direct_edit"]
     response_message: str
     code_after: Optional[str] = None
     category_status: dict[str, CategoryStatusEntry] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _code_after_required_for_code_edit(self):
-        if self.response_kind == "code_edit" and not self.code_after:
-            raise ValueError("code_after is required when response_kind is 'code_edit'")
-        if self.response_kind != "code_edit" and self.code_after:
+        needs_code = self.response_kind in ("code_edit", "direct_edit")
+        if needs_code and not self.code_after:
+            raise ValueError("code_after is required when response_kind is 'code_edit' or 'direct_edit'")
+        if not needs_code and self.code_after:
             raise ValueError("code_after must not be set when response_kind is 'clarify' or 'refuse'")
         return self
 
