@@ -2367,7 +2367,7 @@ function showRound3CodingIntro() {
         <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
         <li>Run is a real terminal - your code actually executes, and if it asks for input you type your answer right there and it keeps going, exactly like running it yourself. Nothing is pre-filled or guessed for you. Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception. Tell it exactly what to change instead.</li>
         <li>When you submit, your final code is automatically run against a set of hidden test cases you never see - correctness is judged by how many of those actually pass, not by how it looked while you were testing it yourself. That's combined with how precisely you specified things and whether you pushed toward a more efficient solution.</li>
-        <li>Next, you'll pick your language - your timer starts the moment you start from there.</li>
+        <li>Next, you'll pick your language - your timer starts the moment you start from there. This choice is final for the whole round: once you start, you can't switch languages.</li>
       </ul>
       <div class="row">
         <button onclick="confirmRound3CodingIntro()">Got it</button>
@@ -2395,6 +2395,7 @@ function confirmRound3CodingIntro() {
         <option value="javascript">JavaScript</option>
       </select>
     </div>
+    <p class="muted">This is a one-time choice - you won't be able to change it once the round starts.</p>
     <div class="row">
       <button onclick="confirmStartRound3Coding()">Start Round 3</button>
     </div>
