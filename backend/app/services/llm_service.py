@@ -14,6 +14,8 @@ from pydantic import ValidationError
 
 from ..config import settings
 from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse
+from . import round3_constructs
+from . import round3_construct_engine
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -179,6 +181,9 @@ def generate_round3_reference(scenario_description: str, experience_band: str) -
     result = _parse_json_response(raw)
     if not isinstance(result, dict) or "test_cases" not in result or "expected_approach" not in result:
         raise ValueError(f"Expected a JSON object with 'test_cases' and 'expected_approach' keys, got: {result!r}")
+    unknown = set(result.get("required_constructs", [])) - set(round3_constructs.CONSTRUCT_CATEGORIES)
+    if unknown:
+        raise ValueError(f"required_constructs contains unknown categories: {sorted(unknown)}")
     return result
 
 
@@ -189,24 +194,120 @@ def round3_coding_turn(
     current_code: str | None,
     candidate_prompt: str,
     turn_number: int,
+    required_constructs: list[str] | None = None,
+    declared_constructs: dict | None = None,
 ) -> dict:
-    prompt = _load_prompt("round3_coding_turn.txt").format(
-        scenario_description=scenario_description,
-        language=language,
-        conversation_so_far=json.dumps(conversation_so_far, indent=2),
-        current_code=current_code or "(no code written yet)",
-        candidate_prompt=candidate_prompt,
-        turn_number=turn_number,
-        is_first_turn="true" if turn_number == 1 else "false",
-    )
-    raw = _call_claude(prompt, max_tokens=2048)
-    result = _parse_json_response(raw)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
-    try:
-        return Round3CodingTurnResponse.model_validate(result).model_dump()
-    except ValidationError as e:
-        raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+    required_constructs = required_constructs or []
+    declared_constructs = declared_constructs or {}
+    open_categories = [c for c in required_constructs if c not in declared_constructs]
+
+    def _raw_turn(regeneration_note: str = "") -> Round3CodingTurnResponse:
+        prompt = _load_prompt("round3_coding_turn.txt").format(
+            scenario_description=scenario_description,
+            language=language,
+            conversation_so_far=json.dumps(conversation_so_far, indent=2),
+            current_code=current_code or "(no code written yet)",
+            candidate_prompt=candidate_prompt,
+            turn_number=turn_number,
+            is_first_turn="true" if turn_number == 1 else "false",
+            open_categories=json.dumps(open_categories),
+            declared_constructs=json.dumps(declared_constructs, indent=2),
+            regeneration_note=regeneration_note,
+        )
+        # 4096, not the 2048 used before this feature - the response now
+        # carries a full code snapshot AND a category_status block (one
+        # neutral_question per open category) in the same JSON object.
+        raw = _call_claude(prompt, max_tokens=4096)
+        result = _parse_json_response(raw)
+        if not isinstance(result, dict):
+            raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
+        try:
+            return Round3CodingTurnResponse.model_validate(result)
+        except ValidationError as e:
+            raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+
+    parsed = _raw_turn()
+
+    if parsed.response_kind == "refuse" or not open_categories:
+        return {
+            "response_kind": parsed.response_kind,
+            "response_message": parsed.response_message,
+            "code_after": parsed.code_after,
+            # A fresh copy, not the caller's own dict by reference - the
+            # other two return paths below both hand back the engine's
+            # own fresh dict, and two Round3Turn rows must never end up
+            # aliasing the same mutable object.
+            "declared_constructs": dict(declared_constructs),
+        }
+
+    category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
+    decision = round3_construct_engine.decide(category_status, declared_constructs, required_constructs)
+
+    if decision.final_kind == "proceed":
+        # Every required category is now declared, but that only means
+        # constructs are no longer the blocker - the model's OWN
+        # classification for this turn (already schema-valid: code_after
+        # is present iff response_kind == "code_edit") still governs
+        # whether this is actually a code_edit or a non-construct
+        # clarify (e.g. still missing an ordinary name/technique).
+        # "refuse" can't reach here - it already short-circuited above.
+        return {
+            "response_kind": parsed.response_kind,
+            "response_message": parsed.response_message,
+            "code_after": parsed.code_after,
+            "declared_constructs": decision.updated_state,
+        }
+
+    # clarify: check for vocabulary leaks, regenerate once, then fall back.
+    # A category the model didn't give a usable neutral_question for -
+    # missing from category_status entirely, or present with
+    # neutral_question absent/None (both schema-legal shapes a live model
+    # can produce) - goes straight to the fallback template rather than
+    # being indexed and crashing.
+    def _has_question(status_map: dict, category: str) -> bool:
+        entry = status_map.get(category)
+        return bool(entry and entry.get("neutral_question"))
+
+    unusable = {c for c in decision.ask_categories if not _has_question(category_status, c)}
+    checkable = [c for c in decision.ask_categories if c not in unusable]
+
+    leaked = round3_construct_engine.leaking_categories(checkable, category_status, language)
+    if leaked:
+        # Never name the leaking category here - the category's own key
+        # (e.g. "iteration") is itself forbidden vocabulary for that
+        # category, so echoing it back would hand the model exactly the
+        # word it must avoid, one line above asking it not to.
+        note = (
+            "Your last attempt named the very thing it was trying to test for in one "
+            "or more of the questions you drafted for the checklist above. Redraft "
+            "EVERY neutral_question you produce this time so it describes only the "
+            "underlying need - never the concept, technique, or vocabulary itself, "
+            "however that concept is normally referred to in code or in plain English."
+        )
+        retry = _raw_turn(regeneration_note=note)
+        retry_status = {k: v.model_dump() for k, v in retry.category_status.items()}
+        for category in leaked:
+            # Merge only the rephrased question, never the retry's status/
+            # value - a retry that reclassifies the same instruction as
+            # "declared" would otherwise install a None neutral_question
+            # and crash the re-check below, and would also bypass the
+            # cumulative-state merge decide() already computed this turn.
+            if _has_question(retry_status, category):
+                category_status[category]["neutral_question"] = retry_status[category]["neutral_question"]
+            else:
+                unusable.add(category)
+        leaked = round3_construct_engine.leaking_categories(
+            [c for c in leaked if c not in unusable], category_status, language
+        )
+
+    use_fallback_for = set(leaked) | unusable
+    message = round3_construct_engine.assemble_message(decision.ask_categories, category_status, use_fallback_for)
+    return {
+        "response_kind": "clarify",
+        "response_message": message,
+        "code_after": None,
+        "declared_constructs": decision.updated_state,
+    }
 
 
 def score_round3_coding(
