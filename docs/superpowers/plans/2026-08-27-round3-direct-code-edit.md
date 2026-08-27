@@ -322,11 +322,38 @@ def test_round3_syntax_fix_classifies_against_every_required_category_not_just_o
         code="x = 1", language="python",
         required_constructs=["iteration", "comparison"], declared_constructs={"iteration": "a for loop"},
     )
-    # Both categories appear in the prompt, including the already-declared
-    # one - the code path classifies everything fresh, it never trusts a
-    # pre-narrowed "open" list the way the instruction path does.
-    assert "iteration" in captured["prompt"]
-    assert "comparison" in captured["prompt"]
+    # Both categories appear in the SERIALIZED LIST passed to the prompt,
+    # including the already-declared one - the code path classifies
+    # everything fresh, it never trusts a pre-narrowed "open" list the
+    # way the instruction path does. Checking the exact serialized list
+    # (not just substring presence) matters here: the prompt's own fixed
+    # instructional text happens to contain the word "comparison"
+    # already, so a bare `"comparison" in captured["prompt"]` would pass
+    # even if the category were silently dropped from classification.
+    assert json.dumps(["iteration", "comparison"]) in captured["prompt"]
+
+
+def test_round3_syntax_fix_never_leaks_a_question_or_loses_code_on_model_drift(monkeypatch):
+    # The shared schema legally accepts "clarify"/"refuse"/"code_edit"
+    # too, even though this prompt only ever describes "direct_edit". If
+    # the model ever drifts to one of those, this path must never show
+    # the candidate a leaked clarifying question, and must never lose
+    # their code - both the question-shaped response_message AND a null
+    # code_after are schema-legal for "clarify", and neither is
+    # acceptable here.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "clarify",
+        "response_message": "What should happen when the list is empty?",
+        "code_after": None,
+        "category_status": {"iteration": {"status": "not_addressed", "neutral_question": "How should the program work through them?"}},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="for x in range(3)\n    print(x)", language="python",
+        required_constructs=["iteration"], declared_constructs={"iteration": "a for loop"},
+    )
+    assert result["code_after"] == "for x in range(3)\n    print(x)"
+    assert "empty" not in result["response_message"]
+    assert result["declared_constructs"] == {"iteration": "a for loop"}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -393,6 +420,21 @@ def round3_syntax_fix(
         parsed = Round3CodingTurnResponse.model_validate(result)
     except ValidationError as e:
         raise ValueError(f"Syntax-fix response didn't match the expected shape: {e}") from e
+
+    if parsed.response_kind != "direct_edit":
+        # Model drift, not candidate error: the prompt only ever
+        # describes "direct_edit", but the shared schema still legally
+        # accepts "clarify"/"refuse"/"code_edit" too. Those shapes are
+        # allowed to have code_after=None and a response_message that is
+        # literally a candidate-facing question - neither is acceptable
+        # on this path (spec §4: "no gap-flagging... nothing is shown to
+        # the candidate"). Fail safe: the candidate's own code is never
+        # lost, and nothing resembling a question ever reaches them.
+        return {
+            "response_message": "I couldn't process that as a syntax fix - your code was saved unchanged.",
+            "code_after": code,
+            "declared_constructs": dict(declared_constructs),
+        }
 
     category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
     updated_state = round3_construct_engine.merge_declared(category_status, declared_constructs, required_constructs)
