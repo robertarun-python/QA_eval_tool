@@ -127,14 +127,33 @@ FALLBACK_QUESTIONS = {
     "variable": "What information does your program need to keep track of here?",
     "collection": "How do you want to represent and hold onto that information in your program?",
     "element_access": "How should your program get to a specific piece of that information?",
-    "iteration": "How should the program work through them, one at a time?",
+    # Not "...one at a time?" - that phrase names the mechanism (sequential,
+    # single-item handling) as surely as saying "loop" would. Asking about
+    # the values as a set, with no hint of how they get visited, leaves
+    # the technique entirely open.
+    "iteration": "Once your program has all of the values, what needs to happen with them?",
     "nested_iteration": "After handling one of those, what else needs to be examined for it?",
     "condition": "What should determine whether this step happens or not?",
-    "comparison": "What should be checked when comparing those two values?",
-    "boolean_logic": "When should this be considered true overall - does everything need to hold, or just one part?",
-    "function": "How should this piece of logic be packaged so it can be used?",
-    "parameter": "What does that piece of logic need to be given in order to run?",
-    "return_value": "What should this piece of logic hand back once it's done?",
+    # Not "...comparing those two values?" - "comparing" is a plain-English
+    # synonym for the very thing being tested; it passes the literal
+    # blocklist but still names the operation. Ask about the outcome
+    # instead of the operation that produces it.
+    "comparison": "What should determine which of the two values is the one to keep going forward?",
+    # Not "...does everything need to hold, or just one part?" - that's
+    # AND/OR presented as a two-item multiple choice in disguise. Ask
+    # about the combined requirement without splitting it into options.
+    "boolean_logic": "What has to be true, across all of those individual checks together, for the overall result to count?",
+    # Not "...packaged so it can be used?" - "packaged...used" is a
+    # synonym for defining a function. Ask about the dependency instead
+    # of the mechanism that would satisfy it.
+    "function": "How should the rest of the program be able to make use of this piece of logic?",
+    # Not "...given in order to run?" - "given...to run" is a synonym for
+    # parameters. Ask about the dependency, not the mechanism.
+    "parameter": "What information does this piece of logic depend on from outside itself?",
+    # Not "...hand back once it's done?" - "hand back" is a synonym for
+    # return. Ask about what's needed afterward, not the mechanism that
+    # supplies it.
+    "return_value": "What does the rest of the program need from this piece of logic once it finishes?",
     "arithmetic_operation": "What calculation should be performed here?",
     "string_operation": "What should happen to combine or reshape that text?",
     "type_conversion": "What form does that value need to be in before it's used this way?",
