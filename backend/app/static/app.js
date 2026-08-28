@@ -2120,8 +2120,40 @@ function showRound4Intro() {
   openModalOverlay(overlay);
 }
 
+// Split from the intro (see showRound4Intro) so the language choice
+// happens as its own confirmed step, matching Round 3's
+// confirmRound3CodingIntro/confirmStartRound3Coding pattern - not
+// silently defaulting round4DefaultLanguage's initial "python" value
+// the way it used to. Unlike Round 3 this choice ISN'T locked for the
+// round - round4OnLanguageChange already lets the candidate switch per
+// turn - this only sets what that default starts as, so no code has to
+// change to support it.
 function confirmStartRound4() {
   closeModalOverlay("round4-intro-overlay");
+  document.getElementById("round-view").insertAdjacentHTML("beforeend", `
+    <div class="field-row" style="align-items:center">
+      <span class="muted">Preferred language for generated code</span>
+      <select id="round4-language-select" onchange="round4OnLanguageSelectChange()">
+        <option value="" selected>Select a language...</option>
+        ${ROUND4_CODE_LANGUAGE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
+      </select>
+    </div>
+    <p class="muted">You can switch languages per turn once the round starts - this just sets your starting default.</p>
+    <div class="row">
+      <button id="round4-start-btn" onclick="confirmStartRound4WithLanguage()" disabled>Start Round 4</button>
+    </div>
+  `);
+}
+
+function round4OnLanguageSelectChange() {
+  const language = document.getElementById("round4-language-select").value;
+  document.getElementById("round4-start-btn").disabled = !language;
+}
+
+function confirmStartRound4WithLanguage() {
+  const language = document.getElementById("round4-language-select").value;
+  if (!language) return;
+  round4DefaultLanguage = language;
   startRound(4);
 }
 
@@ -3023,9 +3055,25 @@ function renderRound4Layout(box) {
 
   const r1Rows = s.round1_context.submitted_rows || [];
 
+  // The task itself (tabs + composer) comes first, right under the
+  // scenario description - a candidate who just read the intro should
+  // land straight on "here's where you type," not have to scroll past
+  // three reference panels, a guidance paragraph, and an example box
+  // first. Reference material is real, useful content (not filler), so
+  // it isn't cut - only moved below, where it's a click away via its
+  // own <details> the same as before, not the first thing on the page.
   box.innerHTML = `
     <h3>Round 4: ${escapeHtml(s.scenario.title)}</h3>
     ${formatScenarioDescription(s.scenario.description)}
+    <div id="round4-tabs" class="row" style="margin-bottom:0.4rem"></div>
+    <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
+    ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
+    <div class="panel-inset example-row" style="margin-bottom:0.85rem">
+      <p class="muted" style="margin-bottom:0.3rem"><strong>Example (format only, not a hint for this scenario):</strong></p>
+      <p class="muted" style="margin:0">Test case title: "Verify login with valid credentials" - then a first message to the assistant like "Log in with the test account credentials and tell me what happened."</p>
+    </div>
+    <div id="round4-test-case-body"></div>
+    <p class="muted round4-pane-label" style="margin-top:1.5rem">Reference material</p>
     <details class="hint-box">
       <summary><strong>Automating your own Round 1 answer</strong> - "${escapeHtml(s.round1_context.scenario_title)}"</summary>
       <p>${escapeHtml(s.round1_context.scenario_description)}</p>
@@ -3061,14 +3109,6 @@ function renderRound4Layout(box) {
         ${renderMockupScreens(s.ui_mockup, "cand-mockup")}
       </details>
     ` : ""}
-    <div id="round4-tabs" class="row" style="margin-bottom:0.4rem"></div>
-    <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
-    ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
-    <div class="panel-inset example-row" style="margin-bottom:0.85rem">
-      <p class="muted" style="margin-bottom:0.3rem"><strong>Example (format only, not a hint for this scenario):</strong></p>
-      <p class="muted" style="margin:0">Test case title: "Verify login with valid credentials" - then a first message to the assistant like "Log in with the test account credentials and tell me what happened."</p>
-    </div>
-    <div id="round4-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
       <button class="btn-block" onclick="round4Submit()">Submit Round 4</button>
     </div>
@@ -3111,9 +3151,19 @@ async function round4CreateTestCase() {
     round4ViewedTestCaseId = tc.id;
     renderRound4Tabs();
     renderRound4TestCaseBody();
+    round4ScrollToComposer();
   } catch (e) {
     document.getElementById("round4-status").textContent = e.message;
   }
+}
+
+// The composer sits below however much transcript + reference material
+// is on the page - without this, creating or switching to a test case
+// silently leaves the candidate staring at whatever they were already
+// scrolled to, with no indication the actual input box even moved.
+function round4ScrollToComposer() {
+  const el = document.getElementById("round4-message");
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function round4SelectTestCase(id) {
@@ -3121,6 +3171,7 @@ function round4SelectTestCase(id) {
   round4ViewedTestCaseId = id;
   renderRound4Tabs();
   renderRound4TestCaseBody();
+  round4ScrollToComposer();
 }
 
 function renderRound4TestCaseBody() {
