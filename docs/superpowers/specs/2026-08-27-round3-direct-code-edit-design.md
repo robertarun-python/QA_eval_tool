@@ -280,3 +280,14 @@ established for this codebase:
   Inherent to running two paths side by side; not a new class of leak
   beyond what the construct-checklist spec's own Open Risks already
   accepts about the classifier being probeable.
+- **A construct declared via instruction is never retracted if a later
+  direct edit drops it.** Classification only ever adds/overwrites
+  category keys with fresh evidence from the current turn — it never
+  deletes one. So a candidate could satisfy "iteration" through an
+  instruction turn, then paste replacement code that doesn't actually
+  use it, and the category stays marked satisfied from the earlier
+  declaration. Consistent with the spec's own "replace when the code
+  gives fresh evidence" wording (not a bug), but it's the most direct
+  way the checklist could be gamed today, and worth flagging in case a
+  future round wants the code to be re-verified against every declared
+  category rather than only ever adding to them.

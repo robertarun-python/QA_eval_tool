@@ -351,8 +351,12 @@ def round3_syntax_fix(
     category_status = {k: v.model_dump() for k, v in parsed.category_status.items()}
     updated_state = round3_construct_engine.merge_declared(category_status, declared_constructs, required_constructs)
 
+    response_message = parsed.response_message
+    if any(round3_constructs.contains_forbidden_vocab(response_message, c, language) for c in required_constructs):
+        response_message = "Your code has been checked - see the updated version below."
+
     return {
-        "response_message": parsed.response_message,
+        "response_message": response_message,
         "code_after": parsed.code_after,
         "declared_constructs": updated_state,
     }

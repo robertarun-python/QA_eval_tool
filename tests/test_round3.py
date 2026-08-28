@@ -626,3 +626,23 @@ def test_round3_coding_direct_edit_full_flow_end_to_end(client, monkeypatch):
     state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
     assert len(state["turns"]) == 1
     assert state["turns"][0]["candidate_prompt"] == pasted_code
+
+    # Round3TurnOut never exposes declared_constructs_json over the API,
+    # so the only way to prove the REAL merge_declared (not a stub)
+    # actually persisted the right per-category values is to thread them
+    # forward into a follow-up instruction turn and capture what
+    # round3_coding_turn was called with - same technique as
+    # test_round3_coding_direct_edit_creates_a_turn_and_persists_declared_constructs.
+    captured = {}
+
+    def fake_turn(**kwargs):
+        captured.update(kwargs)
+        return {"response_kind": "code_edit", "response_message": "ok", "code_after": pasted_code, "declared_constructs": kwargs["declared_constructs"]}
+
+    monkeypatch.setattr(llm_service, "round3_coding_turn", fake_turn)
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "use max() instead"}, cookies=_auth(cand_token))
+    assert captured["declared_constructs"] == {
+        "collection": "a list called salaries",
+        "iteration": "a for loop over salaries",
+        "comparison": "greater than the current highest",
+    }

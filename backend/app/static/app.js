@@ -1566,7 +1566,7 @@ function renderRound4Report(s) {
 // glance whether the candidate was steering with enough precision to get
 // real code out of the assistant); runs are shown separately below,
 // newest first, since a run isn't tied to one specific turn server-side.
-const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass" };
+const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass", direct_edit: "badge-pass" };
 
 // The four sub-scores behind Round 3's final_score (see
 // models.Score.correctness_score and its siblings, and
@@ -1652,6 +1652,7 @@ function renderRound3Report(s) {
     return acc;
   }, {});
   const turnSummaryParts = [
+    counts.direct_edit ? `${counts.direct_edit} direct edit${counts.direct_edit === 1 ? "" : "s"}` : null,
     counts.code_edit ? `${counts.code_edit} code edit${counts.code_edit === 1 ? "" : "s"}` : null,
     counts.clarify ? `${counts.clarify} clarif${counts.clarify === 1 ? "y" : "ies"}` : null,
     counts.refuse ? `${counts.refuse} refusal${counts.refuse === 1 ? "" : "s"}` : null,
@@ -2443,6 +2444,7 @@ let round3RunActive = false;
 let round3RunFinalStatus = null; // {timed_out, infra_error, exit_code} once exited
 
 async function renderRound3CodingView(box) {
+  round3CodingEditingCode = false;
   try {
     round3CodingState = await api("/candidate/round/3/state");
   } catch (e) {
@@ -2497,7 +2499,7 @@ function renderRound3CodingLayout(box) {
         ${round3CodingEditingCode ? `
           <textarea id="round3-coding-code-edit">${escapeHtml(latestCode)}</textarea>
           <div class="row">
-            <button onclick="round3CodingSaveDirectEdit()">Save</button>
+            <button id="round3-coding-save-btn" onclick="round3CodingSaveDirectEdit()">Save</button>
             <button onclick="round3CodingCancelDirectEdit()">Cancel</button>
           </div>
         ` : `
@@ -2548,6 +2550,11 @@ async function round3CodingSendMessage() {
   const statusEl = document.getElementById("round3-coding-status");
   const sendBtn = document.getElementById("round3-coding-send-btn");
   if (!prompt) return;
+  if (round3CodingEditingCode) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Finish or cancel your code edit before sending an instruction.";
+    return;
+  }
   sendBtn.disabled = true;
   statusEl.className = "muted";
   statusEl.textContent = "Sending...";
@@ -2579,7 +2586,9 @@ async function round3CodingSaveDirectEdit() {
   const textarea = document.getElementById("round3-coding-code-edit");
   const code = textarea.value.trim();
   const statusEl = document.getElementById("round3-coding-status");
+  const saveBtn = document.getElementById("round3-coding-save-btn");
   if (!code) return;
+  saveBtn.disabled = true;
   statusEl.className = "muted";
   statusEl.textContent = "Saving...";
   try {
@@ -2591,6 +2600,8 @@ async function round3CodingSaveDirectEdit() {
   } catch (e) {
     statusEl.className = "error-text";
     statusEl.textContent = e.message;
+  } finally {
+    saveBtn.disabled = false;
   }
 }
 

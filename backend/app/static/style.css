@@ -920,6 +920,7 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
   background: var(--canvas); border: 1px solid var(--border); padding: 0.9rem 1rem; margin-top: var(--space-tight);
   font-family: var(--font-mono); font-size: var(--text-md); color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: break-word; overflow-x: auto;
 }
+#round3-coding-code-edit { font-family: var(--font-mono); }
 details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--space-tight); font-size: var(--text-md); font-weight: 500; }
 
 /* The scenario question shown above a candidate's submission in HR's

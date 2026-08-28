@@ -378,7 +378,7 @@ class Round3Turn(Base):
     turn_number = Column(Integer, nullable=False)
     candidate_prompt = Column(Text, nullable=False)
     language = Column(String, nullable=False)
-    response_kind = Column(String, nullable=False)  # "clarify" | "refuse" | "code_edit"
+    response_kind = Column(String, nullable=False)  # "clarify" | "refuse" | "code_edit" | "direct_edit"
     response_message = Column(Text, nullable=False)
     # Full code snapshot after this turn, NOT a diff - NULL for
     # clarify/refuse turns (nothing changed). See the design spec's data

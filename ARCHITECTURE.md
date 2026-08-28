@@ -125,7 +125,7 @@ scores
 
 round3_turns   -- Round 3 only (AI-prompted coding): one evolving code
   id, submission_id, turn_number, candidate_prompt, language,           -- buffer per submission, not per test case
-  response_kind ('clarify' | 'refuse' | 'code_edit'), response_message,
+  response_kind ('clarify' | 'refuse' | 'code_edit' | 'direct_edit'), response_message,
   code_after (full snapshot, NULL for clarify/refuse),
   declared_constructs_json (cumulative snapshot of which required        -- construct-checklist state (see below),
   constructs the candidate has explicitly declared as of this turn -      -- written on every turn, not just code_edit
@@ -193,16 +193,27 @@ app_settings   -- singleton row (id=1), HR-editable at runtime, no restart
   through a real 3-pane terminal-style UI (instructions, evolving code,
   run output) with a genuine "Run" button — code executes for real via
   `execution_service.py`, not simulated. Each candidate instruction gets
-  classified into exactly one of three kinds (`prompts/round3_coding_turn.txt`):
-  `clarify` (the LLM refuses to invent a name or technique the candidate
-  didn't specify — asks one bare question instead), `refuse` (candidate
-  asked the LLM to make a design/algorithm call, self-diagnose an error,
-  or "solve it" end-to-end instead of directing specific work), or
-  `code_edit` (does exactly and only what was asked, returns the full
-  code, never a diff — see `Round3Turn.code_after`). The LLM never
-  fixes, refactors, or second-guesses anything the candidate didn't
-  explicitly ask it to touch, and never hints that an edge case might be
-  unhandled — discovering that from a bad run is the point of the round.
+  classified into exactly one of four kinds: `clarify` (the LLM refuses
+  to invent a name or technique the candidate didn't specify — asks one
+  bare question instead), `refuse` (candidate asked the LLM to make a
+  design/algorithm call, self-diagnose an error, or "solve it" end-to-end
+  instead of directing specific work), `code_edit` (does exactly and
+  only what was asked, returns the full code, never a diff — see
+  `Round3Turn.code_after`) — all three via `prompts/round3_coding_turn.txt`
+  — or `direct_edit`, the fourth kind, taken instead of an instruction
+  entirely: the candidate types or pastes code straight into the same
+  pane (`services/llm_service.round3_syntax_fix`,
+  `prompts/round3_syntax_fix.txt`), and the LLM only fixes syntax errors
+  — never rewrites logic, never second-guesses a design choice — then
+  classifies the resulting code against the construct checklist exactly
+  like any other turn, but never surfaces a gap either way: same
+  silent-on-missing behavior as the instruction path's own `code_edit`,
+  just without a clarifying question ever standing in the way of pasting
+  a complete solution. The LLM never fixes, refactors, or second-guesses
+  anything the candidate didn't explicitly ask it to touch (or, on the
+  direct-edit path, anything beyond syntax), and never hints that an
+  edge case might be unhandled — discovering that from a bad run is the
+  point of the round.
   On top of that per-turn classification, a **construct-checklist**
   layer forces the candidate to explicitly decide every programming
   construct a problem's solution actually needs — which collection
@@ -273,20 +284,23 @@ HR dashboard + per-candidate drill-down report, including a per-turn/
 per-test-case score breakdown for rounds 3 and 4), real (not simulated)
 local code execution for round 3, round 3's construct-checklist clarify
 engine (deterministic gating of `code_edit` plus a mechanical vocabulary
-leak-check — see the Round 3 bullet above), HR-editable runtime settings
-(per-round passing scores, reapplication window — `app_settings`) and
-manual score override, a tab-switch/fullscreen guard during timed
-rounds, and a screening-history dashboard aggregating clear rate and
-common misses per scenario (round-agnostic — covers rounds 1 and 2
-today; rounds 3/4's conversational/coding shape doesn't fit the same
-misses-pattern aggregation). Frontend is a token-based "Calibration"
-design system (light + dark themes), not the original bare Jinja2 page.
+leak-check — see the Round 3 bullet above), round 3's direct-code-edit
+path (candidate pastes/types code instead of instructing the LLM —
+syntax-only fix, same construct classification and leak-check, no
+gap-flagging — see `docs/superpowers/specs/2026-08-27-round3-direct-code-edit-design.md`),
+HR-editable runtime settings (per-round passing scores, reapplication
+window — `app_settings`) and manual score override, a tab-switch/
+fullscreen guard during timed rounds, and a screening-history dashboard
+aggregating clear rate and common misses per scenario (round-agnostic —
+covers rounds 1 and 2 today; rounds 3/4's conversational/coding shape
+doesn't fit the same misses-pattern aggregation). Frontend is a
+token-based "Calibration" design system (light + dark themes), not the
+original bare Jinja2 page.
 
 Explicitly deferred (see the construct-checklist design spec's own
-"Explicitly out of scope" section): letting a candidate paste code
-directly for syntax-only correction, and changing the start-of-round
-language picker (it's already locked both server- and client-side; only
-the instructional copy was added).
+"Explicitly out of scope" section): changing the start-of-round language
+picker (it's already locked both server- and client-side; only the
+instructional copy was added).
 
 ## Folder layout
 

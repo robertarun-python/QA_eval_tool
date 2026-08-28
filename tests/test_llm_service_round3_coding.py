@@ -505,3 +505,42 @@ def test_round3_syntax_fix_never_leaks_a_question_or_loses_code_on_model_drift(m
     assert result["code_after"] == "for x in range(3)\n    print(x)"
     assert "empty" not in result["response_message"]
     assert result["declared_constructs"] == {"iteration": "a for loop"}
+
+
+def test_round3_syntax_fix_scrubs_a_response_message_that_leaks_forbidden_vocab(monkeypatch):
+    # The freeform response_message on this path isn't run through the
+    # instruction path's regenerate-then-fallback machinery - it's just
+    # prose describing what the model fixed. But it's still candidate-
+    # facing, so it must never leak a required category's forbidden
+    # vocabulary (here, "loop" for "iteration" - see
+    # round3_constructs.GENERIC_VOCAB) any more than a clarifying
+    # question would.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "direct_edit",
+        "response_message": "Fixed a missing colon in your for loop.",
+        "code_after": "for x in range(3):\n    print(x)",
+        "category_status": {"iteration": {"status": "declared", "value": "a for loop over range(3)"}},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="for x in range(3)\n    print(x)", language="python",
+        required_constructs=["iteration"], declared_constructs={},
+    )
+    assert "loop" not in result["response_message"]
+    assert result["response_message"] == "Your code has been checked - see the updated version below."
+    # Code and declared constructs still pass through unaffected.
+    assert result["code_after"] == "for x in range(3):\n    print(x)"
+    assert result["declared_constructs"] == {"iteration": "a for loop over range(3)"}
+
+
+def test_round3_syntax_fix_passes_through_a_clean_response_message_unchanged(monkeypatch):
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
+        "response_kind": "direct_edit",
+        "response_message": "Added the missing colon.",
+        "code_after": "for x in range(3):\n    print(x)",
+        "category_status": {"iteration": {"status": "declared", "value": "a for loop over range(3)"}},
+    }))
+    result = llm_service.round3_syntax_fix(
+        code="for x in range(3)\n    print(x)", language="python",
+        required_constructs=["iteration"], declared_constructs={},
+    )
+    assert result["response_message"] == "Added the missing colon."
