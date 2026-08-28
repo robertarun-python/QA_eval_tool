@@ -779,10 +779,17 @@ async function openScenarioDetail(id) {
     ${isCodingReference && scenario.reference_json && scenario.reference_json.required_constructs && scenario.reference_json.required_constructs.length
       ? `<p class="muted"><strong>Required concepts:</strong> ${escapeHtml(scenario.reference_json.required_constructs.join(", "))}</p>`
       : ""}
+    ${isCodingReference ? `
+      <h4>Reference program</h4>
+      ${scenario.reference_json && scenario.reference_json.reference_solution
+        ? `<p class="muted">A correct Python solution HR can read to confirm the test cases above are right - never shown to the candidate.</p>
+           <div class="code-snippet code-with-lines">${codeWithLineNumbersHtml(scenario.reference_json.reference_solution)}</div>`
+        : `<p class="muted">No reference program generated yet.</p>`}
+    ` : ""}
     ${isDraft ? `
       <details>
         <summary>Edit reference as JSON</summary>
-        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || (isCodingReference ? {test_cases: [], expected_approach: "", required_constructs: []} : []), null, 2))}</textarea>
+        <textarea id="ref-json-edit">${escapeHtml(JSON.stringify(scenario.reference_json || (isCodingReference ? {test_cases: [], expected_approach: "", required_constructs: [], reference_solution: ""} : []), null, 2))}</textarea>
         <div class="row">
           <button onclick="saveReferenceEdit(${scenario.id})">Save edits</button>
         </div>
@@ -2540,6 +2547,16 @@ function renderRound3CodingLayout(box) {
     <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
     ${formatScenarioDescription(s.scenario.description)}
     <p class="muted">Language: ${escapeHtml(s.language || "")}</p>
+    <details class="hint-box">
+      <summary><strong>Example conversation</strong> (format only, not a hint for this scenario)</summary>
+      <p class="round3-coding-prompt"><strong>You:</strong> Write a program to add two numbers</p>
+      <p class="round3-coding-response round3-coding-response-refuse"><strong>Assistant:</strong> I can't write this for you - tell me what you want built, and I'll write exactly that.</p>
+      <p class="round3-coding-prompt"><strong>You:</strong> Read two integers from the user, one per line, and print their sum</p>
+      <p class="round3-coding-response round3-coding-response-code_edit"><strong>Assistant:</strong> Added code to read two integers and print their sum.</p>
+      <p class="round3-coding-prompt"><strong>You:</strong> Now handle the case where the input isn't a number</p>
+      <p class="round3-coding-response round3-coding-response-clarify"><strong>Assistant:</strong> What should happen when the input isn't a number?</p>
+      <p class="muted">Notice the assistant never names a technique, never offers multiple-choice options, and never builds more than exactly what was asked - that's true on every turn, not just these.</p>
+    </details>
     <div class="round3-coding-grid">
       <div class="panel-inset round3-coding-pane">
         <p class="muted round3-pane-label">Conversation</p>

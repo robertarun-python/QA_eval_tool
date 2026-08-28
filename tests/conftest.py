@@ -93,6 +93,7 @@ FAKE_UI_MOCKUP = {
 FAKE_ROUND3_CODING_REFERENCE = {
     "test_cases": [{"input": "2 3", "expected_output": "5", "description": "basic sum"}],
     "expected_approach": "Read two integers and add them directly.",
+    "reference_solution": "a, b = input().split(',')\nprint(int(a) + int(b))",
 }
 
 _REFERENCE_GENERATOR_BY_ROUND = {

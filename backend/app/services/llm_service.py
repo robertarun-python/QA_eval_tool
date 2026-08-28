@@ -179,8 +179,17 @@ def generate_round3_reference(scenario_description: str, experience_band: str) -
     )
     raw = _call_claude(prompt)
     result = _parse_json_response(raw)
-    if not isinstance(result, dict) or "test_cases" not in result or "expected_approach" not in result:
-        raise ValueError(f"Expected a JSON object with 'test_cases' and 'expected_approach' keys, got: {result!r}")
+    if (
+        not isinstance(result, dict)
+        or "test_cases" not in result
+        or "expected_approach" not in result
+        or not isinstance(result.get("reference_solution"), str)
+        or not result["reference_solution"].strip()
+    ):
+        raise ValueError(
+            f"Expected a JSON object with 'test_cases', 'expected_approach', and a non-empty "
+            f"'reference_solution' string, got: {result!r}"
+        )
     unknown = set(result.get("required_constructs", [])) - set(round3_constructs.CONSTRUCT_CATEGORIES)
     if unknown:
         raise ValueError(f"required_constructs contains unknown categories: {sorted(unknown)}")
