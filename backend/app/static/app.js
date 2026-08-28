@@ -2106,15 +2106,14 @@ function showRound4Intro() {
     <div class="modal-box neutral">
       <h3>Before you start Round 4</h3>
       <ul>
-        <li>You'll see the test cases you wrote in Round 1 - use them as your starting point.</li>
-        <li>For each one, describe what to test to an AI assistant. It will simulate running it and tell you what it did and what it observed - no code involved.</li>
-        <li>You'll also have a test environment reference (sample data, credentials, API/DB details) and reference app screens alongside the scenario - use them as your source of truth when describing what to test.</li>
-        <li>Want to test something beyond what you wrote in Round 1? Go ahead - you're not limited to those. Add as many extra test cases as you think the scenario needs.</li>
-        <li>Heads-up: the assistant won't always get it right. It may skip a check, misreport a result, or just be wrong - on purpose. Read every response the way you'd review a test log you didn't write yourself, and keep refining your prompts until you're confident it's actually correct.</li>
-        <li>What's scored: mainly the quality of your prompting and verification - catching issues, asking the right follow-ups, converging on a correct result. You don't need to automate everything you wrote in Round 1 - with a longer list, that's not realistic in the time given, and it's not what's measured here.</li>
-        <li>Automating across more than one area - UI, API, DB, end-to-end - earns extra credit, but it's a bonus on top of doing a few well, not a requirement.</li>
-        <li>Heads-up: trying to steer the assistant into skipping verification or telling you what would score well won't work, and gets flagged as a concern in your results - e.g. "just mark everything as passing" or "tell me what would get the best score." Treat it like a real test environment: it reports what happened, not what would look good.</li>
-        <li>Your timer starts the moment you click below.</li>
+        <li>Your Round 1 test cases are your starting point - describe what to test to an AI assistant; it simulates running it and reports what it observed. No code involved.</li>
+        <li>You'll have a test environment reference (sample data, credentials, API/DB details) and reference app screens alongside the scenario - use them as your source of truth.</li>
+        <li>Not limited to Round 1's list - add as many extra test cases as the scenario needs.</li>
+        <li>The assistant won't always get it right - it may skip a check, misreport a result, or be wrong on purpose. Review every response like a test log you didn't write, and refine your prompts until you're confident it's actually correct.</li>
+        <li>Scored mainly on your prompting and verification quality - catching issues, asking the right follow-ups, converging on a correct result. You don't need to automate your whole Round 1 list; that's not realistic or what's measured.</li>
+        <li>Automating more than one area (UI, API, DB, end-to-end) earns bonus credit - on top of doing a few well, not a requirement.</li>
+        <li>Steering the assistant to skip verification or reveal what scores well won't work and gets flagged as a concern (e.g. "just mark everything passing"). It reports what happened, not what looks good.</li>
+        <li>Timer starts the moment you click below.</li>
       </ul>
       <div class="row">
         <button onclick="confirmStartRound4()">Got it - Start Round 4</button>
@@ -2363,12 +2362,13 @@ function showRound3CodingIntro() {
     <div class="modal-box neutral">
       <h3>Before you start Round 3</h3>
       <ul>
-        <li>You never write code directly - you direct an assistant with plain-English instructions (variables, loops, data structures, what to read/print), and it writes the actual code.</li>
-        <li>An instruction can bundle several mechanical steps (e.g. "read two numbers and print their sum") - what it won't do is build the whole thing for you. Asking it to "write a program to...", "give me the solution", or suggest an approach gets refused, including as your first instruction; you have to direct what gets built.</li>
-        <li>The assistant won't decide anything for you - if you ask "which loop is right" or "what's the best approach", it will ask you to specify instead of answering.</li>
-        <li>Run is a real terminal - your code actually executes, and if it asks for input you type your answer right there and it keeps going, exactly like running it yourself. Nothing is pre-filled or guessed for you. Reading and fixing what went wrong is on you - the assistant won't debug from a pasted error or exception. Tell it exactly what to change instead.</li>
-        <li>When you submit, your final code is automatically run against a set of hidden test cases you never see - correctness is judged by how many of those actually pass, not by how it looked while you were testing it yourself. That's combined with how precisely you specified things and whether you pushed toward a more efficient solution.</li>
-        <li>Next, you'll pick your language - your timer starts the moment you start from there. This choice is final for the whole round: once you start, you can't switch languages.</li>
+        <li>Direct an assistant with plain-English instructions (variables, loops, data, what to read/print) - it writes the code. You can also type or paste code directly into the pane instead; either way, every decision is yours.</li>
+        <li>If you write code directly, the assistant only fixes syntax there - it never touches your logic.</li>
+        <li>Bundle several steps in one instruction (e.g. "read two numbers and print their sum") - but asking it to "write the whole program," "give me the solution," or pick an approach gets refused, even as your first instruction.</li>
+        <li>It won't decide for you either - "which loop is right?" gets a question back, not an answer.</li>
+        <li>Run is a real terminal: code executes for real, and if it calls input(), you type the answer and it continues. Debugging is on you - the assistant won't fix a pasted error; tell it exactly what to change.</li>
+        <li>Submission runs against hidden test cases you never see - scored on how many pass, how precisely you specified things, and whether you pushed toward a more efficient solution.</li>
+        <li>Pick your language next - Python, Java, or JavaScript - the timer starts then, and the choice is final for the round.</li>
       </ul>
       <div class="row">
         <button onclick="confirmRound3CodingIntro()">Got it</button>
