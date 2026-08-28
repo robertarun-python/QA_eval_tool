@@ -223,10 +223,16 @@ app_settings   -- singleton row (id=1), HR-editable at runtime, no restart
   the reference test cases, see `prompts/round3_reference_generation.txt`);
   a deterministic engine (`services/round3_construct_engine.py`), not
   the LLM's own self-reported classification, decides turn to turn
-  whether every required construct is now declared before it will allow
-  `code_edit` — see `Round3Turn.declared_constructs_json` above. When a
-  construct is still undeclared, the LLM must ask about it without
-  naming the construct, its vocabulary, or its possible implementations
+  whether `code_edit` is allowed — see `Round3Turn.declared_constructs_json`
+  above. The gate is per-instruction, not per-scenario: `code_edit` is
+  allowed once nothing THIS instruction attempted is left ambiguous,
+  even while other required constructs the instruction never touched
+  remain open for a later instruction — a construct only gets asked
+  about when the candidate's own instruction is clearly about it but
+  doesn't commit to a choice, never proactively for one they haven't
+  gotten to yet, so a fully-specified instruction is never blocked by
+  work still ahead of it. When the engine does ask, the LLM must do so
+  without naming the construct, its vocabulary, or its possible implementations
   (`services/round3_constructs.py` holds the fixed category taxonomy and
   a per-language forbidden-word list); a clarifying question that leaks
   anyway gets mechanically caught, regenerated once, and — if it still
