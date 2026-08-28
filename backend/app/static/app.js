@@ -2552,13 +2552,16 @@ function renderRound3CodingLayout(box) {
       <div class="panel-inset round3-coding-pane">
         <p class="muted round3-pane-label">Code</p>
         ${round3CodingEditingCode ? `
-          <textarea id="round3-coding-code-edit">${escapeHtml(latestCode)}</textarea>
+          <div class="code-editor-wrap">
+            <div class="code-editor-gutter" id="round3-coding-code-edit-gutter"><span>1</span></div>
+            <textarea id="round3-coding-code-edit" oninput="round3CodeEditorUpdateGutter(this)" onscroll="round3CodeEditorSyncScroll(this)">${escapeHtml(latestCode)}</textarea>
+          </div>
           <div class="row">
             <button id="round3-coding-save-btn" onclick="round3CodingSaveDirectEdit()">Save</button>
             <button onclick="round3CodingCancelDirectEdit()">Cancel</button>
           </div>
         ` : `
-          <pre class="code-snippet" id="round3-coding-code">${escapeHtml(latestCode || "(no code yet)")}</pre>
+          <div class="code-snippet code-with-lines" id="round3-coding-code">${latestCode ? codeWithLineNumbersHtml(latestCode) : '<div class="code-line-content">(no code yet)</div>'}</div>
           <div class="row">
             <button onclick="round3CodingStartDirectEdit()">Edit code</button>
             <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
@@ -2588,6 +2591,47 @@ function renderRound3CodingLayout(box) {
   // same way - a chat Send shouldn't wipe out a run still in progress or
   // just finished, so repaint it from the log rather than starting blank.
   renderRound3Terminal();
+  // The edit textarea's gutter starts with a single placeholder <span> in
+  // its own markup above - existing multi-line code (resuming an edit, or
+  // code already pasted in) needs its real line count immediately, not
+  // just after the candidate's next keystroke.
+  const editTextarea = document.getElementById("round3-coding-code-edit");
+  if (editTextarea) round3CodeEditorUpdateGutter(editTextarea);
+}
+
+// Line numbers make it possible to match a runtime error or a candidate's
+// own bug report ("line 12 is wrong") back to the actual code, for both
+// the read-only pane (LLM-generated) and the direct-edit textarea
+// (candidate-written) - see round3-coding-code / round3-coding-code-edit
+// above. Uses `white-space: pre` (no wrapping) rather than the pre-wrap
+// this pane used before - numbers only stay meaningful against real
+// source lines, not visually-wrapped ones, so long lines scroll
+// horizontally instead (see .code-with-lines / .code-editor-wrap in
+// style.css).
+function codeWithLineNumbersHtml(code) {
+  const lines = code.split("\n");
+  const numbersHtml = lines.map((_, i) => `<span>${i + 1}</span>`).join("");
+  return `
+    <div class="code-line-numbers">${numbersHtml}</div>
+    <div class="code-line-content">${escapeHtml(code)}</div>
+  `;
+}
+
+// Keeps the direct-edit textarea's gutter in sync with its actual line
+// count as the candidate types/pastes - only rewrites the gutter when the
+// count genuinely changed, so a normal keystroke inside a line (not
+// adding/removing a newline) doesn't thrash the DOM on every input event.
+function round3CodeEditorUpdateGutter(textarea) {
+  const gutter = document.getElementById("round3-coding-code-edit-gutter");
+  if (!gutter) return;
+  const lineCount = textarea.value.split("\n").length;
+  if (gutter.children.length === lineCount) return;
+  gutter.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${i + 1}</span>`).join("");
+}
+
+function round3CodeEditorSyncScroll(textarea) {
+  const gutter = document.getElementById("round3-coding-code-edit-gutter");
+  if (gutter) gutter.scrollTop = textarea.scrollTop;
 }
 
 function round3CodingOnComposerInput(value) {

@@ -1011,7 +1011,24 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 .round3-coding-run { margin-bottom: var(--space-compact); }
 .no-copy { user-select: none; -webkit-user-select: none; }
 #round3-coding-message { min-height: 4rem; }
-#round3-coding-code { min-height: 8rem; white-space: pre-wrap; }
+#round3-coding-code { min-height: 8rem; }
+/* Line numbers only stay meaningful against real source lines, not
+   visually-wrapped ones - long lines scroll horizontally instead of
+   wrapping, same convention as a real code editor/IDE. */
+.code-with-lines { display: flex; }
+.code-line-numbers {
+  flex-shrink: 0; text-align: right; padding-right: 0.75rem; margin-right: 0.75rem;
+  border-right: 1px solid var(--border); color: var(--text-muted); user-select: none; white-space: pre;
+}
+.code-line-numbers span { display: block; }
+.code-line-content { white-space: pre; overflow-x: auto; flex: 1; min-width: 0; }
+.code-editor-wrap { display: flex; }
+.code-editor-gutter {
+  flex-shrink: 0; padding: 0.55rem 0.6rem 0.55rem 0; text-align: right; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.55; user-select: none; overflow: hidden; white-space: pre;
+}
+.code-editor-gutter span { display: block; }
+#round3-coding-code-edit { flex: 1; min-width: 0; white-space: pre; overflow: auto; }
 @media (max-width: 56.25rem) { .round3-coding-grid { grid-template-columns: 1fr; } }
 
 /* Deliberately theme-independent - a real terminal, same as a code
