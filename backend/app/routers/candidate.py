@@ -9,6 +9,7 @@ round that used to live at that number.
 """
 import threading
 import time
+import traceback
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -320,6 +321,7 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
             declared_constructs=declared_constructs,
         )
     except Exception:
+        traceback.print_exc()
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
     turn = Round3Turn(

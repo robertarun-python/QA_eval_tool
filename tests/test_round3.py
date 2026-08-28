@@ -406,12 +406,13 @@ def test_round3_coding_declared_constructs_persist_and_thread_between_turns(clie
 def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypatch):
     """Drives the REAL llm_service.round3_coding_turn orchestration (only
     _call_claude is mocked, not round3_coding_turn itself) through a
-    multi-turn conversation with a required_constructs checklist: a goal
-    statement gets a single-category probe, a bundled instruction with
-    two gaps gets asked about both together, and once everything is
-    declared the turn finally produces code. Proves the router, the
-    engine, the schema, and persistence all wire together correctly, not
-    just each piece in isolation."""
+    multi-turn conversation with a required_constructs checklist: an
+    instruction that attempts one category vaguely gets asked about it,
+    a bundled instruction with two more gaps gets asked about both
+    together, and once nothing THIS turn is left vague the turn produces
+    code - even without every checklist category ever being declared.
+    Proves the router, the engine, the schema, and persistence all wire
+    together correctly, not just each piece in isolation."""
     import json as json_module
     from app.services import llm_service
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
@@ -438,10 +439,13 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
     client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
 
     responses = [
-        # Turn 1: a goal statement, nothing attempted.
+        # Turn 1: attempts "collection" but leaves it vague - the
+        # checklist only ever forces clarify for a category THIS turn
+        # actually attempted, never one it said nothing about (see
+        # round3_construct_engine.decide).
         {
             "response_kind": "clarify", "response_message": "(unused - assembled from category_status)", "code_after": None,
-            "category_status": {"collection": {"status": "not_addressed", "neutral_question": "What information do you need to store first?"}},
+            "category_status": {"collection": {"status": "attempted_but_vague", "neutral_question": "What information do you need to store first?"}},
         },
         # Turn 2: a bundled instruction leaving two gaps.
         {
@@ -469,7 +473,7 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
 
     monkeypatch.setattr(llm_service, "_call_claude", fake_call_claude)
 
-    r1 = client.post("/candidate/round/3/turn", json={"candidate_prompt": "I need to find the highest salary"}, cookies=_auth(cand_token))
+    r1 = client.post("/candidate/round/3/turn", json={"candidate_prompt": "keep track of the salaries somewhere"}, cookies=_auth(cand_token))
     assert r1.json()["response_kind"] == "clarify"
     assert "What information do you need to store first?" in r1.json()["response_message"]
 
@@ -484,6 +488,66 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
 
     state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
     assert len(state["turns"]) == 3
+
+
+def test_round3_coding_produces_code_for_a_fully_specified_instruction_even_with_other_categories_still_open(client, monkeypatch):
+    """Regression test: a real candidate hit this exact bug - an
+    instruction that fully covers input/validation (declaring
+    "variable" and "type_conversion") got refused code because
+    "comparison"/"arithmetic_operation" (needed for a LATER part of the
+    solution) were still open. round3_construct_engine.decide() must
+    only force clarify for a category THIS instruction attempted and
+    left vague - never for one it hasn't gotten to yet."""
+    import json as json_module
+    from app.services import llm_service
+    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Odd or even", band="7+")
+    client.patch(
+        f"/hr/scenarios/{scenario['id']}",
+        json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["variable", "input", "type_conversion", "comparison"]}},
+        cookies=_auth(hr_token),
+    )
+    client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
+
+    cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json_module.dumps({
+        "response_kind": "code_edit",
+        "response_message": "Added the input, validation, and conversion.",
+        "code_after": "while True:\n    raw = input('Please enter the integer: ')\n    try:\n        odd_even = int(raw)\n        break\n    except ValueError:\n        print('Enter integer')",
+        # "comparison" is never mentioned - this instruction never
+        # touched it, and it must NOT block code_edit for what was
+        # actually specified.
+        "category_status": {
+            "variable": {"status": "declared", "value": "odd_even"},
+            "input": {"status": "declared", "value": "input() with a prompt message"},
+            "type_conversion": {"status": "declared", "value": "int() inside a validation loop"},
+        },
+    }))
+
+    res = client.post(
+        "/candidate/round/3/turn",
+        json={"candidate_prompt": "convert to int and store in odd_even; if it's not a valid integer, print an error and keep asking until it is"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    assert res.json()["response_kind"] == "code_edit"
+    assert "int(raw)" in res.json()["code_after"]
+
+    state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert state["turns"][0]["response_kind"] == "code_edit"
 
 
 def test_round3_coding_direct_edit_creates_a_turn_and_persists_declared_constructs(client, monkeypatch):

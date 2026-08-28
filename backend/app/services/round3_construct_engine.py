@@ -38,13 +38,10 @@ def decide(category_status: dict, cumulative_state: dict, required_constructs: l
         category for category, entry in category_status.items()
         if category in required_constructs and entry["status"] == "attempted_but_vague"
     ]
-
     missing = [c for c in required_constructs if c not in updated_state]
-    if not missing:
-        return EngineDecision(final_kind="proceed", updated_state=updated_state, ask_categories=[])
 
     if attempted_vague:
-        # This message tried to address more than one gap at once - ask
+        # This message tried to address one or more gaps at once - ask
         # about all of them together, not one round trip each (see spec
         # §4, "bundled instructions"). Filtered to `missing` because the
         # model isn't guaranteed to only classify categories the prompt
@@ -56,11 +53,16 @@ def decide(category_status: dict, cumulative_state: dict, required_constructs: l
         if ask:
             return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=ask)
 
-    # Nothing was attempted this turn (or everything "attempted" was
-    # actually already-declared noise, filtered above) - probe toward
-    # the single earliest still-unaddressed category, in the scenario's
-    # authored order.
-    return EngineDecision(final_kind="clarify", updated_state=updated_state, ask_categories=[missing[0]])
+    # Nothing this instruction attempted was left ambiguous - proceed,
+    # even if OTHER required categories remain open. A category this
+    # instruction said nothing about at all stays silently open for
+    # whichever later instruction actually addresses it - same
+    # no-gap-flagging-on-the-unattempted philosophy as the direct-edit
+    # path (see round3_syntax_fix). Forcing a question about a category
+    # the candidate hasn't gotten to yet would withhold code for a
+    # fully-specified instruction, defeating incremental, turn-by-turn
+    # building - the whole point of this round.
+    return EngineDecision(final_kind="proceed", updated_state=updated_state, ask_categories=[])
 
 
 def leaking_categories(ask_categories: list, category_status: dict, language: str) -> list:

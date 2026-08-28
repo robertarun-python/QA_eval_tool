@@ -244,8 +244,10 @@ def round3_coding_turn(
     decision = round3_construct_engine.decide(category_status, declared_constructs, required_constructs)
 
     if decision.final_kind == "proceed":
-        # Every required category is now declared, but that only means
-        # constructs are no longer the blocker - the model's OWN
+        # Nothing this instruction attempted was left construct-vague,
+        # but that only means the checklist isn't the blocker - other
+        # required categories may still be open, staying silent until a
+        # later instruction addresses them. The model's OWN
         # classification for this turn (already schema-valid: code_after
         # is present iff response_kind == "code_edit") still governs
         # whether this is actually a code_edit or a non-construct

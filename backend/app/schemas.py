@@ -643,9 +643,11 @@ class Round3DirectEditCreate(BaseModel):
 class CategoryStatusEntry(BaseModel):
     """One construct category's classification for a single turn - see
     llm_service.round3_coding_turn and round3_construct_engine.decide.
-    "declared" commits to a specific choice (value required); anything
-    else must carry the vocabulary-free neutral_question the assistant
-    would ask about it."""
+    "declared" commits to a specific choice (value required); only
+    "attempted_but_vague" is ever actually asked about, so only it
+    requires the vocabulary-free neutral_question - "not_addressed"
+    stays silently open and is never surfaced to the candidate, so
+    forcing a question for it would be pure overhead with no consumer."""
     status: Literal["declared", "attempted_but_vague", "not_addressed"]
     value: Optional[str] = None
     neutral_question: Optional[str] = None
@@ -654,8 +656,8 @@ class CategoryStatusEntry(BaseModel):
     def _fields_match_status(self):
         if self.status == "declared" and not self.value:
             raise ValueError("value is required when status is 'declared'")
-        if self.status != "declared" and not self.neutral_question:
-            raise ValueError("neutral_question is required unless status is 'declared'")
+        if self.status == "attempted_but_vague" and not self.neutral_question:
+            raise ValueError("neutral_question is required when status is 'attempted_but_vague'")
         return self
 
 
