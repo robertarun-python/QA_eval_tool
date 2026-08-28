@@ -2235,6 +2235,7 @@ function renderEntryForm(box, scenario, submission) {
     addRow();
     addRow();
   }
+  round1UpdateSubmitState();
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
@@ -2274,7 +2275,7 @@ function renderInvestigationForm(box, scenario, submission) {
     <h4>Possible Root Cause</h4>
     <p class="muted">What you investigated, which areas you eliminated, and your conclusion.</p>
     <p class="muted example-note">Example format: "The [component] shows [incorrect behavior] when [condition]. Ruled out [alternative cause] because [reason]. Root cause is [cause], confirmed by [evidence]."</p>
-    <textarea id="inv-root-cause" oninput="scheduleRoundDraftSave(2, round2DraftPayload)"></textarea>
+    <textarea id="inv-root-cause" oninput="scheduleRoundDraftSave(2, round2DraftPayload); round2UpdateSubmitState()"></textarea>
     <div class="row">
       <button id="round2-submit-btn" onclick="doSubmitRound2Investigation()">Submit</button>
     </div>
@@ -2295,6 +2296,7 @@ function renderInvestigationForm(box, scenario, submission) {
   if (saved && saved.root_cause) {
     document.getElementById("inv-root-cause").value = saved.root_cause;
   }
+  round2UpdateSubmitState();
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
@@ -2309,7 +2311,7 @@ function addInvestigationRow(initial = null) {
   tr.id = `inv-row-${id}`;
   tr.innerHTML = `
     <td class="inv-no"></td>
-    <td><textarea class="inv-area" oninput="scheduleRoundDraftSave(2, round2DraftPayload)"></textarea></td>
+    <td><textarea class="inv-area" oninput="scheduleRoundDraftSave(2, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
     <td><button onclick="removeInvestigationRow('inv-row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
@@ -2321,6 +2323,19 @@ function removeInvestigationRow(rowId) {
   document.getElementById(rowId).remove();
   renumberInvestigationRows();
   scheduleRoundDraftSave(2, round2DraftPayload); // removing a row must survive a refresh too, not just additions
+  round2UpdateSubmitState();
+}
+
+// Mirrors doSubmitRound2Investigation's own gate (at least one
+// investigation row, plus a non-empty root cause) - see
+// round1UpdateSubmitState for why this can't just live behind the
+// click.
+function round2UpdateSubmitState() {
+  const submitBtn = document.getElementById("round2-submit-btn");
+  if (!submitBtn) return;
+  const hasRow = collectInvestigationRows().length > 0;
+  const hasRootCause = document.getElementById("inv-root-cause").value.trim().length > 0;
+  submitBtn.disabled = !(hasRow && hasRootCause);
 }
 
 function renumberInvestigationRows() {
@@ -2547,7 +2562,7 @@ function renderRound3CodingLayout(box) {
           <div class="row">
             <button onclick="round3CodingStartDirectEdit()">Edit code</button>
             <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
-            <button class="btn-block" onclick="round3CodingSubmit()">Submit Round 3</button>
+            <button class="btn-block" onclick="round3CodingSubmit()" ${s.turns.length > 0 ? "" : "disabled"}>Submit Round 3</button>
           </div>
         `}
         <p class="muted round3-pane-label">Terminal <span id="round3-terminal-status" class="muted"></span></p>
@@ -3114,7 +3129,7 @@ function renderRound4Layout(box) {
     </div>
     <div id="round4-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
-      <button class="btn-block" onclick="round4Submit()">Submit Round 4</button>
+      <button id="round4-submit-btn" class="btn-block" onclick="round4Submit()" ${s.test_cases.length > 0 ? "" : "disabled"}>Submit Round 4</button>
     </div>
     <p id="round4-status" class="muted"></p>
   `;
@@ -3156,6 +3171,11 @@ async function round4CreateTestCase() {
     renderRound4Tabs();
     renderRound4TestCaseBody();
     round4ScrollToComposer();
+    // renderRound4Tabs/TestCaseBody only patch their own sub-regions -
+    // the Submit button lives in the outer layout template and won't
+    // see this new test case unless told directly.
+    const submitBtn = document.getElementById("round4-submit-btn");
+    if (submitBtn) submitBtn.disabled = round4State.test_cases.length === 0;
   } catch (e) {
     document.getElementById("round4-status").textContent = e.message;
   }
@@ -3446,10 +3466,10 @@ function addRow(initial = null) {
   tr.id = `row-${id}`;
   tr.innerHTML = `
     <td class="tc-no"></td>
-    <td><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
+    <td><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()" /></td>
     <td><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
-    <td><textarea class="tc-steps" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
-    <td><textarea class="tc-expected" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
+    <td><textarea class="tc-steps" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td><textarea class="tc-expected" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
     <td><button onclick="removeRow('row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
@@ -3466,6 +3486,20 @@ function removeRow(rowId) {
   document.getElementById(rowId).remove();
   renumberRows();
   scheduleRoundDraftSave(1, round1DraftPayload); // removing a row must survive a refresh too, not just additions
+  round1UpdateSubmitState();
+}
+
+// Mirrors doSubmitRound1's own completeness check (title + steps +
+// expected_result on every row collectRows() returns) so the button's
+// disabled state is never a lie the candidate discovers only after
+// clicking - see the identical reasoning on round1UpdateSubmitState's
+// counterparts for rounds 2-4.
+function round1UpdateSubmitState() {
+  const submitBtn = document.getElementById("round1-submit-btn");
+  if (!submitBtn) return;
+  const content = collectRows();
+  const ready = content.length > 0 && content.every((r) => r.title.trim() && r.steps.trim() && r.expected_result.trim());
+  submitBtn.disabled = !ready;
 }
 
 function renumberRows() {
