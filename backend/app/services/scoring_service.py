@@ -169,10 +169,28 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                 raise RuntimeError(f"Code execution infra error while scoring test case: {tc.get('description', tc_input)}")
             actual_output = (result.stdout or "").strip()
             expected_output = tc.get("expected_output")
+            # input()'s prompt argument (if the candidate's code passes
+            # one) writes straight to stdout with no trailing newline
+            # before whatever the program goes on to print - piped,
+            # non-interactive stdin never echoes the typed value back,
+            # so there is no separator between "prompt" and "the
+            # program's real output" on the captured stream. The prompt
+            # can only ever be a PREFIX of the real answer, never mixed
+            # into it, so comparing the suffix is correct - an exact
+            # match would fail every test case for any program that
+            # prompts at all, which this round's own instructions
+            # explicitly encourage. An empty expected_output is the one
+            # case suffix-matching can't safely handle (every actual_output
+            # trivially "ends with" ""), so that falls back to exact match.
+            expected_stripped = str(expected_output).strip() if expected_output is not None else None
+            if expected_stripped:
+                passed = actual_output.endswith(expected_stripped)
+            else:
+                passed = expected_output is not None and actual_output == expected_stripped
             test_results.append({
                 **tc,
                 "actual_output": actual_output,
-                "passed": expected_output is not None and actual_output == str(expected_output).strip(),
+                "passed": passed,
             })
 
     conversation_payload = [t.to_conversation_payload() for t in turns]

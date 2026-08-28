@@ -102,6 +102,146 @@ def test_score_round3_submission_computes_coverage_and_flags_guardrail_violation
         db.close()
 
 
+def test_score_round3_submission_passes_a_test_case_whose_stdout_is_prefixed_by_an_input_prompt(client):
+    # Regression test: a real candidate hit this. input()'s prompt
+    # argument writes to stdout with no trailing newline, so
+    # "Please enter the integer" + "even" (no separator) is exactly
+    # what a program that reads with a prompt actually produces on a
+    # piped, non-interactive stdin - the prompt is a PREFIX of the real
+    # answer, and the test case must still pass.
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        candidate = db.query(User).filter(User.role == Role.candidate).first()
+        scenario = Scenario(
+            round_number=3, title="Odd or even", description="Read a number, print odd or even.",
+            experience_band=ExperienceBand.junior, created_by=candidate.id, status=ScenarioStatus.published,
+            is_live=True, time_limit_minutes=30,
+            reference_json={
+                "test_cases": [
+                    {"input": "4", "expected_output": "even", "description": "basic even"},
+                    {"input": "7", "expected_output": "odd", "description": "basic odd"},
+                ],
+                "expected_approach": "Use the modulo operator.",
+            },
+        )
+        db.add(scenario)
+        db.commit()
+        db.refresh(scenario)
+
+        submission = Submission(
+            user_id=candidate.id, scenario_id=scenario.id, round_number=3,
+            status=RoundStatus.submitted, started_at=datetime.utcnow(),
+            content={"language": "python", "draft_prompt": ""},
+        )
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+
+        turn = Round3Turn(
+            submission_id=submission.id, turn_number=1, candidate_prompt="read the integer with a prompt",
+            language="python", response_kind="code_edit", response_message="Added the input and check.",
+            code_after="n = int(input('Please enter the integer'))\nprint('even' if n % 2 == 0 else 'odd')",
+        )
+        db.add(turn)
+        db.commit()
+
+        def fake_run_code(language, code, stdin):
+            joined = " ".join(stdin)
+            # Mirrors real input()-with-a-prompt behavior against piped
+            # stdin: the prompt text is written first, with no newline,
+            # immediately followed by whatever the program prints.
+            answer = {"4": "even", "7": "odd"}[joined]
+            return execution_service.ExecutionResult(
+                stdout=f"Please enter the integer{answer}", stderr="", exit_code=0, timed_out=False, infra_error=False,
+            )
+
+        monkeypatch_run = execution_service.run_code
+        execution_service.run_code = fake_run_code
+        try:
+            llm_service_run = llm_service.score_round3_coding
+            llm_service.score_round3_coding = lambda **kwargs: {
+                "correctness_score": 100, "precision_score": 100, "efficiency_score": 100,
+                "independent_judgment_score": 100, "final_score": 100,
+                "misses": [], "guardrail_violations": [], "feedback_text": "Correct.",
+            }
+            try:
+                score = scoring_service.score_round3_submission(db, submission)
+            finally:
+                llm_service.score_round3_coding = llm_service_run
+        finally:
+            execution_service.run_code = monkeypatch_run
+
+        assert score.coverage_score == 100
+        assert score.test_results_json[0]["passed"] is True
+        assert score.test_results_json[0]["actual_output"] == "Please enter the integereven"
+    finally:
+        db.close()
+
+
+def test_score_round3_submission_empty_expected_output_still_uses_exact_match(client):
+    # A blank expected_output must not trivially "pass" every actual
+    # output (endswith("") is always True) - the one case suffix
+    # matching can't safely handle falls back to exact match.
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        candidate = db.query(User).filter(User.role == Role.candidate).first()
+        scenario = Scenario(
+            round_number=3, title="Print nothing", description="x",
+            experience_band=ExperienceBand.junior, created_by=candidate.id, status=ScenarioStatus.published,
+            is_live=True, time_limit_minutes=30,
+            reference_json={
+                "test_cases": [{"input": "x", "expected_output": "", "description": "no output expected"}],
+                "expected_approach": "x",
+            },
+        )
+        db.add(scenario)
+        db.commit()
+        db.refresh(scenario)
+
+        submission = Submission(
+            user_id=candidate.id, scenario_id=scenario.id, round_number=3,
+            status=RoundStatus.submitted, started_at=datetime.utcnow(),
+            content={"language": "python", "draft_prompt": ""},
+        )
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+
+        turn = Round3Turn(
+            submission_id=submission.id, turn_number=1, candidate_prompt="x",
+            language="python", response_kind="code_edit", response_message="x",
+            code_after="pass",
+        )
+        db.add(turn)
+        db.commit()
+
+        run_code_run = execution_service.run_code
+        execution_service.run_code = lambda language, code, stdin: execution_service.ExecutionResult(
+            stdout="unexpected output", stderr="", exit_code=0, timed_out=False, infra_error=False,
+        )
+        try:
+            score_run = llm_service.score_round3_coding
+            llm_service.score_round3_coding = lambda **kwargs: {
+                "correctness_score": 0, "precision_score": 0, "efficiency_score": 0,
+                "independent_judgment_score": 0, "final_score": 0,
+                "misses": [], "guardrail_violations": [], "feedback_text": "x",
+            }
+            try:
+                score = scoring_service.score_round3_submission(db, submission)
+            finally:
+                llm_service.score_round3_coding = score_run
+        finally:
+            execution_service.run_code = run_code_run
+
+        assert score.test_results_json[0]["passed"] is False
+    finally:
+        db.close()
+
+
 def test_score_round3_submission_handles_a_malformed_reference_test_case_gracefully(client, monkeypatch):
     """Fix 9 (final whole-branch review): a malformed reference test case
     (missing 'input' or 'expected_output') must fail that one test case
