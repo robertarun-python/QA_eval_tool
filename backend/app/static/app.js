@@ -3055,25 +3055,21 @@ function renderRound4Layout(box) {
 
   const r1Rows = s.round1_context.submitted_rows || [];
 
-  // The task itself (tabs + composer) comes first, right under the
-  // scenario description - a candidate who just read the intro should
-  // land straight on "here's where you type," not have to scroll past
-  // three reference panels, a guidance paragraph, and an example box
-  // first. Reference material is real, useful content (not filler), so
-  // it isn't cut - only moved below, where it's a click away via its
-  // own <details> the same as before, not the first thing on the page.
+  // Problem + environment context comes first, same as every other
+  // round - a candidate reads what they're automating before being
+  // asked to act. What actually made the composer hard to find wasn't
+  // its position, it was that a growing transcript (each turn's own
+  // .round4-pane-body can run to 34rem) had no scroll boundary, so the
+  // composer kept receding further down the page the more a candidate
+  // used it. See renderRound4TestCaseBody: the transcript now scrolls
+  // in its own bounded region and the composer sits in a fixed,
+  // visually distinct docked card right below it - never further away
+  // than one screen's worth of scrolling, matching how a real chat
+  // composer stays reachable (docked, not buried) regardless of
+  // conversation length.
   box.innerHTML = `
     <h3>Round 4: ${escapeHtml(s.scenario.title)}</h3>
     ${formatScenarioDescription(s.scenario.description)}
-    <div id="round4-tabs" class="row" style="margin-bottom:0.4rem"></div>
-    <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
-    ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
-    <div class="panel-inset example-row" style="margin-bottom:0.85rem">
-      <p class="muted" style="margin-bottom:0.3rem"><strong>Example (format only, not a hint for this scenario):</strong></p>
-      <p class="muted" style="margin:0">Test case title: "Verify login with valid credentials" - then a first message to the assistant like "Log in with the test account credentials and tell me what happened."</p>
-    </div>
-    <div id="round4-test-case-body"></div>
-    <p class="muted round4-pane-label" style="margin-top:1.5rem">Reference material</p>
     <details class="hint-box">
       <summary><strong>Automating your own Round 1 answer</strong> - "${escapeHtml(s.round1_context.scenario_title)}"</summary>
       <p>${escapeHtml(s.round1_context.scenario_description)}</p>
@@ -3109,6 +3105,14 @@ function renderRound4Layout(box) {
         ${renderMockupScreens(s.ui_mockup, "cand-mockup")}
       </details>
     ` : ""}
+    <div id="round4-tabs" class="row" style="margin-bottom:0.4rem; margin-top:1rem"></div>
+    <p class="muted" style="margin-bottom:0.85rem">Create as many test cases as you think this deserves - most candidates write 3-6, covering more than one angle (happy path, a negative/edge case, cross-checking what different layers report).</p>
+    ${s.turns.length >= 20 ? `<p class="muted" style="color: var(--warn); margin-bottom:0.85rem">You've sent ${s.turns.length} messages in this round so far - there's no limit, but a good answer here is about judgment and coverage, not volume. Worth checking whether you're still adding new ground.</p>` : ""}
+    <div class="panel-inset example-row" style="margin-bottom:0.85rem">
+      <p class="muted" style="margin-bottom:0.3rem"><strong>Example (format only, not a hint for this scenario):</strong></p>
+      <p class="muted" style="margin:0">Test case title: "Verify login with valid credentials" - then a first message to the assistant like "Log in with the test account credentials and tell me what happened."</p>
+    </div>
+    <div id="round4-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
       <button class="btn-block" onclick="round4Submit()">Submit Round 4</button>
     </div>
@@ -3237,15 +3241,30 @@ function renderRound4TestCaseBody() {
     `).join("");
 
   const draftText = round4DraftBuffer[tcId] || "";
+  // A visually distinct, always-in-the-same-place card - "docked, not
+  // floating" (the standard chat-composer pattern: ChatGPT, Slack,
+  // Intercom all keep the input in a fixed, bordered container instead
+  // of letting it blend into the page). panel-inset + a border gives it
+  // the same visual weight as the transcript panes above it, so it
+  // reads as "the place you type" rather than one more paragraph of
+  // muted text to scan past.
   const composerHtml = `
-    <textarea id="round4-message" placeholder="What do you want the assistant to do or check next?" oninput="round4OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
-    <div class="row">
-      <button id="round4-send-btn" onclick="round4SendMessage()">Send</button>
+    <div class="panel-inset round4-composer">
+      <p class="muted round4-pane-label">Your message</p>
+      <textarea id="round4-message" placeholder="What do you want the assistant to do or check next?" oninput="round4OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
+      <div class="row">
+        <button id="round4-send-btn" onclick="round4SendMessage()">Send</button>
+      </div>
     </div>
   `;
 
+  // Bounded scroll region for the transcript only (not the whole page) -
+  // a long conversation grows inside this box, never past it, so the
+  // composer right below it is never more than one screen away no
+  // matter how many turns pile up. Only bounded once there's something
+  // to bound - the "no messages yet" empty state stays unscrolled.
   body.innerHTML = `
-    <div style="overflow:visible">${transcriptHtml}</div>
+    <div class="${turns.length > 0 ? "round4-transcript-scroll" : ""}">${transcriptHtml}</div>
     ${composerHtml}
   `;
 

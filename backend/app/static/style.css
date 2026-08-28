@@ -987,6 +987,16 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
   .round4-pane-body { resize: none; max-height: none; background-image: none; }
   .round4-col-resizer { display: none; }
 }
+/* Bounds the turn-by-turn transcript to its own scrollable region so a
+   long conversation never pushes the composer further down the page -
+   the composer stays a fixed, predictable distance away regardless of
+   how many turns pile up. */
+.round4-transcript-scroll { max-height: 32rem; overflow-y: auto; margin-bottom: 0.85rem; padding-right: 0.2rem; }
+/* The composer itself: a bordered, accent-highlighted card so it reads
+   as "the place you type" at a glance, not one more muted paragraph to
+   scan past - the standard docked chat-composer treatment. */
+.round4-composer { border-color: var(--accent); background: var(--surface-interactive); margin-bottom: 0.85rem; }
+.round4-composer textarea { min-height: 6rem; }
 
 /* ---- Round 3's conversation|code trial grid ---- */
 .round3-coding-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-compact); align-items: start; }
