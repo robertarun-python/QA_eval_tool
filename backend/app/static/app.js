@@ -2390,7 +2390,8 @@ function confirmRound3CodingIntro() {
   document.getElementById("round-view").insertAdjacentHTML("beforeend", `
     <div class="field-row" style="align-items:center">
       <span class="muted">Language</span>
-      <select id="round3-language-select">
+      <select id="round3-language-select" onchange="round3OnLanguageSelectChange()">
+        <option value="" selected>Select a language...</option>
         <option value="python">Python</option>
         <option value="java">Java</option>
         <option value="javascript">JavaScript</option>
@@ -2398,13 +2399,23 @@ function confirmRound3CodingIntro() {
     </div>
     <p class="muted">This is a one-time choice - you won't be able to change it once the round starts.</p>
     <div class="row">
-      <button onclick="confirmStartRound3Coding()">Start Round 3</button>
+      <button id="round3-start-btn" onclick="confirmStartRound3Coding()" disabled>Start Round 3</button>
     </div>
   `);
 }
 
+// A blank first option (no default language pre-selected) plus this
+// disable/enable toggle is what actually mandates the choice - without
+// it the select's first real <option> would be silently accepted as
+// the language the instant the candidate clicked Start.
+function round3OnLanguageSelectChange() {
+  const language = document.getElementById("round3-language-select").value;
+  document.getElementById("round3-start-btn").disabled = !language;
+}
+
 function confirmStartRound3Coding() {
   const language = document.getElementById("round3-language-select").value;
+  if (!language) return;
   startRound3Coding(language);
 }
 
