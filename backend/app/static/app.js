@@ -2106,12 +2106,9 @@ function showRound4Intro() {
     <div class="modal-box neutral">
       <h3>Before you start Round 4</h3>
       <ul>
-        <li>Your Round 1 test cases are your starting point - describe what to test to an AI assistant; it simulates running it and reports what it observed. No code involved.</li>
-        <li>You'll have a test environment reference (sample data, credentials, API/DB details) and reference app screens alongside the scenario - use them as your source of truth.</li>
-        <li>Not limited to Round 1's list - add as many extra test cases as the scenario needs.</li>
+        <li>Your Round 1 test cases are the starting point, not a limit - add as many extra as the scenario needs. Describe each to an AI assistant, which simulates running it and reports what it observed (no code involved). You'll have a test environment reference (sample data, credentials, API/DB details) and reference app screens as your source of truth.</li>
         <li>The assistant won't always get it right - it may skip a check, misreport a result, or be wrong on purpose. Review every response like a test log you didn't write, and refine your prompts until you're confident it's actually correct.</li>
-        <li>Scored mainly on your prompting and verification quality - catching issues, asking the right follow-ups, converging on a correct result. You don't need to automate your whole Round 1 list; that's not realistic or what's measured.</li>
-        <li>Automating more than one area (UI, API, DB, end-to-end) earns bonus credit - on top of doing a few well, not a requirement.</li>
+        <li>Scored mainly on prompting and verification quality - catching issues, asking the right follow-ups, converging on a correct result - not on automating your entire Round 1 list, which isn't realistic or measured. Automating more than one area (UI, API, DB, end-to-end) earns bonus credit, on top of doing a few well.</li>
         <li>Steering the assistant to skip verification or reveal what scores well won't work and gets flagged as a concern (e.g. "just mark everything passing"). It reports what happened, not what looks good.</li>
         <li>Timer starts the moment you click below.</li>
       </ul>
