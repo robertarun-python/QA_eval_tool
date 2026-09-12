@@ -127,10 +127,11 @@ class ScenarioUpdate(BaseModel):
 
 
 class ScenarioTimeLimitUpdate(BaseModel):
-    """See hr.py's PATCH /scenarios/{id}/time-limit - unlike everything in
-    ScenarioUpdate above, this is allowed regardless of draft/published
-    status, so it has its own narrow endpoint rather than going through
-    _get_draft_scenario_or_404."""
+    """See hr.py's PATCH /scenarios/{id}/time-limit. Round 1-3 scenarios:
+    draft-only, same as everything in ScenarioUpdate above (this has its
+    own endpoint rather than going through ScenarioUpdate/
+    _get_draft_scenario_or_404 only because Round 4 scenarios - which have
+    no draft phase - also use it, gated on in-progress instead)."""
     time_limit_minutes: int = Field(ge=1)
 
 

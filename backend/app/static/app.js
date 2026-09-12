@@ -22,6 +22,14 @@ const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 3: "AI-prompted c
 // problem statement to solve), so one static placeholder can't describe
 // all of them. Round 4 isn't here - it has its own dedicated authoring
 // panel (see selectHRRound/loadRound4Settings), never this shared form.
+// Experience band is a hidden feature right now - HR no longer picks one
+// per scenario or per candidate (see resetCreateScenarioForm/createScenario
+// below and loadCandidates), so every scenario is created under this one
+// band. The band model/filtering itself is untouched - see models.Scenario/
+// User.experience_band and candidate.py's _live_scenario - only the UI
+// controls for choosing a different one are hidden.
+const DEFAULT_BAND = "0-7";
+
 const ROUND_DESC_PLACEHOLDERS = {
   1: "Describe the feature/system the candidate should write test cases for...",
   2: "Describe the bug/production issue the candidate should debug - what's broken, how it was reported...",
@@ -327,7 +335,6 @@ function onLoggedIn() {
     document.getElementById("hr-panel").classList.remove("hidden");
     restoreHRNavState();
     renderHRRoundNav();
-    loadLiveScenarioWidget();
     loadScenarios();
     loadCandidates();
     loadHistory();
@@ -411,7 +418,6 @@ function selectHRRound(n) {
   // author/review/publish flow - see loadRound4Settings for why none of
   // that maps onto round 4's actual shape (no fixed reference, no
   // meaningfully different "versions" to browse or compare).
-  document.getElementById("live-scenario-panel").classList.toggle("hidden", isRound4);
   document.getElementById("create-scenario-row").classList.toggle("hidden", isRound4);
   document.getElementById("screening-history-panel").classList.toggle("hidden", isRound4);
   document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound4);
@@ -420,68 +426,8 @@ function selectHRRound(n) {
     loadRound4Settings();
   } else {
     resetCreateScenarioForm();
-    loadLiveScenarioWidget();
     loadScenarios();
     loadHistory();
-  }
-}
-
-// Standalone, always-visible time-limit editor for whichever scenario(s)
-// are actually live for the current round - deliberately independent of
-// openScenarioDetail's much larger render (title/description/reference/
-// environment/mockups, all wrapped in the draft/published logic there).
-// Exists because "find the live scenario in the list, click Review,
-// scroll to the time field" turned out to not be a path HR reliably
-// found - this needs zero clicks beyond typing a number and hitting Save.
-async function loadLiveScenarioWidget() {
-  const box = document.getElementById("live-scenario-list");
-  let scenarios;
-  try {
-    scenarios = (await api("/hr/scenarios")).filter((s) => s.round_number === currentHRRound && s.is_live);
-  } catch (e) {
-    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
-    return;
-  }
-  if (scenarios.length === 0) {
-    box.innerHTML = `<p class="muted">No live scenario yet for Round ${currentHRRound} - publish one below and mark it live for screening.</p>`;
-    return;
-  }
-  box.innerHTML = scenarios.map((s) => `
-    <div class="panel-inset">
-      <p><strong>${escapeHtml(s.title)}</strong> <span class="badge badge-published">LIVE</span> · ${s.experience_band}</p>
-      <div class="row" style="align-items:center">
-        <div class="field-inline">
-          <span class="muted">min limit</span>
-          <input id="live-time-limit-${s.id}" type="number" min="1" value="${s.time_limit_minutes}" />
-        </div>
-        <button onclick="saveLiveTimeLimit(${s.id})">Save</button>
-      </div>
-      <p id="live-time-status-${s.id}" class="muted"></p>
-    </div>
-  `).join("");
-}
-
-async function saveLiveTimeLimit(id) {
-  const statusEl = document.getElementById(`live-time-status-${id}`);
-  const inputEl = document.getElementById(`live-time-limit-${id}`);
-  const value = Number(inputEl.value);
-  statusEl.className = "muted";
-  if (!Number.isInteger(value) || value < 1) {
-    statusEl.className = "error-text";
-    statusEl.textContent = "Must be a whole number of minutes, at least 1.";
-    return;
-  }
-  try {
-    await api(`/hr/scenarios/${id}/time-limit`, { method: "PATCH", body: JSON.stringify({ time_limit_minutes: value }) });
-    statusEl.textContent = "Saved.";
-  } catch (e) {
-    // The save was rejected - the input still shows the value the HR
-    // typed, which would look like it took effect even though nothing
-    // was persisted. Snap it back to what's actually live so a blocked
-    // change can't be mistaken for a successful one.
-    inputEl.value = inputEl.defaultValue;
-    statusEl.className = "error-text";
-    statusEl.textContent = e.message;
   }
 }
 
@@ -495,7 +441,6 @@ async function saveLiveTimeLimit(id) {
 // under a completely different round - not a shared value in the
 // database, just a stale, easy-to-miss leftover in a shared input.
 function resetCreateScenarioForm() {
-  document.getElementById("s-band").value = "0-7";
   document.getElementById("s-time-limit").value = "30";
   document.getElementById("s-title").value = "";
   document.getElementById("s-desc").value = "";
@@ -554,7 +499,7 @@ function updateCreateBtnState() {
 
 async function createScenario() {
   const round_number = currentHRRound;
-  const experience_band = document.getElementById("s-band").value;
+  const experience_band = DEFAULT_BAND;
   const time_limit_minutes = Number(document.getElementById("s-time-limit").value);
   const title = document.getElementById("s-title").value;
   const description = document.getElementById("s-desc").value;
@@ -621,7 +566,7 @@ function renderPublishedTable(published) {
   return `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Publish for screening</th><th>Band</th><th>Title</th><th></th><th></th></tr></thead>
+        <thead><tr><th>Publish for screening</th><th>Title</th><th></th><th></th></tr></thead>
         <tbody>
           ${published.map((s) => `
             <tr>
@@ -630,7 +575,6 @@ function renderPublishedTable(published) {
                   ${s.is_live ? "checked" : ""} onchange="moveToScreening(${s.id})"
                   title="Publish for screening" />
               </td>
-              <td>${s.experience_band}</td>
               <td>${escapeHtml(s.title)} ${s.is_live ? '<span class="badge badge-published">LIVE</span>' : ""}</td>
               <td><button onclick="openScenarioDetail(${s.id})">Review</button></td>
               <td>${s.is_live
@@ -650,11 +594,10 @@ function renderDraftTable(drafts) {
   return `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Band</th><th>Title</th><th></th><th></th></tr></thead>
+        <thead><tr><th>Title</th><th></th><th></th></tr></thead>
         <tbody>
           ${drafts.map((s) => `
             <tr>
-              <td>${s.experience_band}</td>
               <td>${escapeHtml(s.title)}</td>
               <td><button onclick="openScenarioDetail(${s.id})">Review</button></td>
               <td><button class="btn-ghost" onclick="deleteScenarioFromList(${s.id})">Delete</button></td>
@@ -669,8 +612,8 @@ function renderDraftTable(drafts) {
 async function moveToScreening(id) {
   const scenario = await api(`/hr/scenarios/${id}`);
   const confirmed = confirm(
-    `Publish "${scenario.title}" (Round ${scenario.round_number} / ${scenario.experience_band}) for screening? ` +
-    `Candidates in that round+band will see this one immediately, replacing whichever scenario was live before.`
+    `Publish "${scenario.title}" (Round ${scenario.round_number}) for screening? ` +
+    `Candidates in that round will see this one immediately, replacing whichever scenario was live before.`
   );
   if (confirmed) {
     try {
@@ -681,7 +624,6 @@ async function moveToScreening(id) {
   }
   loadScenarios(); // re-render either way: reflects the real is_live state, undoing the radio click if cancelled/failed
   loadHistory(); // LIVE badge there can change too
-  loadLiveScenarioWidget(); // which scenario shows here can change too
 }
 
 async function openScenarioDetail(id) {
@@ -750,11 +692,9 @@ async function openScenarioDetail(id) {
       <h3 style="margin:0">#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${statusLabel(scenario.status)}</span>${scenario.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</h3>
       <button class="btn-ghost" onclick="closeScenarioDetail()">Close</button>
     </div>
-    ${scenario.is_live ? `<p class="muted">This is the one scenario Round ${scenario.round_number} / ${scenario.experience_band} candidates currently see.</p>` : ""}
-    <p class="muted">Round ${scenario.round_number} · ${scenario.experience_band}</p>
-    ${scenario.is_live ? `
-      <p class="muted">Time limit is editable from the "Live scenario time limit" panel above - no need to repeat it here.</p>
-    ` : `
+    ${scenario.is_live ? `<p class="muted">This is the one scenario Round ${scenario.round_number} candidates currently see.</p>` : ""}
+    <p class="muted">Round ${scenario.round_number}</p>
+    ${isDraft ? `
       <div class="row" style="align-items:center">
         <div class="field-inline">
           <span class="muted">min limit</span>
@@ -762,6 +702,8 @@ async function openScenarioDetail(id) {
         </div>
         <button onclick="saveTimeLimitEdit(${scenario.id})">Save</button>
       </div>
+    ` : `
+      <p class="muted">Time limit is locked at ${scenario.time_limit_minutes} minutes - it can't change once published, so candidates are always scored against the same duration. Publish a new scenario if you need a different one.</p>
     `}
     <h4>Question</h4>
     ${formatScenarioDescription(scenario.description)}
@@ -821,16 +763,16 @@ function closeScenarioDetail() {
   document.getElementById("scenarios-list-panel").classList.remove("scenarios-list-panel-full");
 }
 
-// ---- Round 4 settings: one card per experience band, replacing the
-// round1/2-style Create-a-scenario/Scenarios-list/Screening-history flow
-// entirely (see selectHRRound). Round 4 has no fixed reference to
-// author, review, or compare across versions - each candidate automates
-// their own round 1 answer, and the environment/screens are auto-
-// generated, not HR-authored - so there's no "library of scenarios" to
-// browse the way round 1/2 genuinely have, and never more than one
-// meaningful configuration per band worth looking at.
-
-const ROUND4_BANDS = [["0-7", "0-7 years"], ["7+", "7+ years"]];
+// ---- Round 4 settings: replaces the round1/2-style Create-a-scenario/
+// Scenarios-list/Screening-history flow entirely (see selectHRRound).
+// Round 4 has no fixed reference to author, review, or compare across
+// versions - each candidate automates their own round 1 answer, and the
+// environment/screens are auto-generated, not HR-authored - so there's
+// no "library of scenarios" to browse the way round 1/2 genuinely have,
+// and never more than one meaningful configuration worth looking at.
+//
+// Used to render one card per experience band - band is a hidden feature
+// now (see DEFAULT_BAND), so there's only ever the one card.
 
 async function loadRound4Settings() {
   const box = document.getElementById("round4-settings-panel");
@@ -841,20 +783,19 @@ async function loadRound4Settings() {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
   }
-  // Only bands with an actual live scenario show anything at all - a
-  // band nobody's set up yet is simply not shown, full stop, not a
-  // "create one" prompt for a band that isn't even being screened right
-  // now (bootstrapping round 4 for a new band, if ever needed, is a
+  // Nothing shows at all if round 4 hasn't been set up yet - not a
+  // "create one" prompt (bootstrapping round 4, if ever needed, is a
   // direct API action, not a standing part of this page).
-  box.innerHTML = ROUND4_BANDS.map(([band, bandLabel]) => {
-    const liveScenario = allScenarios.find((s) => s.round_number === 4 && s.experience_band === band && s.is_live);
-    if (!liveScenario) return "";
-    const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === band && s.is_live);
-    return renderRound4SettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, bandLabel);
-  }).join("");
+  const liveScenario = allScenarios.find((s) => s.round_number === 4 && s.experience_band === DEFAULT_BAND && s.is_live);
+  if (!liveScenario) {
+    box.innerHTML = "";
+    return;
+  }
+  const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === DEFAULT_BAND && s.is_live);
+  box.innerHTML = renderRound4SettingsCard(liveScenario, liveRound1 ? liveRound1.title : null);
 }
 
-function renderRound4SettingsCard(scenario, groundedInTitle, bandLabel) {
+function renderRound4SettingsCard(scenario, groundedInTitle) {
   // 60 below is a defensive fallback only (e.g. this renders before
   // appSettings has loaded) - the real default always comes from the
   // server (see AppSettingsOut.round4_default_assistance_pct /
@@ -864,8 +805,8 @@ function renderRound4SettingsCard(scenario, groundedInTitle, bandLabel) {
   const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || serverDefault;
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
-      <h3>Round 4 - ${bandLabel} <span class="badge badge-published">LIVE</span></h3>
-      <p class="muted">This is what Round 4 / ${scenario.experience_band} candidates currently see.</p>
+      <h3>Round 4 <span class="badge badge-published">LIVE</span></h3>
+      <p class="muted">This is what Round 4 candidates currently see.</p>
 
       <h4>Instructions</h4>
       <p class="muted">What candidates read when they open this round.</p>
@@ -908,8 +849,8 @@ function renderRound4SettingsCard(scenario, groundedInTitle, bandLabel) {
 
       <h4>Grounded in</h4>
       <p class="muted">${groundedInTitle
-        ? `This round's test environment &amp; reference screens are auto-generated from <strong>${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live for this band. They resync automatically whenever a different round 1 scenario goes live here.`
-        : `No round 1 scenario is currently live for this band - the environment/screens below fell back to this scenario's own description instead. They'll resync automatically once one is published.`}</p>
+        ? `This round's test environment &amp; reference screens are auto-generated from <strong>${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live. They resync automatically whenever a different round 1 scenario goes live here.`
+        : `No round 1 scenario is currently live - the environment/screens below fell back to this scenario's own description instead. They'll resync automatically once one is published.`}</p>
 
       <details>
         <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>
@@ -1041,12 +982,11 @@ async function saveReferenceEdit(id) {
 }
 
 async function saveTimeLimitEdit(id) {
-  // Its own endpoint, not the draft-only PATCH /hr/scenarios/{id} used
-  // for title/description/reference edits - the time limit is allowed to
-  // change on a published/live scenario too (see hr.py's
-  // update_scenario_time_limit), which is exactly the case that matters
-  // in practice: adjusting the duration of the scenario candidates are
-  // actually taking right now, not just an unpublished draft.
+  // Only ever called while this scenario is a draft (see the isDraft
+  // check around the "min limit" field above) - its own endpoint rather
+  // than the general draft-only PATCH /hr/scenarios/{id} only because
+  // Round 4 scenarios (which have no draft phase) also go through it -
+  // see hr.py's update_scenario_time_limit.
   const statusEl = document.getElementById("scenario-detail-status");
   const inputEl = document.getElementById("time-limit-edit");
   const value = Number(inputEl.value);
@@ -1084,14 +1024,13 @@ async function publishScenario(id) {
     s.is_live && s.round_number === scenario.round_number && s.experience_band === scenario.experience_band
   );
   const warning = currentlyLive
-    ? `Publish this into the Round ${scenario.round_number} / ${scenario.experience_band} library alongside "${currentlyLive.title}", which stays live for candidates until you explicitly publish it for screening. Continue?`
-    : `Publish this scenario? Since nothing is currently live for Round ${scenario.round_number} / ${scenario.experience_band}, it will also become the one candidates see immediately.`;
+    ? `Publish this into the Round ${scenario.round_number} library alongside "${currentlyLive.title}", which stays live for candidates until you explicitly publish it for screening. Continue?`
+    : `Publish this scenario? Since nothing is currently live for Round ${scenario.round_number}, it will also become the one candidates see immediately.`;
   if (!confirm(warning)) return;
 
   try {
     await api(`/hr/scenarios/${id}/publish`, { method: "POST" });
     loadScenarios();
-    loadLiveScenarioWidget(); // this publish may have just made a scenario live
     openScenarioDetail(id);
   } catch (e) {
     statusEl.textContent = e.message;
@@ -1146,18 +1085,11 @@ async function loadCandidates() {
   box.innerHTML = `
     <div class="table-scroll">
       <table>
-        <thead><tr><th>Candidate</th><th>Band</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th><th>Aggregate</th><th>Result</th><th></th></tr></thead>
+        <thead><tr><th>Candidate</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th><th>Aggregate</th><th>Result</th><th></th></tr></thead>
         <tbody>
           ${candidates.map((c) => `
             <tr>
               <td>${escapeHtml(c.email)} ${c.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}</td>
-              <td>
-                <select class="band-select" onchange="setCandidateBand(${c.id}, this.value)">
-                  <option value="" ${!c.experience_band ? "selected" : ""}>-</option>
-                  <option value="0-7" ${c.experience_band === "0-7" ? "selected" : ""}>0-7 years</option>
-                  <option value="7+" ${c.experience_band === "7+" ? "selected" : ""}>7+ years</option>
-                </select>
-              </td>
               <td>${c.exam_date ? formatDate(c.exam_date) : "-"}</td>
               ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
               <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 280) ? "score-good" : "score-bad"}">${c.aggregate_score}/400</strong>` : `<span class="muted">-</span>`}</td>
@@ -1184,6 +1116,9 @@ function resultBadge(result) {
   return `<span class="badge badge-draft">In progress</span>`;
 }
 
+// No longer called from the candidate table (band is a hidden feature -
+// see DEFAULT_BAND) - kept working against the real PATCH endpoint in
+// case per-candidate bands come back.
 async function setCandidateBand(id, band) {
   if (!band) return;
   try {
@@ -1797,7 +1732,7 @@ function renderHistoryCard(h) {
   return `
     <div class="panel-inset">
       <h4>
-        ${h.experience_band} · ${escapeHtml(h.title)}
+        ${escapeHtml(h.title)}
         ${h.is_live ? '<span class="badge badge-published">LIVE</span>' : '<span class="badge">retired</span>'}
       </h4>
       <p class="muted">Used ${dateRange}</p>

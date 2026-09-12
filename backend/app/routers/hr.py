@@ -339,27 +339,37 @@ def update_scenario(scenario_id: int, payload: ScenarioUpdate, db: Session = Dep
 
 @router.patch("/scenarios/{scenario_id}/time-limit", response_model=ScenarioOut)
 def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """Unlike title/description/reference_json (see update_scenario above,
-    gated by _get_draft_scenario_or_404), the time limit is allowed to
-    change regardless of draft/published/live status - it doesn't
-    retroactively invalidate anything a candidate was already scored
-    against. What it must NOT do is change out from under a candidate
-    who's actively mid-assessment right now - a deadline shifting while
-    someone's clock is already running isn't something they could
-    reasonably plan around, and it lets HR make exam-integrity-relevant
-    changes (e.g. shortening a round because a question turned out too
-    easy) without a mid-flight instance leaking the fact that something
-    just changed.
+    """Rounds 1-3: same rule as title/description/reference_json (see
+    update_scenario / _get_draft_scenario_or_404) - a published scenario's
+    parameters must stay exactly as they were when candidates were scored
+    against it, time limit included, so this 400s once the scenario is no
+    longer a draft. This used to be a deliberate exception (mutable
+    regardless of publish status, gated only on the in-progress check
+    below) so HR could quick-fix a live time limit without unpublishing -
+    but that let two candidates take the "same" published scenario under
+    two different real durations with no record of which one applied to
+    which candidate, which is exactly the kind of scoring-relevant
+    inconsistency the draft-only rule exists to prevent elsewhere. Fixing
+    a wrong live time limit now means publishing a corrected scenario and
+    making that one live instead, same as fixing a wrong title/reference
+    already requires.
 
-    Scoped to the whole band, not just this one scenario: a candidate who's
-    actively taking round 1 could reach round 2 or 3 within the same
-    sitting, so editing THOSE rounds' time limits mid-round-1 is just as
-    much a live change-out-from-under-them as editing round 1 itself would
-    be. Blocked while ANY candidate in this band has an in_progress
-    submission on ANY round - not just this one - deferred only until
-    they finish that round (or it times out), not until their whole
-    assessment is done; between rounds, with no clock actively running,
-    edits are allowed again.
+    Round 4 keeps the old always-mutable-but-guarded behavior: it never
+    has a draft phase to edit before going live (see
+    regenerate_reference's docstring above - its scenarios go live
+    immediately on creation), so "draft-only" isn't a meaningful
+    restriction there; the in-progress guard below is what already
+    handles Round 4 safely.
+
+    The in-progress guard is scoped to the whole band, not just this one
+    scenario: a candidate who's actively taking round 1 could reach round
+    2 or 3 within the same sitting, so editing THOSE rounds' time limits
+    mid-round-1 is just as much a live change-out-from-under-them as
+    editing round 1 itself would be. Blocked while ANY candidate in this
+    band has an in_progress submission on ANY round - not just this one -
+    deferred only until they finish that round (or it times out), not
+    until their whole assessment is done; between rounds, with no clock
+    actively running, edits are allowed again.
 
     Before counting, lazily closes out anything that LOOKS in_progress
     but has actually already run past its own deadline (see
@@ -370,6 +380,8 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
+    if scenario.round_number != 4 and scenario.status != ScenarioStatus.draft:
+        raise HTTPException(400, "This scenario is published - its time limit can't change anymore. Publish a new scenario with the corrected time limit instead.")
 
     band_in_progress = (
         db.query(Submission)
@@ -803,8 +815,10 @@ def override_score(submission_id: int, payload: ScoreOverrideRequest, db: Sessio
 
 @router.patch("/candidates/{candidate_id}/band", response_model=CandidateSummaryOut)
 def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """Bulk upload deliberately doesn't set a band (see the upload
-    endpoint below) - HR sets it here afterward, once per candidate."""
+    """Not currently reachable from the UI - experience band is a hidden
+    feature (see app.js), and every candidate (seeded or bulk-uploaded)
+    now gets the same band automatically at creation. Left in place as a
+    direct API for re-enabling per-candidate bands later."""
     candidate = db.get(User, candidate_id)
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")
@@ -998,7 +1012,6 @@ def candidate_summary_pdf(
         raise HTTPException(404, "Candidate not found")
 
     rounds_by_number = {r["round_number"]: r for r in _gather_candidate_rounds(candidate, db, background_tasks)}
-    band = candidate.experience_band.value if candidate.experience_band else "unspecified"
 
     pdf = FPDF()
     pdf.add_page()
@@ -1006,7 +1019,6 @@ def candidate_summary_pdf(
     pdf.cell(0, 10, "Candidate Assessment Summary", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 11)
     pdf.cell(0, 8, f"Candidate: {_pdf_safe_text(candidate.email)}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 8, f"Experience band: {band}", new_x="LMARGIN", new_y="NEXT")
     pdf.cell(0, 8, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d')}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 

@@ -83,24 +83,11 @@
         <section id="hr-panel" class="hidden">
 
           <div id="hr-page-rounds">
-            <div class="panel card" id="live-scenario-panel">
-              <h3>Live scenario time limit</h3>
-              <p class="muted">The scenario candidates are currently taking for this round - change the time limit right here, no need to open or review anything.</p>
-              <div id="live-scenario-list"></div>
-            </div>
-
             <div class="card-grid" id="create-scenario-row">
               <div class="panel card" id="create-scenario-panel">
                 <h3>Create a scenario</h3>
                 <p id="hr-round-context" class="muted"></p>
                 <div class="field-row">
-                  <div class="field-inline field-inline-grow">
-                    <label for="s-band">Experience band</label>
-                    <select id="s-band">
-                      <option value="0-7">0-7 years</option>
-                      <option value="7+">7+ years</option>
-                    </select>
-                  </div>
                   <div class="field-inline">
                     <label for="s-time-limit">Time limit (min)</label>
                     <input id="s-time-limit" type="number" min="1" value="30" />

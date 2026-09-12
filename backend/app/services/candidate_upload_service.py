@@ -17,7 +17,7 @@ from email_validator import validate_email, EmailNotValidError
 from sqlalchemy.orm import Session
 
 from ..credential_service import derive_username, derive_password
-from ..models import User, Role, Submission, CandidateAppearance, AppSettings
+from ..models import User, Role, Submission, CandidateAppearance, AppSettings, ExperienceBand
 from ..schemas import BulkUploadRowResult, BulkUploadResult
 from ..security import hash_password
 
@@ -134,6 +134,11 @@ def process_upload_rows(
                     email=email, username=username,
                     password_hash=hash_password(derive_password(email)),
                     role=Role.candidate,
+                    # Experience band is a hidden feature right now - HR no
+                    # longer picks one per candidate (see app.js), so every
+                    # new candidate gets the one band scenarios are
+                    # actually published under.
+                    experience_band=ExperienceBand.junior,
                 )
                 db.add(user)
                 db.flush()  # need user.id for the appearance row below

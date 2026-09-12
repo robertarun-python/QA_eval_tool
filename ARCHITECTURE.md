@@ -45,8 +45,20 @@ defer that decision.
 **Accounts: seeded, not self-service.** This is a screening tool for a
 fixed, known set of people (HR + whichever candidates you're currently
 evaluating), not a public product — so there's no signup flow. `app/seed.py`
-creates 1 HR account and 3 candidate accounts (2×`0-7`yrs, 1×`7+`yrs) from
-`.env` values, idempotently. `/auth/login` is the only auth route.
+creates 1 HR account and 3 candidate accounts from `.env` values, idempotently.
+`/auth/login` is the only auth route.
+
+**Experience band: modeled, but hidden from the UI.** `Scenario` and
+`User` both still carry `experience_band` (`0-7` / `7+`), and
+`candidate.py`'s `_live_scenario` still matches on it exactly — none of
+that was removed. What changed: HR no longer sees a band picker when
+creating a scenario or a per-candidate band selector in the candidate
+table (`app.js`'s `DEFAULT_BAND` feeds the hidden value instead), and
+every candidate — seeded or bulk-uploaded — is assigned that same band
+at creation time (`seed.py`, `candidate_upload_service.py`). Screening a
+second band again just means re-adding those UI controls; the backend
+already supports it. `PATCH /hr/candidates/{id}/band` still exists for
+direct API use but isn't wired to anything in the UI anymore.
 
 **Auth: JWT, stored in an httpOnly-style bearer token.** Two roles
 (`candidate`, `hr`) on one `users` table, distinguished by a `role`
@@ -58,7 +70,21 @@ different entity.
 scenario immediately (synchronously) triggers an LLM call to generate the
 reference answer, but candidates can't see it yet — it's `draft` until HR
 reviews it (regenerate, hand-edit the JSON, or just accept it) and clicks
-Publish. Publishing archives whatever was previously `published` for that
+Publish. `title`, `description`, `reference_json`, and `time_limit_minutes`
+are all frozen the moment a scenario leaves `draft` (see hr.py's
+`_get_draft_scenario_or_404` and `update_scenario_time_limit`) — a
+published scenario's parameters must stay exactly as they were when
+candidates were scored against them. Time limit used to be an exception
+(editable on a live scenario too, gated only on nobody being mid-round),
+but that let two candidates take the "same" scenario under two different
+real durations with no record of which applied to which candidate,
+undermining the whole point of comparing them against one fixed
+assessment — fixing a wrong live time limit now means publishing a
+corrected scenario, same as fixing a wrong title/reference already
+required. Round 4 is the one exception to all of this: it has no draft
+phase (its scenarios go live immediately on creation), so its settings
+stay mutable post-publish, gated only on nobody being mid-round. Publishing
+archives whatever was previously `published` for that
 same `(round_number, experience_band)` pair, which is what enforces "one
 live scenario per round + band" — candidates never pick from a list, they
 just see whatever's currently live for their band and round.
