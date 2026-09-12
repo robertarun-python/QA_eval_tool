@@ -36,9 +36,10 @@ def test_txt_upload_creates_candidates_who_can_then_log_in(client):
     assert body["created_count"] == 2
     assert body["error_count"] == 0
     assert {r["username"] for r in body["rows"]} == {"john.doe", "jane.smith"}
+    john_password = next(r["password"] for r in body["rows"] if r["username"] == "john.doe")
 
     # The generated credentials actually work.
-    res = client.post("/auth/login", json={"identifier": "john.doe", "password": "idfc@john"})
+    res = client.post("/auth/login", json={"identifier": "john.doe", "password": john_password})
     assert res.status_code == 200
     assert res.json()["role"] == "candidate"
 
@@ -46,7 +47,9 @@ def test_txt_upload_creates_candidates_who_can_then_log_in(client):
     res = client.get("/hr/candidates", cookies=_auth(hr_token))
     row = next(c for c in res.json() if c["email"] == "john.doe@acme.com")
     assert row["exam_date"].startswith("2026-08-25")
-    assert row["experience_band"] is None  # not part of the upload - set separately
+    # Experience band is a hidden feature now (see candidate_upload_service.py) -
+    # every new candidate gets the same band automatically, not left unset.
+    assert row["experience_band"] == "0-7"
 
 
 def test_xlsx_upload_creates_candidates(client):
@@ -57,8 +60,9 @@ def test_xlsx_upload_creates_candidates(client):
     assert res.status_code == 200
     body = res.json()
     assert body["created_count"] == 2
+    alice_password = next(r["password"] for r in body["rows"] if r["username"] == "alice")
 
-    res = client.post("/auth/login", json={"identifier": "alice", "password": "idfc@alic"})
+    res = client.post("/auth/login", json={"identifier": "alice", "password": alice_password})
     assert res.status_code == 200
 
 
@@ -107,7 +111,8 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
         lambda **kwargs: {"coverage_score": 90, "misses": [], "final_score": 90, "feedback_text": "great"},
     )
 
-    client.post("/hr/candidates/upload", files=_txt_file("email,exam_date\njohn.doe@acme.com,2026-01-01\n"), cookies=_auth(hr_token))
+    upload_body = client.post("/hr/candidates/upload", files=_txt_file("email,exam_date\njohn.doe@acme.com,2026-01-01\n"), cookies=_auth(hr_token)).json()
+    john_password = next(r["password"] for r in upload_body["rows"] if r["username"] == "john.doe")
     candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == "john.doe@acme.com")["id"]
     # A band has to be set before the candidate can see any scenario at
@@ -115,7 +120,7 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
     client.patch(f"/hr/candidates/{candidate_id}/band", json={"experience_band": "0-7"}, cookies=_auth(hr_token))
 
     # Candidate completes round 1 for real.
-    cand_token = _login(client, "john.doe", "idfc@john")
+    cand_token = _login(client, "john.doe", john_password)
     res = client.post("/candidate/round/1/start", cookies=_auth(cand_token))
     assert res.status_code == 201
     res = client.post(
@@ -137,7 +142,7 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
     assert res.json()["reset_count"] == 1
 
     # Same login still works, same password - nothing about credentials changed.
-    cand_token2 = _login(client, "john.doe", "idfc@john")
+    cand_token2 = _login(client, "john.doe", john_password)
 
     # Round-gating reset: round 1 looks not-started again, not "already submitted".
     res = client.get("/candidate/round/1", cookies=_auth(cand_token2))

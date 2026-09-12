@@ -25,8 +25,15 @@ class LoginRequest(BaseModel):
     # username (their email's local part - not itself a valid email
     # shape), so this field has to accept either. auth.py's login looks
     # this up against both User.email and User.username.
-    identifier: str = Field(min_length=1)
-    password: str
+    # max_length prevents a pre-auth request (no login needed to hit this
+    # endpoint) from forcing a huge string into memory/DB comparison -
+    # 254 is the standard maximum email length, comfortably above any
+    # real username too.
+    identifier: str = Field(min_length=1, max_length=254)
+    # bcrypt itself only uses the first 72 bytes of a password anyway -
+    # 128 is generous headroom above any real password while still
+    # bounding a pre-auth request's size.
+    password: str = Field(max_length=128)
 
 
 class LoginResponse(BaseModel):
@@ -94,10 +101,10 @@ class TestCaseRow(BaseModel):
     # check - a direct API call could otherwise submit blank rows that
     # still burn the candidate's one attempt and an LLM scoring call.
     # preconditions is legitimately optional, so it's exempt.
-    title: str = Field(min_length=1)
-    preconditions: str = ""
-    steps: str = Field(min_length=1)
-    expected_result: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=300)
+    preconditions: str = Field(default="", max_length=2000)
+    steps: str = Field(min_length=1, max_length=5000)
+    expected_result: str = Field(min_length=1, max_length=2000)
     priority: Literal["High", "Medium", "Low"] = "Medium"
     type: Literal["Positive", "Negative", "Boundary", "Edge"] = "Positive"
 
@@ -106,8 +113,12 @@ class TestCaseRow(BaseModel):
 
 class ScenarioCreate(BaseModel):
     round_number: int
-    title: str
-    description: str
+    # No min_length: hr.py's create_scenario does its own whitespace-aware
+    # emptiness check (a min_length=1 here wouldn't catch "   ", and would
+    # turn that rejection into a generic 422 instead of hr.py's specific
+    # 400 - see test_hr_scenario_create_validation.py).
+    title: str = Field(max_length=300)
+    description: str = Field(max_length=20000)
     experience_band: str  # "0-7" | "7+" - HR picks one explicitly, no "both"
     time_limit_minutes: int = 30
     config_json: dict[str, Any] = {}
@@ -115,8 +126,8 @@ class ScenarioCreate(BaseModel):
 
 class ScenarioUpdate(BaseModel):
     """Partial edit of a draft scenario - only settable while status == draft."""
-    title: Optional[str] = None
-    description: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=300)
+    description: Optional[str] = Field(default=None, max_length=20000)
     time_limit_minutes: Optional[int] = None
     # Any, not list[TestCaseRow]: same reason as ScenarioOut.reference_json
     # above - list[dict] for rounds 1/2, {"test_cases": [...],
@@ -154,8 +165,8 @@ class Round4InstructionsUpdate(BaseModel):
     they gate a fixed reference answer that's meaningful to review before
     publishing; round 4 has no such reference, so there's no equivalent
     reason to restrict this to drafts."""
-    title: str = Field(min_length=1)
-    description: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=300)
+    description: str = Field(min_length=1, max_length=20000)
 
 
 class ScenarioPublicOut(BaseModel):
@@ -195,7 +206,10 @@ class ScenarioOut(ScenarioPublicOut):
 # ---- Submissions / Round 1 ----
 
 class SubmissionCreate(BaseModel):
-    content: list[TestCaseRow] = Field(min_length=1)
+    # max_length=100: comfortably above any real round 1 attempt (a
+    # timed round, one sitting) while bounding how many rows - and LLM
+    # scoring tokens - a single submission can force.
+    content: list[TestCaseRow] = Field(min_length=1, max_length=100)
 
 
 # ---- Round 2 candidate submission ----
@@ -207,12 +221,12 @@ class SubmissionCreate(BaseModel):
 # scoring bridges that (see llm_service.score_round2_submission).
 
 class Round2InvestigationRow(BaseModel):
-    area: str = Field(min_length=1)  # what the candidate checked/investigated at this step
+    area: str = Field(min_length=1, max_length=2000)  # what the candidate checked/investigated at this step
 
 
 class Round2SubmissionCreate(BaseModel):
-    investigation: list[Round2InvestigationRow] = Field(min_length=1)
-    root_cause: str = Field(min_length=1)
+    investigation: list[Round2InvestigationRow] = Field(min_length=1, max_length=50)
+    root_cause: str = Field(min_length=1, max_length=5000)
 
 
 # ---- Round timeout auto-close / in-progress autosave ----
@@ -228,9 +242,13 @@ class Round2SubmissionCreate(BaseModel):
 # /round/{n}/expire and PATCH /round/{n}/draft.
 
 class ExpireRoundPayload(BaseModel):
-    content: list[dict] = []          # round 1 rows, as collected client-side
-    investigation: list[dict] = []    # round 2
-    root_cause: str = ""              # round 2
+    # Same row/length caps as SubmissionCreate/Round2SubmissionCreate
+    # above, despite being otherwise permissive (see this class's own
+    # docstring) - "whatever's there, even nothing" still shouldn't mean
+    # "arbitrarily large."
+    content: list[dict] = Field(default=[], max_length=100)          # round 1 rows, as collected client-side
+    investigation: list[dict] = Field(default=[], max_length=50)     # round 2
+    root_cause: str = Field(default="", max_length=5000)             # round 2
 
 
 class ScoreOut(BaseModel):
@@ -293,8 +311,8 @@ class ScoreOverrideRequest(BaseModel):
     this is the human-accountability record for a number that gates a
     hiring decision, so it should never be silent."""
     final_score: int = Field(ge=0, le=100)
-    feedback_text: Optional[str] = None
-    override_note: str = Field(min_length=1)
+    feedback_text: Optional[str] = Field(default=None, max_length=5000)
+    override_note: str = Field(min_length=1, max_length=2000)
 
 
 class SubmissionOut(BaseModel):
@@ -410,6 +428,14 @@ class BulkUploadRowResult(BaseModel):
     email: Optional[str] = None
     status: Literal["created", "reset", "error"]
     username: Optional[str] = None
+    # Only set for status == "created" - a brand new account's randomly
+    # generated temporary password (see credential_service.
+    # generate_temporary_password), shown here exactly once so HR can
+    # copy it into whatever out-of-band channel they use to reach the
+    # candidate. None for "reset" (an existing account's password is
+    # left exactly as it was - see candidate_upload_service._reset_and_
+    # archive) and for "error" rows.
+    password: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -447,7 +473,7 @@ class CandidateAppearanceOut(BaseModel):
 
 class CandidateRoundComment(BaseModel):
     round_number: int
-    comment: str
+    comment: str = Field(max_length=5000)
 
 
 class CandidateAssessmentSummaryOut(BaseModel):
@@ -462,8 +488,8 @@ class CandidateSummaryPdfRequest(BaseModel):
     on screen (from the /summary call above) - sending them back here
     instead of regenerating avoids a second LLM call just to produce the
     PDF."""
-    round_comments: list[CandidateRoundComment]
-    final_summary: str
+    round_comments: list[CandidateRoundComment] = Field(max_length=10)
+    final_summary: str = Field(max_length=5000)
 
 
 # ---- Round 4 (conversational automation: the candidate writes their
@@ -543,7 +569,7 @@ class Round4TurnResponse(BaseModel):
 
 
 class Round4TestCaseCreate(BaseModel):
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=300)
 
 
 class Round4TestCaseOut(BaseModel):
@@ -560,7 +586,7 @@ class Round4TestCaseOut(BaseModel):
 class Round4DraftUpdate(BaseModel):
     """PATCH body for autosaving a test case's in-progress, unsent
     message - see candidate.py's PATCH /round/4/test-case/{id}/draft."""
-    draft_prompt: str
+    draft_prompt: str = Field(max_length=10000)
 
 
 class Round4TurnCreate(BaseModel):
@@ -569,7 +595,8 @@ class Round4TurnCreate(BaseModel):
     # has it (TestCaseRow, Round2InvestigationRow, Round2SubmissionCreate.
     # root_cause) - a client-side check alone doesn't stop a direct API
     # call from sending an empty prompt and burning an LLM call on it.
-    candidate_prompt: str = Field(min_length=1)
+    # max_length bounds the LLM tokens (and cost) one turn can force.
+    candidate_prompt: str = Field(min_length=1, max_length=10000)
 
 
 class Round4TurnOut(BaseModel):
@@ -627,18 +654,21 @@ class Round3DraftUpdate(BaseModel):
     message - see candidate.py's PATCH /round/3/draft. Submission-scoped,
     not per-test-case, since round 3 (coding) has a single evolving code
     buffer, not Round 4's multiple self-titled test cases."""
-    draft_prompt: str
+    draft_prompt: str = Field(max_length=10000)
 
 
 class Round3TurnCreate(BaseModel):
-    candidate_prompt: str = Field(min_length=1)
+    candidate_prompt: str = Field(min_length=1, max_length=10000)
 
 
 class Round3DirectEditCreate(BaseModel):
     """POST body for /round/3/edit - the candidate's own raw code, typed
     or pasted directly into the editable code pane (see
     docs/superpowers/specs/2026-08-27-round3-direct-code-edit-design.md)."""
-    code: str = Field(min_length=1)
+    # 100k chars is generous for genuinely pasted/typed code while still
+    # bounding the syntax-fix LLM call's input and execution_service's
+    # subprocess payload.
+    code: str = Field(min_length=1, max_length=100_000)
 
 
 class CategoryStatusEntry(BaseModel):
@@ -705,7 +735,7 @@ class Round3RunInputCreate(BaseModel):
     """POST /candidate/round/3/run/input - one line the candidate typed
     in response to whatever the live process's last input() prompt was.
     See execution_service.InteractiveSession.write_input."""
-    line: str
+    line: str = Field(max_length=2000)
 
 
 class Round3RunPollOut(BaseModel):

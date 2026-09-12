@@ -298,7 +298,7 @@ function renderWho() {
   document.getElementById("who").innerHTML = `
     <div class="rail-user-avatar">${escapeHtml(initial)}</div>
     <div class="rail-user-info">
-      <span class="rail-user-email" title="${escapeHtml(userEmail || "")}">${escapeHtml(userEmail || "Loading...")}</span>
+      <span class="rail-user-email" title="${escapeAttr(userEmail || "")}">${escapeHtml(userEmail || "Loading...")}</span>
       <span class="rail-user-role">${escapeHtml(role || "")}</span>
     </div>
   `;
@@ -810,7 +810,7 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
 
       <h4>Instructions</h4>
       <p class="muted">What candidates read when they open this round.</p>
-      <input id="r4-title-${scenario.id}" value="${escapeHtml(scenario.title)}" />
+      <input id="r4-title-${scenario.id}" value="${escapeAttr(scenario.title)}" />
       <textarea id="r4-desc-${scenario.id}">${escapeHtml(scenario.description)}</textarea>
       <div class="row">
         <button onclick="saveRound4Instructions(${scenario.id})">Save instructions</button>
@@ -1159,14 +1159,17 @@ async function uploadCandidates() {
         <td>${escapeHtml(r.email || "-")}</td>
         <td><span class="badge badge-${r.status === "error" ? "fail" : "pass"}">${r.status}</span></td>
         <td>${r.username ? escapeHtml(r.username) : ""}</td>
+        <td>${r.password ? `<code>${escapeHtml(r.password)}</code>` : `<span class="muted">-</span>`}</td>
         <td class="muted">${r.error ? escapeHtml(r.error) : ""}</td>
       </tr>
     `).join("");
+    const anyPasswords = result.rows.some((r) => r.password);
     resultEl.innerHTML = `
       <p>${result.created_count} created, ${result.reset_count} reset, ${result.error_count} error${result.error_count === 1 ? "" : "s"}.</p>
+      ${anyPasswords ? `<p class="muted">Each new candidate got a random password, shown here once - copy these now, this table isn't saved anywhere.</p>` : ""}
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Username</th><th>Error</th></tr></thead>
+          <thead><tr><th>Row</th><th>Email</th><th>Status</th><th>Username</th><th>Password</th><th>Error</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
@@ -1183,7 +1186,7 @@ function roundStatusCell(r) {
     ? ` <span class="badge badge-fail" title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">${r.tab_switch_count}x tab switch</span>`
     : "";
   const autoClosedFlag = r.auto_closed_reason
-    ? ` <span class="badge badge-draft" title="${escapeHtml(r.auto_closed_reason)}">Auto-closed</span>`
+    ? ` <span class="badge badge-draft" title="${escapeAttr(r.auto_closed_reason)}">Auto-closed</span>`
     : "";
   // Real completion timestamp (see models.Submission.submitted_at) on
   // hover - a title attribute rather than its own table column, so the
@@ -1207,7 +1210,7 @@ function renderSubmissionsPanels(submissions) {
     <div class="panel-inset">
       <h4>Round ${s.round_number} - ${s.scenario ? escapeHtml(s.scenario.title) : ""} <span class="badge">${s.status}</span>
         ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDate).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
-        ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeHtml(s.auto_closed_reason)}">Auto-closed</span>` : ""}
+        ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeAttr(s.auto_closed_reason)}">Auto-closed</span>` : ""}
       </h4>
       <p class="muted">${s.started_at ? `Started ${formatDateTime(s.started_at)}` : ""}${s.started_at && s.submitted_at ? " · " : ""}${s.submitted_at ? `Submitted ${formatDateTime(s.submitted_at)}` : ""}</p>
       ${s.scenario ? `
@@ -1234,7 +1237,7 @@ function conceptCoverageLine(items) {
   if (!items || items.length === 0) return "";
   const parts = items.map((c) => {
     const cls = c.covered === 0 ? "score-bad" : c.covered < c.total ? "" : "score-good";
-    return `<span class="${cls}" title="${escapeHtml(c.notes || "")}">${escapeHtml(c.category)} ${c.covered}/${c.total}</span>`;
+    return `<span class="${cls}" title="${escapeAttr(c.notes || "")}">${escapeHtml(c.category)} ${c.covered}/${c.total}</span>`;
   });
   return `<p class="muted">Coverage by type: ${parts.join(" · ")}</p>`;
 }
@@ -1430,7 +1433,15 @@ async function generateCandidateSummary(id) {
         <p>${escapeHtml(result.final_summary)}</p>
       </div>
       <div class="row">
-        <button onclick="downloadCandidateSummaryPdf(${id}, '${escapeHtml(result.candidate_email)}')">Download as PDF</button>
+        <!-- id only, not the candidate's email (attacker-controlled via
+             bulk upload) - a value inside onclick="...'...'" isn't made
+             safe by escapeHtml, which only escapes for a text node, not
+             for sitting inside a quoted attribute (same gap noted on
+             deleteScenarioFromList's button - see lastLoadedScenarios
+             above). downloadCandidateSummaryPdf reads the email straight
+             from candidateSummaryData instead - already fetched, right
+             above. -->
+        <button onclick="downloadCandidateSummaryPdf(${id})">Download as PDF</button>
       </div>
     `;
   } catch (e) {
@@ -1438,7 +1449,7 @@ async function generateCandidateSummary(id) {
   }
 }
 
-async function downloadCandidateSummaryPdf(id, email) {
+async function downloadCandidateSummaryPdf(id) {
   // Not api() on purpose - that helper always calls res.json(), which
   // would fail on this endpoint's binary PDF response.
   try {
@@ -1460,7 +1471,11 @@ async function downloadCandidateSummaryPdf(id, email) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${email.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
+    // candidateSummaryData.candidate_email, not a value threaded through
+    // an onclick="..." string (the candidate's own email, attacker-
+    // controlled via bulk upload) - see the fix note on
+    // generateCandidateSummary's button above for why that mattered.
+    a.download = `${candidateSummaryData.candidate_email.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
@@ -3806,6 +3821,17 @@ function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str == null ? "" : String(str);
   return div.innerHTML;
+}
+
+// escapeHtml() is only safe for a text node - per the HTML serialization
+// spec it never escapes " or ', so dropping its output inside a quoted
+// HTML attribute (title="...", value="...", an inline onclick="...'...'")
+// doesn't protect against a value that itself contains that quote
+// character breaking out of the attribute. Use this instead anywhere
+// untrusted (or LLM-echoed, which can reproduce untrusted text verbatim)
+// text is interpolated into an attribute in a template string.
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
 // Entry point - deliberately the last thing in the file. JS can't read

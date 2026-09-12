@@ -95,15 +95,21 @@ class Settings(BaseSettings):
     interactive_execution_timeout_seconds: int = 300
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
-    # logins instead of open signup: 1 HR + 3 candidates (2x 0-7yrs, 1x 7+yrs).
+    # logins instead of open signup: 1 HR + 3 candidates. Emails default to
+    # something readable since they're not secret - just identify which
+    # account is which. Passwords have no default, same reasoning as
+    # jwt_secret_key above: a fallback here would be a fixed, known
+    # password sitting in this file (including full HR access), silently
+    # active unless .env happens to override it. Required means the app
+    # refuses to start rather than seeding a guessable account.
     hr_email: str = "hr@example.com"
-    hr_password: str = "hr-password-change-me"
+    hr_password: str
     candidate1_email: str = "candidate1@example.com"
-    candidate1_password: str = "candidate1-password-change-me"
+    candidate1_password: str
     candidate2_email: str = "candidate2@example.com"
-    candidate2_password: str = "candidate2-password-change-me"
+    candidate2_password: str
     candidate3_email: str = "candidate3@example.com"
-    candidate3_password: str = "candidate3-password-change-me"
+    candidate3_password: str
 
 
 # Import this singleton everywhere instead of re-reading env vars.

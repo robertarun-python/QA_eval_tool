@@ -209,9 +209,9 @@ def test_round3_coding_run_is_genuinely_interactive_end_to_end(client, monkeypat
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Echo", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Echo", band="0-7")
 
     cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
@@ -306,9 +306,9 @@ def test_round3_coding_current_code_threads_between_turns(client, monkeypatch):
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Add two numbers", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Add two numbers", band="0-7")
 
     cand_token = _login(client, CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD)
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
@@ -348,10 +348,10 @@ def test_round3_coding_declared_constructs_persist_and_thread_between_turns(clie
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="0-7")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration"]}},
@@ -418,10 +418,10 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="0-7")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration", "comparison"]}},
@@ -503,10 +503,10 @@ def test_round3_coding_produces_code_for_a_fully_specified_instruction_even_with
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Odd or even", band="7+")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Odd or even", band="0-7")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["variable", "input", "type_conversion", "comparison"]}},
@@ -555,10 +555,10 @@ def test_round3_coding_direct_edit_creates_a_turn_and_persists_declared_construc
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="0-7")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration"]}},
@@ -643,10 +643,10 @@ def test_round3_coding_direct_edit_full_flow_end_to_end(client, monkeypatch):
     from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="7+")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="7+")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
 
-    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="7+")
+    scenario = _create_draft_round3_scenario(client, hr_token, monkeypatch, title="Find the highest salary", band="0-7")
     client.patch(
         f"/hr/scenarios/{scenario['id']}",
         json={"reference_json": {**FAKE_ROUND3_CODING_REFERENCE, "required_constructs": ["collection", "iteration", "comparison"]}},

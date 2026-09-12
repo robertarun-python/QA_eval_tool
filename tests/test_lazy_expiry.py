@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 
 from .conftest import (
     HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD,
-    _login, _auth, _publish_scenario, _publish_round4_scenario,
+    _login, _auth, _publish_scenario, _publish_round4_scenario, _complete_rounds_1_through_3,
 )
 
 
@@ -60,12 +60,18 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     called /expire themselves - nothing distinguishes that from a
     genuine logout/crash/network-loss at the DB level) kept blocking
     HR's time-limit edits for the whole band forever, even long after
-    their own deadline had passed."""
+    their own deadline had passed.
+
+    Round 1 itself can't demonstrate this anymore - its time limit is
+    now locked the moment it's published (rounds 1-3 are draft-only, see
+    update_scenario_time_limit), so this exercises the same in-progress
+    guard through round 4 instead, the one round where it's still
+    reachable via this endpoint."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    published = _publish_scenario(client, hr_token, monkeypatch)  # 30-minute default limit
-    _stub_round1_scoring(monkeypatch)
+    published = _publish_round4_scenario(client, hr_token, monkeypatch)  # 30-minute default limit
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch)
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     # Blocked while genuinely still within the window.
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
@@ -74,10 +80,14 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # Candidate vanishes - never submits, never calls /expire (simulating
     # a closed tab/crash/logout/network-loss - nothing the server can
     # tell apart from each other). Their deadline passes.
-    _set_started_at(1, minutes_ago=31)
+    _set_started_at(4, minutes_ago=31)
 
     # No longer blocked - the abandoned round is lazily closed out as
     # part of this same request.
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
+        "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
+    })
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 200
     assert res.json()["time_limit_minutes"] == 45
@@ -86,21 +96,22 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # still sitting at in_progress.
     report = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     c1 = next(c for c in report if c["email"] == CANDIDATE1_EMAIL)
-    round1 = next(r for r in c1["rounds"] if r["round_number"] == 1)
-    assert round1["status"] == "scored"
-    assert round1["final_score"] == 0
-    assert round1["auto_closed_reason"] == "Time limit reached without a manual submit"
+    round4 = next(r for r in c1["rounds"] if r["round_number"] == 4)
+    assert round4["status"] == "scored"
+    assert round4["final_score"] == 0
+    assert round4["auto_closed_reason"] == "Time limit reached without a manual submit"
 
 
 def test_only_the_genuinely_expired_candidate_gets_closed_others_still_block(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    published = _publish_scenario(client, hr_token, monkeypatch)
-    _stub_round1_scoring(monkeypatch)
+    published = _publish_round4_scenario(client, hr_token, monkeypatch)
     cand1_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
-    client.post("/candidate/round/1/start", cookies=_auth(cand1_token))
-    client.post("/candidate/round/1/start", cookies=_auth(cand2_token))
-    _set_started_at(1, minutes_ago=31, email=CANDIDATE1_EMAIL)  # only candidate1 has expired
+    _complete_rounds_1_through_3(client, hr_token, cand1_token, monkeypatch)
+    _complete_rounds_1_through_3(client, hr_token, cand2_token, monkeypatch)
+    client.post("/candidate/round/4/start", cookies=_auth(cand1_token))
+    client.post("/candidate/round/4/start", cookies=_auth(cand2_token))
+    _set_started_at(4, minutes_ago=31, email=CANDIDATE1_EMAIL)  # only candidate1 has expired
 
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 409
@@ -210,47 +221,13 @@ def test_expired_round4_in_progress_submission_no_longer_blocks_round4_config_ed
     is reachable - ROUND_SEQUENCE is (1, 2, 3, 4) now that round 3
     (AI-prompted coding) is a real round again."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
     published = _publish_round4_scenario(client, hr_token, monkeypatch)
-    from app.services import llm_service, execution_service
-    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {
-        "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
-    })
-    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {
-        "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
-    })
-    monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {
-        "response_kind": "code_edit", "response_message": "ok", "code_after": "print(1)",
-    })
-    monkeypatch.setattr(llm_service, "score_round3_coding", lambda **kwargs: {
-        "correctness_score": 100, "precision_score": 100, "efficiency_score": 100,
-        "independent_judgment_score": 100, "final_score": 100,
-        "misses": [], "guardrail_violations": [], "feedback_text": "ok",
-    })
-    monkeypatch.setattr(execution_service, "run_code", lambda **kwargs: execution_service.ExecutionResult(
-        stdout="", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1,
-    ))
+    from app.services import llm_service
     monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
         "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
     })
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
-    client.post(
-        "/candidate/round/1/submit",
-        json={"content": [{"title": "Login works", "steps": "...", "expected_result": "..."}]},
-        cookies=_auth(cand_token),
-    )
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
-    client.post(
-        "/candidate/round/2/submit",
-        json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
-        cookies=_auth(cand_token),
-    )
-    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
+    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch)
     client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(

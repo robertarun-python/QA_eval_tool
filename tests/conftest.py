@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -64,6 +65,37 @@ def client(monkeypatch):
     monkeypatch.setattr(database_module, "SessionLocal", TestingSessionLocal)
 
     with TestClient(app) as c:
+        # Fix for a bug found in the 2026-09-12 engineering review: httpx's
+        # default Client._merge_cookies() MERGES an explicit per-request
+        # `cookies=` argument on top of this client's own persistent jar,
+        # rather than having it win outright. A cookie passed via `cookies=`
+        # gets domain="" (see httpx.Cookies.set()'s default), while a cookie
+        # this jar already holds from an earlier login's real Set-Cookie
+        # response is domain-matched to the real test host - so httpx's own
+        # domain-matching silently prefers the jar's cookie over our
+        # explicit override once more than one identity has ever logged in
+        # against this shared client. That directly broke `_auth(token)`
+        # (below) any time a test logged in as a second user and then tried
+        # to act as the first one again - e.g. test_bulk_upload.py's
+        # re-upload tests, which were silently authenticating as the wrong
+        # role and failing with a confusing TypeError/KeyError instead of a
+        # clean, correct response. Overriding _merge_cookies here to fully
+        # REPLACE (not merge) the client's cookies whenever a caller passes
+        # `cookies=` restores the "this call acts as exactly this identity"
+        # guarantee `_auth`/`_login` were always meant to provide, without
+        # touching any of the ~200 call sites that already pass
+        # `cookies=_auth(token)`. A call that passes no `cookies=` at all
+        # (e.g. test_auth.py's implicit-jar logout test) is unaffected - this
+        # only changes behavior in the explicit-cookies branch.
+        _original_merge_cookies = c._merge_cookies
+
+        def _replace_instead_of_merge_cookies(cookies=None):
+            if cookies:
+                return httpx.Cookies(cookies)
+            return _original_merge_cookies(cookies)
+
+        c._merge_cookies = _replace_instead_of_merge_cookies
+
         yield c
     app.dependency_overrides.clear()
 
@@ -169,3 +201,49 @@ def _create_round4_test_case(client, token, title=None):
         json={"title": title},
         cookies=_auth(token),
     ).json()
+
+
+def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band="0-7"):
+    """ROUND_SEQUENCE is (1, 2, 3, 4) - round 4 isn't reachable at all
+    until a candidate has actually submitted rounds 1-3, so any test that
+    needs a candidate sitting at round 4 (e.g. to exercise round 4's own
+    in-progress guard - see test_lazy_expiry.py) has to drive all three
+    first. Pulled out once three call sites needed this exact dance."""
+    from app.services import llm_service, execution_service
+
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, band=band)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, band=band, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, band=band, title="Coding challenge")
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {
+        "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
+    })
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {
+        "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
+    })
+    monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {
+        "response_kind": "code_edit", "response_message": "ok", "code_after": "print(1)",
+    })
+    monkeypatch.setattr(llm_service, "score_round3_coding", lambda **kwargs: {
+        "correctness_score": 100, "precision_score": 100, "efficiency_score": 100,
+        "independent_judgment_score": 100, "final_score": 100,
+        "misses": [], "guardrail_violations": [], "feedback_text": "ok",
+    })
+    monkeypatch.setattr(execution_service, "run_code", lambda **kwargs: execution_service.ExecutionResult(
+        stdout="", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1,
+    ))
+
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "Login works", "steps": "...", "expected_result": "..."}]},
+        cookies=_auth(cand_token),
+    )
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/2/submit",
+        json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
+        cookies=_auth(cand_token),
+    )
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/submit", cookies=_auth(cand_token))

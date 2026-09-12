@@ -12,7 +12,7 @@ from ..database import get_db
 from ..dependencies import COOKIE_NAME, get_current_user
 from ..models import User
 from ..schemas import LoginRequest, LoginResponse, MeOut
-from ..security import verify_password, create_access_token
+from ..security import verify_password, create_access_token, DUMMY_PASSWORD_HASH
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -27,7 +27,13 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = db.query(User).filter(
         or_(User.email == payload.identifier, User.username == payload.identifier)
     ).first()
-    if user is None or not verify_password(payload.password, user.password_hash):
+    # Always runs a real bcrypt verify, even with no user to check against
+    # (see security.DUMMY_PASSWORD_HASH) - `or`'s short-circuit would
+    # otherwise skip that ~150-300ms cost whenever the identifier doesn't
+    # exist, making "no such user" and "wrong password" distinguishable
+    # by response time alone.
+    password_ok = verify_password(payload.password, user.password_hash if user else DUMMY_PASSWORD_HASH)
+    if user is None or not password_ok:
         # Deliberately the same error for "no such user" and "wrong
         # password" - don't leak which one it was.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or username, or wrong password")

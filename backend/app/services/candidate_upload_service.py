@@ -16,7 +16,7 @@ import openpyxl
 from email_validator import validate_email, EmailNotValidError
 from sqlalchemy.orm import Session
 
-from ..credential_service import derive_username, derive_password
+from ..credential_service import derive_username, generate_temporary_password
 from ..models import User, Role, Submission, CandidateAppearance, AppSettings, ExperienceBand
 from ..schemas import BulkUploadRowResult, BulkUploadResult
 from ..security import hash_password
@@ -130,9 +130,10 @@ def process_upload_rows(
                 if collision is not None:
                     raise ValueError(f"Username '{username}' is already in use by a different email")
 
+                password = generate_temporary_password()
                 user = User(
                     email=email, username=username,
-                    password_hash=hash_password(derive_password(email)),
+                    password_hash=hash_password(password),
                     role=Role.candidate,
                     # Experience band is a hidden feature right now - HR no
                     # longer picks one per candidate (see app.js), so every
@@ -145,7 +146,9 @@ def process_upload_rows(
                 db.add(CandidateAppearance(user_id=user.id, email=email, exam_date=exam_date, is_current=True))
                 db.commit()
                 created_count += 1
-                results.append(BulkUploadRowResult(row_number=row_number, email=email, status="created", username=username))
+                results.append(BulkUploadRowResult(
+                    row_number=row_number, email=email, status="created", username=username, password=password,
+                ))
             else:
                 _reset_and_archive(db, existing_user, email, exam_date, app_settings)
                 db.commit()

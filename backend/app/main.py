@@ -5,6 +5,7 @@ Interactive API docs land at http://127.0.0.1:8000/docs once running.
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -17,6 +18,35 @@ from .routers import auth, hr, candidate
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="QA Eval Tool", version="0.1.0")
+
+# Neither FastAPI nor Starlette impose a request-body size limit by
+# default - without this, a single oversized request (JSON or the bulk-
+# upload file) gets fully read into memory before any Pydantic field
+# validation ever runs. 10MB is generous for every real payload here
+# (the biggest is HR's candidate-roster .xlsx upload; every JSON body
+# should be well under 1MB once schemas.py's own field length limits are
+# in place) while still bounding the worst case.
+#
+# ponytail: Content-Length-based, not a running byte count against the
+# actual stream - a request that omits Content-Length and streams via
+# chunked transfer-encoding isn't caught here. Upgrade path if that
+# matters for this deployment: wrap request.stream() and cut it off
+# after MAX_REQUEST_BODY_BYTES actual bytes, not just checking the header.
+MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
+
+
+@app.middleware("http")
+async def limit_request_body_size(request: Request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            too_large = int(content_length) > MAX_REQUEST_BODY_BYTES
+        except ValueError:
+            too_large = False  # malformed header - let normal request handling reject it instead
+        if too_large:
+            return JSONResponse({"detail": "Request body too large."}, status_code=413)
+    return await call_next(request)
+
 
 app.include_router(auth.router)
 app.include_router(hr.router)

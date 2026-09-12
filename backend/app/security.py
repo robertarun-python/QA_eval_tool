@@ -6,6 +6,7 @@ one file that touches cryptography, so it's the one file to audit
 carefully and the one place to change if you ever swap JWT for
 session cookies.
 """
+import secrets
 from datetime import datetime, timedelta
 
 from jose import jwt, JWTError
@@ -22,6 +23,17 @@ def hash_password(plain_password: str) -> str:
 
 def verify_password(plain_password: str, password_hash: str) -> bool:
     return pwd_context.verify(plain_password, password_hash)
+
+
+# A valid bcrypt hash of a password nobody will ever type, computed once
+# at import time - see routers/auth.py's login. Without this, "no such
+# identifier" and "wrong password for a real account" are distinguishable
+# by response time alone: bcrypt verification costs ~150-300ms, and
+# `user is None or not verify_password(...)` short-circuits past that
+# entirely when there's no user to check against. Always running a real
+# verify_password() call, even against this dummy hash, keeps both cases
+# taking the same time regardless of which one it actually is.
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_hex(32))
 
 
 def create_access_token(user_id: int, role: str) -> str:
