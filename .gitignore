@@ -18,6 +18,14 @@ _to_delete/
 # in plaintext. Never track this; move the key to .env instead.
 QA tool info.txt
 
+# Plaintext login reference sheet (seeded account emails/passwords) -
+# same reasoning as "QA tool info.txt" above. Never track this.
+logins.txt
+
+# Ad-hoc agent/review output saved to disk (audits, reports) - not
+# source, not meant to be shared via version control.
+Claude outputs/
+
 # Generated report output (HR's candidate-summary PDF export), not source.
 *-summary.pdf
 
