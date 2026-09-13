@@ -1,4 +1,4 @@
-from .conftest import HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, _login, _auth
+from .conftest import HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, _login, _auth, _publish_scenario
 
 
 def test_seeded_hr_can_log_in(client):
@@ -63,6 +63,99 @@ def test_logout_clears_the_session(client):
     res = client.post("/auth/logout")
     assert res.status_code == 204
     assert client.get("/auth/me").status_code == 401
+
+
+def test_logout_finalizes_an_in_progress_round_instead_of_leaving_it_resumable(client, monkeypatch):
+    """The real behavior change: logging out is no longer a free pause.
+    Whatever's in progress at that moment gets scored as-is immediately -
+    same finalize_abandoned_submission path a genuine timeout uses (see
+    routers/auth.py's logout) - not left open for the candidate to
+    resume by logging back in."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch)
+    monkeypatch.setattr(
+        llm_service, "score_round1_submission",
+        lambda **kwargs: {"coverage_score": 0, "misses": ["Nothing submitted"], "final_score": 0, "feedback_text": "no attempt"},
+    )
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    # Candidate logs out without ever submitting.
+    res = client.post("/auth/logout", cookies=_auth(cand_token))
+    assert res.status_code == 204
+
+    # Logging back in does NOT resume the round - it's already finalized.
+    cand_token2 = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    state = client.get("/candidate/round/1", cookies=_auth(cand_token2)).json()
+    assert state["submission"]["status"] == "scored"
+
+    report = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
+    row = next(c for c in report if c["email"] == CANDIDATE1_EMAIL)
+    round1 = next(r for r in row["rounds"] if r["round_number"] == 1)
+    assert round1["status"] == "scored"
+    assert round1["final_score"] == 0
+    assert round1["auto_closed_reason"] == "Candidate logged out before completing this round"
+
+
+def test_logout_on_an_expired_session_still_clears_the_cookie(client):
+    """The 401-triggered logout path (see app.js's api()) sends a token
+    that can no longer be decoded - logout must still succeed and clear
+    the cookie rather than erroring, it just has nothing to finalize."""
+    res = client.post("/auth/logout", cookies={"qa_eval_token": "not-a-real-token"})
+    assert res.status_code == 204
+
+
+def test_second_login_kicks_out_the_first_session_mid_round(client, monkeypatch):
+    """The actual concurrent-device concern: a candidate logged in on two
+    devices at once during a timed round. Logging in again anywhere
+    invalidates whichever session was previously "active" (see
+    models.User.active_session_id / dependencies.get_current_user) - but
+    only once there's a round in_progress to protect."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch)
+
+    device_a_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.post("/candidate/round/1/start", cookies=_auth(device_a_token))
+    assert res.status_code == 201
+
+    # Device B (a fresh login, e.g. someone else's phone) logs in - device
+    # A's session is now the stale one.
+    device_b_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+
+    res = client.get("/candidate/round/1", cookies=_auth(device_a_token))
+    assert res.status_code == 401
+    assert "another device" in res.json()["detail"]
+
+    # The newest login works completely normally.
+    res = client.get("/candidate/round/1", cookies=_auth(device_b_token))
+    assert res.status_code == 200
+    assert res.json()["submission"]["status"] == "in_progress"
+
+
+def test_second_login_does_not_kick_the_first_session_between_rounds(client, monkeypatch):
+    """No round in_progress means nothing at stake - a candidate switching
+    devices between rounds (or just idly logged in twice) isn't punished."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    device_a_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    device_b_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+
+    # Both still work - no round in progress for either to protect.
+    assert client.get("/auth/me", cookies=_auth(device_a_token)).status_code == 200
+    assert client.get("/auth/me", cookies=_auth(device_b_token)).status_code == 200
+
+
+def test_hr_can_hold_multiple_sessions_freely(client):
+    """Single-active-session is candidate-only (see
+    dependencies.get_current_user) - HR juggling several tabs is normal,
+    not a round-integrity concern."""
+    hr_token_1 = _login(client, HR_EMAIL, HR_PASSWORD)
+    hr_token_2 = _login(client, HR_EMAIL, HR_PASSWORD)
+    assert client.get("/auth/me", cookies=_auth(hr_token_1)).status_code == 200
+    assert client.get("/auth/me", cookies=_auth(hr_token_2)).status_code == 200
 
 
 def test_candidate_can_log_in_with_derived_username(client, monkeypatch):

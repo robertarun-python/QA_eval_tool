@@ -66,6 +66,18 @@ column rather than two separate tables — simpler joins, and HR is just
 "a user who can author scenarios and see reports," not a fundamentally
 different entity.
 
+**Single active session, enforced only mid-round.** `User.
+active_session_id` holds a random id minted fresh on every login and
+embedded in that login's JWT as its `sid` claim (`security.
+generate_session_id`/`create_access_token`) — a later login anywhere
+overwrites it, so an earlier still-unexpired token's `sid` stops
+matching. `dependencies.get_current_user` only actually rejects that
+mismatch for a candidate with a round genuinely `in_progress` — outside
+of an active round (or for HR, at all) a stale session is left alone
+rather than forcing a surprise logout with nothing at stake. This is
+what closes the two-devices-during-a-timed-test gap; it does not enforce
+"one login ever," just "one that counts while it matters."
+
 **Scenario lifecycle: draft → published → archived.** HR creating a
 scenario immediately (synchronously) triggers an LLM call to generate the
 reference answer, but candidates can't see it yet — it's `draft` until HR
@@ -99,6 +111,20 @@ once, server-side, the first time a candidate hits "Start" for a round —
 not tracked purely in the browser — so a page refresh mid-round doesn't
 reset (or extend) their clock. The frontend computes the countdown as
 `started_at + scenario.time_limit_minutes` and auto-submits at zero.
+
+**Logout ends the round, not just the session.** `POST /auth/logout`
+finalizes whatever round the candidate has `in_progress` immediately
+(`scoring_service.finalize_abandoned_submission`, the same mechanism a
+genuine timeout and a bulk-upload reset both use) — completed work is
+scored as of that moment, and no attempt at all scores zero. There is no
+resuming an attempt after a deliberate logout. The frontend warns about
+this before calling it (`app.js`'s `logout()`), but only for an actual
+button click — an automatic 401-triggered logout (an already-expired
+session) skips the warning and, since an expired token can't be decoded
+server-side to identify whose round it was, doesn't finalize anything
+either; that case is left to the deadline-based lazy-close path instead
+(`close_expired_submissions`), the backstop for anyone who never
+explicitly logs out at all (closed tab, crash, lost network/power).
 
 **LLM: Anthropic Claude API, called from a single `llm_service.py`.**
 All prompts live in `backend/app/prompts/*.txt` as plain text files, not

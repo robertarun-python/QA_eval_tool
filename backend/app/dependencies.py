@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import User, Role
+from .models import User, Role, Submission, RoundStatus
 from .security import decode_access_token
 
 COOKIE_NAME = "qa_eval_token"
@@ -30,6 +30,28 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     user = db.get(User, int(payload["sub"]))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "User no longer exists")
+
+    # Single-active-session enforcement (see models.User.active_session_id) -
+    # only actually matters while this candidate has a round genuinely
+    # in_progress; outside of an active round there's nothing at stake, so
+    # an older, still-technically-valid session elsewhere is left alone
+    # rather than forcing a surprise logout for no reason. `!=` rather than
+    # an explicit both-None check: a token minted before this feature
+    # existed has no "sid" claim (None), and a fresh account's
+    # active_session_id starts NULL too - both None compares equal, so an
+    # old token is never retroactively rejected just for predating this
+    # column; only a REAL mismatch (a later login elsewhere actually
+    # overwrote the row) triggers this.
+    if user.role == Role.candidate and payload.get("sid") != user.active_session_id:
+        has_in_progress = db.query(Submission).filter(
+            Submission.user_id == user.id, Submission.archived.is_(False),
+            Submission.status == RoundStatus.in_progress,
+        ).first() is not None
+        if has_in_progress:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "You've been logged in from another device or browser - this session is no longer active.",
+            )
     return user
 
 

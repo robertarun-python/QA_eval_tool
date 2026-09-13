@@ -36,9 +36,17 @@ def verify_password(plain_password: str, password_hash: str) -> bool:
 DUMMY_PASSWORD_HASH = hash_password(secrets.token_hex(32))
 
 
-def create_access_token(user_id: int, role: str) -> str:
+def generate_session_id() -> str:
+    """A fresh single-active-session id - see models.User.active_session_id.
+    Minted once per login and embedded in that login's own token below;
+    routers/auth.py's login is responsible for actually persisting it onto
+    the user row."""
+    return secrets.token_hex(16)
+
+
+def create_access_token(user_id: int, role: str, session_id: str) -> str:
     expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expires_minutes)
-    payload = {"sub": str(user_id), "role": role, "exp": expire}
+    payload = {"sub": str(user_id), "role": role, "sid": session_id, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

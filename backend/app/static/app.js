@@ -201,11 +201,19 @@ function formatScenarioDescription(description) {
 async function api(path, opts = {}) {
   const res = await fetch(path, { headers: jsonHeaders(), ...opts });
   if (res.status === 401) {
-    // The session cookie is missing/expired (sessions last 12h) - the
-    // server no longer recognizes it, so there's nothing useful left to
-    // do but send the user back to login rather than fail silently.
-    logout();
-    throw new Error("Your session expired - please log in again.");
+    // The session cookie is missing/expired, or (see dependencies.
+    // get_current_user) a later login elsewhere has invalidated it mid-
+    // round - either way the server no longer recognizes it, so there's
+    // nothing useful left to do but send the user back to login. The
+    // response's own detail distinguishes the two cases for the
+    // candidate ("logged in from another device" vs. a plain expiry) -
+    // fall back to a generic message only if the body doesn't have one.
+    const body = await res.json().catch(() => null);
+    // _performLogout(), not logout() - this already happened, it isn't
+    // a choice to confirm, and an expired token can't be decoded
+    // server-side to finalize a round anyway (see auth.py's logout).
+    _performLogout();
+    throw new Error(apiErrorMessage(body, "Your session expired - please log in again."));
   }
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
@@ -256,27 +264,40 @@ async function login() {
 }
 
 async function logout() {
-  // A nudge, not a block - matches how the tab-switch guard already
-  // treats this class of problem (log/discourage, never trap the
-  // candidate with no way out). Logging out doesn't stop the round's
-  // clock or score whatever's there yet either way (see
-  // scoring_service.close_expired_submissions) - it just ends the
-  // session, so this is purely about avoiding an accidental click, not
-  // enforcing anything.
+  // A nudge, not a block, same as the tab-switch guard - candidates can
+  // still choose to log out, they just can't do it by accident. Unlike
+  // the tab-switch guard, though, this one really does end the round:
+  // logging out now finalizes whatever's in progress immediately (see
+  // routers/auth.py's logout) - completed work gets scored as of this
+  // moment, and anything not attempted at all scores zero, exactly like
+  // a genuine timeout. There's no coming back to this attempt afterward.
+  //
+  // Only shown for an actual click on the Log out button - api()'s own
+  // 401 handler calls _performLogout() directly, not this, since a
+  // session that already expired server-side isn't a choice to confirm,
+  // and by that point there's nothing left for /auth/logout to finalize
+  // anyway (an expired token can't be decoded to find whose round it
+  // was - see auth.py's logout - so that case falls to the deadline-based
+  // close_expired_submissions backstop instead).
   if (timerHandle && !confirm(
-    "You have an active timed round in progress. Logging out won't stop your timer or let you resume it - " +
-    "your time keeps running either way. Log out anyway?"
+    "Logging out now will end this round immediately - you won't be able to come back to it. " +
+    "Whatever you've completed (or left in progress) will be scored exactly as it stands right now; " +
+    "anything you haven't attempted at all will score zero. Log out anyway?"
   )) {
     return;
   }
+  await _performLogout();
+}
+
+async function _performLogout() {
   stopTimer();
   resetTopbarTimer();
   disarmTabGuard();
   // JS can't clear an httpOnly cookie itself - a real request is the
   // only way. Not api() here: if the cookie's already expired this would
-  // 401 and api() would call logout() again on that 401, recursing. Best-
-  // effort either way - local UI state below gets cleared regardless of
-  // whether this call actually succeeds.
+  // 401 and api()'s own handler would call this right back, recursing.
+  // Best-effort either way - local UI state below gets cleared
+  // regardless of whether this call actually succeeds.
   try {
     await fetch("/auth/logout", { method: "POST" });
   } catch (e) {

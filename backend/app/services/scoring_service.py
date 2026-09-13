@@ -365,11 +365,13 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
     case. auto_closed_reason distinguishes this from a normal submit for
     HR, without changing what gets scored.
 
-    Deliberately does NOT close the moment a candidate merely logs out -
-    see the design discussion this came from: the deadline is the one
-    consistent rule for every candidate regardless of *how* they became
-    unreachable, so logging out just ends their session, not the round -
-    they can still come back and finish within their original time."""
+    A deliberate logout (the Logout button) now ends the round
+    immediately instead - see routers/auth.py's logout, which calls
+    finalize_abandoned_submission directly the moment it happens, not
+    lazily. This deadline-based path is what's left to catch everyone
+    who never clicks that button at all: a closed tab, a crash, lost
+    network, lost power - anything that leaves a round in_progress with
+    nobody ever explicitly ending it."""
     now = datetime.utcnow()
     closed = []
     for submission in submissions:

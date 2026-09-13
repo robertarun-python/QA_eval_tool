@@ -62,6 +62,19 @@ class User(Base):
     # NULL for HR users - the band only matters for candidates.
     experience_band = Column(Enum(ExperienceBand), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Single-active-session enforcement (see dependencies.get_current_user) -
+    # a random id minted fresh on every login and embedded in that login's
+    # JWT as the "sid" claim. A later login overwrites this, so an earlier
+    # still-unexpired token's "sid" stops matching - that's the whole
+    # mechanism, no server-side token/session table needed. Enforcement
+    # only actually kicks a mismatched token out while its candidate has a
+    # round in_progress (see the same function) - outside of an active
+    # round there's nothing at stake, so an old session is left alone
+    # rather than forcing a surprise logout for no reason. NULL for an
+    # account that predates this column, or that has never logged in
+    # since - get_current_user treats that the same as a match so
+    # existing sessions at deploy time aren't retroactively kicked.
+    active_session_id = Column(String, nullable=True)
 
     submissions = relationship("Submission", back_populates="candidate")
     appearances = relationship(
