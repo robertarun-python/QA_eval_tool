@@ -14,12 +14,14 @@ from datetime import datetime
 
 import openpyxl
 from email_validator import validate_email, EmailNotValidError
+from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from ..credential_service import derive_username, generate_temporary_password
-from ..models import User, Role, Submission, CandidateAppearance, AppSettings, ExperienceBand
+from ..models import User, Role, RoundStatus, Submission, CandidateAppearance, AppSettings, ExperienceBand
 from ..schemas import BulkUploadRowResult, BulkUploadResult
 from ..security import hash_password
+from .scoring_service import finalize_abandoned_submission, score_submission_in_background
 
 _DATE_FORMAT = "%Y-%m-%d"
 
@@ -104,7 +106,7 @@ def _parse_exam_date(raw: str) -> datetime:
 
 
 def process_upload_rows(
-    db: Session, rows: list[tuple[int, str, str]], app_settings: AppSettings,
+    db: Session, rows: list[tuple[int, str, str]], app_settings: AppSettings, background_tasks: BackgroundTasks,
 ) -> BulkUploadResult:
     seen_emails: set[str] = set()
     results: list[BulkUploadRowResult] = []
@@ -150,8 +152,10 @@ def process_upload_rows(
                     row_number=row_number, email=email, status="created", username=username, password=password,
                 ))
             else:
-                _reset_and_archive(db, existing_user, email, exam_date, app_settings)
+                abandoned = _reset_and_archive(db, existing_user, email, exam_date, app_settings)
                 db.commit()
+                for submission in abandoned:
+                    background_tasks.add_task(score_submission_in_background, submission.id)
                 reset_count += 1
                 results.append(BulkUploadRowResult(
                     row_number=row_number, email=email, status="reset",
@@ -167,15 +171,24 @@ def process_upload_rows(
     )
 
 
-def _reset_and_archive(db: Session, user: User, email: str, exam_date: datetime, app_settings: AppSettings) -> bool:
+def _reset_and_archive(db: Session, user: User, email: str, exam_date: datetime, app_settings: AppSettings) -> list[Submission]:
     """A candidate re-applying: archive every one of their current
     submissions (so a fresh attempt doesn't collide with the old one in
     the many "one submission per (user, scenario)" lookups across
     candidate.py - see Submission.archived), flip their previous
     appearance to non-current, and record a new current one. username/
     password/band are left exactly as they were - same login, same band,
-    carried forward. Returns whether this appearance falls within the
-    configured re-application window of the previous one."""
+    carried forward.
+
+    Any of those submissions still sitting at in_progress gets finalized
+    first, same as a timed-out round would (see scoring_service.
+    finalize_abandoned_submission) - once archived, there is no path back
+    to a real submit for it either way (every "current submission" lookup
+    excludes archived rows), so leaving it at in_progress would just
+    freeze it there forever, with nothing left to ever look at it and
+    lazily close it out the normal way. Returns the newly-finalized
+    submissions so the caller can schedule scoring for them - this
+    function only touches the DB session, never BackgroundTasks."""
     if user.username is None:
         user.username = derive_username(email)  # backfill - e.g. this account predates the upload feature
 
@@ -186,12 +199,18 @@ def _reset_and_archive(db: Session, user: User, email: str, exam_date: datetime,
         reapplied_within_window = months_elapsed < app_settings.reapplication_window_months
         previous.is_current = False
 
-    db.query(Submission).filter(
+    current_submissions = db.query(Submission).filter(
         Submission.user_id == user.id, Submission.archived.is_(False),
-    ).update({"archived": True})
+    ).all()
+    now = datetime.utcnow()
+    abandoned = [s for s in current_submissions if s.status == RoundStatus.in_progress]
+    for submission in abandoned:
+        finalize_abandoned_submission(submission, "Candidate re-applied before finishing this round", now)
+    for submission in current_submissions:
+        submission.archived = True
 
     db.add(CandidateAppearance(
         user_id=user.id, email=email, exam_date=exam_date,
         is_current=True, reapplied_within_window=reapplied_within_window,
     ))
-    return reapplied_within_window
+    return abandoned

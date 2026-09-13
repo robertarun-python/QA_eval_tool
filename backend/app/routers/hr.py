@@ -829,13 +829,16 @@ def set_candidate_band(candidate_id: int, payload: CandidateBandUpdate, backgrou
 
 
 @router.post("/candidates/upload", response_model=BulkUploadResult)
-def upload_candidates(file: UploadFile = File(...), db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def upload_candidates(background_tasks: BackgroundTasks, file: UploadFile = File(...), db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Bulk-creates (or resets, for a re-applying email - see
     candidate_upload_service._reset_and_archive) candidate logins from an
     uploaded .xlsx or .txt file of email,exam_date rows. Partial success:
     valid rows are processed and committed as they're reached, invalid
     ones are reported and skipped, so one bad row doesn't block the rest
-    of the file - see candidate_upload_service.process_upload_rows."""
+    of the file - see candidate_upload_service.process_upload_rows.
+    background_tasks is threaded through to there: a reset that finalizes
+    an abandoned in_progress round needs to schedule its scoring the same
+    way close_expired_submissions does."""
     content = file.file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "File is too large (max 5MB) - this should only ever be a plain list of emails and exam dates.")
@@ -847,7 +850,7 @@ def upload_candidates(file: UploadFile = File(...), db: Session = Depends(get_db
         raise HTTPException(400, "No rows found in this file.")
 
     app_settings = get_settings(db)
-    return candidate_upload_service.process_upload_rows(db, rows, app_settings)
+    return candidate_upload_service.process_upload_rows(db, rows, app_settings, background_tasks)
 
 
 @router.get("/candidates/{candidate_id}/appearances", response_model=list[CandidateAppearanceOut])

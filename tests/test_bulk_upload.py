@@ -170,6 +170,59 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
     assert report[0]["score"]["final_score"] == 90
 
 
+def test_reupload_finalizes_an_abandoned_in_progress_round_instead_of_freezing_it(client, monkeypatch):
+    """Real bug: a candidate re-applying while a round is genuinely still
+    in_progress (closed the tab, never submitted) used to just get that
+    submission archived as-is, status left at "in_progress" forever -
+    nothing ever looks at an old, superseded appearance again to lazily
+    close it out the normal way (see scoring_service.
+    close_expired_submissions), so it stayed stuck showing "in progress"
+    in HR's past-appearances history indefinitely, long after any
+    timeout should have resolved it."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="R1 scenario")
+    monkeypatch.setattr(
+        llm_service, "score_round1_submission",
+        lambda **kwargs: {"coverage_score": 0, "misses": ["Nothing submitted"], "final_score": 0, "feedback_text": "no attempt"},
+    )
+
+    upload_body = client.post("/hr/candidates/upload", files=_txt_file("email,exam_date\njane.doe@acme.com,2026-01-01\n"), cookies=_auth(hr_token)).json()
+    jane_password = next(r["password"] for r in upload_body["rows"] if r["username"] == "jane.doe")
+    candidate_id = next(c for c in client.get("/hr/candidates", cookies=_auth(hr_token)).json() if c["email"] == "jane.doe@acme.com")["id"]
+    client.patch(f"/hr/candidates/{candidate_id}/band", json={"experience_band": "0-7"}, cookies=_auth(hr_token))
+
+    # Candidate starts round 1 and then vanishes - never submits, never
+    # times out (their own deadline is well in the future).
+    cand_token = _login(client, "jane.doe", jane_password)
+    res = client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    # HR resets them via a re-upload before that round ever resolves.
+    res = client.post(
+        "/hr/candidates/upload",
+        files=_txt_file("email,exam_date\njane.doe@acme.com,2026-02-01\n"),
+        cookies=_auth(hr_token),
+    )
+    assert res.status_code == 200
+    assert res.json()["reset_count"] == 1
+
+    row = next(c for c in client.get("/hr/candidates", cookies=_auth(hr_token)).json() if c["email"] == "jane.doe@acme.com")
+    appearances = client.get(f"/hr/candidates/{row['id']}/appearances", cookies=_auth(hr_token)).json()
+    past = next(a for a in appearances if not a["is_current"])
+
+    report = client.get(
+        f"/hr/candidates/{row['id']}/appearances/{past['id']}/report", cookies=_auth(hr_token)
+    ).json()
+    assert len(report) == 1
+    # Finalized immediately at reset time, not left at "in_progress" for
+    # some future page-view to eventually stumble onto and lazily close.
+    assert report[0]["status"] == "scored"
+    assert report[0]["auto_closed_reason"] == "Candidate re-applied before finishing this round"
+    assert report[0]["score"]["final_score"] == 0
+
+
 def test_band_can_be_set_after_upload(client):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     client.post("/hr/candidates/upload", files=_txt_file("email,exam_date\njohn.doe@acme.com,2026-08-25\n"), cookies=_auth(hr_token))

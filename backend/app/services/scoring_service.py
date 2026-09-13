@@ -325,6 +325,27 @@ def score_submission_in_background(submission_id: int) -> None:
         db.close()
 
 
+def finalize_abandoned_submission(submission: Submission, reason: str, submitted_at: datetime) -> None:
+    """Ends an in_progress submission that has no path back to a real
+    submit - either it timed out (close_expired_submissions below) or it
+    was archived out from under the candidate by a re-upload/reset
+    (candidate_upload_service._reset_and_archive), which removes it from
+    every "current submission" lookup just as permanently as a deadline
+    would. The round-specific content default is the only part that
+    actually differs from a real submit, and it's identical in both
+    cases. Caller is responsible for db.commit() and scheduling scoring."""
+    if submission.round_number == 1:
+        submission.content = submission.content or []
+    elif submission.round_number == 2:
+        submission.content = submission.content or {"investigation": [], "root_cause": ""}
+    # Round 4 has no content field to set - its state already lives
+    # in round4_test_cases/conversation_turns, whatever exists
+    # (including none) is what gets scored.
+    submission.status = RoundStatus.submitted
+    submission.submitted_at = submitted_at
+    submission.auto_closed_reason = reason
+
+
 def close_expired_submissions(db: Session, submissions: list[Submission], background_tasks: BackgroundTasks) -> list[Submission]:
     """The server-side counterpart to POST /round/{n}/expire (routers/
     candidate.py), for when nobody's browser was ever there to call it -
@@ -359,22 +380,12 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
         if now < deadline:
             continue
 
-        if submission.round_number == 1:
-            submission.content = submission.content or []
-        elif submission.round_number == 2:
-            submission.content = submission.content or {"investigation": [], "root_cause": ""}
-        # Round 4 has no content field to set - its state already lives
-        # in round4_test_cases/conversation_turns, whatever exists
-        # (including none) is what gets scored.
-
-        submission.status = RoundStatus.submitted
         # The round's own deadline, not `now` - this check can run
         # arbitrarily later than the actual expiry (whenever HR next
         # views the dashboard), and `now` would misrepresent "when the
         # candidate finished" as that later moment instead of when time
         # genuinely ran out.
-        submission.submitted_at = deadline
-        submission.auto_closed_reason = "Time limit reached without a manual submit"
+        finalize_abandoned_submission(submission, "Time limit reached without a manual submit", deadline)
         db.commit()
         db.refresh(submission)
         closed.append(submission)
