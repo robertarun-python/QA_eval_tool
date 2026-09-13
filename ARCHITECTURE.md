@@ -149,6 +149,77 @@ either; that case is left to the deadline-based lazy-close path instead
 (`close_expired_submissions`), the backstop for anyone who never
 explicitly logs out at all (closed tab, crash, lost network/power).
 
+**HR's AI candidate summary is saved, not regenerated on every visit.**
+`models.CandidateSummary` (one row per candidate) is written the moment
+`POST /candidates/{id}/summary` generates one; `GET` reads that same row
+back with no LLM call, and the PDF export (`POST .../summary/pdf`)
+always renders whatever's currently saved rather than taking one in the
+request body. Used to be generated fresh on every click with nothing
+kept — meaning re-opening a candidate's detail view later, or just
+wanting the PDF again, meant paying for a second LLM call, with no
+guarantee it read the same as what HR had already reviewed on screen.
+`DELETE` clears a saved one (e.g. after a re-application, when it no
+longer reflects the candidate's current cycle) — HR regenerates it on
+demand the same as any other regenerate-on-demand content in this app.
+The content itself is structured, not a paragraph: per round, short
+`did_well`/`missed` bullet lists (score is shown separately from the
+real submission data, never restated by the LLM), plus cross-round
+`key_observations` bullets and a short `verdict` — scannable in seconds,
+styled as a callout, rather than prose someone has to read top to
+bottom (see `prompts/candidate_summary_generation.txt`).
+
+**The PDF export is a presentation layer only, built entirely from
+existing scoring data.** `candidate_summary_pdf()` in `routers/hr.py`
+renders a multi-section enterprise report (masthead, executive
+recommendation, a fpdf2 `Table()`-based scorecard, key-observation
+cards, round-by-round detail with a per-round evidence log sourced
+verbatim from `Score.misses_json`, a coverage table from
+`Score.concept_coverage_json` where it exists, final assessment, and an
+interviewer quick-view) — kept deliberately crisp: each fact appears
+once (an earlier draft also had a standalone cross-round findings table
+re-listing the same `misses_json` items already in each round's
+evidence log, and repeated the verdict/key-observations three times
+across sections; both were cut as pure duplication with no added
+information). Every score, verdict, and finding in it still
+comes straight from `CandidateSummary`/`Score`; nothing is recomputed
+or invented. Fields the app has no data for (a distinct "confidence"
+rating, a per-round "impact" score) render as "Not assessed" rather
+than being guessed at. Styling constants (`_NAVY`, `_CRITICAL`, etc.),
+the `_AssessmentReportPDF` subclass (running header/footer/page
+numbers/CONFIDENTIAL marking via fpdf2's `header()`/`footer()` hooks),
+and the `_card()`/`_insight_card()` context managers are centralized
+just above the function so every section pulls from the same palette
+instead of scattering RGB tuples through the code. Card borders are
+drawn *after* their content (measuring top-to-bottom Y once the block
+is done) rather than pre-sized, since bullet/evidence lists are
+variable-length — `_card()`/`_insight_card()` detect whether fpdf2's
+auto-page-break fired mid-block and skip drawing the border rather than
+draw one spanning two different pages; `_estimate_round_card_height()`
+sizes the page-break check ahead of each round card so this is rare
+rather than the normal case. One gotcha worth remembering: fpdf2's
+`Table()` paints any cell without an explicit `FontFace` using whatever
+fill/text color was last set on the `pdf` object, not "no fill" - a
+leftover color from an earlier card silently tints or blacks out every
+unstyled body cell in the next table. `_reset_ink()` (white fill, body
+text color) runs before every `pdf.table()` call for exactly this
+reason - confirmed via an isolated repro during development, and it had
+already been happening unnoticed as a faint tint on the Scorecard/
+Coverage tables before someone asked for a crisper report and it became
+obvious once a leftover navy fill made a whole table unreadable.
+
+**A second PDF export, `GET /hr/reports/daily-summary?exam_date=...`,
+covers a whole screening day instead of one candidate.** One row per
+candidate whose CURRENT `CandidateAppearance.exam_date` matches the
+given date - marks and result reuse `_build_candidate_summary` (the
+exact same aggregate-score-vs-`AppSettings.final_passing_score` logic
+the Candidates dashboard already uses), and the comment column reuses
+whatever AI summary a candidate already has (`CandidateSummary.verdict`,
+lead sentence only) rather than ever generating one - a candidate
+nobody has summarized yet just shows "Not generated yet". Triggered
+from a date picker + button on the Candidates page (see
+`downloadDailySummary()` in app.js), for HR to hand off a day's cohort
+without opening each candidate individually.
+
 **LLM: Anthropic Claude API, called from a single `llm_service.py`.**
 All prompts live in `backend/app/prompts/*.txt` as plain text files, not
 inline strings — so you (or HR, later, via an admin screen) can tune
@@ -224,10 +295,14 @@ candidate_appearances   -- one row per bulk-upload event for a candidate;
   id, user_id, email, exam_date, is_current, reapplied_within_window,    -- drives the reapplication-window check
   created_at                                                             -- and re-archives old submissions on reupload
 
+candidate_summaries   -- one row per candidate (user_id unique) - the AI
+  id, user_id, round_comments_json, final_summary,                       -- cross-round synthesis, saved rather than
+  created_at, updated_at                                                 -- regenerated on every visit (see below)
+
 app_settings   -- singleton row (id=1), HR-editable at runtime, no restart
   id, round1_passing_score, round2_passing_score, round3_passing_score,
   round4_passing_score, final_passing_score (out of 400),
-  reapplication_window_months, updated_at
+  reapplication_window_months, assessment_window_days, updated_at
 ```
 
 ## Round mechanics (from the design notes)

@@ -315,7 +315,7 @@ def test_candidate_summary_reflects_lazily_closed_round_not_stale_in_progress(cl
 
     def fake_summary(**kwargs):
         captured["rounds"] = kwargs["rounds"]
-        return {"rounds": [], "final_summary": "ok"}
+        return {"rounds": [], "key_observations": [], "verdict": "ok"}
 
     monkeypatch.setattr(llm_service, "generate_candidate_summary", fake_summary)
 

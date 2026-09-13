@@ -467,31 +467,44 @@ class CandidateAppearanceOut(BaseModel):
         from_attributes = True
 
 
-# ---- Cross-round candidate summary (HR's candidate-detail view -
-# generated on demand, not persisted, see llm_service.generate_candidate_summary
-# and routers/hr.py's /candidates/{id}/summary[/pdf]). Named
-# CandidateAssessmentSummaryOut, not CandidateSummaryOut, to avoid
+# ---- Cross-round candidate summary (HR's candidate-detail view - see
+# models.CandidateSummary, llm_service.generate_candidate_summary, and
+# routers/hr.py's GET/POST/DELETE /candidates/{id}/summary plus POST
+# .../summary/pdf). Persisted, one per candidate - POST generates and
+# saves it, GET reads the saved one back with no LLM call, DELETE clears
+# it, and the PDF export always renders whatever's currently saved.
+# Named CandidateAssessmentSummaryOut, not CandidateSummaryOut, to avoid
 # colliding with the per-round-status shape above. ----
 
 class CandidateRoundComment(BaseModel):
+    """Bulleted, not a paragraph - see prompts/candidate_summary_generation.txt.
+    did_well/missed are each a short list of concrete, single-fact
+    bullets (may be empty - a round can genuinely have nothing to fault,
+    or nothing praiseworthy, or no score yet at all)."""
     round_number: int
-    comment: str = Field(max_length=5000)
+    did_well: list[str] = Field(default_factory=list, max_length=6)
+    missed: list[str] = Field(default_factory=list, max_length=6)
+
+    @field_validator("did_well", "missed")
+    @classmethod
+    def _bullet_length(cls, bullets: list[str]) -> list[str]:
+        for b in bullets:
+            if len(b) > 500:
+                raise ValueError("Each bullet must be under 500 characters - this is a pointer, not a paragraph.")
+        return bullets
 
 
 class CandidateAssessmentSummaryOut(BaseModel):
     candidate_email: str
     experience_band: Optional[str] = None
     round_comments: list[CandidateRoundComment]  # one per round the candidate has actually reached
-    final_summary: str  # the closing cross-round verdict paragraph
-
-
-class CandidateSummaryPdfRequest(BaseModel):
-    """The frontend already has the generated round_comments/final_summary
-    on screen (from the /summary call above) - sending them back here
-    instead of regenerating avoids a second LLM call just to produce the
-    PDF."""
-    round_comments: list[CandidateRoundComment] = Field(max_length=10)
-    final_summary: str = Field(max_length=5000)
+    key_observations: list[str] = Field(default_factory=list, max_length=8)  # cross-round highlights, bulleted
+    verdict: str = Field(max_length=1000)  # short, decisive - not a paragraph
+    # Always set in practice (models.CandidateSummary.updated_at) - built
+    # manually in hr.py from the ORM row's fields plus the User's own
+    # email/band, never via from_attributes, so this stays Optional only
+    # as a defensive shape guarantee, not because it's expected to be missing.
+    generated_at: Optional[datetime] = None
 
 
 # ---- Round 4 (conversational automation: the candidate writes their

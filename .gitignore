@@ -26,8 +26,11 @@ logins.txt
 # source, not meant to be shared via version control.
 Claude outputs/
 
-# Generated report output (HR's candidate-summary PDF export), not source.
-*-summary.pdf
+# Generated report output (HR's candidate-summary and daily cohort PDF
+# exports), not source. The `*` before .pdf also catches the "(1)"/"(2)"
+# suffix a browser adds on a repeat download of the same filename.
+*-summary*.pdf
+cohort-*.pdf
 
 # Locally-installed third-party agent skill packages, not app code.
 backend/.claude/

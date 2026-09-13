@@ -624,12 +624,12 @@ def score_round4_conversation(round1_context: dict, test_cases: list[dict], assi
 
 # ---- Cross-round candidate summary (HR's candidate-detail view) ----
 #
-# Structured, not one flowing paragraph - HR's candidate-detail view and
-# the exported PDF both render this as a labeled per-round breakdown
-# (Round 1 comment, Round 2 comment, ...) followed by a final verdict,
-# matching how every other feedback surface in this app is laid out
-# (score / coverage / feedback / misses, clearly labeled) rather than
-# dumping everything into undifferentiated prose.
+# Bulleted, not flowing paragraphs - HR's candidate-detail view and the
+# exported PDF both render this as a scannable, enterprise-report-style
+# breakdown (what went well / what was missed, per round, plus
+# cross-round key observations and a short verdict) rather than dumping
+# everything into undifferentiated prose. See schemas.CandidateSummary*
+# for the exact shape this is validated against downstream.
 
 def generate_candidate_summary(candidate_email: str, experience_band: str, rounds: list[dict]) -> dict:
     prompt = _load_prompt("candidate_summary_generation.txt").format(
@@ -637,8 +637,13 @@ def generate_candidate_summary(candidate_email: str, experience_band: str, round
         experience_band=experience_band,
         rounds_json=json.dumps(rounds, indent=2),
     )
-    raw = _call_claude(prompt, max_tokens=1536)
+    raw = _call_claude(prompt, max_tokens=2048)
     result = _parse_json_response(raw)
-    if not isinstance(result, dict) or "rounds" not in result or "final_summary" not in result:
-        raise ValueError(f"Expected a JSON object with 'rounds' and 'final_summary' keys, got: {result!r}")
+    if (
+        not isinstance(result, dict)
+        or "rounds" not in result or "key_observations" not in result or "verdict" not in result
+    ):
+        raise ValueError(
+            f"Expected a JSON object with 'rounds', 'key_observations' and 'verdict' keys, got: {result!r}"
+        )
     return result

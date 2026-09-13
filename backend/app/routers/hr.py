@@ -15,10 +15,12 @@ publish_scenario and list_scenarios below, and routers/candidate.py for
 its dedicated endpoints.
 """
 from collections import Counter
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import date, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile, File
 from fpdf import FPDF
+from fpdf.fonts import FontFace
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -26,14 +28,14 @@ from ..config import settings
 from ..database import get_db
 from ..models import (
     User, Scenario, ScenarioStatus, Submission, Score, RoundStatus, ExperienceBand, Role, AppSettings,
-    CandidateAppearance,
+    CandidateAppearance, CandidateSummary,
 )
 from pydantic import ValidationError
 
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
     CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern, ConceptCoverageAverage,
-    Round4TestCaseOut, Round3TurnOut, Round3RunOut, CandidateAssessmentSummaryOut, CandidateSummaryPdfRequest,
+    Round4TestCaseOut, Round3TurnOut, Round3RunOut, CandidateAssessmentSummaryOut,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
     ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate, TestCaseRow,
@@ -948,12 +950,28 @@ def _gather_candidate_rounds(candidate: User, db: Session, background_tasks: Bac
     return rounds
 
 
+def _candidate_summary_out(candidate: User, summary: CandidateSummary) -> CandidateAssessmentSummaryOut:
+    return CandidateAssessmentSummaryOut(
+        candidate_email=candidate.email,
+        experience_band=candidate.experience_band.value if candidate.experience_band else None,
+        round_comments=[CandidateRoundComment(**r) for r in summary.round_comments_json],
+        key_observations=summary.key_observations_json,
+        verdict=summary.verdict,
+        generated_at=summary.updated_at,
+    )
+
+
 @router.post("/candidates/{candidate_id}/summary", response_model=CandidateAssessmentSummaryOut)
 def candidate_summary(candidate_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Cross-round synthesis for HR to hand off - to the candidate as
-    feedback, or to the next round's interviewers as a briefing. Not
-    persisted - generated fresh on each click, same as "Regenerate
-    reference" elsewhere in this file. See llm_service.generate_candidate_summary."""
+    feedback, or to the next round's interviewers as a briefing. Generates
+    via the LLM and saves the result (see models.CandidateSummary) - used
+    to be regenerated fresh on every click with nothing saved, which meant
+    downloading the PDF later meant paying for a second LLM call and
+    risked it reading differently than what HR actually reviewed. Calling
+    this again (HR's "Regenerate") overwrites whatever was saved before.
+    See llm_service.generate_candidate_summary, and GET below for reading
+    the saved one back with no LLM call."""
     candidate = db.get(User, candidate_id)
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")
@@ -968,12 +986,55 @@ def candidate_summary(candidate_id: int, background_tasks: BackgroundTasks, db: 
         experience_band=band,
         rounds=rounds,
     )
-    return CandidateAssessmentSummaryOut(
-        candidate_email=candidate.email,
-        experience_band=candidate.experience_band.value if candidate.experience_band else None,
-        round_comments=[CandidateRoundComment(**r) for r in result["rounds"]],
-        final_summary=result["final_summary"],
-    )
+    # Validated before ever being persisted - a malformed generation (a
+    # missing did_well/missed key, an oversized bullet) must never sail
+    # into the DB only to blow up the next time GET/the PDF tries to read
+    # it back; a clean 502 here is a retryable failure, same reasoning as
+    # every other LLM-response validation in this app.
+    try:
+        validated_rounds = [CandidateRoundComment(**r) for r in result["rounds"]]
+    except ValidationError as e:
+        raise HTTPException(502, f"The generated summary didn't match the expected shape: {e}")
+
+    summary = db.query(CandidateSummary).filter(CandidateSummary.user_id == candidate.id).first()
+    if summary is None:
+        summary = CandidateSummary(user_id=candidate.id)
+        db.add(summary)
+    summary.round_comments_json = [r.model_dump() for r in validated_rounds]
+    summary.key_observations_json = result["key_observations"]
+    summary.verdict = result["verdict"]
+    db.commit()
+    db.refresh(summary)
+    return _candidate_summary_out(candidate, summary)
+
+
+@router.get("/candidates/{candidate_id}/summary", response_model=CandidateAssessmentSummaryOut)
+def get_candidate_summary(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Reads back whatever was last saved by POST above - no LLM call,
+    so opening a candidate's detail view can show an already-generated
+    summary (and offer it for PDF download) without regenerating it every
+    time. 404 means nothing has been generated yet, not an error - the
+    frontend uses that to show "Generate Summary" instead."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+    summary = db.query(CandidateSummary).filter(CandidateSummary.user_id == candidate.id).first()
+    if summary is None:
+        raise HTTPException(404, "No summary has been generated for this candidate yet.")
+    return _candidate_summary_out(candidate, summary)
+
+
+@router.delete("/candidates/{candidate_id}/summary", status_code=204)
+def delete_candidate_summary(candidate_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Clears a saved summary - e.g. after a re-application, when the one
+    on file no longer reflects the candidate's current cycle. Idempotent:
+    succeeds whether or not one existed, same as this app's other delete
+    endpoints."""
+    candidate = db.get(User, candidate_id)
+    if candidate is None or candidate.role != Role.candidate:
+        raise HTTPException(404, "Candidate not found")
+    db.query(CandidateSummary).filter(CandidateSummary.user_id == candidate.id).delete()
+    db.commit()
 
 
 # fpdf2's built-in core fonts (Helvetica/Times/Courier) only render
@@ -1004,53 +1065,628 @@ def _pdf_safe_text(text: str) -> str:
     return text.encode("latin-1", errors="replace").decode("latin-1")
 
 
+# ---- Enterprise report styling (candidate_summary_pdf below) ----
+# One centralized palette/type scale so every section of the report
+# pulls from the same tokens instead of scattering magic RGB tuples
+# through the function. Inter isn't bundled with this repo (no font
+# file shipped, and adding one is a bigger dependency than a report
+# template warrants) - this falls back to Helvetica, exactly per the
+# report spec's own "Inter if available, otherwise Arial/Helvetica"
+# fallback rule; fpdf2's core fonts render Helvetica natively.
+_REPORT_FONT = "Helvetica"
+_NAVY = (23, 54, 93)
+_BLUE = (47, 117, 181)
+_TEAL = (0, 140, 149)
+_CRITICAL = (198, 40, 40)
+_CRITICAL_FILL = (250, 231, 231)
+_HIGH = (230, 81, 0)
+_HIGH_FILL = (253, 236, 220)
+_MEDIUM = (183, 121, 31)
+_MEDIUM_FILL = (250, 240, 219)
+_SUCCESS = (46, 125, 50)
+_SUCCESS_FILL = (232, 244, 233)
+_TEXT = (38, 50, 56)
+_MUTED = (99, 111, 118)
+_BORDER = (214, 219, 223)
+_CARD_BG = (246, 247, 248)
+_WHITE = (255, 255, 255)
+
+
+def _severity_for_score(score: int | None, passing_score: int) -> tuple[str, tuple, tuple]:
+    """Buckets an EXISTING final_score against its EXISTING passing_score
+    into a presentation-only severity tier (label, text color, fill
+    color) - never a new judgment layered on top of the real score,
+    just a color/label band for the same number the app already
+    computes and shows everywhere else."""
+    if score is None:
+        return "Not scored", _MUTED, _CARD_BG
+    if score >= passing_score:
+        return "Strong", _SUCCESS, _SUCCESS_FILL
+    if score >= passing_score * 0.5:
+        return "Medium Concern", _MEDIUM, _MEDIUM_FILL
+    if score >= passing_score * 0.25:
+        return "High Concern", _HIGH, _HIGH_FILL
+    return "Critical Concern", _CRITICAL, _CRITICAL_FILL
+
+
+def _verdict_sentiment(verdict_text: str) -> tuple[str, tuple, tuple]:
+    """A mechanical keyword read of the LLM's own verdict sentence into
+    an ADVANCE / DO NOT ADVANCE / CONDITIONAL headline label. The full,
+    original verdict text is always rendered verbatim alongside this
+    label (see the Executive Recommendation and Final Assessment
+    sections below) - this never changes, rewrites, or overrides what
+    the verdict actually says, it only gives the existing wording a
+    prominent, color-coded headline."""
+    t = verdict_text.lower()
+    if "not recommend" in t or "do not advance" in t or "reject" in t:
+        return "DO NOT ADVANCE", _CRITICAL, _CRITICAL_FILL
+    if "conditional" in t:
+        return "CONDITIONAL ADVANCE", _MEDIUM, _MEDIUM_FILL
+    if "recommend advanc" in t or "advance" in t:
+        return "ADVANCE", _SUCCESS, _SUCCESS_FILL
+    return "MANUAL REVIEW", _BLUE, (232, 240, 247)
+
+
+def _first_sentence(text: str) -> str:
+    for sep in (". ", "! ", "? "):
+        idx = text.find(sep)
+        if idx != -1:
+            return text[: idx + 1]
+    return text
+
+
+def _split_observation(text: str) -> tuple[str, str]:
+    """Splits a key-observation sentence into a short card title + body,
+    purely mechanically (on the sentence's own first colon) - never
+    inventing a category label the underlying data doesn't have. Falls
+    back to a generic title when the sentence has no natural split."""
+    if ":" in text:
+        head, _, tail = text.partition(":")
+        head, tail = head.strip(), tail.strip()
+        if head and tail and len(head) <= 70:
+            return head, tail
+    return "Observation", text
+
+
+class _AssessmentReportPDF(FPDF):
+    """Running header/footer, page numbers, and CONFIDENTIAL marking
+    applied automatically to every page after page 1 (which gets its own
+    full masthead, built inline in candidate_summary_pdf) - fpdf2's
+    header()/footer() hooks keep this consistent without repeating it at
+    every page break."""
+
+    def __init__(self, candidate_email: str):
+        super().__init__(format="A4", orientation="P", unit="mm")
+        self._candidate_email = candidate_email
+        self.set_margins(16, 16, 16)
+        self.set_auto_page_break(auto=True, margin=22)
+        self.alias_nb_pages()
+
+    def header(self) -> None:
+        if self.page_no() == 1:
+            return
+        self.set_y(9)
+        self.set_font(_REPORT_FONT, "B", 8)
+        self.set_text_color(*_NAVY)
+        self.cell(120, 5, "QA EVAL TOOL - CANDIDATE ASSESSMENT REPORT")
+        self.set_font(_REPORT_FONT, "", 8)
+        self.set_text_color(*_MUTED)
+        self.cell(0, 5, _pdf_safe_text(self._candidate_email), align="R", new_x="LMARGIN", new_y="NEXT")
+        self.set_draw_color(*_BORDER)
+        self.set_line_width(0.3)
+        self.line(self.l_margin, 15, self.w - self.r_margin, 15)
+        self.set_y(19)
+        self.set_text_color(*_TEXT)
+
+    def footer(self) -> None:
+        self.set_y(-16)
+        self.set_draw_color(*_BORDER)
+        self.set_line_width(0.3)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.set_y(-13)
+        self.set_font(_REPORT_FONT, "I", 7)
+        self.set_text_color(*_MUTED)
+        self.cell(120, 8, "CONFIDENTIAL - Internal hiring use only")
+        self.cell(0, 8, f"Page {self.page_no()} of {{nb}}", align="R")
+
+
+def _ensure_space(pdf: FPDF, needed_mm: float) -> None:
+    """Manual page-break guard for content built from raw rect()/line()
+    calls, which - unlike cell()/multi_cell() - fpdf2's auto-page-break
+    never triggers on its own. Used before section headers and cards so
+    a heading is never stranded alone at the bottom of a page."""
+    if pdf.get_y() + needed_mm > pdf.h - pdf.b_margin:
+        pdf.add_page()
+
+
+def _section_title(pdf: FPDF, text: str, min_space: float = 24) -> None:
+    _ensure_space(pdf, min_space)
+    pdf.set_font(_REPORT_FONT, "B", 11)
+    pdf.set_text_color(*_NAVY)
+    pdf.cell(0, 8, _pdf_safe_text(text.upper()), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_draw_color(*_NAVY)
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.set_line_width(0.2)
+    pdf.set_text_color(*_TEXT)
+    pdf.ln(3)
+
+
+def _estimate_round_card_height(feedback_text: str | None, did_well: list, missed: list, misses: list) -> float:
+    """Rough content-height estimate (mm) for a round's detail card, used
+    to decide whether to start it fresh on a new page rather than let it
+    split mid-card. Deliberately generous (assumes ~2 wrapped lines per
+    bullet) since under-estimating is what caused the original split;
+    the _card()/_insight_card() page-mismatch guard is the backstop for
+    whatever this still gets wrong. feedback_text here is only the lead
+    sentence actually rendered (see candidate_summary_pdf), not the full
+    paragraph - matching what has to fit on the page."""
+    mm = 30.0
+    mm += ((len(feedback_text) // 95) + 1) * 5.5 if feedback_text else 5.5
+    if did_well:
+        mm += 5 + len(did_well) * 11
+    if missed:
+        mm += 5 + len(missed) * 11
+    if misses:
+        mm += 5 + (min(len(misses), 5) + (1 if len(misses) > 5 else 0)) * 9
+    return mm
+
+
+def _reset_ink(pdf: FPDF) -> None:
+    """fpdf2's Table() paints any cell without an explicit FontFace using
+    whatever fill/text color was last set on the pdf object - not "no
+    fill" as its API might suggest. Call this right before every
+    pdf.table() block, or a leftover color from an earlier card/banner
+    (verdict_fill, _NAVY, ...) silently tints or blacks out every
+    unstyled body cell - confirmed by an isolated fpdf2 repro during
+    this report's development."""
+    pdf.set_fill_color(255, 255, 255)
+    pdf.set_text_color(*_TEXT)
+
+
+def _score_bar(pdf: FPDF, x: float, y: float, w: float, h: float, fraction: float, color: tuple) -> None:
+    fraction = max(0.0, min(1.0, fraction))
+    pdf.set_fill_color(*_BORDER)
+    pdf.rect(x, y, w, h, style="F")
+    if fraction > 0:
+        pdf.set_fill_color(*color)
+        pdf.rect(x, y, w * fraction, h, style="F")
+
+
+@contextmanager
+def _card(pdf: FPDF, fill_color: tuple | None = None, border_color: tuple | None = None, margin_bottom: float = 4):
+    """Draws a card border/fill AROUND whatever gets written inside the
+    `with` block, measured after the fact (top-of-block to bottom-of-
+    block) rather than pre-computed - avoids having to predict variable-
+    length text height up front. Callers still set fill=True on their
+    own cell()/multi_cell() calls inside the block; this only paints the
+    border once the final height is known."""
+    if fill_color:
+        pdf.set_fill_color(*fill_color)
+    top_page, top_y = pdf.page_no(), pdf.get_y()
+    yield
+    bottom_page, bottom_y = pdf.page_no(), pdf.get_y()
+    # If fpdf2's auto-page-break fired mid-block, top_y/bottom_y refer to
+    # two different pages - a rect() drawn from them would land on the
+    # wrong page with a nonsensical height. Skip the border rather than
+    # draw a broken one; the content itself already paginated correctly.
+    if border_color and bottom_page == top_page:
+        pdf.set_draw_color(*border_color)
+        pdf.set_line_width(0.6)
+        pdf.rect(pdf.l_margin, top_y, pdf.w - pdf.l_margin - pdf.r_margin, bottom_y - top_y, style="D")
+        pdf.set_line_width(0.2)
+    pdf.ln(margin_bottom)
+
+
+@contextmanager
+def _insight_card(pdf: FPDF, accent_color: tuple):
+    """Same idea as _card, but paints a colored left-accent stripe
+    (matching the on-screen report's round-card styling) instead of a
+    full border, sized to the block's actual height after the fact."""
+    pdf.set_fill_color(*_CARD_BG)
+    top_page, top_y = pdf.page_no(), pdf.get_y()
+    yield
+    bottom_page, bottom_y = pdf.page_no(), pdf.get_y()
+    if bottom_page == top_page:
+        pdf.set_fill_color(*accent_color)
+        pdf.rect(pdf.l_margin, top_y, 1.5, bottom_y - top_y, style="F")
+    pdf.ln(3)
+
+
 @router.post("/candidates/{candidate_id}/summary/pdf")
 def candidate_summary_pdf(
     candidate_id: int,
-    payload: CandidateSummaryPdfRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     hr: User = Depends(require_hr),
 ):
-    """Renders the round_comments/final_summary the frontend already
-    generated (via the endpoint above) into a downloadable PDF - takes
-    them as input rather than regenerating, so downloading doesn't cost
-    a second LLM call. Re-fetches the round table itself (for each
-    round's status/score, paired with its comment) rather than trusting
-    a client-supplied one."""
+    """Renders whatever summary is currently saved for this candidate
+    (see models.CandidateSummary, POST above) into a downloadable,
+    enterprise-styled assessment report PDF - reads the saved copy
+    rather than taking one in the request body, so the PDF is always
+    exactly what GET/the candidate-detail view shows, and downloading it
+    costs neither an LLM call nor requires the frontend to have the
+    summary sitting in memory from earlier in the same page load. 404s
+    if nothing has been generated yet - generate one first. Re-fetches
+    the round table itself (for each round's status/score/raw misses/
+    concept coverage, paired with its comment) rather than trusting a
+    stored one, so a round rescored after the summary was generated
+    still shows its current score here.
+
+    This is a presentation layer only: every score, verdict, finding and
+    coverage number below comes straight from the existing scoring data
+    (Score.final_score/misses_json/concept_coverage_json,
+    CandidateSummary.verdict/key_observations_json/round_comments_json) -
+    nothing here recomputes, rewrites, or invents an evaluation. Fields
+    the app genuinely has no data for (a distinct "confidence" score, a
+    per-round "impact" rating) are rendered as "Not assessed" rather than
+    guessed at, per this report's own content-integrity rule."""
     candidate = db.get(User, candidate_id)
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")
+    summary = db.query(CandidateSummary).filter(CandidateSummary.user_id == candidate.id).first()
+    if summary is None:
+        raise HTTPException(404, "No summary has been generated for this candidate yet.")
 
     rounds_by_number = {r["round_number"]: r for r in _gather_candidate_rounds(candidate, db, background_tasks)}
+    app_settings = get_settings(db)
+    round_comments = [CandidateRoundComment(**r) for r in summary.round_comments_json]
 
-    pdf = FPDF()
+    def _round_label(n: int) -> str:
+        return ROUND_LABELS.get(n, f"Round {n}")
+
+    def _passing_score(n: int) -> int:
+        return getattr(app_settings, f"round{n}_passing_score", 70)
+
+    # ---- Figures reused across every section below - computed once here
+    # from the real per-round data, never invented per-section. ----
+    scored_rounds = [
+        (rc, rounds_by_number.get(rc.round_number, {}))
+        for rc in round_comments
+        if rounds_by_number.get(rc.round_number, {}).get("final_score") is not None
+    ]
+    overall_score = sum(r["final_score"] for _, r in scored_rounds) if scored_rounds else None
+    overall_max = len(round_comments) * 100
+    verdict_label, verdict_color, verdict_fill = _verdict_sentiment(summary.verdict)
+    severity_by_round = {
+        rc.round_number: _severity_for_score(
+            rounds_by_number.get(rc.round_number, {}).get("final_score"), _passing_score(rc.round_number)
+        )
+        for rc in round_comments
+    }
+
+    def _bullet_list(items: list[str], marker_color: tuple | None = None) -> None:
+        pdf.set_font(_REPORT_FONT, "", 9.5)
+        for item in items:
+            if marker_color:
+                pdf.set_text_color(*marker_color)
+                pdf.cell(4, 5.5, "-")
+                pdf.set_text_color(*_TEXT)
+            else:
+                pdf.cell(4, 5.5, "-")
+            # multi_cell's default new_x is XPos.RIGHT, not LMARGIN -
+            # without this the next call starts at the right margin with
+            # ~0 width left and fpdf2 raises "Not enough horizontal space".
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.multi_cell(pdf.w - pdf.r_margin - pdf.l_margin - 4, 5.5, _pdf_safe_text(item), new_x="LMARGIN", new_y="NEXT")
+
+    pdf = _AssessmentReportPDF(candidate.email)
     pdf.add_page()
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, "Candidate Assessment Summary", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 11)
-    pdf.cell(0, 8, f"Candidate: {_pdf_safe_text(candidate.email)}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 8, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d')}", new_x="LMARGIN", new_y="NEXT")
+
+    # ============ 1. REPORT HEADER (page-1 masthead) ============
+    pdf.set_font(_REPORT_FONT, "B", 9)
+    pdf.set_text_color(*_MUTED)
+    pdf.cell(130, 5, "QA EVAL TOOL")
+    pdf.set_fill_color(*_NAVY)
+    pdf.set_text_color(*_WHITE)
+    pdf.set_font(_REPORT_FONT, "B", 8)
+    pdf.cell(0, 6, "  CONFIDENTIAL  ", align="R", new_x="LMARGIN", new_y="NEXT", fill=True)
+    pdf.set_font(_REPORT_FONT, "B", 19)
+    pdf.set_text_color(*_NAVY)
+    pdf.cell(0, 11, "Candidate Assessment Report", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_draw_color(*_NAVY)
+    pdf.set_line_width(0.8)
+    pdf.line(pdf.l_margin, pdf.get_y() + 1, pdf.w - pdf.r_margin, pdf.get_y() + 1)
+    pdf.set_line_width(0.2)
+    pdf.ln(7)
+
+    stat_y = pdf.get_y()
+    stats = [
+        (74, "CANDIDATE", candidate.email),
+        (36, "ASSESSMENT DATE", summary.updated_at.strftime("%d %b %Y")),
+        (30, "ROUNDS ASSESSED", str(len(round_comments))),
+        (38, "OVERALL SCORE", f"{overall_score}/{overall_max}" if overall_score is not None else "Not assessed"),
+    ]
+    x = pdf.l_margin
+    for w, label, value in stats:
+        pdf.set_xy(x, stat_y)
+        pdf.set_font(_REPORT_FONT, "", 7)
+        pdf.set_text_color(*_MUTED)
+        pdf.cell(w - 4, 4, label)
+        pdf.set_xy(x, stat_y + 5)
+        pdf.set_font(_REPORT_FONT, "B", 12)
+        pdf.set_text_color(*_NAVY)
+        pdf.multi_cell(w - 4, 6, _pdf_safe_text(value))
+        x += w
+    pdf.set_y(stat_y + 18)
+    pdf.set_draw_color(*_BORDER)
+    pdf.line(pdf.l_margin, pdf.get_y(), pdf.w - pdf.r_margin, pdf.get_y())
+    pdf.ln(6)
+
+    # ============ 2. EXECUTIVE RECOMMENDATION ============
+    _section_title(pdf, "2. Executive Recommendation", min_space=50)
+    lead = _first_sentence(summary.verdict)
+    rest = summary.verdict[len(lead):].strip()
+    with _card(pdf, fill_color=verdict_fill, border_color=verdict_color):
+        pdf.set_font(_REPORT_FONT, "B", 13)
+        pdf.set_text_color(*verdict_color)
+        pdf.cell(0, 8, f"  {verdict_label}", new_x="LMARGIN", new_y="NEXT", fill=True)
+        # The verdict headline is bold and prominent; the explanatory
+        # text underneath stays normal weight and readable, per the
+        # report spec - only the lead sentence is visually emphasized.
+        pdf.set_font(_REPORT_FONT, "B", 10.5)
+        pdf.set_text_color(*_TEXT)
+        pdf.set_x(pdf.l_margin)
+        pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 4, 6, f"  {_pdf_safe_text(lead)}", new_x="LMARGIN", new_y="NEXT", fill=True)
+        if rest:
+            pdf.set_font(_REPORT_FONT, "", 9.5)
+            pdf.set_x(pdf.l_margin)
+            pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 4, 5.5, f"  {_pdf_safe_text(rest)}", new_x="LMARGIN", new_y="NEXT", fill=True)
+        pdf.set_x(pdf.l_margin)
+        pdf.set_font(_REPORT_FONT, "", 8)
+        pdf.set_text_color(*_MUTED)
+        pdf.cell(0, 6, "  Confidence level: Not assessed", new_x="LMARGIN", new_y="NEXT", fill=True)
+
+    # Primary concerns deliberately not repeated here - Section 4 (Key
+    # Observations) gives the same list in full, one screen later.
+
+    # ============ 3. ASSESSMENT SCORECARD ============
+    _section_title(pdf, "3. Assessment Scorecard")
+    col_w = (16, 40, 18, 30, 74)
+    _reset_ink(pdf)
+    pdf.set_font(_REPORT_FONT, "", 9)
+    with pdf.table(
+        col_widths=col_w,
+        text_align=("CENTER", "LEFT", "CENTER", "CENTER", "LEFT"),
+        borders_layout="MINIMAL",
+        line_height=5.5,
+    ) as table:
+        header = table.row()
+        for text in ("Round", "Title", "Score", "Rating", "Summary"):
+            header.cell(_pdf_safe_text(text), style=FontFace(emphasis="BOLD", fill_color=_NAVY, color=_WHITE, size_pt=9))
+        for rc in round_comments:
+            r = rounds_by_number.get(rc.round_number, {})
+            score = r.get("final_score")
+            severity_label, severity_color, _ = severity_by_round[rc.round_number]
+            summary_text = r.get("feedback_text") or "Not assessed"
+            if len(summary_text) > 160:
+                summary_text = summary_text[:157].rstrip() + "..."
+            row = table.row()
+            row.cell(str(rc.round_number))
+            row.cell(_pdf_safe_text(_round_label(rc.round_number)))
+            row.cell(f"{score}/100" if score is not None else "-")
+            row.cell(_pdf_safe_text(severity_label), style=FontFace(emphasis="BOLD", color=severity_color))
+            row.cell(_pdf_safe_text(summary_text))
+    if overall_score is not None:
+        bar_y = pdf.get_y() + 2
+        pdf.set_font(_REPORT_FONT, "B", 9.5)
+        pdf.set_text_color(*_TEXT)
+        pdf.cell(38, 6, "Overall score")
+        _score_bar(pdf, pdf.get_x(), bar_y + 1, 100, 4, overall_score / overall_max, _NAVY)
+        pdf.set_xy(pdf.get_x() + 104, bar_y)
+        pdf.cell(0, 6, f"{overall_score} / {overall_max}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
-    for rc in payload.round_comments:
+    # ============ 4. KEY OBSERVATIONS ============
+    if summary.key_observations_json:
+        _section_title(pdf, "4. Key Observations")
+        for obs in summary.key_observations_json:
+            title, body = _split_observation(obs)
+            _ensure_space(pdf, 16)
+            with _insight_card(pdf, _TEAL):
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.set_font(_REPORT_FONT, "B", 9.5)
+                pdf.set_text_color(*_NAVY)
+                pdf.cell(pdf.w - pdf.l_margin - pdf.r_margin - 4, 6, _pdf_safe_text(title), new_x="LMARGIN", new_y="NEXT", fill=True)
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.set_font(_REPORT_FONT, "", 9.5)
+                pdf.set_text_color(*_TEXT)
+                pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 8, 5.5, _pdf_safe_text(body), new_x="LMARGIN", new_y="NEXT", fill=True)
+
+    # ============ 5. ROUND-BY-ROUND ASSESSMENT ============
+    # min_space accounts for the first round's own card, not just the
+    # header - otherwise the header alone fits at the bottom of the
+    # current page while the first card immediately jumps to the next
+    # one, stranding the heading with a block of empty space beneath it.
+    def _lead_or_none(text: str | None) -> str | None:
+        return _first_sentence(text) if text else None
+
+    first_round_height = 0.0
+    if round_comments:
+        first, first_r = round_comments[0], rounds_by_number.get(round_comments[0].round_number, {})
+        first_round_height = _estimate_round_card_height(_lead_or_none(first_r.get("feedback_text")), first.did_well, first.missed, first_r.get("misses") or [])
+    _section_title(pdf, "5. Round-by-Round Assessment", min_space=15 + first_round_height)
+    for rc in round_comments:
         r = rounds_by_number.get(rc.round_number, {})
-        label = ROUND_LABELS.get(rc.round_number, f"Round {rc.round_number}")
         score = r.get("final_score")
-        score_text = f"{score}/100" if score is not None else "not scored yet"
+        severity_label, severity_color, severity_fill = severity_by_round[rc.round_number]
+        _ensure_space(pdf, _estimate_round_card_height(_lead_or_none(r.get("feedback_text")), rc.did_well, rc.missed, r.get("misses") or []))
+        with _card(pdf, border_color=_BORDER):
+            # A fixed-height, non-wrapping header row (cell(), not
+            # multi_cell()) - round titles are always short (see
+            # ROUND_LABELS), so this never wraps, which keeps the score
+            # chip reliably aligned beside it. The scenario title (which
+            # CAN be long) gets its own line below instead of sharing
+            # this row.
+            row_y = pdf.get_y()
+            pdf.set_font(_REPORT_FONT, "B", 12)
+            pdf.set_text_color(*_NAVY)
+            pdf.cell(124, 7, _pdf_safe_text(f"Round {rc.round_number} - {_round_label(rc.round_number)}"))
+            pdf.set_xy(pdf.w - pdf.r_margin - 44, row_y)
+            pdf.set_font(_REPORT_FONT, "B", 10)
+            pdf.set_fill_color(*severity_fill)
+            pdf.set_text_color(*severity_color)
+            score_text = f"{score}/100 - {severity_label}" if score is not None else "Not scored yet"
+            pdf.cell(44, 7, score_text, align="C", fill=True, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*_TEXT)
+            if r.get("scenario_title"):
+                pdf.set_font(_REPORT_FONT, "I", 8.5)
+                pdf.set_text_color(*_MUTED)
+                pdf.cell(0, 5, _pdf_safe_text(f"Scenario: {r['scenario_title']}"), new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(*_TEXT)
+            pdf.ln(1)
 
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, f"Round {rc.round_number} - {label}", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "I", 9)
-        pdf.cell(0, 6, f"Status: {r.get('status', 'unknown')}  |  Score: {score_text}", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", "", 11)
-        pdf.multi_cell(0, 7, _pdf_safe_text(rc.comment))
-        pdf.ln(2)
+            # One lead sentence, not the full scoring paragraph - the
+            # bullets right below already carry the specifics; this is
+            # just enough narrative context to anchor them.
+            pdf.set_font(_REPORT_FONT, "B", 9)
+            pdf.set_text_color(*_MUTED)
+            pdf.cell(0, 5, "ASSESSMENT SUMMARY", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font(_REPORT_FONT, "", 9.5)
+            pdf.set_text_color(*_TEXT)
+            feedback_text = r.get("feedback_text")
+            pdf.multi_cell(0, 5.5, _pdf_safe_text(_first_sentence(feedback_text) if feedback_text else "Not assessed"), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(2)
 
-    pdf.set_font("Helvetica", "B", 12)
-    pdf.cell(0, 8, "Final Summary", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 11)
-    pdf.multi_cell(0, 7, _pdf_safe_text(payload.final_summary))
+            if rc.did_well:
+                pdf.set_font(_REPORT_FONT, "B", 9)
+                pdf.set_text_color(*_SUCCESS)
+                pdf.cell(0, 5, "WHAT WENT WELL", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(*_TEXT)
+                _bullet_list(rc.did_well, marker_color=_SUCCESS)
+            if rc.missed:
+                pdf.set_font(_REPORT_FONT, "B", 9)
+                pdf.set_text_color(*_CRITICAL)
+                pdf.cell(0, 5, "WHAT WAS MISSED", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(*_TEXT)
+                _bullet_list(rc.missed, marker_color=_CRITICAL)
+
+            misses = r.get("misses") or []
+            if misses:
+                pdf.set_font(_REPORT_FONT, "B", 8)
+                pdf.set_text_color(*_MUTED)
+                pdf.cell(0, 5, "EVIDENCE LOG (from automated scoring)", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_font(_REPORT_FONT, "I", 8.5)
+                pdf.set_text_color(*_MUTED)
+                for item in misses[:5]:
+                    pdf.multi_cell(0, 4.8, _pdf_safe_text(f"  * {item}"), new_x="LMARGIN", new_y="NEXT")
+                if len(misses) > 5:
+                    pdf.multi_cell(0, 4.8, f"  ...and {len(misses) - 5} more", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(*_TEXT)
+
+            pdf.set_font(_REPORT_FONT, "", 8.5)
+            pdf.set_text_color(*_MUTED)
+            pdf.cell(0, 5, f"Risk level: {severity_label}", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*_TEXT)
+
+    # A standalone "Evidence-Based Findings" table (Ref/Category/
+    # Severity/Finding, one row per Score.misses_json item) was tried
+    # here and dropped - it just re-listed the same items already shown
+    # in each round's "EVIDENCE LOG" above, tripling the page count for
+    # a candidate with many misses without adding information.
+
+    # ============ 6. COVERAGE / QUALITY VIEW ============
+    coverage_rows = []
+    for rc in round_comments:
+        for entry in rounds_by_number.get(rc.round_number, {}).get("concept_coverage") or []:
+            total, covered = entry.get("total"), entry.get("covered")
+            pct = f"{round(covered / total * 100)}%" if total else "Not assessed"
+            ratio = f"{covered}/{total}" if total is not None and covered is not None else "Not assessed"
+            coverage_rows.append((rc.round_number, entry.get("category") or "-", ratio, pct, entry.get("notes") or ""))
+    if coverage_rows:
+        _section_title(pdf, "6. Coverage / Quality View")
+        _reset_ink(pdf)
+        pdf.set_font(_REPORT_FONT, "", 9)
+        with pdf.table(
+            col_widths=(16, 24, 22, 14, 102),
+            text_align=("CENTER", "LEFT", "CENTER", "CENTER", "LEFT"),
+            borders_layout="MINIMAL",
+            line_height=5,
+        ) as table:
+            header = table.row()
+            for text in ("Round", "Category", "Covered", "%", "Notes"):
+                header.cell(_pdf_safe_text(text), style=FontFace(emphasis="BOLD", fill_color=_NAVY, color=_WHITE, size_pt=9))
+            for round_number, category, ratio, pct, notes in coverage_rows:
+                row = table.row()
+                row.cell(str(round_number))
+                row.cell(_pdf_safe_text(category))
+                row.cell(ratio)
+                row.cell(pct)
+                row.cell(_pdf_safe_text(notes))
+        pdf.ln(4)
+
+    # ============ 7. FINAL ASSESSMENT ============
+    # Deliberately just the decision, not a rehash - overall score is on
+    # page 1, severity per round is in the Scorecard, and Key
+    # Observations already covers the "why". This is the closing
+    # statement for a reader who skipped straight to the end.
+    _section_title(pdf, "7. Final Assessment", min_space=35)
+    with _card(pdf, fill_color=_CARD_BG, border_color=_BORDER):
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(_REPORT_FONT, "B", 14)
+        pdf.set_text_color(*verdict_color)
+        pdf.cell(0, 9, f"  {verdict_label}", new_x="LMARGIN", new_y="NEXT", fill=True)
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(_REPORT_FONT, "", 9.5)
+        pdf.set_text_color(*_TEXT)
+        pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 8, 5.5, f"  {_pdf_safe_text(summary.verdict)}", new_x="LMARGIN", new_y="NEXT", fill=True)
+
+    # ============ 8. INTERVIEWER QUICK VIEW ============
+    _section_title(pdf, "8. Interviewer Quick View", min_space=70)
+    strengths = [b for rc in round_comments for b in rc.did_well][:3]
+    risks = [b for rc in round_comments for b in rc.missed][:3]
+    critical_gaps = [
+        f"Round {rc.round_number} ({_round_label(rc.round_number)})"
+        for rc in round_comments if severity_by_round[rc.round_number][0] == "Critical Concern"
+    ]
+    next_action = {
+        "ADVANCE": "Proceed to next round",
+        "DO NOT ADVANCE": "Do not proceed",
+        "CONDITIONAL ADVANCE": "Proceed with reservations - see verdict above",
+        "MANUAL REVIEW": "Manual review required",
+    }[verdict_label]
+
+    with _card(pdf, fill_color=_CARD_BG, border_color=_BORDER):
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(_REPORT_FONT, "", 9.5)
+        pdf.set_text_color(*_TEXT)
+        overall_text = f"{overall_score}/{overall_max}" if overall_score is not None else "Not assessed"
+        for line_label, value, color in (
+            ("Candidate", candidate.email, _TEXT),
+            ("Overall score", overall_text, _NAVY),
+            ("Recommendation", verdict_label, verdict_color),
+            ("Confidence", "Not assessed", _MUTED),
+            ("Recommended next action", next_action, _NAVY),
+        ):
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.set_font(_REPORT_FONT, "B", 9.5)
+            pdf.set_text_color(*_TEXT)
+            pdf.cell(50, 6, f"  {line_label}", fill=True)
+            pdf.set_font(_REPORT_FONT, "B", 9.5)
+            pdf.set_text_color(*color)
+            pdf.cell(0, 6, _pdf_safe_text(str(value)), new_x="LMARGIN", new_y="NEXT", fill=True)
+
+        for heading, items, color in (
+            ("Strongest areas", strengths, _SUCCESS),
+            ("Biggest risks", risks, _CRITICAL),
+            ("Critical gaps", critical_gaps, _CRITICAL),
+        ):
+            pdf.set_x(pdf.l_margin + 4)
+            pdf.set_font(_REPORT_FONT, "B", 9)
+            pdf.set_text_color(*_MUTED)
+            pdf.cell(0, 6, f"  {heading}", new_x="LMARGIN", new_y="NEXT", fill=True)
+            if items:
+                for item in items:
+                    pdf.set_x(pdf.l_margin + 4)
+                    pdf.set_font(_REPORT_FONT, "", 9)
+                    pdf.set_text_color(*color)
+                    pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 8, 5.5, f"  - {_pdf_safe_text(item)}", new_x="LMARGIN", new_y="NEXT", fill=True)
+            else:
+                pdf.set_x(pdf.l_margin + 4)
+                pdf.set_font(_REPORT_FONT, "I", 9)
+                pdf.set_text_color(*_MUTED)
+                pdf.cell(0, 5.5, "  Not assessed", new_x="LMARGIN", new_y="NEXT", fill=True)
+        pdf.set_text_color(*_TEXT)
 
     pdf_bytes = bytes(pdf.output())
     safe_email = candidate.email.replace("@", "_at_").replace(".", "_")
@@ -1058,6 +1694,435 @@ def candidate_summary_pdf(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{safe_email}-summary.pdf"'},
+    )
+
+
+_RESULT_STYLE = {
+    # "Needs review" (display-only rename of the real "in_progress"
+    # result - see _build_candidate_summary) reads better for a cohort
+    # report handed to HR after the fact than "in progress" does; the
+    # underlying determination is untouched.
+    "selected": ("Selected", _SUCCESS),
+    "not_selected": ("Not selected", _CRITICAL),
+    "in_progress": ("Needs review", _MEDIUM),
+}
+_PERFORMANCE_BANDS = [("75-100%", 75, 101), ("50-74%", 50, 75), ("25-49%", 25, 50), ("0-24%", 0, 25)]
+
+
+def _kpi_card(pdf: FPDF, x: float, y: float, w: float, h: float, label: str, value: str, color: tuple = _NAVY) -> None:
+    pdf.set_draw_color(*_BORDER)
+    pdf.set_line_width(0.3)
+    pdf.rect(x, y, w, h, style="D")
+    pdf.set_xy(x + 3, y + 2.5)
+    pdf.set_font(_REPORT_FONT, "", 6.5)
+    pdf.set_text_color(*_MUTED)
+    pdf.multi_cell(w - 6, 3.2, _pdf_safe_text(label))
+    pdf.set_xy(x + 3, y + h - 9)
+    pdf.set_font(_REPORT_FONT, "B", 12.5)
+    pdf.set_text_color(*color)
+    pdf.cell(w - 6, 7, _pdf_safe_text(value))
+    pdf.set_text_color(*_TEXT)
+
+
+def _gather_cohort_row(candidate: User, db: Session, background_tasks: BackgroundTasks) -> dict:
+    """Everything the cohort report needs for one candidate, built
+    entirely from existing per-candidate helpers - no new scoring/
+    aggregation logic beyond what list_candidates/candidate_summary_pdf
+    already compute."""
+    info = _build_candidate_summary(candidate, db, background_tasks)
+    raw_rounds = {r["round_number"]: r for r in _gather_candidate_rounds(candidate, db, background_tasks)}
+    cs = db.query(CandidateSummary).filter(CandidateSummary.user_id == candidate.id).first()
+    return {"candidate": candidate, "info": info, "raw_rounds": raw_rounds, "cs": cs}
+
+
+@router.get("/reports/daily-summary")
+def daily_summary_pdf(
+    exam_date: date,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    hr: User = Depends(require_hr),
+):
+    """One export per screening day: every candidate whose CURRENT
+    appearance's exam_date is this date - an enterprise HR/QA cohort
+    report (executive KPIs, a candidate comparison table, round-wise
+    metrics, a per-candidate decision summary, and cohort-wide insights)
+    built entirely from data this app already computes elsewhere:
+    _build_candidate_summary (aggregate_score/result - same logic the
+    Candidates dashboard uses), _gather_candidate_rounds (per-round
+    score/misses/concept_coverage), and CandidateSummary (an existing AI
+    summary's did_well/missed, if one was generated - never generates a
+    new one). Nothing here recomputes scores or selection criteria."""
+    day_start = datetime.combine(exam_date, datetime.min.time())
+    day_end = datetime.combine(exam_date, datetime.max.time())
+    candidates = (
+        db.query(User)
+        .join(CandidateAppearance, CandidateAppearance.user_id == User.id)
+        .filter(
+            User.role == Role.candidate,
+            CandidateAppearance.is_current == True,
+            CandidateAppearance.exam_date >= day_start,
+            CandidateAppearance.exam_date <= day_end,
+        )
+        .order_by(User.email)
+        .all()
+    )
+    if not candidates:
+        raise HTTPException(404, f"No candidates found with exam date {exam_date.isoformat()}.")
+
+    app_settings = get_settings(db)
+    rows = [_gather_cohort_row(c, db, background_tasks) for c in candidates]
+    total = len(rows)
+
+    # ---- Cohort-level aggregates (all derived from the per-candidate
+    # data above - no separate computation of scores/selection). ----
+    started = sum(1 for r in rows if any(rr.status != "not_started" for rr in r["info"].rounds))
+    completed = sum(1 for r in rows if all(rr.status == "scored" for rr in r["info"].rounds))
+    selected = sum(1 for r in rows if r["info"].result == "selected")
+    not_selected = sum(1 for r in rows if r["info"].result == "not_selected")
+    needs_review = total - selected - not_selected
+    agg_scores = [r["info"].aggregate_score for r in rows if r["info"].aggregate_score is not None]
+    avg_score = sum(agg_scores) / len(agg_scores) if agg_scores else None
+    highest, lowest = (max(agg_scores), min(agg_scores)) if agg_scores else (None, None)
+    pass_rate = (selected / total * 100) if total else 0.0
+
+    # Round-wise metrics + per-round weaknesses/capability coverage -
+    # same misses_json Counter / concept_coverage_json averaging
+    # scenario_history() already uses, just scoped to this cohort's
+    # rounds instead of a scenario's all-time submissions.
+    round_scores: dict[int, list[int]] = {n: [] for n in (1, 2, 3, 4)}
+    round_misses: dict[int, Counter] = {n: Counter() for n in (1, 2, 3, 4)}
+    round_coverage: dict[int, dict[str, list[float]]] = {n: {} for n in (1, 2, 3, 4)}
+    for r in rows:
+        for n, raw in r["raw_rounds"].items():
+            if raw.get("final_score") is not None:
+                round_scores[n].append(raw["final_score"])
+            for miss in raw.get("misses") or []:
+                round_misses[n][miss] += 1
+            for c in raw.get("concept_coverage") or []:
+                c_total = c.get("total") or 0
+                if c_total > 0:
+                    round_coverage[n].setdefault(c.get("category", "Unknown"), []).append(c.get("covered", 0) / c_total * 100)
+
+    round_metrics = {}
+    for n in (1, 2, 3, 4):
+        scores = round_scores[n]
+        passing = getattr(app_settings, f"round{n}_passing_score", 70)
+        pass_count = sum(1 for s in scores if s >= passing)
+        round_metrics[n] = {
+            "assessed": len(scores),
+            "avg": sum(scores) / len(scores) if scores else None,
+            "high": max(scores) if scores else None,
+            "low": min(scores) if scores else None,
+            "pass_count": pass_count,
+            "pass_pct": (pass_count / len(scores) * 100) if scores else None,
+            "top_weaknesses": round_misses[n].most_common(3),
+            "coverage": {cat: sum(v) / len(v) for cat, v in round_coverage[n].items()},
+        }
+
+    # Drop-off: candidates who attempted round n but never even started
+    # round n+1 - a real attrition signal from existing per-round status,
+    # not a new metric layered on top of the scoring data.
+    dropoff = {}
+    for n in (1, 2, 3):
+        dropoff[n] = sum(
+            1 for r in rows
+            for by_num in [{rr.round_number: rr for rr in r["info"].rounds}]
+            if by_num[n].status != "not_started" and by_num[n + 1].status == "not_started"
+        )
+    worst_dropoff = max(dropoff, key=dropoff.get) if any(dropoff.values()) else None
+
+    band_counts = {label: 0 for label, _, _ in _PERFORMANCE_BANDS}
+    for r in rows:
+        if r["info"].aggregate_score is None:
+            continue
+        pct = r["info"].aggregate_score / 400 * 100
+        for label, lo, hi in _PERFORMANCE_BANDS:
+            if lo <= pct < hi or (hi == 101 and pct == 100):
+                band_counts[label] += 1
+                break
+
+    cohort_misses = Counter()
+    for n in (1, 2, 3, 4):
+        cohort_misses.update(round_misses[n])
+    top_cohort_weaknesses = cohort_misses.most_common(5)
+    r1_coverage = round_metrics[1]["coverage"]
+    strongest_capability = max(r1_coverage, key=r1_coverage.get) if r1_coverage else None
+    weakest_capability = min(r1_coverage, key=r1_coverage.get) if r1_coverage else None
+
+    pdf = _AssessmentReportPDF(f"Cohort - {exam_date.isoformat()}")
+    pdf.add_page()
+    pdf.set_font(_REPORT_FONT, "B", 9)
+    pdf.set_text_color(*_MUTED)
+    pdf.cell(130, 5, "QA EVAL TOOL")
+    pdf.set_fill_color(*_NAVY)
+    pdf.set_text_color(*_WHITE)
+    pdf.set_font(_REPORT_FONT, "B", 8)
+    pdf.cell(0, 6, "  CONFIDENTIAL  ", align="R", new_x="LMARGIN", new_y="NEXT", fill=True)
+    pdf.set_font(_REPORT_FONT, "B", 19)
+    pdf.set_text_color(*_NAVY)
+    pdf.cell(0, 11, "Daily Cohort Summary", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_draw_color(*_NAVY)
+    pdf.set_line_width(0.8)
+    pdf.line(pdf.l_margin, pdf.get_y() + 1, pdf.w - pdf.r_margin, pdf.get_y() + 1)
+    pdf.set_line_width(0.2)
+    pdf.ln(5)
+
+    # ============ 1. EXECUTIVE SUMMARY ============
+    _section_title(pdf, "1. Executive Summary", min_space=90)
+    kpis = [
+        ("ASSESSMENT DATE", exam_date.strftime("%d %b %Y"), _NAVY),
+        ("TOTAL CANDIDATES", str(total), _NAVY),
+        ("STARTED", str(started), _NAVY),
+        ("COMPLETED", str(completed), _NAVY),
+        ("SELECTED", str(selected), _SUCCESS),
+        ("NOT SELECTED", str(not_selected), _CRITICAL),
+        ("NEEDS REVIEW", str(needs_review), _MEDIUM),
+        ("AVERAGE SCORE", f"{avg_score:.0f}/400 ({avg_score/4:.0f}%)" if avg_score is not None else "Not assessed", _NAVY),
+        ("HIGHEST SCORE", f"{highest}/400" if highest is not None else "Not assessed", _SUCCESS),
+        ("LOWEST SCORE", f"{lowest}/400" if lowest is not None else "Not assessed", _CRITICAL),
+        ("OVERALL PASS RATE", f"{pass_rate:.0f}%", _NAVY),
+        ("PASSING THRESHOLD", f"{app_settings.final_passing_score}/400", _MUTED),
+    ]
+    card_w, card_h, gap = 43.0, 20.0, 2.0
+    grid_top_y = pdf.get_y()  # fixed grid origin - _kpi_card() moves the
+    # cursor internally (cell/multi_cell calls), so reading pdf.get_y()
+    # fresh on each iteration would drift the grid diagonally down the
+    # page instead of laying out a clean 4-column grid.
+    for i, (label, value, color) in enumerate(kpis):
+        col, row_i = i % 4, i // 4
+        x = pdf.l_margin + col * (card_w + gap)
+        y = grid_top_y + row_i * (card_h + gap)
+        _kpi_card(pdf, x, y, card_w, card_h, label, value, color)
+    pdf.set_y(grid_top_y + 3 * (card_h + gap) + 2)
+
+    interpretation = (
+        f"{selected} of {total} candidates ({pass_rate:.0f}%) met the {app_settings.final_passing_score}/400 "
+        f"passing threshold. {completed} of {total} completed all four rounds"
+        + (f"; {needs_review} still need review." if needs_review else ".")
+    )
+    if worst_dropoff:
+        interpretation += f" Round {worst_dropoff} to {worst_dropoff + 1} shows the largest drop-off ({dropoff[worst_dropoff]} candidate(s) stalled)."
+    with _card(pdf, fill_color=_CARD_BG, border_color=_BORDER):
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(_REPORT_FONT, "", 9.5)
+        pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 8, 5.5, f"  {_pdf_safe_text(interpretation)}", new_x="LMARGIN", new_y="NEXT", fill=True)
+
+    # ============ 2. CANDIDATE COMPARISON ============
+    _section_title(pdf, "2. Candidate Comparison")
+    ranked = sorted(rows, key=lambda r: (r["info"].aggregate_score is None, -(r["info"].aggregate_score or 0), r["candidate"].email))
+    _reset_ink(pdf)
+    pdf.set_font(_REPORT_FONT, "", 9)
+    with pdf.table(
+        col_widths=(10, 48, 14, 14, 14, 14, 20, 18, 26),
+        text_align=("CENTER", "LEFT", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER", "CENTER"),
+        borders_layout="MINIMAL",
+        line_height=5.5,
+    ) as table:
+        header = table.row()
+        for text in ("Rank", "Candidate", "R1", "R2", "R3", "R4", "Total", "%", "Decision"):
+            header.cell(_pdf_safe_text(text), style=FontFace(emphasis="BOLD", fill_color=_NAVY, color=_WHITE, size_pt=9))
+        for rank, r in enumerate(ranked, start=1):
+            by_num = {rr.round_number: rr for rr in r["info"].rounds}
+            agg = r["info"].aggregate_score
+            label, color = _RESULT_STYLE[r["info"].result]
+            row = table.row()
+            row.cell(str(rank))
+            row.cell(_pdf_safe_text(r["candidate"].email))
+            for n in (1, 2, 3, 4):
+                rr = by_num[n]
+                row.cell(str(rr.final_score) if rr.status == "scored" and rr.final_score is not None else "-")
+            row.cell(str(agg) if agg is not None else "-")
+            row.cell(f"{agg/400*100:.0f}%" if agg is not None else "-")
+            row.cell(label, style=FontFace(emphasis="BOLD", color=color))
+    pdf.ln(4)
+
+    # ============ 3. ROUND-WISE METRICS ============
+    _section_title(pdf, "3. Round-wise Metrics")
+    _reset_ink(pdf)
+    pdf.set_font(_REPORT_FONT, "", 9)
+    with pdf.table(
+        col_widths=(16, 26, 24, 22, 22, 28, 40),
+        text_align=("CENTER", "LEFT", "CENTER", "CENTER", "CENTER", "CENTER", "LEFT"),
+        borders_layout="MINIMAL",
+        line_height=5.5,
+    ) as table:
+        header = table.row()
+        for text in ("Round", "Title", "Avg", "High", "Low", "Pass rate", "Assessed / Pass count"):
+            header.cell(_pdf_safe_text(text), style=FontFace(emphasis="BOLD", fill_color=_NAVY, color=_WHITE, size_pt=9))
+        for n in (1, 2, 3, 4):
+            m = round_metrics[n]
+            row = table.row()
+            row.cell(str(n))
+            row.cell(_pdf_safe_text(ROUND_LABELS.get(n, f"Round {n}")))
+            row.cell(f"{m['avg']:.0f}" if m["avg"] is not None else "-")
+            row.cell(str(m["high"]) if m["high"] is not None else "-")
+            row.cell(str(m["low"]) if m["low"] is not None else "-")
+            row.cell(f"{m['pass_pct']:.0f}%" if m["pass_pct"] is not None else "-")
+            row.cell(f"{m['assessed']} assessed / {m['pass_count']} passed")
+    pdf.ln(2)
+
+    pdf.set_font(_REPORT_FONT, "", 8.5)
+    for n in (1, 2, 3, 4):
+        m = round_metrics[n]
+        line_parts = []
+        if m["coverage"]:
+            cov = ", ".join(f"{cat} {pct:.0f}%" for cat, pct in m["coverage"].items())
+            line_parts.append(f"capability coverage: {cov}")
+        if m["top_weaknesses"]:
+            weak = ", ".join(f"{text} (x{count})" for text, count in m["top_weaknesses"])
+            line_parts.append(f"top gaps: {weak}")
+        if line_parts:
+            pdf.set_text_color(*_MUTED)
+            pdf.multi_cell(0, 4.8, _pdf_safe_text(f"R{n} - " + "; ".join(line_parts)), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*_TEXT)
+    pdf.ln(2)
+
+    # ============ 4. CANDIDATE DECISION SUMMARY ============
+    _section_title(pdf, "4. Candidate Decision Summary")
+    for r in ranked:
+        candidate, info, raw_rounds, cs = r["candidate"], r["info"], r["raw_rounds"], r["cs"]
+        label, color = _RESULT_STYLE[info.result]
+        if cs:
+            did_well = [b for rc in cs.round_comments_json for b in rc.get("did_well", [])][:3]
+            missed = [b for rc in cs.round_comments_json for b in rc.get("missed", [])][:5]
+        else:
+            did_well = []
+            missed = [m for n in (1, 2, 3, 4) for m in (raw_rounds.get(n, {}).get("misses") or [])][:5]
+        cleared = sum(
+            1 for rr in info.rounds
+            if rr.status == "scored" and rr.final_score is not None
+            and rr.final_score >= getattr(app_settings, f"round{rr.round_number}_passing_score", 70)
+        )
+        scored_n = sum(1 for rr in info.rounds if rr.status == "scored")
+        agg = info.aggregate_score
+        rationale = (
+            f"Cleared {cleared} of {scored_n} scored rounds; aggregate {agg}/400 vs the {app_settings.final_passing_score} threshold."
+            if agg is not None else "Assessment incomplete - no rounds scored yet."
+        )
+
+        _ensure_space(pdf, 20 + 5.5 * (len(did_well) + len(missed)) + 12)
+        with _card(pdf, border_color=_BORDER):
+            row_y = pdf.get_y()
+            pdf.set_font(_REPORT_FONT, "B", 11)
+            pdf.set_text_color(*_NAVY)
+            pdf.cell(90, 7, _pdf_safe_text(candidate.email))
+            pdf.set_font(_REPORT_FONT, "", 9.5)
+            pdf.set_text_color(*_MUTED)
+            pdf.cell(46, 7, f"{agg}/400 ({agg/400*100:.0f}%)" if agg is not None else "Not assessed")
+            pdf.set_xy(pdf.w - pdf.r_margin - 38, row_y)
+            pdf.set_font(_REPORT_FONT, "B", 9.5)
+            pdf.set_fill_color(*_CARD_BG)
+            pdf.set_text_color(*color)
+            pdf.cell(38, 7, label, align="C", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*_TEXT)
+
+            round_line = "  ".join(
+                f"R{rr.round_number}: {rr.final_score if rr.status == 'scored' and rr.final_score is not None else '-'}"
+                for rr in info.rounds
+            )
+            pdf.set_font(_REPORT_FONT, "", 8.5)
+            pdf.set_text_color(*_MUTED)
+            pdf.cell(0, 5, round_line, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*_TEXT)
+            pdf.ln(1)
+
+            if did_well:
+                pdf.set_font(_REPORT_FONT, "B", 8.5)
+                pdf.set_text_color(*_SUCCESS)
+                pdf.cell(0, 5, "STRENGTHS", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(*_TEXT)
+                pdf.set_font(_REPORT_FONT, "", 8.5)
+                for b in did_well:
+                    pdf.multi_cell(0, 4.8, f"  - {_pdf_safe_text(b)}", new_x="LMARGIN", new_y="NEXT")
+            if missed:
+                pdf.set_font(_REPORT_FONT, "B", 8.5)
+                pdf.set_text_color(*_CRITICAL)
+                pdf.cell(0, 5, "KEY WEAKNESSES", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_text_color(*_TEXT)
+                pdf.set_font(_REPORT_FONT, "", 8.5)
+                for b in missed:
+                    pdf.multi_cell(0, 4.8, f"  - {_pdf_safe_text(b)}", new_x="LMARGIN", new_y="NEXT")
+
+            pdf.set_font(_REPORT_FONT, "I", 8.5)
+            pdf.set_text_color(*_MUTED)
+            pdf.multi_cell(0, 4.8, _pdf_safe_text(f"Rationale: {rationale}"), new_x="LMARGIN", new_y="NEXT")
+            if info.result != "selected" and missed:
+                pdf.multi_cell(0, 4.8, _pdf_safe_text(f"Interview focus: {missed[0]}"), new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*_TEXT)
+
+    # ============ 5. COHORT INSIGHTS ============
+    _section_title(pdf, "5. Cohort Insights", min_space=80)
+    if top_cohort_weaknesses:
+        pdf.set_font(_REPORT_FONT, "B", 9.5)
+        pdf.cell(0, 6, "Top common weaknesses", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font(_REPORT_FONT, "", 9)
+        for text, count in top_cohort_weaknesses:
+            pdf.multi_cell(0, 5, f"  - {_pdf_safe_text(text)} (x{count})", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+
+    if strongest_capability and weakest_capability:
+        pdf.set_font(_REPORT_FONT, "B", 9.5)
+        pdf.cell(0, 6, "Capabilities (Round 1 coverage)", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font(_REPORT_FONT, "", 9)
+        if r1_coverage[strongest_capability] == r1_coverage[weakest_capability]:
+            # Every category tied (commonly all 0%, as with a cohort that
+            # skipped Round 1 almost entirely) - a false "strongest vs
+            # weakest" split would misrepresent an actual tie as a
+            # meaningful difference.
+            pdf.set_text_color(*_MUTED)
+            cats = ", ".join(r1_coverage.keys())
+            pdf.cell(0, 5, f"  All categories tied at {r1_coverage[strongest_capability]:.0f}% avg coverage ({_pdf_safe_text(cats)})", new_x="LMARGIN", new_y="NEXT")
+        else:
+            pdf.set_text_color(*_SUCCESS)
+            pdf.cell(0, 5, f"  Strongest: {_pdf_safe_text(strongest_capability)} ({r1_coverage[strongest_capability]:.0f}% avg coverage)", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_text_color(*_CRITICAL)
+            pdf.cell(0, 5, f"  Weakest: {_pdf_safe_text(weakest_capability)} ({r1_coverage[weakest_capability]:.0f}% avg coverage)", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(*_TEXT)
+        pdf.ln(1)
+
+    pdf.set_font(_REPORT_FONT, "B", 9.5)
+    pdf.cell(0, 6, "Round drop-off", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font(_REPORT_FONT, "", 9)
+    if worst_dropoff:
+        pdf.cell(0, 5, f"  Round {worst_dropoff} to {worst_dropoff + 1}: {dropoff[worst_dropoff]} candidate(s) never started the next round after this one.", new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.cell(0, 5, "  No drop-off observed - every candidate who started a round progressed to the next.", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+    pdf.set_font(_REPORT_FONT, "B", 9.5)
+    pdf.cell(0, 6, "Performance band distribution", new_x="LMARGIN", new_y="NEXT")
+    bar_x, bar_w = pdf.l_margin + 26, 100.0
+    max_band = max(band_counts.values()) or 1
+    for label, _, _ in _PERFORMANCE_BANDS:
+        count = band_counts[label]
+        y = pdf.get_y()
+        pdf.set_font(_REPORT_FONT, "", 8.5)
+        pdf.set_text_color(*_MUTED)
+        pdf.cell(24, 5, label)
+        _score_bar(pdf, bar_x, y + 0.5, bar_w, 4, count / max_band, _BLUE)
+        pdf.set_xy(bar_x + bar_w + 3, y)
+        pdf.set_text_color(*_TEXT)
+        pdf.cell(0, 5, str(count), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+
+    with _card(pdf, fill_color=_CARD_BG, border_color=_BORDER):
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(_REPORT_FONT, "B", 9.5)
+        pdf.set_text_color(*_NAVY)
+        pdf.cell(0, 6, "  Overall hiring recommendation", new_x="LMARGIN", new_y="NEXT", fill=True)
+        pdf.set_x(pdf.l_margin + 4)
+        pdf.set_font(_REPORT_FONT, "", 9.5)
+        pdf.set_text_color(*_TEXT)
+        recommendation = f"Advance {selected} of {total} candidates ({pass_rate:.0f}%) who met the passing threshold."
+        if needs_review:
+            recommendation += f" {needs_review} candidate(s) need manual review before a final call."
+        pdf.multi_cell(pdf.w - pdf.l_margin - pdf.r_margin - 8, 5.5, f"  {_pdf_safe_text(recommendation)}", new_x="LMARGIN", new_y="NEXT", fill=True)
+
+    pdf_bytes = bytes(pdf.output())
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="cohort-{exam_date.isoformat()}.pdf"'},
     )
 
 

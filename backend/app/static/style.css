@@ -891,6 +891,43 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
    typed, instead of collapsing multi-paragraph text into one line. */
 .scenario-description { white-space: pre-line; }
 
+/* ---- Candidate assessment summary report (renderCandidateSummary in
+   app.js) - scannable pointers, not prose, styled to read like an
+   enterprise scorecard: verdict-first (executive summary), then the
+   evidence behind it, each round color-coded by whether it cleared its
+   passing score. ---- */
+.summary-verdict {
+  background: var(--accent-soft); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  padding: 1.1rem 1.3rem; margin-bottom: var(--space-compact);
+}
+.summary-verdict-label { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); display: block; margin-bottom: 0.4rem; }
+.summary-verdict-text { margin: 0; color: var(--text-primary); font-size: var(--text-lg); font-weight: 600; line-height: 1.5; }
+
+.summary-observations-panel { background: var(--surface-elevated); }
+.summary-observations-panel h5 { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 var(--space-tight); }
+.summary-observations { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.summary-observations li { padding-left: 1.4rem; position: relative; font-size: var(--text-md); font-weight: 500; line-height: 1.55; }
+.summary-observations li::before { content: "\2022"; position: absolute; left: 0.25rem; color: var(--accent); font-weight: 700; font-size: 1.2em; }
+
+.summary-round { border-left: 4px solid var(--border-strong); }
+.summary-round.round-pass { border-left-color: var(--success); }
+.summary-round.round-fail { border-left-color: var(--error); }
+.summary-round-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-tight); margin-bottom: var(--space-tight); }
+.summary-round-head h5 { margin: 0; display: flex; align-items: baseline; gap: 0.5rem; }
+.summary-round-number { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em; }
+.badge-score { font-size: var(--text-sm); font-weight: 700; padding: 0.3rem 0.7rem; font-variant-numeric: tabular-nums; }
+
+.summary-cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-compact); }
+@media (max-width: 43.75rem) { .summary-cols { grid-template-columns: 1fr; } }
+.summary-col-label { display: inline-block; font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 0.15rem 0.5rem; margin-bottom: var(--space-tight); }
+.summary-col-label.did-well { color: var(--success); background: var(--success-soft); }
+.summary-col-label.missed { color: var(--error); background: var(--error-soft); }
+.summary-bullets { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.summary-bullets li { padding-left: 1.2rem; position: relative; font-size: var(--text-md); line-height: 1.5; }
+.summary-bullets.did-well li::before { content: "+"; position: absolute; left: 0; color: var(--success); font-weight: 700; }
+.summary-bullets.missed li::before { content: "-"; position: absolute; left: 0; color: var(--error); font-weight: 700; }
+.summary-bullets-empty { color: var(--text-muted); font-size: var(--text-md); font-style: italic; }
+
 /* Small tab-switcher pills (round 3/4's mockup-screen picker, see
    selectMockupScreen in app.js) - the main rail nav uses .tick/
    .index-item instead; this is the one place a compact horizontal

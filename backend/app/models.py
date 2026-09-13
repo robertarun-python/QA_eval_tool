@@ -476,6 +476,36 @@ class CandidateAppearance(Base):
     user = relationship("User", back_populates="appearances")
 
 
+class CandidateSummary(Base):
+    """The AI cross-round synthesis for one candidate (see routers/hr.py's
+    GET/POST/DELETE /candidates/{id}/summary, llm_service.
+    generate_candidate_summary) - used to be generated fresh on every
+    click with nothing saved, which meant downloading the PDF later
+    meant regenerating it (a fresh LLM call, and not even guaranteed to
+    read the same as what HR reviewed on screen). One row per candidate
+    (user_id is unique) - POST upserts it, GET reads it back with no LLM
+    call, DELETE clears it. Not tied to a specific CandidateAppearance -
+    it describes whatever the candidate's current cycle looks like right
+    now; HR re-generates it after a re-application if a fresh one is
+    needed, same as any other regenerate-on-demand content in this app."""
+    __tablename__ = "candidate_summaries"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    # list[{"round_number": int, "did_well": list[str], "missed": list[str]}] -
+    # bulleted pointers, not a paragraph (see prompts/
+    # candidate_summary_generation.txt) - matches how every other feedback
+    # surface in this app is laid out (score / coverage / misses, clearly
+    # labeled) rather than dumping everything into undifferentiated prose.
+    round_comments_json = Column(JSON, nullable=False)
+    key_observations_json = Column(JSON, nullable=False)  # list[str] - cross-round highlights, bulleted
+    verdict = Column(Text, nullable=False)  # short and decisive, not a paragraph
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User")
+
+
 class AppSettings(Base):
     """Singleton row (id is always 1) holding the runtime-editable
     settings HR can change through the UI without a server restart -

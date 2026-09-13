@@ -1364,7 +1364,7 @@ async function openCandidateDetail(id) {
     <div class="panel-inset">
       <h4>Summary</h4>
       <p class="muted">A crisp, cross-round synthesis for feedback to the candidate or a briefing for the next round's interviewers.</p>
-      <div class="row">
+      <div id="candidate-summary-controls" class="row">
         <button onclick="generateCandidateSummary(${id})">Generate Summary</button>
       </div>
       <div id="candidate-summary-body"></div>
@@ -1377,6 +1377,7 @@ async function openCandidateDetail(id) {
     </div>
   `;
   loadAppearances(id);
+  loadExistingCandidateSummary(id);
   // The candidates table above can easily be long enough that this panel
   // renders off-screen - clicking "View" filled it in, but nothing
   // visibly happened until the HR user thought to scroll down and find
@@ -1426,50 +1427,104 @@ async function viewAppearance(candidateId, appearanceId) {
   detailEl.innerHTML = renderSubmissionsPanels(submissions);
 }
 
+// Tries to load a summary saved from an earlier visit (see models.
+// CandidateSummary) - no LLM call, so opening a candidate HR has already
+// summarized before shows it and its Download/Regenerate/Delete controls
+// immediately, rather than making HR click Generate again just to get
+// back something that already exists. A 404 here is the normal "nothing
+// generated yet" case, not an error - the static "Generate Summary"
+// button already in the panel is left exactly as it is.
+async function loadExistingCandidateSummary(id) {
+  try {
+    const result = await api(`/hr/candidates/${id}/summary`);
+    renderCandidateSummary(id, result);
+  } catch (e) {
+    // Leave the initial "Generate Summary" button in place.
+  }
+}
+
 async function generateCandidateSummary(id) {
   const body = document.getElementById("candidate-summary-body");
   body.innerHTML = `<p class="muted">Generating (a few seconds)...</p>`;
   try {
     const result = await api(`/hr/candidates/${id}/summary`, { method: "POST" });
-    candidateSummaryData = result;
-
-    const roundBlocks = result.round_comments.map((rc) => {
-      const submission = candidateDetailSubmissions.find((s) => s.round_number === rc.round_number);
-      const label = ROUND_LABELS[rc.round_number] || `Round ${rc.round_number}`;
-      const scoreNote = submission && submission.score
-        ? `<strong class="${submission.score.final_score >= passingScoreForRound(rc.round_number) ? "score-good" : "score-bad"}">${submission.score.final_score}/100</strong>`
-        : submission && submission.status === "scoring_failed"
-          ? `<span class="score-bad">scoring failed</span>`
-          : `<span class="muted">not scored yet</span>`;
-      return `
-        <div class="panel-inset">
-          <h5>Round ${rc.round_number} - ${escapeHtml(label)} ${scoreNote}</h5>
-          <p>${escapeHtml(rc.comment)}</p>
-        </div>
-      `;
-    }).join("");
-
-    body.innerHTML = `
-      ${roundBlocks}
-      <div class="panel-inset">
-        <h5>Final Summary</h5>
-        <p>${escapeHtml(result.final_summary)}</p>
-      </div>
-      <div class="row">
-        <!-- id only, not the candidate's email (attacker-controlled via
-             bulk upload) - a value inside onclick="...'...'" isn't made
-             safe by escapeHtml, which only escapes for a text node, not
-             for sitting inside a quoted attribute (same gap noted on
-             deleteScenarioFromList's button - see lastLoadedScenarios
-             above). downloadCandidateSummaryPdf reads the email straight
-             from candidateSummaryData instead - already fetched, right
-             above. -->
-        <button onclick="downloadCandidateSummaryPdf(${id})">Download as PDF</button>
-      </div>
-    `;
+    renderCandidateSummary(id, result);
   } catch (e) {
     body.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
   }
+}
+
+// Shared by both paths above - a freshly-generated summary and one
+// loaded back from an earlier visit render identically, since both are
+// now just "whatever's currently saved" (see models.CandidateSummary).
+function renderCandidateSummary(id, result) {
+  candidateSummaryData = result;
+
+  const bulletList = (items, variant) => items.length
+    ? `<ul class="summary-bullets ${variant}">${items.map((b) => `<li>${escapeHtml(b)}</li>`).join("")}</ul>`
+    : `<p class="summary-bullets-empty">Nothing to note.</p>`;
+
+  // Reuses the existing .badge/.badge-pass/.badge-fail chip vocabulary
+  // (same one the candidates table and round-history views use for
+  // status pills) instead of inventing new score styling - one visual
+  // language for "pass" and "fail" across the whole app.
+  const roundBlocks = result.round_comments.map((rc) => {
+    const submission = candidateDetailSubmissions.find((s) => s.round_number === rc.round_number);
+    const label = ROUND_LABELS[rc.round_number] || `Round ${rc.round_number}`;
+    const passed = submission && submission.score && submission.score.final_score >= passingScoreForRound(rc.round_number);
+    const scoreChip = submission && submission.score
+      ? `<span class="badge badge-score ${passed ? "badge-pass" : "badge-fail"}">${submission.score.final_score}/100</span>`
+      : submission && submission.status === "scoring_failed"
+        ? `<span class="badge badge-score badge-fail">Scoring failed</span>`
+        : `<span class="badge badge-score">Not scored yet</span>`;
+    const accentClass = !submission || !submission.score ? "" : passed ? "round-pass" : "round-fail";
+    return `
+      <div class="panel-inset summary-round ${accentClass}">
+        <div class="summary-round-head">
+          <h5><span class="summary-round-number">${String(rc.round_number).padStart(2, "0")}</span>${escapeHtml(label)}</h5>
+          ${scoreChip}
+        </div>
+        <div class="summary-cols">
+          <div>
+            <div class="summary-col-label did-well">What went well</div>
+            ${bulletList(rc.did_well, "did-well")}
+          </div>
+          <div>
+            <div class="summary-col-label missed">What was missed</div>
+            ${bulletList(rc.missed, "missed")}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Verdict + key observations lead the panel (executive summary first,
+  // detail below) - the way an actual scorecard reads, not the order
+  // the LLM happens to return fields in.
+  document.getElementById("candidate-summary-body").innerHTML = `
+    <div class="summary-verdict">
+      <span class="summary-verdict-label">Overall verdict</span>
+      <p class="summary-verdict-text">${escapeHtml(result.verdict)}</p>
+    </div>
+    <div class="panel-inset summary-observations-panel">
+      <h5>Key Observations</h5>
+      <ul class="summary-observations">${result.key_observations.map((o) => `<li>${escapeHtml(o)}</li>`).join("")}</ul>
+    </div>
+    ${roundBlocks}
+    ${result.generated_at ? `<p class="muted">Generated ${formatDateTime(result.generated_at)}</p>` : ""}
+  `;
+  // id only, not the candidate's email (attacker-controlled via bulk
+  // upload) - a value inside onclick="...'...'" isn't made safe by
+  // escapeHtml, which only escapes for a text node, not for sitting
+  // inside a quoted attribute (same gap noted on deleteScenarioFromList's
+  // button - see lastLoadedScenarios above). downloadCandidateSummaryPdf/
+  // deleteCandidateSummary read the email straight from
+  // candidateSummaryData instead - already fetched, right above.
+  document.getElementById("candidate-summary-controls").innerHTML = `
+    <button onclick="generateCandidateSummary(${id})">Regenerate</button>
+    <button onclick="downloadCandidateSummaryPdf(${id})">Download as PDF</button>
+    <button class="btn-danger" onclick="deleteCandidateSummary(${id})">Delete</button>
+  `;
 }
 
 async function downloadCandidateSummaryPdf(id) {
@@ -1477,15 +1532,10 @@ async function downloadCandidateSummaryPdf(id) {
   // would fail on this endpoint's binary PDF response.
   try {
     // fetch() itself can reject (network failure) before there's even a
-    // response to check .ok on - same gap login() had, same fix.
-    const res = await fetch(`/hr/candidates/${id}/summary/pdf`, {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({
-        round_comments: candidateSummaryData.round_comments,
-        final_summary: candidateSummaryData.final_summary,
-      }),
-    });
+    // response to check .ok on - same gap login() had, same fix. No body
+    // to send anymore either - the server renders whatever's currently
+    // saved (see models.CandidateSummary), not a client-supplied copy.
+    const res = await fetch(`/hr/candidates/${id}/summary/pdf`, { method: "POST" });
     if (!res.ok) {
       alert("Couldn't generate the PDF - try again.");
       return;
@@ -1497,12 +1547,62 @@ async function downloadCandidateSummaryPdf(id) {
     // candidateSummaryData.candidate_email, not a value threaded through
     // an onclick="..." string (the candidate's own email, attacker-
     // controlled via bulk upload) - see the fix note on
-    // generateCandidateSummary's button above for why that mattered.
+    // renderCandidateSummary's controls above for why that mattered.
     a.download = `${candidateSummaryData.candidate_email.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
     alert("Couldn't reach the server - check your connection and try again.");
+  }
+}
+
+// One PDF per screening day - every candidate whose current appearance's
+// exam_date matches, with marks/comment/result (see hr.py's
+// daily_summary_pdf). Never generates anything - the comment column is
+// whatever AI summary a candidate already has, "Not generated yet"
+// otherwise - so this is safe to click at any time.
+async function downloadDailySummary() {
+  const dateInput = document.getElementById("daily-summary-date");
+  const statusEl = document.getElementById("daily-summary-status");
+  statusEl.className = "";
+  statusEl.textContent = "";
+  if (!dateInput.value) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Pick a date first.";
+    return;
+  }
+  try {
+    const res = await fetch(`/hr/reports/daily-summary?exam_date=${dateInput.value}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      statusEl.className = "error-text";
+      statusEl.textContent = (body && body.detail) || "Couldn't generate the summary - try again.";
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `cohort-${dateInput.value}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    statusEl.className = "error-text";
+    statusEl.textContent = "Couldn't reach the server - check your connection and try again.";
+  }
+}
+
+async function deleteCandidateSummary(id) {
+  if (!confirm("Delete this candidate's saved summary? You can generate a new one anytime, but this exact copy will be gone.")) return;
+  try {
+    await api(`/hr/candidates/${id}/summary`, { method: "DELETE" });
+    candidateSummaryData = null;
+    document.getElementById("candidate-summary-body").innerHTML = "";
+    document.getElementById("candidate-summary-controls").innerHTML = `
+      <button onclick="generateCandidateSummary(${id})">Generate Summary</button>
+    `;
+  } catch (e) {
+    alert(e.message);
   }
 }
 
