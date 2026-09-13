@@ -484,6 +484,7 @@ async function loadAppSettings() {
   document.getElementById("set-round4").value = appSettings.round4_passing_score;
   document.getElementById("set-final").value = appSettings.final_passing_score;
   document.getElementById("set-window").value = appSettings.reapplication_window_months;
+  document.getElementById("set-assessment-window").value = appSettings.assessment_window_days;
 }
 
 async function saveAppSettings() {
@@ -495,6 +496,7 @@ async function saveAppSettings() {
     round4_passing_score: Number(document.getElementById("set-round4").value),
     final_passing_score: Number(document.getElementById("set-final").value),
     reapplication_window_months: Number(document.getElementById("set-window").value),
+    assessment_window_days: Number(document.getElementById("set-assessment-window").value),
   };
   try {
     appSettings = await api("/hr/settings", { method: "PUT", body: JSON.stringify(payload) });

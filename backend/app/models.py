@@ -492,4 +492,15 @@ class AppSettings(Base):
     round4_passing_score = Column(Integer, nullable=False, default=70)
     final_passing_score = Column(Integer, nullable=False, default=280)  # out of 400 (sum of the four rounds)
     reapplication_window_months = Column(Integer, nullable=False, default=6)
+    # How long a candidate has, from when they started round 1 (or, if
+    # they never even did that, their CandidateAppearance.exam_date), to
+    # complete all four rounds - see scoring_service.
+    # close_expired_assessment_windows. A round that was never even
+    # started has no started_at, so nothing about per-round timeouts can
+    # ever expire it on its own; without this, a candidate who simply
+    # never begins the next round sits at "not_started" forever, with
+    # nothing forcing a resolution. Default of 1 day means same-day
+    # completion once started, by design - HR can widen this if candidates
+    # are meant to spread the four rounds across more than one sitting.
+    assessment_window_days = Column(Integer, nullable=False, default=1)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -41,7 +41,7 @@ from ..schemas import (
 from ..dependencies import require_hr
 from ..services import llm_service
 from ..services import candidate_upload_service
-from ..services.scoring_service import score_submission_in_background, close_expired_submissions
+from ..services.scoring_service import score_submission_in_background, close_expired_submissions, close_expired_assessment_windows
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -80,6 +80,7 @@ def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
         round4_passing_score=app_settings.round4_passing_score,
         final_passing_score=app_settings.final_passing_score,
         reapplication_window_months=app_settings.reapplication_window_months,
+        assessment_window_days=app_settings.assessment_window_days,
         round4_default_assistance_pct=settings.round4_default_assistance_pct,
     )
 
@@ -651,6 +652,7 @@ def delete_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = 
 def _build_candidate_summary(candidate: User, db: Session, background_tasks: BackgroundTasks) -> CandidateSummaryOut:
     """Shared by list_candidates and set_candidate_band (which returns
     the one candidate it just updated, in the same shape)."""
+    app_settings = get_settings(db)
     # Only the current cycle's submissions - a reset candidate's old,
     # archived ones must not appear as if they were still active (see
     # Submission.archived / CandidateAppearance).
@@ -660,6 +662,13 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
     # close_expired_submissions) - otherwise this dashboard would keep
     # showing an abandoned round as "in progress" indefinitely.
     close_expired_submissions(db, current_submissions, background_tasks)
+    # One level earlier: a round that was never even started has no
+    # started_at for the check above to ever act on, so without this,
+    # "not_started" has no maximum residency at all - see
+    # scoring_service.close_expired_assessment_windows.
+    current_submissions = current_submissions + close_expired_assessment_windows(
+        db, candidate, app_settings, background_tasks,
+    )
     submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     aggregate_score = None
@@ -693,7 +702,6 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
     # drives in app.js) - not also gated on each round's own per-round
     # passing_score individually.
     if all_four_scored:
-        app_settings = get_settings(db)
         result = "selected" if (aggregate_score or 0) >= app_settings.final_passing_score else "not_selected"
     else:
         result = "in_progress"

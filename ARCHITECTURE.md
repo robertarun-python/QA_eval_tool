@@ -78,6 +78,29 @@ rather than forcing a surprise logout with nothing at stake. This is
 what closes the two-devices-during-a-timed-test gap; it does not enforce
 "one login ever," just "one that counts while it matters."
 
+**Every round has a maximum residency, including "not started" — and the
+whole assessment is a same-day activity by default.** A round that's
+`in_progress` expires against its own `time_limit_minutes`
+(`close_expired_submissions`) or ends immediately on logout
+(`routers/auth.py`'s logout). But a round the candidate never even
+started has no `started_at` for either of those to act on — nothing
+bounded how long "not_started" could last on its own, so a candidate who
+simply never begins the next round could sit there indefinitely with
+nothing forcing a resolution. `AppSettings.assessment_window_days`
+(default `1`) closes that: `scoring_service.
+close_expired_assessment_windows` anchors to round 1's own
+`Submission.started_at` — universal, every candidate gets one the
+instant they click Start, regardless of how their account was created —
+and once that many days have passed, finalizes any round with no
+submission at all as a zero-attempt, through the same real scoring
+pipeline a timeout uses. Falls back to `CandidateAppearance.exam_date`
+only for a genuine no-show (scheduled, never started anything at all -
+round 1 itself has no `started_at` yet either). This used to be
+anchored to `exam_date` alone, which meant any candidate without a
+`CandidateAppearance` — every seeded/demo account included — got no
+enforcement whatsoever; anchoring to `started_at` first closes that for
+every candidate, not just the bulk-uploaded ones.
+
 **Scenario lifecycle: draft → published → archived.** HR creating a
 scenario immediately (synchronously) triggers an LLM call to generate the
 reference answer, but candidates can't see it yet — it's `draft` until HR

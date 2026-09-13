@@ -4,10 +4,20 @@ services/candidate_upload_service.py). No LLM calls except where a full
 round is completed (mocked, same pattern as the other test files).
 """
 import io
+from datetime import datetime, timedelta
 
 import openpyxl
 
 from .conftest import HR_EMAIL, HR_PASSWORD, _login, _auth, _publish_scenario
+
+
+def _date(days_from_now: int = 0) -> str:
+    """A YYYY-MM-DD exam_date relative to today, not a hardcoded literal -
+    AppSettings.assessment_window_days (see scoring_service.
+    close_expired_assessment_windows) means a hardcoded past date
+    eventually goes stale and starts auto-closing rounds mid-test as real
+    time passes, exactly as happened here once that feature shipped."""
+    return (datetime.utcnow() + timedelta(days=days_from_now)).strftime("%Y-%m-%d")
 
 
 def _txt_file(text: str):
@@ -111,7 +121,7 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
         lambda **kwargs: {"coverage_score": 90, "misses": [], "final_score": 90, "feedback_text": "great"},
     )
 
-    upload_body = client.post("/hr/candidates/upload", files=_txt_file("email,exam_date\njohn.doe@acme.com,2026-01-01\n"), cookies=_auth(hr_token)).json()
+    upload_body = client.post("/hr/candidates/upload", files=_txt_file(f"email,exam_date\njohn.doe@acme.com,{_date()}\n"), cookies=_auth(hr_token)).json()
     john_password = next(r["password"] for r in upload_body["rows"] if r["username"] == "john.doe")
     candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     candidate_id = next(c for c in candidates if c["email"] == "john.doe@acme.com")["id"]
@@ -135,7 +145,7 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
     # Re-upload the same email, exam date well within the default 6-month window.
     res = client.post(
         "/hr/candidates/upload",
-        files=_txt_file("email,exam_date\njohn.doe@acme.com,2026-02-01\n"),
+        files=_txt_file(f"email,exam_date\njohn.doe@acme.com,{_date(5)}\n"),
         cookies=_auth(hr_token),
     )
     assert res.status_code == 200
@@ -188,7 +198,7 @@ def test_reupload_finalizes_an_abandoned_in_progress_round_instead_of_freezing_i
         lambda **kwargs: {"coverage_score": 0, "misses": ["Nothing submitted"], "final_score": 0, "feedback_text": "no attempt"},
     )
 
-    upload_body = client.post("/hr/candidates/upload", files=_txt_file("email,exam_date\njane.doe@acme.com,2026-01-01\n"), cookies=_auth(hr_token)).json()
+    upload_body = client.post("/hr/candidates/upload", files=_txt_file(f"email,exam_date\njane.doe@acme.com,{_date()}\n"), cookies=_auth(hr_token)).json()
     jane_password = next(r["password"] for r in upload_body["rows"] if r["username"] == "jane.doe")
     candidate_id = next(c for c in client.get("/hr/candidates", cookies=_auth(hr_token)).json() if c["email"] == "jane.doe@acme.com")["id"]
     client.patch(f"/hr/candidates/{candidate_id}/band", json={"experience_band": "0-7"}, cookies=_auth(hr_token))
@@ -202,7 +212,7 @@ def test_reupload_finalizes_an_abandoned_in_progress_round_instead_of_freezing_i
     # HR resets them via a re-upload before that round ever resolves.
     res = client.post(
         "/hr/candidates/upload",
-        files=_txt_file("email,exam_date\njane.doe@acme.com,2026-02-01\n"),
+        files=_txt_file(f"email,exam_date\njane.doe@acme.com,{_date(5)}\n"),
         cookies=_auth(hr_token),
     )
     assert res.status_code == 200

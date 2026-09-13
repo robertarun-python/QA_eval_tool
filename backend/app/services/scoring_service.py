@@ -10,8 +10,13 @@ from datetime import datetime, timedelta
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
-from ..models import Submission, Score, RoundStatus
+from ..models import Submission, Score, RoundStatus, Scenario, User, AppSettings
 from . import llm_service, execution_service
+
+# Keep in sync with routers/candidate.py's ROUND_SEQUENCE - duplicated
+# rather than imported to avoid a routers -> services -> routers import
+# cycle (candidate.py already imports this module).
+_ASSESSMENT_ROUND_SEQUENCE = (1, 2, 3, 4)
 
 
 def _apply_provenance(score: Score, result: dict) -> None:
@@ -407,4 +412,88 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
     for submission in closed:
         background_tasks.add_task(score_submission_in_background, submission.id)
 
+    return closed
+
+
+def close_expired_assessment_windows(
+    db: Session, candidate: User, app_settings: AppSettings, background_tasks: BackgroundTasks,
+) -> list[Submission]:
+    """The one-level-earlier counterpart to close_expired_submissions
+    above: that function can only ever act on a round that's already
+    in_progress - it needs a started_at to compute a deadline from. A
+    round the candidate never even started has no started_at, so nothing
+    about per-round timeouts can ever resolve it on its own.
+    "not_started" is a state with no maximum residency at all without
+    this - a candidate who simply never begins the next round sits there
+    indefinitely, with nothing forcing a resolution.
+
+    Anchored to AppSettings.assessment_window_days from whichever the
+    candidate actually has: round 1's own Submission.started_at, if
+    they've begun at all, or their current CandidateAppearance.exam_date
+    as a fallback for the genuine no-show case (scheduled, never showed
+    up at all - round 1 itself has no started_at yet either, and gets
+    closed out below same as every other not-yet-started round). This
+    used to be exam_date-only - anchored purely to bulk-uploaded
+    candidates' scheduling data - which meant any candidate without a
+    CandidateAppearance (every seeded/demo account, or any future
+    creation path that isn't the bulk-upload flow) got NO enforcement at
+    all, silently. started_at is universal: every candidate gets one the
+    instant they click Start, regardless of how their account was
+    created, so anchoring there first closes the gap for everyone, not
+    just one creation path. Only truly exempt now: an account that has
+    neither ever started round 1 nor has any exam_date to fall back on -
+    nothing has happened yet to measure a deadline from, which is a
+    different (and harmless) state than "started something, then stalled."
+    """
+    round1_submission = next(
+        (s for s in candidate.submissions if s.round_number == 1 and not s.archived and s.started_at is not None),
+        None,
+    )
+    appearance = next((a for a in candidate.appearances if a.is_current), None)
+    if round1_submission is not None:
+        anchor = round1_submission.started_at
+    elif appearance is not None:
+        anchor = appearance.exam_date
+    else:
+        return []
+    deadline = anchor + timedelta(days=app_settings.assessment_window_days)
+    if datetime.utcnow() < deadline:
+        return []
+
+    existing_rounds = {s.round_number for s in candidate.submissions if not s.archived}
+    closed = []
+    for round_number in _ASSESSMENT_ROUND_SEQUENCE:
+        if round_number in existing_rounds:
+            continue
+        scenario = (
+            db.query(Scenario)
+            .filter(
+                Scenario.round_number == round_number,
+                Scenario.experience_band == candidate.experience_band,
+                Scenario.is_live.is_(True),
+            )
+            .first()
+        )
+        if scenario is None:
+            continue  # nothing published/live for this round+band - leave it "not_started", there's nothing to score against
+        if round_number == 1:
+            content = []
+        elif round_number == 2:
+            content = {"investigation": [], "root_cause": ""}
+        else:
+            content = None  # rounds 3/4 keep their state in their own tables, same as a real submission would
+        submission = Submission(
+            user_id=candidate.id, scenario_id=scenario.id, round_number=round_number,
+            started_at=deadline, status=RoundStatus.submitted, submitted_at=deadline,
+            auto_closed_reason="Assessment window closed before this round was ever started",
+            appearance_id=appearance.id if appearance else None, content=content,
+        )
+        db.add(submission)
+        closed.append(submission)
+
+    if closed:
+        db.commit()
+        for submission in closed:
+            db.refresh(submission)
+            background_tasks.add_task(score_submission_in_background, submission.id)
     return closed

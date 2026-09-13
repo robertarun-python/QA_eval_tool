@@ -69,6 +69,7 @@ class AppSettingsOut(BaseModel):
     round4_passing_score: int
     final_passing_score: int
     reapplication_window_months: int
+    assessment_window_days: int
     # Read-only here - see config.py's round4_default_assistance_pct.
     # Not part of AppSettingsUpdate below: it's an env-sourced,
     # deployment-level fallback, not something HR edits through this
@@ -87,6 +88,7 @@ class AppSettingsUpdate(BaseModel):
     round4_passing_score: int = Field(ge=0, le=100)
     final_passing_score: int = Field(ge=0, le=400)
     reapplication_window_months: int = Field(ge=1)
+    assessment_window_days: int = Field(ge=1)
 
 
 # ---- Test case rows. Round 1's candidate submissions AND both round

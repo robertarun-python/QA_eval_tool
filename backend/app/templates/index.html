@@ -156,7 +156,9 @@
               <div class="field-row">
                 <div class="field-inline"><label for="set-final">Final pass score (out of 400)</label><input id="set-final" type="number" min="0" max="400" /></div>
                 <div class="field-inline"><label for="set-window">Re-application window (months)</label><input id="set-window" type="number" min="1" /></div>
+                <div class="field-inline"><label for="set-assessment-window">Assessment window (days)</label><input id="set-assessment-window" type="number" min="1" /></div>
               </div>
+              <p class="muted">Assessment window: how long a bulk-uploaded candidate has, from their scheduled exam date, to complete all four rounds. A round they never even start gets closed out as a zero-attempt once this passes - otherwise "not started" can sit unresolved indefinitely.</p>
               <button onclick="saveAppSettings()">Save</button>
               <p id="settings-status" class="muted"></p>
             </div>
