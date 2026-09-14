@@ -23,6 +23,16 @@ into the prompt and had the same missing-guardrail gap until it was
 given one matching round4_partial_response.txt's. Covered here too,
 same reasoning: nothing else would catch a future edit to that prompt
 file silently dropping it.
+
+candidate_summary_generation.txt (see llm_service.
+generate_candidate_summary) is a second-order case, found and fixed
+after the rest: it embeds each round's feedback_text/misses/
+concept_coverage notes - not raw candidate text, but the *output* of
+the round1-4 scoring prompts above, which are themselves instructed to
+quote or describe a caught injection attempt as a red flag in
+feedback_text. That quoted text then reaches this second LLM call with
+no guardrail of its own. Low practical impact (this call never produces
+a score, only prose for a human to read), but the same class of gap.
 """
 from app.services import llm_service
 
@@ -107,3 +117,17 @@ def test_round4_force_flaw_prompt_has_an_injection_guardrail(monkeypatch):
         response={"response_text": "x", "steps": [], "observed_result": "x", "status": "pass"},
     )
     assert _FORCE_FLAW_GUARDRAIL_PHRASE in captured["prompt"]
+
+
+def test_candidate_summary_prompt_has_an_injection_guardrail(monkeypatch):
+    captured = {}
+
+    def _fake_call(prompt, max_tokens=2048):
+        captured["prompt"] = prompt
+        return '{"rounds": [], "key_observations": [], "verdict": "ok"}'
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fake_call)
+    llm_service.generate_candidate_summary(
+        candidate_email="x@example.com", experience_band="0-7", rounds=[],
+    )
+    assert _GUARDRAIL_PHRASE in captured["prompt"]
