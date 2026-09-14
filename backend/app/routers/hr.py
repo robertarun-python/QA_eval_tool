@@ -709,12 +709,22 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
         result = "in_progress"
 
     current_appearance = next((a for a in candidate.appearances if a.is_current), None)
+    exam_date = current_appearance.exam_date if current_appearance else None
+    if exam_date is None:
+        # No CandidateAppearance row at all (candidate was never part of a
+        # bulk roster upload - e.g. a seeded/test account created directly
+        # via app.seed) means there's no HR-declared exam date to show.
+        # Fall back to the date they actually first submitted a round, so
+        # the column reflects real activity instead of staying blank
+        # forever regardless of how much of the assessment they finish.
+        submitted_dates = [r.submitted_at for r in rounds if r.submitted_at is not None]
+        exam_date = min(submitted_dates) if submitted_dates else None
     return CandidateSummaryOut(
         id=candidate.id,
         email=candidate.email,
         experience_band=candidate.experience_band.value if candidate.experience_band else None,
         rounds=rounds,
-        exam_date=current_appearance.exam_date if current_appearance else None,
+        exam_date=exam_date,
         aggregate_score=aggregate_score,
         reapplied_within_window=current_appearance.reapplied_within_window if current_appearance else False,
         result=result,
