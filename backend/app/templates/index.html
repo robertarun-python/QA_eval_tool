@@ -83,27 +83,58 @@
         <section id="hr-panel" class="hidden">
 
           <div id="hr-page-rounds">
+            <nav class="breadcrumb" id="hr-breadcrumb" aria-label="Breadcrumb"></nav>
+
+            <div id="scenario-kpis" class="scenario-kpis"></div>
+
             <div class="card-grid" id="create-scenario-row">
               <div class="panel card" id="create-scenario-panel">
-                <h3>Create a scenario</h3>
-                <p id="hr-round-context" class="muted"></p>
-                <div class="field-row">
-                  <div class="field-inline">
-                    <label for="s-time-limit">Time limit (min)</label>
-                    <input id="s-time-limit" type="number" min="1" value="30" />
+                <div class="panel-header-icon">
+                  <span class="panel-icon panel-icon-accent" aria-hidden="true">+</span>
+                  <div>
+                    <h3>Create a New Scenario</h3>
+                    <p id="hr-round-context" class="muted"></p>
                   </div>
                 </div>
-                <label for="s-title">Scenario title</label>
-                <input id="s-title" placeholder="Scenario title" oninput="updateCreateBtnState()" />
-                <label for="s-desc">Scenario description</label>
-                <textarea id="s-desc" placeholder="Describe the feature/system the candidate should write test cases for..." oninput="updateCreateBtnState()"></textarea>
-                <button id="s-create-btn" class="btn-block" onclick="createScenario()" disabled>Create &amp; generate reference</button>
+
+                <label for="s-time-limit">Time limit (minutes) <span class="required-mark">*</span></label>
+                <input id="s-time-limit" type="number" min="1" value="30" />
+                <p class="field-hint-text">Recommended: 20-45 minutes</p>
+
+                <label for="s-title">Scenario title <span class="required-mark">*</span></label>
+                <input id="s-title" placeholder="Enter a clear and concise scenario title" oninput="updateCreateBtnState()" maxlength="300" />
+                <p class="char-counter" id="s-title-counter">0/300</p>
+
+                <label for="s-desc">Scenario description <span class="required-mark">*</span></label>
+                <textarea id="s-desc" placeholder="Describe the feature/system the candidate should write test cases for..." oninput="updateCreateBtnState()" maxlength="20000"></textarea>
+                <p class="char-counter" id="s-desc-counter">0/20000</p>
+
+                <div class="row create-scenario-actions">
+                  <button class="btn-secondary" onclick="resetCreateScenarioForm()">Cancel</button>
+                  <button id="s-create-btn" class="btn-primary" onclick="createScenario()" disabled>Create &amp; Generate Reference</button>
+                </div>
                 <p id="hr-create-status" class="muted"></p>
               </div>
 
               <div class="panel card" id="scenarios-list-panel">
-                <h3>Scenarios</h3>
+                <div class="scenarios-panel-header">
+                  <div class="panel-header-icon">
+                    <span class="panel-icon panel-icon-accent" aria-hidden="true">&#9776;</span>
+                    <div>
+                      <h3>Scenarios</h3>
+                      <p class="muted">Manage existing scenarios. Publish, review or delete as needed.</p>
+                    </div>
+                  </div>
+                  <div class="scenarios-toolbar-actions">
+                    <div class="field-boxed scenarios-search-field">
+                      <input id="scenario-search" type="search" placeholder="Search scenarios..." oninput="renderScenarioTable()" />
+                    </div>
+                    <button class="btn-primary btn-sm" onclick="focusCreateScenarioForm()">+ New Scenario</button>
+                  </div>
+                </div>
+                <div class="scenario-tabs" id="scenario-tabs"></div>
                 <div id="scenario-list"></div>
+                <div id="scenario-footer" class="candidates-footer"></div>
               </div>
             </div>
 

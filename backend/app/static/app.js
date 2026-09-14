@@ -411,7 +411,9 @@ function renderHRRoundNav() {
 
   if (hrPage === "rounds") {
     setPageHeader("HR Console", `Round ${currentHRRound} · ${ROUND_LABELS[currentHRRound]}`, "Author, review, and publish scenarios for this round.");
-    document.getElementById("hr-round-context").textContent = `Now creating for Round ${currentHRRound} (${ROUND_LABELS[currentHRRound]}).`;
+    document.getElementById("hr-round-context").textContent = `Define the scenario details and generate a reference solution for Round ${currentHRRound} (${ROUND_LABELS[currentHRRound]}).`;
+    document.getElementById("hr-breadcrumb").innerHTML =
+      `<span>Scenarios</span> <span aria-hidden="true">&rsaquo;</span> <span class="breadcrumb-current">Round ${currentHRRound} - ${ROUND_LABELS[currentHRRound]}</span>`;
   } else if (hrPage === "candidates") {
     setPageHeader("HR Console", "Candidates", "Every candidate's progress and results, across all rounds.");
   } else {
@@ -442,6 +444,12 @@ function selectHRRound(n) {
   document.getElementById("create-scenario-row").classList.toggle("hidden", isRound4);
   document.getElementById("screening-history-panel").classList.toggle("hidden", isRound4);
   document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound4);
+  // #scenario-kpis sits outside create-scenario-row (so it reads as part
+  // of the page, not nested inside the 2-column workspace) - it needs
+  // its own hide, or it'd keep showing whichever round's counts were
+  // last loaded instead of disappearing along with the rest of the
+  // round 1-3 scenario-library UI.
+  document.getElementById("scenario-kpis").classList.toggle("hidden", isRound4);
   // Round 3's guardrail reference (see index.html) - static, no API call,
   // just shown/hidden alongside the rest of this round's panels.
   document.getElementById("round3-guardrails-panel").classList.toggle("hidden", n !== 3);
@@ -475,6 +483,15 @@ function resetCreateScenarioForm() {
 function selectHRPage(page) {
   hrPage = page;
   renderHRRoundNav();
+}
+
+// The create form is always visible (left column, not a modal/drawer -
+// see index.html's card-grid), so "New Scenario" has nothing to open;
+// this just scrolls/focuses it, same convenience a jump link gives.
+function focusCreateScenarioForm() {
+  const title = document.getElementById("s-title");
+  title.scrollIntoView({ behavior: "smooth", block: "center" });
+  title.focus();
 }
 
 // ---- Settings (runtime-editable pass criteria - see GET/PUT /hr/settings) ----
@@ -517,10 +534,15 @@ async function saveAppSettings() {
 // Disabled by default (see the `disabled` attribute in index.html) until
 // there's actually something to generate from - keeps HR from firing an
 // LLM call (and a blank draft scenario) off an empty title/description.
+// The counters mirror ScenarioCreate's real max_length (300/20000 - see
+// schemas.py) rather than inventing round numbers, so HR sees the actual
+// server-side limit, not a placeholder one.
 function updateCreateBtnState() {
   const title = document.getElementById("s-title").value.trim();
   const description = document.getElementById("s-desc").value.trim();
   document.getElementById("s-create-btn").disabled = !(title && description);
+  document.getElementById("s-title-counter").textContent = `${document.getElementById("s-title").value.length}/300`;
+  document.getElementById("s-desc-counter").textContent = `${document.getElementById("s-desc").value.length}/20000`;
 }
 
 async function createScenario() {
@@ -567,73 +589,197 @@ async function createScenario() {
 // node, not for sitting inside a quoted HTML attribute - an apostrophe
 // or quote in a title could break the attribute or inject markup).
 let lastLoadedScenarios = [];
+// scenario_id -> its /hr/history row (total_attempted, last_used_at, ...)
+// - fetched alongside the scenario list purely for the "Used in
+// Assessments" KPI and the table's "Last Used" column below; a second
+// existing-endpoint call, not a new one.
+let lastLoadedScenarioHistory = {};
+let scenarioActiveTab = "all"; // "all" | "published" | "draft"
+let scenarioPage = 1;
+const SCENARIO_PAGE_SIZE = 6;
 
 async function loadScenarios() {
-  const scenarios = (await api("/hr/scenarios")).filter((s) => s.round_number === currentHRRound);
-  lastLoadedScenarios = scenarios;
-  const list = document.getElementById("scenario-list");
-  if (scenarios.length === 0) {
-    list.innerHTML = `<div class="empty-state">No Round ${currentHRRound} scenarios yet - create one to get started.</div>`;
+  const [allScenarios, history] = await Promise.all([api("/hr/scenarios"), api("/hr/history")]);
+  lastLoadedScenarios = allScenarios.filter((s) => s.round_number === currentHRRound);
+  lastLoadedScenarioHistory = {};
+  history.filter((h) => h.round_number === currentHRRound).forEach((h) => {
+    lastLoadedScenarioHistory[h.scenario_id] = h;
+  });
+  scenarioActiveTab = "all";
+  scenarioPage = 1;
+  renderScenarioKpis();
+  renderScenarioTable();
+}
+
+// Round 4 has no scenario library (one config per band, no draft/
+// published/live library concept the way rounds 1-3 have - see
+// loadRound4Settings) - these counts wouldn't mean anything there.
+function renderScenarioKpis() {
+  const box = document.getElementById("scenario-kpis");
+  if (currentHRRound === 4) {
+    box.innerHTML = "";
     return;
   }
-  const published = scenarios.filter((s) => s.status === "published");
-  const drafts = scenarios.filter((s) => s.status === "draft");
+  const total = lastLoadedScenarios.length;
+  const published = lastLoadedScenarios.filter((s) => s.status === "published").length;
+  const drafts = lastLoadedScenarios.filter((s) => s.status === "draft").length;
+  const usedInAssessments = Object.values(lastLoadedScenarioHistory).reduce((sum, h) => sum + (h.total_attempted || 0), 0);
+  const kpis = [
+    { label: "Total Scenarios", value: total, caption: "Across all statuses", icon: "file", cls: "kpi-icon-accent" },
+    { label: "Published", value: published, caption: "Reviewed and approved", icon: "check", cls: "kpi-icon-success" },
+    { label: "Drafts", value: drafts, caption: "Awaiting review", icon: "file", cls: "kpi-icon-warning" },
+    { label: "Used in Assessments", value: usedInAssessments, caption: "Total times attempted", icon: "users", cls: "kpi-icon-neutral" },
+  ];
+  box.innerHTML = kpis.map((k) => `
+    <div class="kpi-card">
+      <div class="kpi-icon ${k.cls}">${CANDIDATES_KPI_ICONS[k.icon]}</div>
+      <div class="kpi-text">
+        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-value">${k.value}</div>
+        <div class="kpi-caption muted">${k.caption}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderScenarioTabs() {
+  const box = document.getElementById("scenario-tabs");
+  const total = lastLoadedScenarios.length;
+  const published = lastLoadedScenarios.filter((s) => s.status === "published").length;
+  const drafts = lastLoadedScenarios.filter((s) => s.status === "draft").length;
+  const tabs = [
+    { key: "all", label: `All (${total})` },
+    { key: "published", label: `Published (${published})` },
+    { key: "draft", label: `Drafts (${drafts})` },
+  ];
+  box.innerHTML = tabs.map((t) => `
+    <button type="button" class="scenario-tab ${scenarioActiveTab === t.key ? "active" : ""}" onclick="selectScenarioTab('${t.key}')">${t.label}</button>
+  `).join("");
+}
+
+function selectScenarioTab(tab) {
+  scenarioActiveTab = tab;
+  scenarioPage = 1;
+  renderScenarioTable();
+}
+
+// Search (title substring) + status tab + pagination, all applied
+// client-side to lastLoadedScenarios - same pattern as the Candidates
+// dashboard's renderCandidatesTable, no new API calls per keystroke.
+function renderScenarioTable() {
+  renderScenarioTabs();
+  const list = document.getElementById("scenario-list");
+  const footer = document.getElementById("scenario-footer");
+
+  if (lastLoadedScenarios.length === 0) {
+    list.innerHTML = `<div class="empty-state">No Round ${currentHRRound} scenarios yet - create one to get started.</div>`;
+    footer.innerHTML = "";
+    return;
+  }
+
+  const query = (document.getElementById("scenario-search").value || "").trim().toLowerCase();
+  let rows = lastLoadedScenarios;
+  if (scenarioActiveTab !== "all") rows = rows.filter((s) => s.status === scenarioActiveTab);
+  if (query) rows = rows.filter((s) => s.title.toLowerCase().includes(query));
+
+  if (rows.length === 0) {
+    list.innerHTML = `<div class="empty-state">No scenarios match your search/filter.</div><p id="scenario-list-status" class="muted"></p>`;
+    footer.innerHTML = "";
+    return;
+  }
+
+  const totalRows = rows.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / SCENARIO_PAGE_SIZE));
+  scenarioPage = Math.min(scenarioPage, pageCount);
+  const start = (scenarioPage - 1) * SCENARIO_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + SCENARIO_PAGE_SIZE);
+
   list.innerHTML = `
-    <h4>Published</h4>
-    ${renderPublishedTable(published)}
-    <h4>Drafts</h4>
-    ${renderDraftTable(drafts)}
+    <div class="table-scroll">
+      <table class="scenario-table-el">
+        <thead><tr><th>#</th><th>Title</th><th>Status</th><th>Time</th><th>Last Used</th><th>Actions</th></tr></thead>
+        <tbody>${pageRows.map((s, i) => renderScenarioRow(s, start + i + 1)).join("")}</tbody>
+      </table>
+    </div>
     <p id="scenario-list-status" class="muted"></p>
   `;
-}
 
-function renderPublishedTable(published) {
-  if (published.length === 0) return `<div class="empty-state">No published scenarios yet.</div>`;
-  return `
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>Publish for screening</th><th>Title</th><th></th><th></th></tr></thead>
-        <tbody>
-          ${published.map((s) => `
-            <tr>
-              <td>
-                <input type="radio" name="live-r${s.round_number}-${s.experience_band}"
-                  ${s.is_live ? "checked" : ""} onchange="moveToScreening(${s.id})"
-                  title="Publish for screening" />
-              </td>
-              <td>${escapeHtml(s.title)} ${s.is_live ? '<span class="badge badge-published">LIVE</span>' : ""}</td>
-              <td><button onclick="openScenarioDetail(${s.id})">Review</button></td>
-              <td>${s.is_live
-                ? `<button class="btn-ghost" disabled title="Can't delete the live scenario - make a different one live first.">Delete</button>`
-                : `<button class="btn-ghost" onclick="deleteScenarioFromList(${s.id})">Delete</button>`
-              }</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+  footer.innerHTML = `
+    <span class="muted">Showing ${start + 1}-${Math.min(start + SCENARIO_PAGE_SIZE, totalRows)} of ${totalRows} scenario${totalRows === 1 ? "" : "s"}</span>
+    <div class="candidates-pagination">
+      <button class="btn-secondary btn-sm" ${scenarioPage <= 1 ? "disabled" : ""} onclick="changeScenarioPage(-1)">Previous</button>
+      <span class="candidates-page-num">${scenarioPage}</span>
+      <button class="btn-secondary btn-sm" ${scenarioPage >= pageCount ? "disabled" : ""} onclick="changeScenarioPage(1)">Next</button>
     </div>
   `;
 }
 
-function renderDraftTable(drafts) {
-  if (drafts.length === 0) return `<div class="empty-state">No drafts.</div>`;
+function changeScenarioPage(delta) {
+  scenarioPage += delta;
+  renderScenarioTable();
+}
+
+// "Make live for screening" (moveToScreening - unchanged, existing
+// function) is the one row action beyond Review/Delete that a published,
+// not-yet-live scenario genuinely has - so the overflow menu only
+// renders for that case, never as a dead icon with nothing behind it.
+function renderScenarioRow(s, rank) {
+  const hist = lastLoadedScenarioHistory[s.id];
+  const lastUsed = hist && hist.last_used_at ? formatDate(hist.last_used_at) : "-";
+  const statusBadge = s.status === "published" ? `<span class="badge badge-published">Published</span>` : `<span class="badge badge-draft">Draft</span>`;
+  const liveBadge = s.is_live ? ` <span class="badge badge-published">LIVE</span>` : "";
+  const canMakeLive = s.status === "published" && !s.is_live;
+  const deleteBtn = s.is_live
+    ? `<button class="btn-ghost btn-sm" disabled title="Can't delete the live scenario - make a different one live first.">Delete</button>`
+    : `<button class="btn-danger btn-sm" onclick="deleteScenarioFromList(${s.id})">Delete</button>`;
   return `
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>Title</th><th></th><th></th></tr></thead>
-        <tbody>
-          ${drafts.map((s) => `
-            <tr>
-              <td>${escapeHtml(s.title)}</td>
-              <td><button onclick="openScenarioDetail(${s.id})">Review</button></td>
-              <td><button class="btn-ghost" onclick="deleteScenarioFromList(${s.id})">Delete</button></td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
+    <tr>
+      <td class="tabular">${rank}</td>
+      <td class="scenario-title-cell">${escapeHtml(s.title)}</td>
+      <td>${statusBadge}${liveBadge}</td>
+      <td class="tabular">${s.time_limit_minutes}</td>
+      <td class="muted">${lastUsed}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn-primary btn-sm" onclick="openScenarioDetail(${s.id})">Review</button>
+          ${deleteBtn}
+          ${canMakeLive ? `
+            <div class="overflow-menu">
+              <button type="button" class="overflow-menu-btn" onclick="toggleScenarioOverflowMenu(event, ${s.id})" aria-label="More actions">&#8942;</button>
+              <div class="overflow-menu-dropdown hidden" id="scenario-overflow-${s.id}">
+                <button type="button" onclick="closeAllScenarioOverflowMenus(); moveToScreening(${s.id});">Make live for screening</button>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+      </td>
+    </tr>
   `;
 }
+
+// position:fixed + coordinates computed here, not left to CSS - this
+// table sits inside a .table-scroll (overflow-x:auto) container, which
+// (per the CSS overflow spec) clips an absolutely-positioned dropdown
+// at the container's edge instead of letting it float above the page.
+function toggleScenarioOverflowMenu(evt, id) {
+  evt.stopPropagation();
+  const target = document.getElementById(`scenario-overflow-${id}`);
+  const wasHidden = target.classList.contains("hidden");
+  closeAllScenarioOverflowMenus();
+  if (!wasHidden) return;
+  const rect = evt.currentTarget.getBoundingClientRect();
+  target.style.top = `${rect.bottom + 4}px`;
+  target.style.left = "auto";
+  target.style.right = `${window.innerWidth - rect.right}px`;
+  target.classList.remove("hidden");
+}
+
+function closeAllScenarioOverflowMenus() {
+  document.querySelectorAll(".overflow-menu-dropdown").forEach((el) => el.classList.add("hidden"));
+}
+
+document.addEventListener("click", closeAllScenarioOverflowMenus);
+document.addEventListener("scroll", closeAllScenarioOverflowMenus, true);
 
 async function moveToScreening(id) {
   const scenario = await api(`/hr/scenarios/${id}`);
@@ -1074,8 +1220,8 @@ async function deleteScenario(id) {
   }
 }
 
-// Delete straight from the Published/Drafts list rows (see
-// renderPublishedTable/renderDraftTable) - unlike deleteScenario above
+// Delete straight from the scenario list rows (see renderScenarioRow) -
+// unlike deleteScenario above
 // (only ever reachable from a draft's open detail view), this works on
 // EITHER status: the backend (DELETE /hr/scenarios/{id}) now allows
 // deleting a published scenario too, as long as it isn't the live one
@@ -1116,6 +1262,7 @@ const CANDIDATES_KPI_ICONS = {
   users: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
   clock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
   check: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  file: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
 };
 
 async function loadCandidates() {
