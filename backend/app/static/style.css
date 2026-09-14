@@ -1044,6 +1044,7 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 .round3-coding-prompt { margin: 0 0 0.25rem; }
 .round3-coding-response { margin: 0; }
 .round3-coding-response-refuse { color: var(--error); }
+.round3-coding-response-explain { color: var(--text-secondary); }
 .round3-coding-stderr { color: var(--error); }
 .round3-coding-run { margin-bottom: var(--space-compact); }
 .no-copy { user-select: none; -webkit-user-select: none; }

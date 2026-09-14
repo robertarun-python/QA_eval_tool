@@ -1971,7 +1971,7 @@ function renderRound4Report(s) {
 // glance whether the candidate was steering with enough precision to get
 // real code out of the assistant); runs are shown separately below,
 // newest first, since a run isn't tied to one specific turn server-side.
-const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass", direct_edit: "badge-pass" };
+const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass", direct_edit: "badge-pass", explain: "badge-neutral" };
 
 // The four sub-scores behind Round 3's final_score (see
 // models.Score.correctness_score and its siblings, and

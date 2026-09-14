@@ -710,3 +710,202 @@ def test_round3_coding_direct_edit_full_flow_end_to_end(client, monkeypatch):
         "iteration": "a for loop over salaries",
         "comparison": "greater than the current highest",
     }
+
+
+def test_round3_coding_turn_prompt_requires_asking_before_inventing_test_data(monkeypatch):
+    """HR reported (after showing the tool to their CTO) that the
+    assistant was inventing its own sample/test values and corner cases
+    for requests like "try various combinations and corner cases" -
+    writing a full demo/test harness the candidate never specified,
+    which hands away exactly the kind of problem-understanding this
+    round is supposed to assess. See round3_coding_turn.txt's
+    demonstration-data clarify bullet (a value is exactly as unstated as
+    an unnamed variable or unspecified technique) and its "no silent
+    extras" addition to the code_edit rule."""
+    from app.services import llm_service
+
+    captured = {}
+
+    def _fake_call(prompt, max_tokens=2048):
+        captured["prompt"] = prompt
+        return '{"response_kind": "clarify", "response_message": "What values?", "code_after": null, "category_status": {}}'
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fake_call)
+    llm_service.round3_coding_turn(
+        scenario_description="desc", language="python", conversation_so_far=[],
+        current_code=None, candidate_prompt="try various combinations and corner cases",
+        turn_number=1,
+    )
+    assert "Concrete data to demonstrate, test, or exercise the code with" in captured["prompt"]
+    assert "never adding anything demonstrative that wasn't asked for" in captured["prompt"]
+
+
+# ---- Controlled-assistance guardrails (HR spec: "Fix ONLY Round 3
+# AI-coding-assistant behavior... implement controlled-assistance
+# behavior"). Each test below drives the REAL llm_service.round3_coding_turn
+# orchestration with only _call_claude mocked (same technique as the rest
+# of this file) and checks two things: the rendered prompt actually carries
+# the guardrail instruction for that scenario, and the function round-trips
+# the mocked response correctly (right code_after nullness, no crash in the
+# construct-checklist engine). The prompt's real-world behavior for every
+# one of these was also verified live against the actual model before this
+# change was written - see the PR/session notes; these tests guard the
+# prompt text and the surrounding plumbing, not model judgment itself. ----
+
+def _round3_turn(monkeypatch, candidate_prompt, fake_response_json, current_code=None, conversation_so_far=None):
+    from app.services import llm_service
+    captured = {}
+
+    def _fake_call(prompt, max_tokens=2048):
+        captured["prompt"] = prompt
+        return fake_response_json
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fake_call)
+    result = llm_service.round3_coding_turn(
+        scenario_description="Find the second-largest distinct value in a list.", language="python",
+        conversation_so_far=conversation_so_far or [], current_code=current_code,
+        candidate_prompt=candidate_prompt, turn_number=1,
+    )
+    return result, captured["prompt"]
+
+
+def test_guardrail_high_level_solution_request_is_refused(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "write the complete solution for this problem",
+        '{"response_kind": "refuse", "response_message": "I can\'t write this for you - tell me what you want built, and I\'ll write exactly that.", "code_after": null, "category_status": {}}',
+    )
+    assert "Solve-it-for-me request" in prompt
+    assert result["response_kind"] == "refuse"
+    assert result["code_after"] is None
+
+
+def test_guardrail_request_for_test_cases_requires_asking_first(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "give me some test cases to try",
+        '{"response_kind": "clarify", "response_message": "What values do you want to try?", "code_after": null, "category_status": {}}',
+    )
+    assert "Concrete data to demonstrate, test, or exercise the code with" in prompt
+    assert result["response_kind"] == "clarify"
+    assert result["code_after"] is None
+
+
+def test_guardrail_request_for_edge_cases_is_refused_not_answered(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "what are the edge cases I need to worry about here?",
+        '{"response_kind": "refuse", "response_message": "That\'s for you to identify - think about cases like duplicates, empty input, and boundary values, then decide how to test for them.", "code_after": null, "category_status": {}}',
+    )
+    assert "Asking you to identify edge cases" in prompt
+    assert result["response_kind"] == "refuse"
+    assert result["code_after"] is None
+
+
+def test_guardrail_request_for_complete_main_program_is_refused(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "write a full program including a main function that solves and demonstrates this",
+        '{"response_kind": "refuse", "response_message": "I can\'t write this for you - tell me what you want built, and I\'ll write exactly that.", "code_after": null, "category_status": {}}',
+    )
+    assert "Solve-it-for-me request" in prompt
+    assert result["response_kind"] == "refuse"
+    assert result["code_after"] is None
+
+
+def test_guardrail_narrow_code_edit_request_is_allowed_and_minimal(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "add a parameter called inputValues to the function",
+        '{"response_kind": "code_edit", "response_message": "Added the inputValues parameter.", "code_after": "def f(inputValues):\\n    pass", "category_status": {}}',
+        current_code="def f():\n    pass",
+    )
+    assert "EXACTLY and ONLY what this instruction asks" in prompt
+    assert result["response_kind"] == "code_edit"
+    assert result["code_after"] == "def f(inputValues):\n    pass"
+
+
+def test_guardrail_syntax_error_explanation_does_not_rewrite_code(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "explain why this loop fails to find the second largest value",
+        '{"response_kind": "explain", "response_message": "The loop stops one element early because range(len(vals) - 1) skips the last index.", "code_after": null, "category_status": {}}',
+        current_code="def f(vals):\n    for i in range(len(vals) - 1):\n        pass",
+    )
+    assert '"explain" - the candidate is asking you to explain something rather than write or change code' in prompt
+    assert result["response_kind"] == "explain"
+    assert result["code_after"] is None
+    # explain must short-circuit the construct-checklist engine exactly
+    # like refuse does - proven by not crashing when required_constructs
+    # is non-empty and category_status is empty (nothing to merge).
+    result2, _ = _round3_turn(
+        monkeypatch, "explain why this fails",
+        '{"response_kind": "explain", "response_message": "...", "code_after": null, "category_status": {}}',
+    )
+    assert result2["declared_constructs"] == {}
+
+
+def test_guardrail_ambiguous_request_asks_for_clarification(monkeypatch):
+    result, prompt = _round3_turn(
+        monkeypatch, "fix it",
+        '{"response_kind": "clarify", "response_message": "I need a specific instruction - what exactly should the code do?", "code_after": null, "category_status": {}}',
+    )
+    assert 'a dangling reference with no clear antecedent' in prompt
+    assert result["response_kind"] == "clarify"
+    assert result["code_after"] is None
+
+
+def test_guardrail_fix_it_for_me_stays_refused_distinct_from_explain(monkeypatch):
+    """The prompt must distinguish "why does this fail" (explain) from
+    "fix this" (still refused, no free fix) - both can describe the same
+    error, so this is the one place a wrong guardrail would silently let
+    the assistant solve the bug instead of just diagnosing it."""
+    result, prompt = _round3_turn(
+        monkeypatch, "this crashes with an IndexError, fix it",
+        '{"response_kind": "refuse", "response_message": "I can\'t fix that for you - tell me exactly what to change, or ask me to explain why it happens first if that would help.", "code_after": null, "category_status": {}}',
+        current_code="def f(vals):\n    return vals[5]",
+    )
+    assert "Fix-it-for-me dodge" in prompt
+    assert result["response_kind"] == "refuse"
+    assert result["code_after"] is None
+
+
+def test_round3_turn_route_persists_explain_kind_with_no_code_change(client, monkeypatch):
+    """End-to-end through the real route (not just llm_service directly):
+    an "explain" turn must be a normal 201, must not touch code_after, and
+    the candidate-facing shape must never carry the HR-only audit fields
+    added below (code_modified/requested_scope/lines_changed)."""
+    from app.services import llm_service
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Add two numbers")
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    monkeypatch.setattr(llm_service, "score_round2_submission", lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/submit", json={"investigation": [{"area": "x"}], "root_cause": "x"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "round3_coding_turn", lambda **kwargs: {
+        "response_kind": "explain", "response_message": "Your loop stops one index early.",
+        "code_after": None, "declared_constructs": {},
+    })
+    res = client.post("/candidate/round/3/turn", json={"candidate_prompt": "why does this fail"}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+    body = res.json()
+    assert body["response_kind"] == "explain"
+    assert body["code_after"] is None
+    assert "code_modified" not in body
+    assert "requested_scope" not in body
+
+    state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()
+    assert "code_modified" not in state["turns"][0]
+
+    # HR's audit view, on the other hand, gets the derived fields.
+    hr_candidates = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
+    candidate_id = next(c["id"] for c in hr_candidates if c["email"] == CANDIDATE1_EMAIL)
+    report = client.get(f"/hr/candidates/{candidate_id}/report", cookies=_auth(hr_token)).json()
+    r3_turns = next(s for s in report if s["round_number"] == 3)["round3_turns"]
+    assert r3_turns[0]["code_modified"] is False
+    assert r3_turns[0]["requested_scope"] == "explanation only (no code change)"
+    assert r3_turns[0]["lines_changed"] is None

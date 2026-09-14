@@ -353,7 +353,7 @@ class SubmissionReportOut(SubmissionOut):
     score: Optional[ScoreOut] = None
     test_cases: Optional[list["Round4TestCaseOut"]] = None
     conversation_turns: Optional[list["Round4TurnOut"]] = None
-    round3_turns: Optional[list["Round3TurnOut"]] = None
+    round3_turns: Optional[list["Round3TurnAuditOut"]] = None
     round3_runs: Optional[list["Round3RunOut"]] = None
     # Set when status == "scoring_failed" (see models.RoundStatus) - the
     # error from the failed background scoring attempt, so HR can see
@@ -717,7 +717,7 @@ class Round3CodingTurnResponse(BaseModel):
     has no open construct-checklist categories (an unscoped scenario,
     or every required category already declared/evidenced) - see
     round3_construct_engine."""
-    response_kind: Literal["clarify", "refuse", "code_edit", "direct_edit"]
+    response_kind: Literal["clarify", "refuse", "code_edit", "direct_edit", "explain"]
     response_message: str
     code_after: Optional[str] = None
     category_status: dict[str, CategoryStatusEntry] = Field(default_factory=dict)
@@ -744,6 +744,32 @@ class Round3TurnOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class Round3TurnAuditOut(Round3TurnOut):
+    """HR-only audit view of the same turn (see hr.py's
+    _build_submission_reports, the only place this is built) - never
+    served to the candidate, who only ever sees the plain Round3TurnOut
+    above via /candidate/round/3/state. Adds exactly what
+    Round3TurnOut's fields don't already make explicit for an audit
+    trail: whether this turn actually changed the code (derivable from
+    response_kind, but spelled out so a reviewer doesn't have to know
+    the kind vocabulary), a short human label for what the turn was
+    asking for, and how many lines changed versus the previous turn's
+    code snapshot. Round 3 is a single evolving code buffer, not a
+    multi-file repo, so there is no separate "files affected" - every
+    change is to that one buffer."""
+    # Defaulted, not required: SubmissionReportOut.round3_turns shares its
+    # field name with the ORM relationship (Submission.round3_turns), so
+    # Pydantic auto-populates it straight from the ORM objects the moment
+    # SubmissionReportOut.model_validate(submission) runs, before
+    # _build_submission_reports ever gets to overwrite it with real
+    # computed values below - same as round3_runs already does harmlessly.
+    # Without defaults here that eager pass fails immediately, since these
+    # three fields don't exist on the ORM Round3Turn object itself.
+    code_modified: bool = False
+    requested_scope: str = ""
+    lines_changed: Optional[int] = None
 
 
 class Round3RunInputCreate(BaseModel):

@@ -243,7 +243,9 @@ def round3_coding_turn(
 
     parsed = _raw_turn()
 
-    if parsed.response_kind == "refuse" or not open_categories:
+    # "explain" never touches code or declares anything either, same as
+    # "refuse" - both skip the construct-checklist engine below.
+    if parsed.response_kind in ("refuse", "explain") or not open_categories:
         return {
             "response_kind": parsed.response_kind,
             "response_message": parsed.response_message,

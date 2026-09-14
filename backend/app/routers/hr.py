@@ -14,6 +14,7 @@ rounds 1/2 (generated at creation, required before publish) - see
 publish_scenario and list_scenarios below, and routers/candidate.py for
 its dedicated endpoints.
 """
+import difflib
 from collections import Counter
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -28,14 +29,14 @@ from ..config import settings
 from ..database import get_db
 from ..models import (
     User, Scenario, ScenarioStatus, Submission, Score, RoundStatus, ExperienceBand, Role, AppSettings,
-    CandidateAppearance, CandidateSummary,
+    CandidateAppearance, CandidateSummary, Round3Turn,
 )
 from pydantic import ValidationError
 
 from ..schemas import (
     ScenarioCreate, ScenarioUpdate, ScenarioOut, SubmissionReportOut,
     CandidateSummaryOut, CandidateRoundSummary, ScenarioHistoryOut, MissPattern, ConceptCoverageAverage,
-    Round4TestCaseOut, Round3TurnOut, Round3RunOut, CandidateAssessmentSummaryOut,
+    Round4TestCaseOut, Round3TurnOut, Round3TurnAuditOut, Round3RunOut, CandidateAssessmentSummaryOut,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
     ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate, TestCaseRow,
@@ -737,6 +738,37 @@ def list_candidates(background_tasks: BackgroundTasks, db: Session = Depends(get
     return [_build_candidate_summary(c, db, background_tasks) for c in candidates]
 
 
+_ROUND3_SCOPE_LABELS = {
+    "clarify": "clarification requested (no code change)",
+    "refuse": "refused - outside the granted assistance scope",
+    "code_edit": "narrow code edit",
+    "direct_edit": "candidate-pasted code (syntax check only)",
+    "explain": "explanation only (no code change)",
+}
+
+
+def _round3_turn_audit(turn: Round3Turn, previous_code: str | None) -> Round3TurnAuditOut:
+    """HR-only audit record for one AI interaction - candidate request
+    (candidate_prompt, already on the base turn), AI response/action
+    (response_kind/response_message), requested scope, whether code was
+    modified, and how many lines changed, alongside the existing
+    timestamp - see Round3TurnAuditOut's docstring for why the extra
+    fields are derived here rather than stored as new columns."""
+    code_modified = turn.response_kind in ("code_edit", "direct_edit")
+    lines_changed = None
+    if code_modified and turn.code_after is not None:
+        before_lines = (previous_code or "").splitlines()
+        after_lines = turn.code_after.splitlines()
+        diff = difflib.ndiff(before_lines, after_lines)
+        lines_changed = sum(1 for line in diff if line.startswith("+ ") or line.startswith("- "))
+    return Round3TurnAuditOut(
+        **Round3TurnOut.model_validate(turn).model_dump(),
+        code_modified=code_modified,
+        requested_scope=_ROUND3_SCOPE_LABELS.get(turn.response_kind, turn.response_kind),
+        lines_changed=lines_changed,
+    )
+
+
 def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionReportOut]:
     """Shared by the current-cycle report and the past-appearance report
     (see candidate_report / appearance_report below) - same shape either
@@ -745,7 +777,13 @@ def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionR
     for s in submissions:
         report = SubmissionReportOut.model_validate(s)
         if s.round_number == 3:
-            report.round3_turns = [Round3TurnOut.model_validate(t) for t in s.round3_turns]
+            audit_turns = []
+            previous_code = None
+            for t in s.round3_turns:
+                audit_turns.append(_round3_turn_audit(t, previous_code))
+                if t.code_after is not None:
+                    previous_code = t.code_after
+            report.round3_turns = audit_turns
             report.round3_runs = [Round3RunOut.model_validate(r) for r in s.round3_execution_runs]
         elif s.round_number == 4:
             report.test_cases = [
