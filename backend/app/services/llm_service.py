@@ -36,8 +36,14 @@ def _get_client() -> anthropic.Anthropic:
         # HR's _generate_reference) and both now fail cleanly on an
         # ERROR (see the try/except wrapping at each call site), but
         # without this a slow response just hangs the request with no
-        # feedback for however long the default allows.
-        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=30.0)
+        # feedback for however long the default allows. 30.0 measured as
+        # too tight in practice - a real round2_reference_generation.txt
+        # call timed (via direct reproduction) at ~37s on a normal day,
+        # well past the old limit, causing "Reference generation failed"
+        # on a perfectly healthy request. 60.0 gives real calls headroom
+        # without letting a truly hung request block a candidate/HR
+        # indefinitely.
+        _client = anthropic.Anthropic(api_key=settings.anthropic_api_key, timeout=60.0)
     return _client
 
 
