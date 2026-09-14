@@ -1235,26 +1235,13 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 .scenario-table-el th, .scenario-table-el td { padding-top: var(--space-tight); padding-bottom: var(--space-tight); vertical-align: middle; }
 .scenario-title-cell { color: var(--text-primary); font-weight: 500; }
 
-/* Re-used by both this table and (potentially) any other row-level menu
-   on a horizontally-scrolling table: position:fixed + coordinates
-   computed in JS (see toggleScenarioOverflowMenu), not plain absolute -
-   overflow-x:auto on the ancestor .table-scroll clips an absolutely-
-   positioned dropdown at the container edge otherwise. */
-.overflow-menu { position: relative; }
-.overflow-menu-btn {
-  width: 2rem; height: 2rem; padding: 0; display: inline-flex; align-items: center; justify-content: center;
-  background: none; border: 1px solid transparent; color: var(--text-secondary); font-size: 1.1rem; line-height: 1;
-}
-.overflow-menu-btn:hover:not(:disabled) { background: var(--surface-interactive); border-color: var(--border); }
-.overflow-menu-dropdown {
-  position: fixed; z-index: 1000; min-width: 11rem;
-  background: var(--surface-elevated); border: 1px solid var(--border); box-shadow: var(--shadow-elevated);
-}
-.overflow-menu-dropdown button {
-  display: block; width: 100%; text-align: left; background: none; border: none; color: var(--text-primary);
-  font-weight: 500; padding: 0.55rem 0.8rem; border-radius: 0;
-}
-.overflow-menu-dropdown button:hover { background: var(--surface-interactive); }
+.scenario-live-radio { width: 1.05rem; height: 1.05rem; accent-color: var(--success); cursor: pointer; margin: 0; }
+
+/* Live vs. draft needs to read at a glance, not just from the small
+   badge text - a left accent bar + faint tint on the whole row, same
+   idea as a "selected" table row, so scanning a mixed All-tab list
+   doesn't require reading every badge. */
+.scenario-row-live { background: var(--success-soft); box-shadow: inset 3px 0 0 var(--success); }
 
 @media (max-width: 34rem) {
   .scenarios-panel-header { flex-direction: column; align-items: stretch; }

@@ -697,7 +697,7 @@ function renderScenarioTable() {
   list.innerHTML = `
     <div class="table-scroll">
       <table class="scenario-table-el">
-        <thead><tr><th>#</th><th>Title</th><th>Status</th><th>Time</th><th>Last Used</th><th>Actions</th></tr></thead>
+        <thead><tr><th>#</th><th>Title</th><th>Status</th><th>Live</th><th>Time</th><th>Last Used</th><th>Actions</th></tr></thead>
         <tbody>${pageRows.map((s, i) => renderScenarioRow(s, start + i + 1)).join("")}</tbody>
       </table>
     </div>
@@ -719,67 +719,39 @@ function changeScenarioPage(delta) {
   renderScenarioTable();
 }
 
-// "Make live for screening" (moveToScreening - unchanged, existing
-// function) is the one row action beyond Review/Delete that a published,
-// not-yet-live scenario genuinely has - so the overflow menu only
-// renders for that case, never as a dead icon with nothing behind it.
+// The "Live" column is a radio group per (round, band) - same control as
+// the pre-redesign table, restored after HR flagged it missing. A radio
+// group makes "only one can be live" visually self-evident (picking one
+// un-picks the others) instead of relying on a buried menu action; only
+// a published scenario is eligible, since a draft can't be made live.
 function renderScenarioRow(s, rank) {
   const hist = lastLoadedScenarioHistory[s.id];
   const lastUsed = hist && hist.last_used_at ? formatDate(hist.last_used_at) : "-";
   const statusBadge = s.status === "published" ? `<span class="badge badge-published">Published</span>` : `<span class="badge badge-draft">Draft</span>`;
-  const liveBadge = s.is_live ? ` <span class="badge badge-published">LIVE</span>` : "";
-  const canMakeLive = s.status === "published" && !s.is_live;
+  const liveCell = s.status === "published"
+    ? `<input type="radio" class="scenario-live-radio" name="live-r${s.round_number}-${s.experience_band}"
+        ${s.is_live ? "checked" : ""} onchange="moveToScreening(${s.id})" title="Publish for screening" />`
+    : `<span class="muted">-</span>`;
   const deleteBtn = s.is_live
     ? `<button class="btn-ghost btn-sm" disabled title="Can't delete the live scenario - make a different one live first.">Delete</button>`
     : `<button class="btn-danger btn-sm" onclick="deleteScenarioFromList(${s.id})">Delete</button>`;
   return `
-    <tr>
+    <tr class="${s.is_live ? "scenario-row-live" : ""}">
       <td class="tabular">${rank}</td>
-      <td class="scenario-title-cell">${escapeHtml(s.title)}</td>
-      <td>${statusBadge}${liveBadge}</td>
+      <td class="scenario-title-cell">${escapeHtml(s.title)}${s.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</td>
+      <td>${statusBadge}</td>
+      <td>${liveCell}</td>
       <td class="tabular">${s.time_limit_minutes}</td>
       <td class="muted">${lastUsed}</td>
       <td>
         <div class="row-actions">
           <button class="btn-primary btn-sm" onclick="openScenarioDetail(${s.id})">Review</button>
           ${deleteBtn}
-          ${canMakeLive ? `
-            <div class="overflow-menu">
-              <button type="button" class="overflow-menu-btn" onclick="toggleScenarioOverflowMenu(event, ${s.id})" aria-label="More actions">&#8942;</button>
-              <div class="overflow-menu-dropdown hidden" id="scenario-overflow-${s.id}">
-                <button type="button" onclick="closeAllScenarioOverflowMenus(); moveToScreening(${s.id});">Make live for screening</button>
-              </div>
-            </div>
-          ` : ""}
         </div>
       </td>
     </tr>
   `;
 }
-
-// position:fixed + coordinates computed here, not left to CSS - this
-// table sits inside a .table-scroll (overflow-x:auto) container, which
-// (per the CSS overflow spec) clips an absolutely-positioned dropdown
-// at the container's edge instead of letting it float above the page.
-function toggleScenarioOverflowMenu(evt, id) {
-  evt.stopPropagation();
-  const target = document.getElementById(`scenario-overflow-${id}`);
-  const wasHidden = target.classList.contains("hidden");
-  closeAllScenarioOverflowMenus();
-  if (!wasHidden) return;
-  const rect = evt.currentTarget.getBoundingClientRect();
-  target.style.top = `${rect.bottom + 4}px`;
-  target.style.left = "auto";
-  target.style.right = `${window.innerWidth - rect.right}px`;
-  target.classList.remove("hidden");
-}
-
-function closeAllScenarioOverflowMenus() {
-  document.querySelectorAll(".overflow-menu-dropdown").forEach((el) => el.classList.add("hidden"));
-}
-
-document.addEventListener("click", closeAllScenarioOverflowMenus);
-document.addEventListener("scroll", closeAllScenarioOverflowMenus, true);
 
 async function moveToScreening(id) {
   const scenario = await api(`/hr/scenarios/${id}`);
