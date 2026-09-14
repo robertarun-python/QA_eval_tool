@@ -1,13 +1,13 @@
 """
 Creates the fixed, pre-provisioned accounts this tool uses instead of open
-signup: 1 HR account + 3 candidate accounts. Idempotent - safe to re-run;
+signup: 1 HR account + 4 candidate accounts. Idempotent - safe to re-run;
 existing accounts are left untouched (edit the row directly in the DB, or
 delete qa_eval.db, if you need to change credentials for an account that
 already exists).
 
 Experience band is a hidden feature right now (HR no longer picks one -
-see app.js) - every seeded candidate gets the same band so all three can
-see whatever HR publishes.
+see app.js) - every seeded candidate gets the same band so all of them
+can see whatever HR publishes.
 
 Run from backend/: python -m app.seed
 """
@@ -23,6 +23,10 @@ def seed_users(db) -> list[User]:
         (settings.candidate1_email, settings.candidate1_password, Role.candidate, ExperienceBand.junior),
         (settings.candidate2_email, settings.candidate2_password, Role.candidate, ExperienceBand.junior),
         (settings.candidate3_email, settings.candidate3_password, Role.candidate, ExperienceBand.junior),
+        # candidate5 (not candidate4 - see whoever asked for this test
+        # account by that number): same idempotent create-if-missing
+        # pattern as the other three, just a later addition.
+        (settings.candidate5_email, settings.candidate5_password, Role.candidate, ExperienceBand.junior),
     ]
     created = []
     for email, password, role, band in to_create:

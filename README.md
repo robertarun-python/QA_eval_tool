@@ -19,10 +19,10 @@ pip install -r requirements.txt
 copy .env.example .env
 # then edit .env:
 #  - paste your real ANTHROPIC_API_KEY (get one at https://console.anthropic.com/settings/keys)
-#  - review/change the seeded HR_EMAIL/HR_PASSWORD and CANDIDATE1-3_EMAIL/PASSWORD
+#  - review/change the seeded HR_EMAIL/HR_PASSWORD and CANDIDATE1-3/5_EMAIL/PASSWORD
 
 cd backend
-python -m app.seed   # creates the 1 HR + 3 candidate accounts (idempotent)
+python -m app.seed   # creates the 1 HR + 4 candidate accounts (idempotent)
 ```
 
 ## Setup (macOS / Linux)
@@ -61,8 +61,9 @@ need to re-run `python -m app.seed` afterwards).
 ## Accounts
 
 There's no signup — this is a screening tool with a fixed roster: 1 HR
-account and 3 candidate accounts (2 in the 0-7yrs band, 1 in the 7+yrs
-band), all created by `python -m app.seed` from the emails/passwords in
+account and 4 candidate accounts (candidate1/2/3/5 - all in the 0-7yrs
+band; experience band is a hidden feature right now, see app.js),
+all created by `python -m app.seed` from the emails/passwords in
 your `.env`. Log in with whichever one you're testing as.
 
 ## Trying it end-to-end

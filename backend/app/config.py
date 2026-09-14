@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     candidate2_password: str
     candidate3_email: str = "candidate3@example.com"
     candidate3_password: str
+    candidate5_email: str = "candidate5@example.com"
+    candidate5_password: str
 
 
 # Import this singleton everywhere instead of re-reading env vars.
