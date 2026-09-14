@@ -442,6 +442,9 @@ function selectHRRound(n) {
   document.getElementById("create-scenario-row").classList.toggle("hidden", isRound4);
   document.getElementById("screening-history-panel").classList.toggle("hidden", isRound4);
   document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound4);
+  // Round 3's guardrail reference (see index.html) - static, no API call,
+  // just shown/hidden alongside the rest of this round's panels.
+  document.getElementById("round3-guardrails-panel").classList.toggle("hidden", n !== 3);
 
   if (isRound4) {
     loadRound4Settings();
@@ -1096,47 +1099,243 @@ async function deleteScenarioFromList(id) {
   }
 }
 
+// Candidates dashboard state - the full list is fetched once per
+// loadCandidates() call and kept here; search/filter/pagination
+// (renderCandidatesTable) all re-slice this same array client-side
+// rather than re-fetching, since /hr/candidates has no server-side
+// search/filter/pagination params to call.
+let lastLoadedCandidates = [];
+let candidatesPage = 1;
+const CANDIDATES_PAGE_SIZE = 10;
+
+// Small stroke icons for the KPI cards below, matching the sun/moon
+// theme-toggle icons already hand-written in index.html (same
+// currentColor/stroke-width=2/round-linecap style) rather than pulling
+// in an icon library for three shapes.
+const CANDIDATES_KPI_ICONS = {
+  users: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  clock: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+  check: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+};
+
 async function loadCandidates() {
   const box = document.getElementById("candidates-table");
-  let candidates;
   try {
-    candidates = await api("/hr/candidates");
+    lastLoadedCandidates = await api("/hr/candidates");
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
   }
+  candidatesPage = 1;
+  renderCandidatesKpis();
+  renderCandidatesTable();
+}
+
+// Four counts derived entirely from each candidate's own rounds array -
+// "completed" mirrors _build_candidate_summary's all_four_scored check,
+// "not started" is the reverse (every round still not_started), and
+// "in progress" is just whatever's neither.
+function renderCandidatesKpis() {
+  const box = document.getElementById("candidates-kpis");
+  const total = lastLoadedCandidates.length;
+  const completed = lastLoadedCandidates.filter((c) => c.rounds.every((r) => r.status === "scored")).length;
+  const notStarted = lastLoadedCandidates.filter((c) => c.rounds.every((r) => r.status === "not_started")).length;
+  const inProgress = total - completed - notStarted;
+  const kpis = [
+    { label: "Total Candidates", value: total, caption: "Across all assessments", icon: "users", cls: "kpi-icon-accent" },
+    { label: "In Progress", value: inProgress, caption: "Actively taking assessment", icon: "clock", cls: "kpi-icon-warning" },
+    { label: "Completed", value: completed, caption: "Finished all rounds", icon: "check", cls: "kpi-icon-success" },
+    { label: "Not Started", value: notStarted, caption: "Invited but not started", icon: "clock", cls: "kpi-icon-neutral" },
+  ];
+  box.innerHTML = kpis.map((k) => `
+    <div class="kpi-card">
+      <div class="kpi-icon ${k.cls}">${CANDIDATES_KPI_ICONS[k.icon]}</div>
+      <div class="kpi-text">
+        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-value">${k.value}</div>
+        <div class="kpi-caption muted">${k.caption}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+// Search (email substring) + status filter + pagination, all applied to
+// the same in-memory lastLoadedCandidates - re-run on every keystroke/
+// filter change/page click, never a network call.
+function renderCandidatesTable() {
+  const box = document.getElementById("candidates-table");
+  const footer = document.getElementById("candidates-footer");
+  const query = (document.getElementById("candidates-search").value || "").trim().toLowerCase();
+  const statusFilter = document.getElementById("candidates-status-filter").value;
+
+  let rows = lastLoadedCandidates;
+  if (query) rows = rows.filter((c) => c.email.toLowerCase().includes(query));
+  if (statusFilter) rows = rows.filter((c) => c.result === statusFilter);
+
+  const totalRows = rows.length;
+  if (totalRows === 0) {
+    box.innerHTML = `<p class="muted">No candidates match your search/filter.</p>`;
+    footer.innerHTML = "";
+    return;
+  }
+
+  const pageCount = Math.max(1, Math.ceil(totalRows / CANDIDATES_PAGE_SIZE));
+  candidatesPage = Math.min(candidatesPage, pageCount);
+  const start = (candidatesPage - 1) * CANDIDATES_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + CANDIDATES_PAGE_SIZE);
+
   box.innerHTML = `
     <div class="table-scroll">
-      <table>
-        <thead><tr><th>Candidate</th><th>Exam date</th><th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th><th>Aggregate</th><th>Result</th><th></th></tr></thead>
+      <table class="candidates-table-el">
+        <thead>
+          <tr>
+            <th>#</th><th>Candidate</th><th>Exam Date</th>
+            <th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th>
+            <th>Aggregate</th><th>Status</th><th>Actions</th>
+          </tr>
+        </thead>
         <tbody>
-          ${candidates.map((c) => `
-            <tr>
-              <td>${escapeHtml(c.email)} ${c.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}</td>
-              <td>${c.exam_date ? formatDate(c.exam_date) : "-"}</td>
-              ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
-              <td>${c.aggregate_score != null ? `<strong class="${c.aggregate_score >= (appSettings ? appSettings.final_passing_score : 280) ? "score-good" : "score-bad"}">${c.aggregate_score}/400</strong>` : `<span class="muted">-</span>`}</td>
-              <td>${resultBadge(c.result)}</td>
-              <td><button onclick="openCandidateDetail(${c.id})">View</button></td>
-            </tr>
-          `).join("")}
+          ${pageRows.map((c, i) => renderCandidateRow(c, start + i + 1)).join("")}
         </tbody>
       </table>
     </div>
   `;
+
+  footer.innerHTML = `
+    <span class="muted">Showing ${start + 1}-${Math.min(start + CANDIDATES_PAGE_SIZE, totalRows)} of ${totalRows} candidate${totalRows === 1 ? "" : "s"}</span>
+    <div class="candidates-pagination">
+      <button class="btn-secondary btn-sm" ${candidatesPage <= 1 ? "disabled" : ""} onclick="changeCandidatesPage(-1)">Previous</button>
+      <span class="candidates-page-num">${candidatesPage}</span>
+      <button class="btn-secondary btn-sm" ${candidatesPage >= pageCount ? "disabled" : ""} onclick="changeCandidatesPage(1)">Next</button>
+    </div>
+  `;
+}
+
+function changeCandidatesPage(delta) {
+  candidatesPage += delta;
+  renderCandidatesTable();
+}
+
+// Cosmetic "CAND-00N" label from the candidate's own real database id
+// (not a row number, which would shift under search/filter/pagination,
+// and not invented data - just a formatted view of the existing id).
+function renderCandidateRow(c, rank) {
+  const idLabel = `CAND-${String(c.id).padStart(3, "0")}`;
+  const avatarPalette = ["kpi-icon-accent", "kpi-icon-success", "kpi-icon-warning"];
+  const avatarCls = avatarPalette[c.id % avatarPalette.length];
+  return `
+    <tr>
+      <td class="tabular">${rank}</td>
+      <td>
+        <div class="candidate-identity">
+          <div class="candidate-avatar ${avatarCls}">C${c.id}</div>
+          <div class="candidate-identity-text">
+            <div class="candidate-email">${escapeHtml(c.email)}</div>
+            <div class="candidate-id muted">ID: ${idLabel}</div>
+            ${c.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}
+          </div>
+        </div>
+      </td>
+      <td>${c.exam_date ? formatDate(c.exam_date) : `<span class="muted">-</span>`}</td>
+      ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
+      <td>${aggregateCell(c)}</td>
+      <td>${statusCell(c)}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn-primary btn-sm" onclick="openCandidateDetail(${c.id})">View</button>
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+// One "Export" entry point covering both existing exports (the CSV
+// below, and the daily-cohort-summary PDF - see downloadDailySummary) -
+// they used to be two separate, similarly-purposed controls sitting
+// right next to each other on this same page. Plain absolute
+// positioning is fine here (unlike the row-level overflow menu this
+// page used to have) since the toolbar itself never sits inside a
+// horizontally-scrolling container.
+function toggleExportMenu(evt) {
+  if (evt) evt.stopPropagation();
+  document.getElementById("export-menu-dropdown").classList.toggle("hidden");
+}
+document.addEventListener("click", (evt) => {
+  const menu = document.getElementById("export-menu-dropdown");
+  if (menu && !menu.classList.contains("hidden") && !evt.target.closest(".export-menu")) {
+    menu.classList.add("hidden");
+  }
+});
+
+// Full loaded list, not just the current search/filter/page - "export"
+// on a filtered dashboard still means "give me the data", same
+// convention as most enterprise tables.
+function exportCandidatesCsv() {
+  const header = ["#", "Candidate ID", "Email", "Exam Date", "Round 1", "Round 2", "Round 3", "Round 4", "Aggregate", "Result"];
+  const csvRows = lastLoadedCandidates.map((c, i) => [
+    i + 1,
+    `CAND-${String(c.id).padStart(3, "0")}`,
+    c.email,
+    c.exam_date ? formatDate(c.exam_date) : "",
+    ...c.rounds.map((r) => (r.final_score != null ? r.final_score : r.status)),
+    c.aggregate_score != null ? c.aggregate_score : "",
+    c.result,
+  ]);
+  const csv = [header, ...csvRows]
+    .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+    .join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "candidates.csv";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // "selected"/"not_selected"/"in_progress" - see hr.py's
 // _build_candidate_summary for the actual determination (aggregate_score
 // vs AppSettings.final_passing_score, only once every round is scored).
-// Reuses the existing badge-published/badge-fail/badge-draft classes
-// (green/red/amber) rather than inventing new ones, matching the same
-// visual vocabulary published/failed/draft-status badges already use
-// elsewhere in this dashboard.
+// Reuses the existing badge-published/badge-draft classes (green/amber)
+// rather than inventing new ones; "not_selected" gets the neutral grey
+// badge-neutral (not badge-fail's red) - a final, no-longer-in-flight
+// outcome reads as a settled status here, not an alarm.
 function resultBadge(result) {
   if (result === "selected") return `<span class="badge badge-published">Selected</span>`;
-  if (result === "not_selected") return `<span class="badge badge-fail">Not selected</span>`;
+  if (result === "not_selected") return `<span class="badge badge-neutral">Not selected</span>`;
   return `<span class="badge badge-draft">In progress</span>`;
+}
+
+// One-line summary of what's actually happening for this candidate
+// right now - derived entirely from the same per-round statuses already
+// shown in the row's own Round 1-4 cells, never a separate computation.
+function candidateStatusCaption(c) {
+  if (c.result === "selected" || c.result === "not_selected") return "Assessment complete";
+  const active = c.rounds.find((r) => r.status === "in_progress" || r.status === "submitted");
+  if (active) return `Round ${active.round_number} ${active.status === "in_progress" ? "in progress" : "submitted, scoring"}`;
+  return c.rounds.some((r) => r.status !== "not_started") ? "Awaiting next round" : "Not started yet";
+}
+
+function statusCell(c) {
+  return `<div class="status-cell">${resultBadge(c.result)}<div class="status-caption muted">${candidateStatusCaption(c)}</div></div>`;
+}
+
+// Aggregate score, its % of the fixed 400-point scale (4 rounds x 100 -
+// the same convention _build_candidate_summary/the PDF exports use),
+// and a mini bar - reusing .readout-bar (see style.css section 10)
+// rather than a new bar component.
+function aggregateCell(c) {
+  if (c.aggregate_score == null) return `<span class="muted">-</span>`;
+  const passing = appSettings ? appSettings.final_passing_score : 280;
+  const passed = c.aggregate_score >= passing;
+  const pct = Math.round((c.aggregate_score / 400) * 100);
+  return `
+    <div class="aggregate-cell">
+      <span class="${passed ? "score-good" : "score-bad"}">${c.aggregate_score}/400</span>
+      <div class="readout-bar aggregate-bar${passed ? "" : " is-bad"}" style="--pct:${Math.min(100, pct)}%"><i></i></div>
+      <span class="muted aggregate-pct">${pct}%</span>
+    </div>
+  `;
 }
 
 // No longer called from the candidate table (band is a hidden feature -
@@ -1218,10 +1417,17 @@ function roundStatusCell(r) {
   // naturally never appears on a not_started/in_progress cell.
   const submittedTitle = r.submitted_at ? ` title="Submitted ${formatDateTime(r.submitted_at)}"` : "";
   if (r.final_score != null) {
-    const cls = r.final_score >= passingScoreForRound(r.round_number) ? "score-good" : "score-bad";
-    return `<span class="${cls}"${submittedTitle}>${r.final_score}/100</span>${flag}${autoClosedFlag}`;
+    const passed = r.final_score >= passingScoreForRound(r.round_number);
+    const cls = passed ? "score-good" : "score-bad";
+    return `
+      <div class="round-cell">
+        <span class="${cls}"${submittedTitle}>${r.final_score}/100</span>
+        <div class="readout-bar round-bar${passed ? "" : " is-bad"}" style="--pct:${r.final_score}%"><i></i></div>
+        ${flag}${autoClosedFlag}
+      </div>
+    `;
   }
-  return `<span class="muted"${submittedTitle}>${r.status.replace("_", " ")}</span>${flag}${autoClosedFlag}`;
+  return `<div class="round-cell"><span class="muted"${submittedTitle}>${r.status.replace("_", " ")}</span>${flag}${autoClosedFlag}</div>`;
 }
 
 // Shared by the live candidate-detail view and the "Past appearances"

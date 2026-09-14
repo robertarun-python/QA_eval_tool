@@ -109,6 +109,33 @@
 
             <div id="scenario-detail" class="panel hidden"></div>
 
+            <!-- Round 3 only (see selectHRRound): the AI-prompted-coding
+                 assistant's refuse/clarify behavior is fixed logic in
+                 prompts/round3_coding_turn.txt, the same on every
+                 scenario in this round - not something that lives on a
+                 single scenario the way title/description/reference do,
+                 so it's shown once here rather than per-scenario. View
+                 only, same as round 4's guardrail reference below -
+                 changing the rules themselves means editing that prompt
+                 file directly, not a UI control. -->
+            <div class="panel hidden" id="round3-guardrails-panel">
+              <h3>How this round works</h3>
+              <p class="muted">Guardrails the AI pair-programmer follows while writing code with the candidate (for reference - candidates only see a short heads-up, not this level of detail).</p>
+              <details class="hint-box" open>
+                <summary>Guardrails the assistant follows</summary>
+                <ul style="margin:0.5rem 0 0; padding-left:1.2rem">
+                  <li>Refuses to make a design or algorithm judgment call for the candidate - "which loop is correct", "what's the best approach", "what would you do" - and asks them to specify it themselves instead.</li>
+                  <li>Refuses to diagnose or fix a runtime error, exception, or wrong output the candidate reports or pastes - the candidate must diagnose it themselves and say exactly what to change in the code.</li>
+                  <li>Refuses a "solve it for me" request that restates the problem instead of directing specific work - including on turn 1, with no first-turn exception.</li>
+                  <li>Never invents a name or a mechanical technique (a variable/function name, how to parse, convert, or iterate something) the candidate didn't specify - asks one bare, minimal question instead of guessing.</li>
+                  <li>Never asks about runtime behavior, edge cases, or error conditions before writing code - a candidate discovering their own under-specified logic from a crash or wrong result is the point of this round.</li>
+                  <li>Once a name, type, or technique is already established, never re-opens it or hints it might be wrong - only an explicit new instruction from the candidate can change it.</li>
+                  <li>When asking the candidate to resolve an open design choice, the question never names the underlying concept or technique (e.g. never "for loop or while loop?") - only what needs to happen, so the assistant can't accidentally hand over the answer.</li>
+                  <li>Attempts to direct the assistant's behavior or the scoring itself are refused in-turn and separately flagged as a guardrail violation in the scoring feedback, the same as round 4's equivalent guardrail.</li>
+                </ul>
+              </details>
+            </div>
+
             <div class="panel" id="screening-history-panel">
               <h3>Screening history</h3>
               <p class="muted">Every scenario in this round that's actually been put in front of candidates, and how it performed - use this before writing a new one, so you're not repeating a question that's already too easy, too hard, or ambiguous.</p>
@@ -135,16 +162,50 @@
               <div id="upload-result"></div>
             </div>
 
-            <div class="panel">
-              <h3>Candidates</h3>
-              <p class="muted">All rounds, all candidates.</p>
-              <div class="field-inline" style="margin-bottom: var(--space-compact);">
-                <label for="daily-summary-date">Daily cohort summary</label>
-                <input id="daily-summary-date" type="date" />
-                <button onclick="downloadDailySummary()">Download PDF</button>
+            <div class="panel candidates-panel">
+              <div class="candidates-toolbar">
+                <div class="field-boxed candidates-search-field">
+                  <input id="candidates-search" type="search" placeholder="Search candidates..." oninput="renderCandidatesTable()" />
+                </div>
+                <div class="candidates-toolbar-actions">
+                  <label class="sr-only" for="candidates-status-filter">Filter by status</label>
+                  <select id="candidates-status-filter" class="candidates-filter-select" onchange="renderCandidatesTable()">
+                    <option value="">All statuses</option>
+                    <option value="selected">Selected</option>
+                    <option value="not_selected">Not selected</option>
+                    <option value="in_progress">In progress</option>
+                  </select>
+                  <!-- One "Export" entry point for both existing exports
+                       (client-side CSV of everything currently loaded,
+                       and the existing daily-cohort-summary PDF endpoint)
+                       instead of two separate, similarly-purposed controls
+                       - see toggleExportMenu/downloadDailySummary in app.js. -->
+                  <div class="export-menu">
+                    <button type="button" class="btn-primary" onclick="toggleExportMenu(event)">Export &#9662;</button>
+                    <div class="export-menu-dropdown hidden" id="export-menu-dropdown">
+                      <button type="button" class="export-menu-item" onclick="exportCandidatesCsv(); toggleExportMenu();">
+                        Export CSV<span class="muted">All candidates currently loaded</span>
+                      </button>
+                      <div class="export-menu-divider"></div>
+                      <div class="export-menu-section">
+                        <div class="export-menu-section-label">Cohort PDF report</div>
+                        <p class="muted export-menu-hint">One exam date at a time - marks, comments, result.</p>
+                        <div class="field-inline">
+                          <label class="sr-only" for="daily-summary-date">Exam date</label>
+                          <input id="daily-summary-date" type="date" />
+                          <button type="button" class="btn-secondary btn-sm" onclick="downloadDailySummary()">Download</button>
+                        </div>
+                        <div id="daily-summary-status"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div id="daily-summary-status"></div>
+
+              <div id="candidates-kpis" class="candidates-kpis"></div>
+
               <div id="candidates-table"></div>
+              <div id="candidates-footer" class="candidates-footer"></div>
             </div>
             <div id="candidate-detail" class="panel hidden"></div>
           </div>

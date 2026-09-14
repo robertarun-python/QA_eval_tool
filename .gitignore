@@ -31,6 +31,7 @@ Claude outputs/
 # suffix a browser adds on a repeat download of the same filename.
 *-summary*.pdf
 cohort-*.pdf
+candidates.csv
 
 # Locally-installed third-party agent skill packages, not app code.
 backend/.claude/
