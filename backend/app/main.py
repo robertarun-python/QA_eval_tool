@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .database import Base, engine
-from .routers import auth, hr, candidate
+from .routers import auth, hr, candidate, progressive
 
 # Creates tables on first run if they don't exist yet. Fine for a POC;
 # a real project would use Alembic migrations instead once the schema
@@ -51,6 +51,11 @@ async def limit_request_body_size(request: Request, call_next):
 app.include_router(auth.router)
 app.include_router(hr.router)
 app.include_router(candidate.router)
+# Round 5 (Progressive Engineering) POC - a new, separate router, not
+# merged into hr.router/candidate.router above and not added to
+# candidate.py's ROUND_SEQUENCE gate. See routers/progressive.py.
+app.include_router(progressive.candidate_router)
+app.include_router(progressive.hr_router)
 
 BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
