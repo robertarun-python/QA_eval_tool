@@ -57,6 +57,42 @@ def test_round2_submit_requires_investigation_and_root_cause(client, monkeypatch
     assert res.status_code == 422
 
 
+def test_round2_submit_rejected_once_time_limit_has_passed(client, monkeypatch):
+    """Direct-API regression test for the R2-specific case of the shared
+    deadline backstop - see candidate.py's _require_within_time_limit and
+    test_round1.py's equivalent test, whose own docstring already notes
+    this same helper covers rounds 2/3 too. Inspected first: submit_round2
+    (candidate.py) calls _require_within_time_limit unconditionally,
+    identically to round 1 - no round-2-specific deadline logic exists to
+    diverge, so this closes the coverage gap without changing behavior."""
+    from datetime import datetime, timedelta
+    import app.database as database_module
+    from app.models import Submission
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1 gate")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Timed R2 scenario")  # 30-minute default limit
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+
+    db = database_module.SessionLocal()
+    submission = db.query(Submission).filter(Submission.round_number == 2).one()
+    submission.started_at = datetime.utcnow() - timedelta(minutes=35)  # past 30 min + grace
+    db.commit()
+    db.close()
+
+    res = client.post(
+        "/candidate/round/2/submit",
+        json={"investigation": FAKE_INVESTIGATION, "root_cause": FAKE_ROOT_CAUSE},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 400
+    assert "time limit" in res.json()["detail"].lower()
+
+
 def test_round2_submission_scored_via_background_task(client, monkeypatch):
     from app.services import llm_service
 

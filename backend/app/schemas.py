@@ -274,6 +274,11 @@ class ScoreOut(BaseModel):
     # always present, all null/false until HR ever touches this score.
     original_final_score: Optional[int] = None
     overridden_by_hr: bool = False
+    # Round 4 only - see models.Score.evidence_audit. None for every
+    # other round. HR-only by construction: ScoreOut is only ever
+    # embedded in SubmissionReportOut, which is only ever returned from
+    # require_hr-gated routes - never from a candidate-facing endpoint.
+    evidence_audit: Optional[dict] = None
     override_note: Optional[str] = None
     overridden_at: Optional[datetime] = None
     # Provenance (see models.Score) - which model/prompt-version produced

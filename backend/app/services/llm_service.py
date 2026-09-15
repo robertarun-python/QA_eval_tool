@@ -16,6 +16,7 @@ from ..config import settings
 from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding
 from . import round3_constructs
 from . import round3_construct_engine
+from . import round3_policy
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -215,6 +216,17 @@ def round3_coding_turn(
     required_constructs = required_constructs or []
     declared_constructs = declared_constructs or {}
     open_categories = [c for c in required_constructs if c not in declared_constructs]
+
+    if round3_policy.is_prohibited(candidate_prompt):
+        # Deterministic pre-generation refusal - _raw_turn (the only path
+        # to _call_claude in this function) is never invoked. See
+        # round3_policy.py's module docstring for why this exists.
+        return {
+            "response_kind": "refuse",
+            "response_message": round3_policy.REFUSAL_MESSAGE,
+            "code_after": None,
+            "declared_constructs": dict(declared_constructs),
+        }
 
     def _raw_turn(regeneration_note: str = "") -> Round3CodingTurnResponse:
         prompt = _load_prompt("round3_coding_turn.txt").format(

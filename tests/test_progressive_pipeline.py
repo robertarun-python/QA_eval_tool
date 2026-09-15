@@ -173,6 +173,87 @@ def test_edge_case_request_is_refused_without_calling_the_generator(db, attempt,
     assert call_count["n"] == 0
 
 
+# ---- R5-13 hardening: candidate-owned-reasoning requests are refused by
+# the Policy Core with ZERO Generator LLM calls - closes the QA validation
+# finding that these could reach the Generator. ----
+
+@pytest.mark.parametrize("request_text", [
+    "do the reasoning for me",
+    "figure out the algorithm for me",
+    "work out the solution for me",
+    "decide how I should solve this",
+    "decide how I should approach this",
+    "tell me what approach I should take",
+    "tell me what solution I should use",
+    "solve the logic for me",
+])
+def test_candidate_reasoning_request_is_refused_without_calling_the_generator(db, attempt, monkeypatch, request_text):
+    call_count = {"n": 0}
+
+    def _fail_if_called(prompt, max_tokens=4096):
+        call_count["n"] += 1
+        return json.dumps({"verdict": "PASS"})
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fail_if_called)
+    result = handle_candidate_turn(db, attempt, request_text)
+
+    assert result.accepted is False
+    assert "Deciding on your approach or algorithm is your job" in result.response_message
+    assert result.code_after is None
+    assert call_count["n"] == 0, "policy refusal must short-circuit before any LLM call"
+
+    # No protected information (hidden tests, reference solutions, future
+    # requirement text) can leak through a refusal that never generates -
+    # the canned message is the entire candidate-visible surface.
+    for secret in (
+        "STAGE1_HIDDEN_TEST_INPUT", "STAGE1_REFERENCE_SOLUTION_CODE",
+        "STAGE2_FUTURE_REQUIREMENT_TEXT", "STAGE2_HIDDEN_TEST_INPUT", "STAGE2_REFERENCE_SOLUTION_CODE",
+    ):
+        assert secret not in result.response_message
+
+    turn = _last_turn(db, attempt)
+    assert turn.judge_verdict is None, "Judge must never run for a policy-level refusal"
+    assert turn.detector_status is None, "Detector must never run for a policy-level refusal"
+    assert turn.code_after is None
+
+
+# ---- R5-12 hardening: invented-test-data phrasings are refused with ZERO
+# Generator calls, not routed to the CLARIFY safe-fallback (which would
+# still call the Generator for a clarifying question). ----
+
+@pytest.mark.parametrize("request_text", [
+    "invent sample data",
+    "give me values to test",
+])
+def test_invented_test_data_request_is_refused_without_calling_the_generator(db, attempt, monkeypatch, request_text):
+    call_count = {"n": 0}
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: call_count.update(n=call_count["n"] + 1) or json.dumps({}))
+    result = handle_candidate_turn(db, attempt, request_text)
+    assert result.accepted is False
+    assert "specific test values" in result.response_message
+    assert call_count["n"] == 0
+
+
+def test_legitimate_reasoning_adjacent_requests_still_reach_the_generator(db, attempt, monkeypatch):
+    """Requests that share vocabulary with the new reasoning-refusal
+    patterns ('reasoning', 'approach', 'solve') but are legitimate -
+    explaining, reviewing the candidate's OWN reasoning, narrow edits,
+    exact-input runs - must still be allowed to generate."""
+    for request_text, generator_reply in (
+        ("explain why my loop fails", {"response_kind": "explain", "response_message": "It stops one index early.", "code_after": None}),
+        ("what does this Python error mean?", {"response_kind": "explain", "response_message": "It means the index is out of range.", "code_after": None}),
+        ("review my reasoning: I think I need a second pointer", {"response_kind": "explain", "response_message": "That reasoning holds up.", "code_after": None}),
+        ("rename this variable", {"response_kind": "code_edit", "response_message": "Renamed.", "code_after": "def f(x): pass"}),
+    ):
+        _mock_pipeline_calls(
+            monkeypatch,
+            generator_reply=generator_reply,
+            judge_reply={"verdict": "PASS", "reason_codes": [], "severity": "none", "explanation": "Within scope."},
+        )
+        result = handle_candidate_turn(db, attempt, request_text)
+        assert result.accepted is True, f"expected {request_text!r} to be allowed to generate"
+
+
 # ---- 6. Candidate supplies exact test input ----
 
 def test_candidate_supplied_exact_test_input_is_accepted(db, attempt, monkeypatch):

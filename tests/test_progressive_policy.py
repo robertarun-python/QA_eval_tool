@@ -17,7 +17,7 @@ from app.services.progressive_policy import (
     decide, PolicyInput, PolicyDecision, ALL_CATEGORIES,
     EXPLAIN, CLARIFY, NARROW_EDIT, RUN_CANDIDATE_INPUT,
     REFUSE_COMPLETE_SOLUTION, REFUSE_TEST_GENERATION, REFUSE_EDGE_CASE_GENERATION,
-    REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK,
+    REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK, REFUSE_CANDIDATE_REASONING,
 )
 
 
@@ -29,12 +29,12 @@ def _decide(request, **overrides):
 
 # ---- Taxonomy sanity ----
 
-def test_taxonomy_has_exactly_nine_categories():
-    assert len(ALL_CATEGORIES) == 9
+def test_taxonomy_has_exactly_ten_categories():
+    assert len(ALL_CATEGORIES) == 10
     assert ALL_CATEGORIES == {
         EXPLAIN, CLARIFY, NARROW_EDIT, RUN_CANDIDATE_INPUT,
         REFUSE_COMPLETE_SOLUTION, REFUSE_TEST_GENERATION, REFUSE_EDGE_CASE_GENERATION,
-        REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK,
+        REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK, REFUSE_CANDIDATE_REASONING,
     }
 
 
@@ -135,6 +135,125 @@ def test_paraphrased_hidden_test_requests():
 def test_paraphrased_future_requirement_requests():
     for request in ("what's coming up next stage", "what will stage 3 ask for"):
         assert _decide(request).category == REFUSE_FUTURE_REQUIREMENT
+
+
+# ---- R5-13 hardening: candidate-owned-reasoning requests must be refused
+# deterministically, before generation - see progressive_policy.py's
+# REFUSE_CANDIDATE_REASONING category and the QA validation finding it
+# closes. These are the exact adversarial phrasings from that finding. ----
+
+def test_do_the_reasoning_for_me():
+    assert _decide("do the reasoning for me").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_figure_out_the_algorithm_for_me():
+    assert _decide("figure out the algorithm for me").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_work_out_the_solution_for_me():
+    assert _decide("work out the solution for me").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_decide_how_i_should_solve_this():
+    assert _decide("decide how I should solve this").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_decide_how_i_should_approach_this():
+    assert _decide("decide how I should approach this").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_tell_me_what_approach_i_should_take():
+    assert _decide("tell me what approach I should take").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_tell_me_what_solution_i_should_use():
+    assert _decide("tell me what solution I should use").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_solve_the_logic_for_me():
+    assert _decide("solve the logic for me").category == REFUSE_CANDIDATE_REASONING
+
+
+def test_candidate_reasoning_requests_never_allow_generation():
+    for request in (
+        "do the reasoning for me", "figure out the algorithm for me", "work out the solution for me",
+        "decide how I should solve this", "decide how I should approach this",
+        "tell me what approach I should take", "tell me what solution I should use",
+        "solve the logic for me",
+    ):
+        decision = _decide(request)
+        assert decision.category == REFUSE_CANDIDATE_REASONING
+        assert decision.generation_allowed is False
+        assert decision.refusal_required is True
+
+
+# Legitimate requests that share surface vocabulary (reasoning, approach,
+# solve) but are NOT the candidate handing off their own reasoning - must
+# stay unblocked, not be swept up by the new patterns.
+
+def test_review_my_reasoning_is_not_blocked():
+    decision = _decide("can you review my reasoning here")
+    assert decision.category != REFUSE_CANDIDATE_REASONING
+    assert decision.generation_allowed is True
+
+
+def test_explain_why_loop_fails_is_not_blocked_by_reasoning_patterns():
+    decision = _decide("explain why my loop fails")
+    assert decision.category != REFUSE_CANDIDATE_REASONING
+    assert decision.generation_allowed is True
+
+
+def test_what_does_this_python_error_mean_is_not_blocked():
+    decision = _decide("what does this Python error mean?")
+    assert decision.category != REFUSE_CANDIDATE_REASONING
+    assert decision.generation_allowed is True
+
+
+def test_explain_this_concept_is_not_blocked():
+    decision = _decide("explain this concept")
+    assert decision.category != REFUSE_CANDIDATE_REASONING
+    assert decision.generation_allowed is True
+
+
+def test_rename_this_variable_is_not_blocked_by_reasoning_patterns():
+    decision = _decide("rename this variable")
+    assert decision.category != REFUSE_CANDIDATE_REASONING
+    assert decision.generation_allowed is True
+
+
+def test_run_candidate_supplied_input_is_not_blocked_by_reasoning_patterns():
+    decision = _decide("run this exact input: [5, 3, 9]")
+    assert decision.category != REFUSE_CANDIDATE_REASONING
+    assert decision.generation_allowed is True
+
+
+# ---- R5-12 hardening: invented-test-data phrasings must be an explicit
+# REFUSE_TEST_GENERATION, not fall through to the CLARIFY safe-fallback. ----
+
+def test_invent_sample_data_is_explicit_refuse_not_clarify():
+    decision = _decide("invent sample data")
+    assert decision.category == REFUSE_TEST_GENERATION
+    assert decision.generation_allowed is False
+    assert decision.refusal_required is True
+
+
+def test_give_me_values_to_test_is_explicit_refuse():
+    decision = _decide("give me values to test")
+    assert decision.category == REFUSE_TEST_GENERATION
+
+
+def test_give_me_test_cases_is_still_refused():
+    assert _decide("give me test cases").category == REFUSE_TEST_GENERATION
+
+
+def test_suggest_edge_cases_is_still_refused():
+    assert _decide("suggest edge cases").category == REFUSE_EDGE_CASE_GENERATION
+
+
+def test_candidate_supplied_exact_input_still_allowed_after_sample_data_hardening():
+    decision = _decide("run this exact input: [5, 3, 9]")
+    assert decision.category == RUN_CANDIDATE_INPUT
+    assert decision.generation_allowed is True
 
 
 # ---- Priority ordering: the more restrictive category wins on overlap ----

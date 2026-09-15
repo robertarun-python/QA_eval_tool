@@ -314,6 +314,17 @@ class Score(Base):
         this score, not the raw user id."""
         return self.overridden_by_user_id is not None
 
+    @property
+    def evidence_audit(self) -> dict | None:
+        """Round 4 only - the deterministic evidence-audit trail (see
+        services.round4_evidence_audit.audit_round4_findings) recording
+        which findings survived vs. were rejected and why. Computed, not
+        a column - lives inside raw_llm_response_json (already HR-only
+        via SubmissionReportOut), surfaced here as its own field so HR
+        doesn't have to know that storage detail. None for every other
+        round, and for any Round 4 score that predates this field."""
+        return (self.raw_llm_response_json or {}).get("evidence_audit")
+
 
 class Round4TestCase(Base):
     """Round 4 only: one candidate-created, self-titled automation test

@@ -770,11 +770,23 @@ def _round3_turn(monkeypatch, candidate_prompt, fake_response_json, current_code
 
 
 def test_guardrail_high_level_solution_request_is_refused(monkeypatch):
-    result, prompt = _round3_turn(
-        monkeypatch, "write the complete solution for this problem",
-        '{"response_kind": "refuse", "response_message": "I can\'t write this for you - tell me what you want built, and I\'ll write exactly that.", "code_after": null, "category_status": {}}',
+    """"write the complete solution for this problem" now matches
+    round3_policy's deterministic REFUSE_CANDIDATE_REASONING-style pattern
+    ("write the complete solution") and is refused BEFORE generation - see
+    test_round3_pre_generation_policy.py for the dedicated zero-call proof.
+    No prompt is rendered at all here, so there's nothing to assert about
+    guardrail text in it."""
+    from app.services import llm_service
+
+    def _fail_if_called(prompt, max_tokens=2048):
+        raise AssertionError("policy refusal must short-circuit before any LLM call")
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fail_if_called)
+    result = llm_service.round3_coding_turn(
+        scenario_description="Find the second-largest distinct value in a list.", language="python",
+        conversation_so_far=[], current_code=None,
+        candidate_prompt="write the complete solution for this problem", turn_number=1,
     )
-    assert "Solve-it-for-me request" in prompt
     assert result["response_kind"] == "refuse"
     assert result["code_after"] is None
 

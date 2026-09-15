@@ -1204,3 +1204,27 @@ def test_round4_full_pipeline_rejects_the_actual_hallucinated_findings(client, m
     assert misses == [GENUINE_FOLLOWUP_FINDING["claim"]]
     # 40 (LLM's own number) + medium (welcome, rejected) + high (zero-followup, rejected).
     assert round4_summary["final_score"] == 40 + SEVERITY_WEIGHTS["medium"] + SEVERITY_WEIGHTS["high"]
+
+    # ---- R4 hardening: the deterministic evidence-audit trail (which
+    # findings were accepted/rejected and why) is now exposed via this
+    # same HR-only report endpoint - see models.Score.evidence_audit /
+    # schemas.ScoreOut.evidence_audit. ----
+    audit = report_round4["score"]["evidence_audit"]
+    assert audit["total_findings"] == 3
+    assert audit["supported"] == 1
+    assert audit["not_established"] + audit["contradicted"] == 2
+    by_claim = {f["finding"]: f for f in audit["findings"]}
+    assert by_claim[HALLUCINATED_WELCOME_LABEL_FINDING["claim"]]["evidence_status"] != "SUPPORTED"
+    assert by_claim[HALLUCINATED_ZERO_FOLLOWUP_FINDING["claim"]]["evidence_status"] != "SUPPORTED"
+    assert by_claim[GENUINE_FOLLOWUP_FINDING["claim"]]["evidence_status"] == "SUPPORTED"
+
+    # Candidate can never reach this data: no candidate-facing endpoint
+    # returns a "score" field at all (see schemas.SubmissionOut vs. the
+    # HR-only SubmissionReportOut subclass that adds it), and the HR
+    # report route itself rejects a candidate token outright.
+    res = client.get("/candidate/submissions", cookies=_auth(cand_token))
+    round4_candidate_view = next(s for s in res.json() if s["round_number"] == 4)
+    assert "score" not in round4_candidate_view
+
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(cand_token))
+    assert res.status_code == 403

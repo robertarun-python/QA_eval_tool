@@ -45,16 +45,17 @@ REFUSE_TEST_GENERATION = "REFUSE_TEST_GENERATION"
 REFUSE_EDGE_CASE_GENERATION = "REFUSE_EDGE_CASE_GENERATION"
 REFUSE_FUTURE_REQUIREMENT = "REFUSE_FUTURE_REQUIREMENT"
 REFUSE_HIDDEN_TEST_REFERENCE_LEAK = "REFUSE_HIDDEN_TEST_REFERENCE_LEAK"
+REFUSE_CANDIDATE_REASONING = "REFUSE_CANDIDATE_REASONING"
 
 ALL_CATEGORIES = {
     EXPLAIN, CLARIFY, NARROW_EDIT, RUN_CANDIDATE_INPUT,
     REFUSE_COMPLETE_SOLUTION, REFUSE_TEST_GENERATION, REFUSE_EDGE_CASE_GENERATION,
-    REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK,
+    REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK, REFUSE_CANDIDATE_REASONING,
 }
 
 _REFUSE_CATEGORIES = {
     REFUSE_COMPLETE_SOLUTION, REFUSE_TEST_GENERATION, REFUSE_EDGE_CASE_GENERATION,
-    REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK,
+    REFUSE_FUTURE_REQUIREMENT, REFUSE_HIDDEN_TEST_REFERENCE_LEAK, REFUSE_CANDIDATE_REASONING,
 }
 
 _REASON_CODES = {
@@ -67,6 +68,7 @@ _REASON_CODES = {
     REFUSE_EDGE_CASE_GENERATION: "edge_case_generation_request",
     REFUSE_FUTURE_REQUIREMENT: "future_requirement_request",
     REFUSE_HIDDEN_TEST_REFERENCE_LEAK: "hidden_test_or_reference_request",
+    REFUSE_CANDIDATE_REASONING: "candidate_reasoning_request",
 }
 
 _CEILING_DESCRIPTIONS = {
@@ -79,6 +81,7 @@ _CEILING_DESCRIPTIONS = {
     REFUSE_EDGE_CASE_GENERATION: "Refuse - edge-case identification belongs to the candidate.",
     REFUSE_FUTURE_REQUIREMENT: "Refuse - future-stage information is not available to disclose.",
     REFUSE_HIDDEN_TEST_REFERENCE_LEAK: "Refuse - hidden test / reference solution content must never be disclosed.",
+    REFUSE_CANDIDATE_REASONING: "Refuse - deciding the approach/algorithm/solution is the candidate's own job, not the assistant's.",
 }
 
 # Priority order the classifier checks patterns in - most security-critical
@@ -89,6 +92,7 @@ _PRIORITY_ORDER = [
     REFUSE_HIDDEN_TEST_REFERENCE_LEAK,
     REFUSE_FUTURE_REQUIREMENT,
     REFUSE_COMPLETE_SOLUTION,
+    REFUSE_CANDIDATE_REASONING,
     REFUSE_TEST_GENERATION,
     REFUSE_EDGE_CASE_GENERATION,
     RUN_CANDIDATE_INPUT,
@@ -113,9 +117,19 @@ _PATTERNS = {
         "give me the solution", "solve it for me", "write the full", "complete implementation",
         "full implementation", "implement the whole",
     ),
+    REFUSE_CANDIDATE_REASONING: (
+        "do the reasoning for me", "do my reasoning for me", "reasoning for me",
+        "figure out the algorithm for me", "figure out the algorithm",
+        "work out the solution for me", "work out the algorithm for me",
+        "solve the logic for me", "do the logic for me",
+        "decide how i should solve", "decide how i should approach", "decide my approach",
+        "tell me what approach i should", "tell me which approach i should",
+        "tell me what solution i should", "tell me which solution i should",
+    ),
     REFUSE_TEST_GENERATION: (
         "test cases", "test case", "give me tests", "write tests", "generate tests",
         "create test data", "sample test data", "some test values", "write some tests",
+        "sample data", "values to test",
     ),
     REFUSE_EDGE_CASE_GENERATION: (
         "edge cases", "edge case", "corner cases", "corner case",
