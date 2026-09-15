@@ -94,12 +94,13 @@ def test_round4_scoring_prompt_has_an_injection_guardrail(monkeypatch):
 
     def _fake_call(prompt, max_tokens=4096):
         captured["prompt"] = prompt
-        return '{"coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": ""}'
+        return '{"coverage_score": 0, "findings": [], "final_score": 0, "feedback_text": ""}'
 
     monkeypatch.setattr(llm_service, "_call_claude", _fake_call)
     llm_service.score_round4_conversation(
-        round1_context={"scenario_title": "", "scenario_description": "", "submitted_rows": []},
-        test_cases=[], assistance_pct=60,
+        round4_evidence={"test_cases": []},
+        round1_reference_context={"scenario_title": "", "scenario_description": "", "submitted_rows": []},
+        assistance_pct=60,
     )
     assert _GUARDRAIL_PHRASE in captured["prompt"]
 

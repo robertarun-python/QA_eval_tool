@@ -971,7 +971,11 @@ def _gather_candidate_rounds(candidate: User, db: Session, background_tasks: Bac
     # describe a round as still in_progress when other HR views (see
     # _build_candidate_summary) already show it correctly closed.
     close_expired_submissions(db, list(candidate.submissions), background_tasks)
-    submissions_by_round = {s.round_number: s for s in candidate.submissions}
+    # Only the current cycle's submissions, same filter _build_candidate_summary
+    # uses - an archived retry must never outrank the live attempt just because
+    # of incidental relationship/dict ordering.
+    current_submissions = [s for s in candidate.submissions if not s.archived]
+    submissions_by_round = {s.round_number: s for s in current_submissions}
     rounds = []
     for round_number in (1, 2, 3, 4):
         submission = submissions_by_round.get(round_number)

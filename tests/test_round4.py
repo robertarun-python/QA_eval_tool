@@ -1068,3 +1068,139 @@ def test_round4_regenerate_reference_blocked_while_a_candidate_is_mid_round4(cli
 
     res = client.post(f"/hr/scenarios/{round4['id']}/regenerate-reference", cookies=_auth(hr_token))
     assert res.status_code == 409
+
+
+def test_round4_scoring_drops_unsupported_findings_and_restores_their_points(client, monkeypatch):
+    """End-to-end version of test_round4_evidence_audit.py's unit tests:
+    a structured `findings`-shaped scorer response (see
+    prompts/round4_scoring.txt, schemas.Round4Finding) goes through the
+    deterministic auditor (round4_evidence_audit.py) before it becomes a
+    persisted Score - an unevidenced finding must not survive into
+    misses_json, and final_score must be adjusted back up rather than
+    silently keeping the LLM's original deduction."""
+    from app.services import llm_service
+    from app.services.round4_evidence_audit import SEVERITY_WEIGHTS
+
+    observed_result = "Login succeeded and the dashboard loaded."
+    fake_score_with_findings = {
+        "coverage_score": 72,
+        "findings": [
+            # No evidence at all - must be dropped, not scored as a weakness.
+            {
+                "claim": "Search with no matches: never verified an empty-results message appeared",
+                "severity": "medium",
+                "evidence": [],
+            },
+            # Cites a quote that's actually in the transcript - must survive.
+            {
+                "claim": "Search returns matching results: confirmed the page loaded before checking results",
+                "severity": "low",
+                "evidence": [{"turn": 1, "quote": observed_result}],
+            },
+        ],
+        "final_score": 60,
+        "feedback_text": "Solid independent coverage across two distinct test cases.",
+    }
+    monkeypatch.setattr(llm_service, "round4_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
+    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: dict(fake_score_with_findings))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="Search box")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round4_scenario(client, hr_token, monkeypatch, title="Automate the search feature")
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+
+    tc1 = _create_round4_test_case(client, cand_token, title="Search returns matching results")
+    tc2 = _create_round4_test_case(client, cand_token, title="Search with no matches")
+    client.post("/candidate/round/4/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/4/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+
+    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    round4_summary = next(r for r in candidate_row["rounds"] if r["round_number"] == 4)
+    # 60 (LLM's own number) + the "medium" weight given back for the
+    # finding the auditor rejected - see round4_evidence_audit.SEVERITY_WEIGHTS.
+    assert round4_summary["final_score"] == 60 + SEVERITY_WEIGHTS["medium"]
+
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round4 = next(s for s in res.json() if s["round_number"] == 4)
+    assert report_round4["score"]["misses_json"] == [
+        "Search returns matching results: confirmed the page loaded before checking results"
+    ]
+
+
+def test_round4_full_pipeline_rejects_the_actual_hallucinated_findings(client, monkeypatch):
+    """Golden regression test for the Round 4 hallucinated-evaluation bug
+    actually encountered: replays the exact transcript (see
+    tests/fixtures/round4_hallucination_regression.py) that previously
+    let an evaluator produce "Welcome label was missing" and "zero
+    follow-up questions" findings, through the REAL candidate flow
+    (start round 4, create test cases, send turns, submit) and a scorer
+    mock that reproduces both hallucinations plus one genuine finding -
+    then asserts neither hallucination survives into the persisted
+    Score visible to HR. No live Claude call anywhere in this test; see
+    test_round4_hallucination_regression.py for the equivalent pure
+    (non-HTTP) unit tests of the auditor itself against this same fixture."""
+    from app.services import llm_service
+    from app.services.round4_evidence_audit import SEVERITY_WEIGHTS
+    from .fixtures.round4_hallucination_regression import (
+        GENUINE_FOLLOWUP_FINDING,
+        HALLUCINATED_WELCOME_LABEL_FINDING,
+        HALLUCINATED_ZERO_FOLLOWUP_FINDING,
+        TEST_CASES,
+    )
+
+    # One real turn_response per fixture turn, returned in the same
+    # order the turns are submitted below - so the actual conversation_turns
+    # this test creates end up textually identical to the fixture.
+    turn_responses = iter(turn["model_response"] for tc in TEST_CASES for turn in tc["turns"])
+    monkeypatch.setattr(llm_service, "round4_respond", lambda **kwargs: dict(next(turn_responses)))
+    fake_score = {
+        "coverage_score": 70,
+        "findings": [HALLUCINATED_WELCOME_LABEL_FINDING, HALLUCINATED_ZERO_FOLLOWUP_FINDING, GENUINE_FOLLOWUP_FINDING],
+        "final_score": 40,
+        "feedback_text": "Automated a meaningful negative-path scenario and pushed back on an unexpected result.",
+    }
+    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: dict(fake_score))
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_round4_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+
+    for tc in TEST_CASES:
+        created = _create_round4_test_case(client, cand_token, title=tc["title"])
+        for turn in tc["turns"]:
+            res = client.post(
+                "/candidate/round/4/turn",
+                json={"test_case_id": created["id"], "candidate_prompt": turn["candidate_prompt"]},
+                cookies=_auth(cand_token),
+            )
+            assert res.status_code == 201
+
+    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    round4_summary = next(r for r in candidate_row["rounds"] if r["round_number"] == 4)
+
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round4 = next(s for s in res.json() if s["round_number"] == 4)
+    misses = report_round4["score"]["misses_json"]
+
+    assert not any("welcome" in m.lower() for m in misses)
+    assert not any("zero follow" in m.lower() for m in misses)
+    assert misses == [GENUINE_FOLLOWUP_FINDING["claim"]]
+    # 40 (LLM's own number) + medium (welcome, rejected) + high (zero-followup, rejected).
+    assert round4_summary["final_score"] == 40 + SEVERITY_WEIGHTS["medium"] + SEVERITY_WEIGHTS["high"]

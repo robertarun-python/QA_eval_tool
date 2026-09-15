@@ -13,7 +13,7 @@ import anthropic
 from pydantic import ValidationError
 
 from ..config import settings
-from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse
+from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding
 from . import round3_constructs
 from . import round3_construct_engine
 
@@ -613,19 +613,82 @@ def generate_round4_code_snippet(test_case_title: str, steps: list[dict], observ
     return text.strip()
 
 
-def score_round4_conversation(round1_context: dict, test_cases: list[dict], assistance_pct: int) -> dict:
+# The only fields either evidence bucket is allowed to carry - see
+# score_round4_conversation's docstring and ARCHITECTURE.md's Round 4
+# section. Enforced with an assertion, not just a docstring, so a future
+# edit that starts stuffing round2/round3/another-candidate's data into
+# either dict fails loudly here instead of silently reaching the prompt.
+_ROUND4_EVIDENCE_KEYS = {"test_cases"}
+_ROUND1_REFERENCE_KEYS = {"scenario_title", "scenario_description", "submitted_rows"}
+
+
+def score_round4_conversation(round4_evidence: dict, round1_reference_context: dict, assistance_pct: int) -> dict:
+    """Scores ONE Round 4 session. The two dicts below are an explicit,
+    enforced evidence hierarchy - see prompts/round4_scoring.txt's own
+    PRIMARY EVIDENCE / REFERENCE ONLY labels, which this function's
+    prompt-building must keep in lockstep with:
+
+    - round4_evidence: PRIMARY EVIDENCE. The current Round 4 submission's
+      own test cases and transcript ONLY - the sole source of truth for
+      what this candidate actually did in this round. Built fresh by
+      scoring_service.score_round4_submission from THIS submission's own
+      round4_test_cases/turns; never from another round, another
+      candidate, or a cached/previous evaluation.
+    - round1_reference_context: REFERENCE ONLY. Just enough of the
+      candidate's own Round 1 work (their scenario + their own test
+      case rows) to understand what app/scenario Round 4 is automating.
+      Never a source of Round 4 findings - see the prompt's own
+      guardrail language.
+
+    Round 2, Round 3, other candidates' data, and any prior scoring
+    result are FORBIDDEN here by construction: neither parameter has a
+    field for any of them (see _ROUND4_EVIDENCE_KEYS/_ROUND1_REFERENCE_KEYS
+    below), so there's no slot for a caller to accidentally put one in."""
+    assert set(round4_evidence) <= _ROUND4_EVIDENCE_KEYS, f"round4_evidence carries unexpected keys: {set(round4_evidence) - _ROUND4_EVIDENCE_KEYS}"
+    assert set(round1_reference_context) <= _ROUND1_REFERENCE_KEYS, f"round1_reference_context carries unexpected keys: {set(round1_reference_context) - _ROUND1_REFERENCE_KEYS}"
+
     prompt_text = _load_prompt("round4_scoring.txt")
     prompt = prompt_text.format(
-        round1_scenario_title=round1_context["scenario_title"],
-        round1_scenario_description=round1_context["scenario_description"],
-        round1_submitted_rows=json.dumps(round1_context["submitted_rows"], indent=2),
+        round1_scenario_title=round1_reference_context["scenario_title"],
+        round1_scenario_description=round1_reference_context["scenario_description"],
+        round1_submitted_rows=json.dumps(round1_reference_context["submitted_rows"], indent=2),
         assistance_pct=assistance_pct,
-        test_cases_json=json.dumps(test_cases, indent=2),
+        test_cases_json=json.dumps(round4_evidence["test_cases"], indent=2),
     )
     raw = _call_claude(prompt, max_tokens=8192)  # covers every test case's transcript + feedback
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    if "findings" not in result:
+        # The prompt above ALWAYS asks for "findings" (never the old flat
+        # "misses" list) - a real response missing it is a malformed LLM
+        # response, not a legacy shape to fall back to silently. Treating
+        # it as the latter would let a deduction bypass
+        # round4_evidence_audit entirely (scoring_service._round4_findings_to_misses
+        # only audits when "findings" is present) - exactly the
+        # unaudited-score gap this module exists to close. Raising here
+        # routes it through the same scoring_failed/retry path every
+        # other malformed scoring response already takes (see
+        # scoring_service.score_submission_in_background).
+        #
+        # Tests that intentionally exercise the old flat-misses shape
+        # (e.g. test_round4.py's FAKE_SCORE) monkeypatch
+        # score_round4_conversation itself, so this check - inside the
+        # real function body - never runs for them.
+        raise ValueError(f"Expected a 'findings' key in the round 4 scoring response, got keys: {list(result)}")
+    # Validated here (schema shape only - not against the transcript,
+    # that's round4_evidence_audit's job) so a single malformed finding
+    # degrades to "unsupported, drop it" rather than crashing the whole
+    # scoring call - same reasoning as _safe_fallback in poc_ai_judge.py.
+    # A finding missing entirely wouldn't have cost the candidate
+    # anything either, so this is the safe direction.
+    validated = []
+    for entry in result["findings"] or []:
+        try:
+            validated.append(Round4Finding.model_validate(entry).model_dump())
+        except ValidationError:
+            continue
+    result["findings"] = validated
     result["_provenance"] = _scoring_provenance("round4_scoring.txt", prompt_text)
     return result
 

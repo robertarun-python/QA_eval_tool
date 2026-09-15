@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
-from ..models import Submission, Score, RoundStatus, Scenario, User, AppSettings
-from . import llm_service, execution_service
+from ..models import Submission, Score, RoundStatus, Scenario, User, AppSettings, CandidateSummary
+from . import llm_service, execution_service, round4_evidence_audit
 
 # Keep in sync with routers/candidate.py's ROUND_SEQUENCE - duplicated
 # rather than imported to avoid a routers -> services -> routers import
@@ -226,36 +226,16 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     return score
 
 
-def score_round4_submission(db: Session, submission: Submission) -> Score:
-    """Round 4 gets one holistic score across all the candidate's own
-    test cases (not per-test-case sub-scores - see
-    llm_service.score_round4_conversation), same Score shape as every
-    other round. Unlike rounds 1/2 there's no scenario reference to
-    score against - the target is the candidate's own round 1
-    submission, fetched fresh here rather than passed in."""
-    scenario = submission.scenario
-    config = {**llm_service.DEFAULT_ROUND4_CONFIG, **(scenario.config_json or {})}
-
-    # archived.is_(False) matters for a re-applied candidate (see
-    # CandidateAppearance) - without it, a candidate with more than one
-    # round 1 submission (current + an old, archived one from a prior
-    # cycle) could get scored against the WRONG scenario's title/
-    # description/rows, since .first() with no ordering has no guarantee
-    # of picking the current one. _round1_context_for (used for the live
-    # round 4 UI) already filters this correctly - this lookup, used at
-    # final scoring time, was the one place that didn't.
-    round1_submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == submission.user_id, Submission.round_number == 1, Submission.archived.is_(False))
-        .first()
-    )
-    round1_context = {
-        "scenario_title": round1_submission.scenario.title if round1_submission else "",
-        "scenario_description": round1_submission.scenario.description if round1_submission else "",
-        "submitted_rows": (round1_submission.content or []) if round1_submission else [],
-    }
-
-    test_cases_payload = [
+def _build_round4_evidence(submission: Submission) -> dict:
+    """PRIMARY EVIDENCE for Round 4 scoring - see prompts/round4_scoring.txt's
+    own PRIMARY EVIDENCE / REFERENCE ONLY labels and
+    llm_service.score_round4_conversation's docstring, which this must
+    stay in lockstep with. Built ENTIRELY from this one submission's own
+    round4_test_cases/turns - no other round, no other candidate, no
+    cached score ever contributes here. Keep this the only place that
+    builds a round4_evidence dict, so "what counts as Round 4 evidence"
+    has exactly one definition in the codebase."""
+    test_cases = [
         {
             "title": tc.title or f"Test case {i + 1}",
             "turns": [
@@ -265,24 +245,122 @@ def score_round4_submission(db: Session, submission: Submission) -> Score:
         }
         for i, tc in enumerate(submission.round4_test_cases)
     ]
+    return {"test_cases": test_cases}
+
+
+def _build_round1_reference_context(db: Session, submission: Submission) -> dict:
+    """REFERENCE ONLY for Round 4 scoring - just enough of the
+    candidate's own Round 1 work to understand the scenario being
+    automated. Never a source of Round 4 findings (see the prompt's own
+    guardrail language) - deliberately carries only scenario_title/
+    scenario_description/submitted_rows, nothing that looks like a
+    finding or a prior evaluation result.
+
+    archived.is_(False) matters for a re-applied candidate (see
+    CandidateAppearance) - without it, a candidate with more than one
+    round 1 submission (current + an old, archived one from a prior
+    cycle) could get scored against the WRONG scenario's title/
+    description/rows, since .first() with no ordering has no guarantee
+    of picking the current one. _round1_context_for (used for the live
+    round 4 UI) already filters this correctly - this lookup, used at
+    final scoring time, was the one place that didn't."""
+    round1_submission = (
+        db.query(Submission)
+        .filter(Submission.user_id == submission.user_id, Submission.round_number == 1, Submission.archived.is_(False))
+        .first()
+    )
+    return {
+        "scenario_title": round1_submission.scenario.title if round1_submission else "",
+        "scenario_description": round1_submission.scenario.description if round1_submission else "",
+        "submitted_rows": (round1_submission.content or []) if round1_submission else [],
+    }
+
+
+def score_round4_submission(db: Session, submission: Submission) -> Score:
+    """Round 4 gets one holistic score across all the candidate's own
+    test cases (not per-test-case sub-scores - see
+    llm_service.score_round4_conversation), same Score shape as every
+    other round. Unlike rounds 1/2 there's no scenario reference to
+    score against - the target is the candidate's own round 1
+    submission, fetched fresh here rather than passed in.
+
+    round4_evidence (PRIMARY) and round1_reference_context (REFERENCE
+    ONLY) are built and passed as two separate, narrowly-shaped dicts -
+    see _build_round4_evidence/_build_round1_reference_context and
+    llm_service.score_round4_conversation's own enforced key whitelist -
+    rather than one combined blob, specifically so Round 2, Round 3,
+    another candidate's data, or a previous scoring result have no field
+    to be accidentally placed into on either side of that boundary."""
+    scenario = submission.scenario
+    config = {**llm_service.DEFAULT_ROUND4_CONFIG, **(scenario.config_json or {})}
+
+    round4_evidence = _build_round4_evidence(submission)
+    round1_reference_context = _build_round1_reference_context(db, submission)
 
     result = llm_service.score_round4_conversation(
-        round1_context=round1_context,
-        test_cases=test_cases_payload,
+        round4_evidence=round4_evidence,
+        round1_reference_context=round1_reference_context,
         assistance_pct=config["assistance_pct"],
     )
+    misses, final_score, evidence_audit_summary = _round4_findings_to_misses(result, round4_evidence["test_cases"])
 
     score = _get_or_create_score(db, submission)
     _apply_provenance(score, result)
     score.coverage_score = result.get("coverage_score")
-    score.misses_json = result.get("misses", [])
-    score.final_score = result.get("final_score")
+    score.misses_json = misses
+    score.final_score = final_score
     score.feedback_text = result.get("feedback_text")
-    score.raw_llm_response_json = {"round1_context": round1_context, "test_cases": test_cases_payload, "scoring": result}
+    raw_response = {
+        "round1_reference_context": round1_reference_context,
+        "round4_evidence": round4_evidence,
+        "scoring": result,
+    }
+    if evidence_audit_summary is not None:
+        raw_response["evidence_audit"] = evidence_audit_summary
+    score.raw_llm_response_json = raw_response
     submission.status = RoundStatus.scored
     db.commit()
     db.refresh(score)
     return score
+
+
+def _round4_findings_to_misses(result: dict, test_cases_payload: list[dict]) -> tuple[list[str], int | None, dict | None]:
+    """Runs the scorer's structured findings (see prompts/round4_scoring.txt
+    and schemas.Round4Finding) through the deterministic, non-LLM evidence
+    auditor before any of them are allowed to become a scored weakness or
+    move final_score - see round4_evidence_audit.py's module docstring for
+    why a prompt telling the LLM "don't hallucinate" isn't sufficient on
+    its own. A finding the auditor rejects (NOT_ESTABLISHED or
+    CONTRADICTED) is dropped from misses_json entirely and its severity's
+    points are added back to final_score, so an unsupported deduction
+    never survives into the persisted Score.
+
+    Backward compatible with the old flat `misses: [str, ...]` shape (no
+    `findings` key), for tests that monkeypatch score_round4_conversation
+    directly with that shape (e.g. test_round4.py's FAKE_SCORE) - those
+    pass straight through with no audit, exactly as score_round4_submission
+    behaved previously. A REAL call never takes this branch:
+    llm_service.score_round4_conversation raises if its own LLM response
+    is missing "findings" rather than returning the old shape, since the
+    prompt it sends always asks for "findings" - so this is a test
+    convenience, not a live fallback a real scoring result can silently
+    slip through."""
+    findings = result.get("findings")
+    if findings is None:
+        return result.get("misses", []), result.get("final_score"), None
+
+    report = round4_evidence_audit.audit_round4_findings(test_cases_payload, findings)
+    final_score = result.get("final_score")
+    if isinstance(final_score, (int, float)):
+        final_score = min(100, int(final_score) + report.score_adjustment())
+    # "findings" carries the full explainable chain per finding (Finding
+    # -> Evidence -> Evidence status -> Score impact - see
+    # FindingAudit.to_dict); the rest are the pre-existing aggregate
+    # counts. Both land in Score.raw_llm_response_json["evidence_audit"],
+    # HR-internal diagnostics only (see routers/hr.py - never surfaced to
+    # a candidate).
+    audit_report = {**report.summary(), "findings": report.findings_detail()}
+    return report.surviving_claims(), final_score, audit_report
 
 
 _SCORERS = {
@@ -321,6 +399,13 @@ def score_submission_in_background(submission_id: int) -> None:
         submission.scoring_error = None
         try:
             scorer(db, submission)
+            # A fresh score means the candidate's cross-round HR summary
+            # (routers/hr.py's POST/GET .../summary) is now describing a
+            # superseded attempt - drop it rather than let HR read a
+            # verdict built from a round the candidate has since retaken.
+            # They regenerate on demand (same endpoint); nothing here
+            # calls the LLM.
+            db.query(CandidateSummary).filter(CandidateSummary.user_id == submission.user_id).delete()
         except Exception as e:
             db.rollback()  # discard any half-formed pending changes (e.g. a Score added but not yet committed) before recording the failure
             submission.status = RoundStatus.scoring_failed

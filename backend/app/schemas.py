@@ -583,6 +583,34 @@ class Round4TurnResponse(BaseModel):
     status: Literal["pass", "fail", "partial"]
 
 
+class Round4FindingEvidence(BaseModel):
+    """One citation backing a Round4Finding - see
+    services.round4_evidence_audit, which is the deterministic (no LLM)
+    layer that actually checks these against the transcript rather than
+    trusting them. `turn` is a 1-indexed position in the flattened
+    sequence of every turn across every test case, in payload order -
+    not the per-test-case turn_number used elsewhere in this app (see
+    round4_scoring.txt's evidence-discipline section). Exactly one of
+    (turn + quote) or (test_case + no_turns) is expected; the auditor
+    treats any other combination as invalid rather than guessing."""
+    turn: Optional[int] = None
+    quote: Optional[str] = None
+    test_case: Optional[str] = None
+    no_turns: bool = False
+
+
+class Round4Finding(BaseModel):
+    """One negative finding from the Round 4 scorer (prompts/
+    round4_scoring.txt), replacing a bare miss string with a claim the
+    deterministic evidence auditor can actually check. See
+    services.round4_evidence_audit.audit_round4_findings - a finding
+    with no evidence, a fabricated quote, or an out-of-range turn
+    reference never survives to become a scored weakness."""
+    claim: str = Field(min_length=1)
+    severity: Literal["low", "medium", "high"] = "low"
+    evidence: list[Round4FindingEvidence] = Field(default_factory=list)
+
+
 class Round4TestCaseCreate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=300)
 
