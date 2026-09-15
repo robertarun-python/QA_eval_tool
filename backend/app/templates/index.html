@@ -316,22 +316,98 @@
           </div>
 
           <div id="hr-page-settings" class="hidden">
-            <div class="panel card">
-              <h3>Pass criteria</h3>
-              <p class="muted">Changes apply immediately across the app - no restart needed.</p>
-              <div class="field-row">
-                <div class="field-inline"><label for="set-round1">Round 1 pass score</label><input id="set-round1" type="number" min="0" max="100" /></div>
-                <div class="field-inline"><label for="set-round2">Round 2 pass score</label><input id="set-round2" type="number" min="0" max="100" /></div>
-                <div class="field-inline"><label for="set-round3">Round 3 pass score</label><input id="set-round3" type="number" min="0" max="100" /></div>
-                <div class="field-inline"><label for="set-round4">Round 4 pass score</label><input id="set-round4" type="number" min="0" max="100" /></div>
+            <div class="settings-top-row">
+              <nav class="breadcrumb"><span class="breadcrumb-current">Settings</span></nav>
+              <div class="hint-box settings-callout">
+                <strong>Changes apply immediately</strong>
+                <p class="muted" style="margin:0.25rem 0 0">No restart needed - updates are reflected across the application instantly.</p>
               </div>
-              <div class="field-row">
-                <div class="field-inline"><label for="set-final">Final pass score (out of 400)</label><input id="set-final" type="number" min="0" max="400" /></div>
-                <div class="field-inline"><label for="set-window">Re-application window (months)</label><input id="set-window" type="number" min="1" /></div>
-                <div class="field-inline"><label for="set-assessment-window">Assessment window (days)</label><input id="set-assessment-window" type="number" min="1" /></div>
+            </div>
+
+            <!-- Visual structure only - see settings-tab-disabled: these four
+                 don't correspond to any real backend capability yet, so they
+                 render inert (no click handler, no page) rather than pretend
+                 to be functional. Pass criteria is the one real, working tab. -->
+            <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+              <button class="settings-tab active" type="button" role="tab" aria-selected="true">
+                <span class="settings-tab-icon panel-icon-accent" aria-hidden="true">&#9678;</span> Pass criteria
+              </button>
+              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
+                <span class="settings-tab-icon" aria-hidden="true">&#9881;</span> Application settings
+              </button>
+              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
+                <span class="settings-tab-icon" aria-hidden="true">&#128197;</span> Assessment windows
+              </button>
+              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
+                <span class="settings-tab-icon" aria-hidden="true">&#128276;</span> Notifications
+              </button>
+              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
+                <span class="settings-tab-icon" aria-hidden="true">&#128274;</span> Data &amp; privacy
+              </button>
+            </div>
+
+            <div class="panel card settings-card">
+              <div class="settings-card-header">
+                <div class="panel-header-icon">
+                  <span class="panel-icon panel-icon-accent" aria-hidden="true">&#9678;</span>
+                  <div>
+                    <h3>Pass criteria</h3>
+                    <p class="muted">Define the minimum scores and completion criteria for candidates to qualify. Changes apply immediately.</p>
+                  </div>
+                </div>
+                <span class="badge badge-published">Active</span>
               </div>
-              <p class="muted">Assessment window: how long a bulk-uploaded candidate has, from their scheduled exam date, to complete all four rounds. A round they never even start gets closed out as a zero-attempt once this passes - otherwise "not started" can sit unresolved indefinitely.</p>
-              <button onclick="saveAppSettings()">Save</button>
+
+              <div class="settings-input-grid">
+                <div class="settings-input-card">
+                  <label for="set-round1">Round 1 pass score</label>
+                  <p class="field-hint-text">Minimum score (out of 100)</p>
+                  <input id="set-round1" type="number" min="0" max="100" />
+                </div>
+                <div class="settings-input-card">
+                  <label for="set-round2">Round 2 pass score</label>
+                  <p class="field-hint-text">Minimum score (out of 100)</p>
+                  <input id="set-round2" type="number" min="0" max="100" />
+                </div>
+                <div class="settings-input-card">
+                  <label for="set-round3">Round 3 pass score</label>
+                  <p class="field-hint-text">Minimum score (out of 100)</p>
+                  <input id="set-round3" type="number" min="0" max="100" />
+                </div>
+                <div class="settings-input-card">
+                  <label for="set-round4">Round 4 pass score</label>
+                  <p class="field-hint-text">Minimum score (out of 100)</p>
+                  <input id="set-round4" type="number" min="0" max="100" />
+                </div>
+              </div>
+
+              <div class="settings-input-grid settings-input-grid-3">
+                <div class="settings-input-card">
+                  <label for="set-final">Final pass score</label>
+                  <p class="field-hint-text">Minimum total score (out of 400)</p>
+                  <input id="set-final" type="number" min="0" max="400" />
+                </div>
+                <div class="settings-input-card">
+                  <label for="set-window">Re-application window</label>
+                  <p class="field-hint-text">Months before candidate can re-apply</p>
+                  <input id="set-window" type="number" min="1" />
+                </div>
+                <div class="settings-input-card">
+                  <label for="set-assessment-window">Assessment window</label>
+                  <p class="field-hint-text">Days from scheduled exam date</p>
+                  <input id="set-assessment-window" type="number" min="1" />
+                </div>
+              </div>
+
+              <div class="hint-box">
+                <strong>About assessment windows</strong>
+                <p class="muted" style="margin:0.3rem 0 0">How long a bulk-uploaded candidate has, from their scheduled exam date, to complete all four rounds. A round they never even start gets closed out as a zero-attempt once this passes - otherwise "not started" can sit unresolved indefinitely.</p>
+              </div>
+
+              <div class="row settings-actions">
+                <button class="btn-secondary" type="button" onclick="resetSettingsToDefaults()">Reset to defaults</button>
+                <button class="btn-primary" onclick="saveAppSettings()">Save changes</button>
+              </div>
               <p id="settings-status" class="muted"></p>
             </div>
           </div>

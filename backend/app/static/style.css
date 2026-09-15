@@ -1284,3 +1284,44 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
   padding: var(--space-tight); overflow-x: auto; white-space: pre-wrap; word-break: break-word;
 }
 
+/* ============================================================
+   20. SETTINGS PAGE (HR Settings - redesigned to match the reference
+   enterprise mockup; UI/UX only, see app.js's loadAppSettings/
+   saveAppSettings/resetSettingsToDefaults, all unchanged in shape).
+   Reuses .hint-box, .badge-published, .panel-header-icon/.panel-icon,
+   .field-hint-text, .btn-* wholesale rather than duplicating them.
+   ------------------------------------------------------------ */
+
+.settings-top-row { display: flex; flex-wrap: wrap; gap: var(--space-compact); align-items: flex-start; justify-content: space-between; margin-bottom: var(--space-compact); }
+.settings-callout { max-width: 26rem; margin-bottom: 0; }
+
+.settings-tabs { display: flex; flex-wrap: wrap; gap: var(--space-hairline); margin-bottom: var(--space-default); border-bottom: 1px solid var(--border); }
+.settings-tab {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--text-secondary);
+  font-weight: 500; padding: 0.65rem 0.9rem;
+}
+.settings-tab:hover:not(:disabled) { background: var(--surface-interactive); }
+.settings-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.settings-tab-disabled, .settings-tab:disabled { color: var(--text-muted); opacity: 0.6; cursor: not-allowed; }
+.settings-tab-icon { font-size: 1rem; line-height: 1; }
+
+.settings-card-header { display: flex; flex-wrap: wrap; gap: var(--space-compact); align-items: flex-start; justify-content: space-between; margin-bottom: var(--space-default); }
+
+.settings-input-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-compact); margin-bottom: var(--space-default); }
+.settings-input-grid-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 62.5rem) { .settings-input-grid, .settings-input-grid-3 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 34rem) { .settings-input-grid, .settings-input-grid-3 { grid-template-columns: 1fr; } }
+
+.settings-input-card { background: var(--canvas); border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-compact); }
+.settings-input-card label { display: block; font-weight: 600; color: var(--text-primary); margin-bottom: 0.15rem; }
+.settings-input-card .field-hint-text { margin: 0 0 0.5rem; }
+.settings-input-card input { width: 100%; margin-bottom: 0; font-variant-numeric: tabular-nums; }
+.settings-input-card input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.settings-actions { justify-content: flex-end; margin-top: var(--space-default); }
+
+@media (max-width: 40rem) {
+  .settings-top-row { flex-direction: column; align-items: stretch; }
+  .settings-callout { max-width: none; }
+}

@@ -429,7 +429,7 @@ function renderHRRoundNav() {
     setPageHeader("HR Console", "Progressive Engineering", "Experimental (POC) - author multi-stage problems, separate from Rounds 1-4.");
     loadProgressiveProblems();
   } else {
-    setPageHeader("HR Console", "Settings", "Pass criteria and re-application handling - HR-editable, applies immediately.");
+    setPageHeader("HR Console", "Settings", "Configure evaluation criteria and application behavior.");
   }
   // Every hrPage/currentHRRound change routes through here (selectHRRound,
   // selectHRPage, and the restore call in onLoggedIn) - persisting once
@@ -517,6 +517,23 @@ async function loadAppSettings() {
   document.getElementById("set-final").value = appSettings.final_passing_score;
   document.getElementById("set-window").value = appSettings.reapplication_window_months;
   document.getElementById("set-assessment-window").value = appSettings.assessment_window_days;
+}
+
+// Purely a form reset - no API call, no new backend capability. Fills
+// the same fields saveAppSettings() already reads with the AppSettings
+// model's own column defaults (see models.py), so HR still has to click
+// "Save changes" to actually persist them, exactly like typing new
+// values in by hand. Not calling PUT here on its own keeps this a
+// reversible preview, not a silent, one-click factory reset.
+function resetSettingsToDefaults() {
+  document.getElementById("set-round1").value = 70;
+  document.getElementById("set-round2").value = 70;
+  document.getElementById("set-round3").value = 70;
+  document.getElementById("set-round4").value = 70;
+  document.getElementById("set-final").value = 280;
+  document.getElementById("set-window").value = 6;
+  document.getElementById("set-assessment-window").value = 1;
+  document.getElementById("settings-status").textContent = "Defaults filled in - click \"Save changes\" to apply.";
 }
 
 async function saveAppSettings() {
