@@ -55,6 +55,8 @@
 
       <nav class="rail-nav" id="hr-round-nav"></nav>
       <nav class="rail-nav" id="candidate-round-nav"></nav>
+      <!-- Independent of candidate-round-nav above - see progressive-candidate-view. -->
+      <nav class="rail-nav" id="candidate-progressive-nav"></nav>
 
       <div class="rail-footer">
         <div class="rail-user" id="who"></div>
@@ -181,6 +183,78 @@
             <div id="round4-settings-panel" class="hidden"></div>
           </div>
 
+          <!-- Round 5 (Progressive Engineering) POC - HR authoring UI only
+               (Phase 7). A brand-new page, not wired into the round 1-4
+               tick-rail above or the outer round sequence - see
+               progressive_service.py/routers/progressive.py. -->
+          <div id="hr-page-progressive" class="hidden">
+            <nav class="breadcrumb" id="progressive-breadcrumb" aria-label="Breadcrumb">
+              <span class="breadcrumb-current">Progressive Engineering</span>
+            </nav>
+
+            <div id="progressive-kpis" class="scenario-kpis"></div>
+
+            <div class="card-grid" id="progressive-create-row">
+              <div class="panel card" id="progressive-create-panel">
+                <div class="panel-header-icon">
+                  <span class="panel-icon panel-icon-accent" aria-hidden="true">+</span>
+                  <div>
+                    <h3>Create a New Problem</h3>
+                    <p class="muted">A problem candidates progressively build a solution for, one revealed requirement at a time.</p>
+                  </div>
+                </div>
+
+                <label for="pp-title">Problem title <span class="required-mark">*</span></label>
+                <input id="pp-title" placeholder="e.g. Order Reconciliation" oninput="updateProgressiveCreateBtnState()" maxlength="300" />
+                <p class="char-counter" id="pp-title-counter">0/300</p>
+
+                <label for="pp-description">Problem description <span class="required-mark">*</span></label>
+                <textarea id="pp-description" placeholder="Describe the overall problem the candidate will evolve a solution for across stages - keep this stage-agnostic; each stage's own requirement goes below, not here." oninput="updateProgressiveCreateBtnState()" maxlength="20000"></textarea>
+                <p class="char-counter" id="pp-description-counter">0/20000</p>
+
+                <label for="pp-input-spec">Input / environment specification</label>
+                <textarea id="pp-input-spec" placeholder="Describe the data or environment the candidate works with - a file, an API response, a log format, a data structure, anything. Plain text or JSON, whatever fits this problem."></textarea>
+                <p class="field-hint-text">Free-form on purpose - this isn't limited to any one input type.</p>
+
+                <div class="row">
+                  <div>
+                    <label for="pp-language">Language <span class="required-mark">*</span></label>
+                    <input id="pp-language" placeholder="e.g. python" oninput="updateProgressiveCreateBtnState()" />
+                  </div>
+                  <div>
+                    <label for="pp-difficulty">Difficulty</label>
+                    <input id="pp-difficulty" placeholder="e.g. medium" />
+                  </div>
+                  <div>
+                    <label for="pp-time-limit">Time limit (minutes) <span class="required-mark">*</span></label>
+                    <input id="pp-time-limit" type="number" min="1" value="60" />
+                  </div>
+                </div>
+
+                <label for="pp-starter-code">Starter code</label>
+                <textarea id="pp-starter-code" class="code-textarea" placeholder="Optional - the code the candidate's workspace begins with."></textarea>
+
+                <div class="row create-scenario-actions">
+                  <button class="btn-secondary" onclick="resetProgressiveCreateForm()">Cancel</button>
+                  <button id="pp-create-btn" class="btn-primary" onclick="createProgressiveProblem()" disabled>Create Problem</button>
+                </div>
+                <p id="progressive-create-status" class="muted"></p>
+              </div>
+
+              <div class="panel card" id="progressive-list-panel">
+                <div class="scenarios-panel-header">
+                  <div class="panel-header-icon">
+                    <span class="panel-icon panel-icon-accent" aria-hidden="true">&#9776;</span>
+                    <div><h3>Progressive Problems</h3><p class="muted">Manage stages, review, and publish.</p></div>
+                  </div>
+                </div>
+                <div id="progressive-list"></div>
+              </div>
+            </div>
+
+            <div id="progressive-detail" class="panel hidden"></div>
+          </div>
+
           <div id="hr-page-candidates" class="hidden">
             <div class="panel">
               <h3>Upload candidates</h3>
@@ -267,6 +341,14 @@
         <!-- Candidate view -->
         <section id="candidate-panel" class="hidden">
           <div id="round-view" class="panel"></div>
+
+          <!-- Round 5 (Progressive Engineering) POC - candidate UI only
+               (Phase 8). Entirely separate from round-view/the Round 1-4
+               tick-rail above (#candidate-round-nav) - not part of
+               ROUND_SEQUENCE, so it neither blocks nor is blocked by the
+               assessment above. See routers/progressive.py's
+               candidate_router, which this talks to exclusively. -->
+          <div id="progressive-candidate-view" class="hidden"></div>
         </section>
 
       </main>

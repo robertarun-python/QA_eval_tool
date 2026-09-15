@@ -1248,3 +1248,39 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
   .scenarios-panel-header { flex-direction: column; align-items: stretch; }
   .scenarios-search-field { min-width: 0; }
 }
+
+/* ============================================================
+   19. ROUND 5 - PROGRESSIVE ENGINEERING (POC, HR authoring UI only)
+   ------------------------------------------------------------
+   Phase 7 of the round's own build - a new, experimental HR page,
+   deliberately reusing section 17/18's tokens and component classes
+   (.panel/.card, .scenario-kpis/.kpi-card, .badge-draft/.badge-published,
+   .btn-*, .field-hint-text/.required-mark/.char-counter, .table-scroll,
+   .scenario-table-el, .empty-state) rather than duplicating them. Only
+   the handful of genuinely new shapes below (a lifecycle stepper, a
+   stage card, code-flavored textareas/preview) are new to this section.
+   ============================================================ */
+
+.lifecycle-stepper {
+  display: flex; gap: var(--space-tight); list-style: none; padding: 0; margin: var(--space-compact) 0 var(--space-default);
+}
+.lifecycle-stepper li {
+  flex: 1; text-align: center; padding: 0.5rem 0.75rem; border-radius: var(--radius);
+  background: var(--surface-interactive); color: var(--text-muted); font-size: var(--text-sm); font-weight: 500;
+  border-bottom: 2px solid transparent;
+}
+.lifecycle-stepper li.current { background: var(--accent-soft); color: var(--accent); border-bottom-color: var(--accent); }
+.lifecycle-stepper li.done { color: var(--success); }
+
+.stage-card { margin-bottom: var(--space-compact); }
+.stage-card:last-child { margin-bottom: 0; }
+
+.code-textarea, .code-preview {
+  font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums;
+}
+.code-textarea { min-height: 6rem; }
+.code-preview {
+  background: var(--surface-interactive); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: var(--space-tight); overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}
+
