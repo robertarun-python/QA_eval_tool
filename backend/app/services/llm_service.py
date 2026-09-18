@@ -83,13 +83,23 @@ def _parse_json_response(raw_text: str) -> dict | list:
     Claude is instructed to return only JSON, but models occasionally
     wrap it in ```json fences or add a stray sentence. Strip common
     wrapping before parsing rather than trusting raw output blindly.
+
+    strict=False permits a raw control character - in practice a literal
+    newline - inside a string value. Observed repeatedly when a response
+    carries a whole source file: the model writes the opening `\"\"\"` of a
+    docstring and then a real newline instead of `\\n`, and strict parsing
+    rejects the entire response ("Invalid control character at ..."), which
+    surfaced as a hard 502 and made the automation round unusable. This is
+    the mirror image of the over-escaping case _repair_escaped_code
+    handles. It only ever WIDENS what parses - every response that decodes
+    today decodes identically - so it cannot break an existing caller.
     """
     text = raw_text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    return json.loads(text.strip())
+    return json.loads(text.strip(), strict=False)
 
 
 # ---- Round 1 ----

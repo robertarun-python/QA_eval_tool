@@ -549,11 +549,22 @@ def test_publish_gate_requires_ground_truth_and_environment(client, monkeypatch)
 # generated automation then fails with a SyntaxError on line 1 - unusable.
 
 def test_escaped_code_from_the_model_is_repaired():
+    """A whole file arriving escaped - the shape seen live, where 137
+    escaped pairs sat behind a single trailing real newline. The fixture
+    keeps several escaped lines on purpose: the guard ignores blocks with
+    fewer than 3, so that a short snippet whose only escapes are genuine
+    string literals is never rewritten (see _repair_escaped_code)."""
     from app.services.llm_service import _repair_escaped_code
     bs = chr(92)
-    escaped = "def t():" + bs + "n    x = 1" + bs + "n    print(" + bs + '"ok' + bs + '")'
+    escaped = (
+        "def t():" + bs + "n"
+        "    x = 1" + bs + "n"
+        "    y = 2" + bs + "n"
+        "    print(" + bs + '"ok' + bs + '")' + bs + "n"
+        "    return x + y" + "\n"   # the stray real newline that defeated the first guard
+    )
     repaired = _repair_escaped_code(escaped)
-    assert repaired.count("\n") == 2
+    assert repaired.count("\n") == 5
     assert bs + "n" not in repaired
     compile(repaired, "<generated>", "exec")  # the whole point: it must be runnable
 
@@ -576,13 +587,13 @@ def test_auto_turn_repairs_escaped_code_end_to_end(monkeypatch):
     from app.services import llm_service
     bs = chr(92)
     payload = {"response_kind": "code_edit", "response_message": "done",
-               "code_after": "def t():" + bs + "n    return 1"}
+               "code_after": "def t():" + bs + "n    x = 1" + bs + "n    y = 2" + bs + "n    return x + y"}
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: _json.dumps(payload))
     out = llm_service.round4_auto_turn(
         language="python", selected_design=[{"title": "t"}], environment_code="",
         current_code="", conversation_so_far=[], candidate_prompt="encode my step 1",
     )
-    assert out["code_after"] == "def t():\n    return 1"
+    assert out["code_after"] == "def t():\n    x = 1\n    y = 2\n    return x + y"
 
 
 # ---- Scoring fidelity: a supported finding must survive to the Score ----
