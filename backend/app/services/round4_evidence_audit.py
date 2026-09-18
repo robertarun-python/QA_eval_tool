@@ -173,7 +173,23 @@ class AuditReport:
         return sum(f.score_impact for f in self.findings)
 
 
-def _check_evidence(evidence: dict, flat: list[dict], turn_texts: list[str], turn_counts: dict[str, int]) -> EvidenceCheck:
+def _check_evidence(
+    evidence: dict, flat: list[dict], turn_texts: list[str], turn_counts: dict[str, int],
+    supporting_texts: list[str] | None = None,
+) -> EvidenceCheck:
+    # A quote that appears verbatim in one of the caller's OTHER persisted
+    # evidence artefacts (see audit_round4_findings' supporting_texts) is
+    # established the same way a turn quote is: the text demonstrably
+    # exists in something this submission actually recorded. Checked before
+    # the turn lookup because a finding about the final code or the
+    # execution output has no meaningful turn number to cite. Callers that
+    # pass nothing here are completely unaffected.
+    quote_text = evidence.get("quote")
+    if supporting_texts and quote_text and _normalize(quote_text):
+        needle = _normalize(quote_text)
+        if any(needle in text for text in supporting_texts):
+            return EvidenceCheck(True, "ok_supporting_evidence")
+
     if evidence.get("no_turns"):
         title = evidence.get("test_case") or ""
         if title not in turn_counts:
@@ -217,16 +233,32 @@ def _contradicted_by_followup(claim: str, evidence: list[dict], flat: list[dict]
     return False
 
 
-def audit_round4_findings(test_cases: list[dict], findings: list[dict]) -> AuditReport:
+def audit_round4_findings(
+    test_cases: list[dict], findings: list[dict], supporting_texts: list[str] | None = None,
+) -> AuditReport:
     """The single entry point: check every LLM-generated finding against
     the transcript and return a verdict per finding, deterministically.
     `test_cases` is the same payload passed to llm_service.score_round4_conversation
     (list of {title, turns: [{turn_number, candidate_prompt, model_response}]});
     `findings` is the scorer's own findings list (list of dicts shaped
-    like schemas.Round4Finding)."""
+    like schemas.Round4Finding).
+
+    `supporting_texts` is for a round whose PRIMARY EVIDENCE is not only a
+    conversation. The AI-assisted automation round also persists a final
+    code file, an execution result and the candidate's own written
+    interpretation, and its rubric explicitly grades those - but a finding
+    about any of them cites nothing that exists in the turn list, so it
+    was being marked NOT_ESTABLISHED and its deduction silently refunded.
+    Passing those already-persisted artefacts here lets such a finding be
+    established the same way a turn quote is: the quote must appear
+    verbatim in real recorded evidence. It does NOT weaken the model - a
+    fabricated quote still matches nothing and stays unestablished - and
+    callers that omit it (the legacy round 4 and pilot flows) behave
+    exactly as before."""
     flat = _flatten(test_cases)
     turn_texts = [_turn_text(item["raw"]) for item in flat]
     turn_counts = {(tc.get("title") or ""): len(tc.get("turns") or []) for tc in test_cases or []}
+    normalized_support = [_normalize(t) for t in (supporting_texts or []) if t and _normalize(t)]
 
     audited = []
     for raw in findings or []:
@@ -238,7 +270,7 @@ def audit_round4_findings(test_cases: list[dict], findings: list[dict]) -> Audit
             status = "NOT_ESTABLISHED"
             checks: list[EvidenceCheck] = []
         else:
-            checks = [_check_evidence(ev, flat, turn_texts, turn_counts) for ev in evidence]
+            checks = [_check_evidence(ev, flat, turn_texts, turn_counts, normalized_support) for ev in evidence]
             if any(c.reason == "turns_exist" for c in checks):
                 status = "CONTRADICTED"
             elif all(c.valid for c in checks):

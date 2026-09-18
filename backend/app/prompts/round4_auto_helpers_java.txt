@@ -1,0 +1,84 @@
+/*
+ * Automation environment (Java) - provided for you, already working.
+ *
+ * This is a SMALL controlled environment, not a framework you need to
+ * build or extend. It simulates a UI, an API and a database in-process so
+ * your automation runs deterministically with no real network calls.
+ *
+ * Write your automated test(s) inside Main (under the TODO marker) and
+ * call them from main(). Do not rewrite the helpers. Everything must stay
+ * in this one file - the public class must remain named Main.
+ */
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class Main {
+
+    static final String BASE_URL = "https://demo.example.test";
+
+    static class Record {
+        String id; String owner; double amount; String status;
+        Record(String id, String owner, double amount, String status) {
+            this.id = id; this.owner = owner; this.amount = amount; this.status = status;
+        }
+    }
+
+    static class Response {
+        boolean ok; String error; String id;
+        Response(boolean ok, String error, String id) { this.ok = ok; this.error = error; this.id = id; }
+    }
+
+    // In-memory stand-in for the application's database.
+    static Map<String, Record> RECORDS = new HashMap<>();
+    static Map<String, String> USERS = new HashMap<>();
+    static int NEXT_ID = 1;
+    static String LAST_MESSAGE = "";
+
+    static { USERS.put("jordan.rivera@example.com", "Passw0rd!2026"); }
+
+    static class API {
+        // Rejects a non-positive amount; otherwise persists the record.
+        static Response createRecord(String owner, double amount) {
+            if (amount <= 0) {
+                LAST_MESSAGE = "Amount must be greater than zero";
+                return new Response(false, "Amount must be greater than zero", null);
+            }
+            String id = String.format("REC-%04d", NEXT_ID++);
+            RECORDS.put(id, new Record(id, owner, amount, "completed"));
+            LAST_MESSAGE = "Saved successfully";
+            return new Response(true, null, id);
+        }
+
+        static Record getRecord(String id) { return RECORDS.get(id); }
+    }
+
+    static class UI {
+        // Returns true on success, false on bad credentials.
+        static boolean login(String email, String password) {
+            return password.equals(USERS.get(email));
+        }
+        // Submits the amount form. Returns the API's response.
+        static Response submitAmount(String owner, double amount) { return API.createRecord(owner, amount); }
+        // The message currently shown to the user, or "" if none.
+        static String visibleMessage() { return LAST_MESSAGE; }
+    }
+
+    static class Database {
+        static Record find(String id) { return RECORDS.get(id); }
+        static void delete(String id) { RECORDS.remove(id); }
+    }
+
+    // Runs before your test. Resets any message state.
+    static void setup() { LAST_MESSAGE = ""; }
+
+    // Runs after your test. Pass a record id to clean it up.
+    static void teardown(String recordId) { if (recordId != null) Database.delete(recordId); }
+
+    // -----------------------------------------------------------------------
+    // TODO: write your automated test(s) below, then call them from main().
+    // -----------------------------------------------------------------------
+
+    public static void main(String[] args) {
+    }
+}

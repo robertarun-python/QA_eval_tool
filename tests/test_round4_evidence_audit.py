@@ -221,3 +221,99 @@ def test_findings_detail_exposes_the_full_explainable_chain():
             "score_impact": SEVERITY_WEIGHTS["high"],
         },
     ]
+
+
+# ---- supporting_texts: evidence that isn't a conversation turn ----
+# Regression for a fidelity defect found in the real Round 2 flow. That
+# round's rubric grades the final code, the execution result and the
+# candidate's own written interpretation - all persisted - but only the AI
+# turns were handed to the auditor. A legitimate execution_and_validation
+# finding therefore cited nothing locatable, was marked NOT_ESTABLISHED,
+# and its deduction was refunded: 98 became 100.
+
+_TURNS = [{
+    "title": "Automation session",
+    "turns": [{"turn_number": 1, "candidate_prompt": "encode my step 1", "model_response": "Encoded it."}],
+}]
+_VALIDATION = (
+    "Both tests passed (exit 0). What this does NOT prove is repeatability across "
+    "separate runs, since each execution starts from a fresh in-process store."
+)
+_RUN_STDOUT = "test_reject_zero_amount passed\ntest_accept_valid_amount passed\n"
+_FINAL_CODE = 'def test_reject_zero_amount():\n    assert response["id"] is None\n'
+
+
+def test_the_98_to_100_case_without_supporting_texts_is_refunded():
+    """The defect exactly as observed: a real finding quoting the
+    candidate's own interpretation is unestablished, and its points come
+    back. Pinned so a regression is unmistakable."""
+    finding = {
+        "claim": "The candidate's interpretation overstates what the run proves.",
+        "severity": "low",
+        "evidence": [{"quote": "each execution starts from a fresh in-process store"}],
+    }
+    report = audit_round4_findings(_TURNS, [finding])
+    assert report.findings[0].status == "NOT_ESTABLISHED"
+    assert report.score_adjustment() == SEVERITY_WEIGHTS["low"]  # 98 + 3 -> capped 100
+
+
+def test_the_same_finding_is_supported_once_the_persisted_evidence_is_supplied():
+    """The fix: the quote is real text the submission actually recorded,
+    so the deduction stands and the intended score is preserved."""
+    finding = {
+        "claim": "The candidate's interpretation overstates what the run proves.",
+        "severity": "low",
+        "evidence": [{"quote": "each execution starts from a fresh in-process store"}],
+    }
+    report = audit_round4_findings(_TURNS, [finding], supporting_texts=[_VALIDATION, _RUN_STDOUT, _FINAL_CODE])
+    assert report.findings[0].status == "SUPPORTED"
+    assert report.score_adjustment() == 0          # nothing refunded
+    assert report.surviving_claims() == [finding["claim"]]
+
+
+def test_a_fabricated_quote_stays_unestablished_even_with_supporting_texts():
+    """The whole point of the auditor must survive the fix: supplying more
+    real evidence must not make an invented quote pass."""
+    finding = {
+        "claim": "The candidate said the database was corrupted.",
+        "severity": "high",
+        "evidence": [{"quote": "the database was corrupted beyond repair"}],
+    }
+    report = audit_round4_findings(_TURNS, [finding], supporting_texts=[_VALIDATION, _RUN_STDOUT, _FINAL_CODE])
+    assert report.findings[0].status == "NOT_ESTABLISHED"
+    assert report.score_adjustment() == SEVERITY_WEIGHTS["high"]
+    assert report.surviving_claims() == []
+
+
+def test_findings_about_execution_output_and_final_code_are_establishable():
+    report = audit_round4_findings(
+        _TURNS,
+        [
+            {"claim": "Run output shows only a pass line, no persistence check.",
+             "severity": "medium", "evidence": [{"quote": "test_accept_valid_amount passed"}]},
+            {"claim": "The code asserts only on the API's own response id.",
+             "severity": "medium", "evidence": [{"quote": 'assert response["id"] is None'}]},
+        ],
+        supporting_texts=[_VALIDATION, _RUN_STDOUT, _FINAL_CODE],
+    )
+    assert [f.status for f in report.findings] == ["SUPPORTED", "SUPPORTED"]
+    assert report.score_adjustment() == 0
+
+
+def test_turn_quotes_still_work_and_supporting_texts_are_optional():
+    """No behaviour change for the callers that pass nothing - the legacy
+    round 4 and pilot flows must be byte-identical."""
+    finding = {"claim": "Asked the assistant to encode step 1.", "severity": "low",
+               "evidence": [{"turn": 1, "quote": "encode my step 1"}]}
+    without = audit_round4_findings(_TURNS, [finding])
+    with_support = audit_round4_findings(_TURNS, [finding], supporting_texts=[_VALIDATION])
+    assert without.findings[0].status == "SUPPORTED"
+    assert with_support.findings[0].status == "SUPPORTED"
+    assert without.summary() == with_support.summary()
+
+
+def test_empty_or_none_supporting_texts_change_nothing():
+    finding = {"claim": "x", "severity": "low", "evidence": [{"quote": "nowhere to be found"}]}
+    for support in (None, [], ["", "   "]):
+        report = audit_round4_findings(_TURNS, [finding], supporting_texts=support)
+        assert report.findings[0].status == "NOT_ESTABLISHED"

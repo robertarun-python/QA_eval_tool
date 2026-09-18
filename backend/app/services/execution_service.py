@@ -29,6 +29,7 @@ version) - that would need real isolation (containers, a VM, gVisor, ...)
 before running LLM-generated code at all.
 """
 import asyncio
+import os
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,23 @@ import time
 from pathlib import Path
 
 from ..config import settings
+
+
+def _child_env() -> dict:
+    """Environment for every candidate process we launch, forcing UTF-8 on
+    the CHILD's own stdout/stderr.
+
+    Without this, CPython picks the platform default for its output streams
+    - cp1252 on a Windows host - so a program that merely PRINTS a non-ASCII
+    character (an AI-generated `print("✓ passed")` is the common case) dies
+    with UnicodeEncodeError inside the child, before a single byte reaches
+    us. The candidate then sees a failed run for a test whose logic was
+    correct. Decoding more carefully on the parent side cannot fix that;
+    the child has already crashed, so the encoding has to be set here.
+
+    PYTHONIOENCODING is Python-specific and simply ignored by node/java, so
+    one environment is safe for all three languages."""
+    return {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
 # javac requires the public class name to match the filename exactly -
 # this fixes the class name the round 3 turn-generation prompt should
@@ -92,6 +110,12 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
         java = shutil.which("java")
         if javac is None or java is None:
             return _PreparedRun(infra_error=True)
+        # Deliberately left on the host locale: this captures JAVAC's own
+        # diagnostics, not the candidate program's output, so it's outside
+        # the UTF-8 defect _child_env exists for (a Java program's real
+        # stdout/stderr goes through _run_subprocess below, which is
+        # fixed). Changing it here would also break the existing
+        # compile-failure tests' subprocess.run stubs for no gain.
         compile_proc = subprocess.run(
             [javac, source.name], cwd=tmp_path, capture_output=True, text=True,
             timeout=timeout_seconds,
@@ -118,6 +142,13 @@ def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds:
     try:
         proc = subprocess.run(
             cmd, cwd=cwd, input=stdin_text, capture_output=True, text=True,
+            # Both halves are needed: env makes the CHILD write UTF-8 (see
+            # _child_env), encoding/errors make the PARENT read it back as
+            # UTF-8 instead of the host locale, which would otherwise
+            # mojibake exactly the characters the child just emitted.
+            # errors="replace" keeps a stray undecodable byte from turning
+            # a candidate's real run into an infrastructure failure.
+            encoding="utf-8", errors="replace", env=_child_env(),
             timeout=timeout_seconds,
         )
         return proc.stdout, proc.stderr, proc.returncode, False
@@ -361,6 +392,11 @@ async def start_interactive(language: str, code: str) -> InteractiveSession:
             # above (that one's about the CHILD not buffering writes;
             # this one's about the PARENT not buffering reads).
             bufsize=0,
+            # Same UTF-8 child environment as the batch path - see
+            # _child_env. The parent side here already decodes utf-8 with
+            # errors="replace" (_read_stream_thread), so this is the only
+            # half that was missing.
+            env=_child_env(),
         )
     except OSError:
         tmp_dir.cleanup()

@@ -263,8 +263,10 @@ def test_time_limit_is_blocked_while_a_candidate_is_mid_round4(client, monkeypat
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     published = _publish_round4_scenario(client, hr_token, monkeypatch)
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    # seed_upto=1: this test STARTS the automation round itself, which
+    # only needs round 1 behind it since the 2<->4 swap.
+    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, seed_upto=1)
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 409
@@ -286,8 +288,8 @@ def test_time_limit_is_blocked_while_a_candidate_is_mid_round4(client, monkeypat
         "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
     })
     tc = _create_round4_test_case(client, cand_token, title="A test case")
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 201
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 200
@@ -589,3 +591,152 @@ def test_scenario_history_aggregates_clear_rate_and_common_misses(client, monkey
     misses_by_text = {m["text"]: m["count"] for m in entry["common_misses"]}
     assert misses_by_text["boundary case: empty cart"] == 2  # both candidates missed it
     assert misses_by_text["negative case: expired card"] == 1
+
+
+# ---- Test data / expected-result specificity (see schemas.TestCaseRow's
+# test_data field and prompts/round1_scoring.txt's specificity rubric).
+# The field is additive and defaults to "": every assertion below about
+# backward compatibility is guarding real stored data written before it
+# existed, not a hypothetical. ----
+
+def _score_stub(**extra):
+    base = {
+        "coverage_score": 80, "misses": [], "final_score": 75,
+        "feedback_text": "ok", "concept_coverage": [],
+    }
+    base.update(extra)
+    return base
+
+
+def test_round1_test_data_persists_end_to_end_and_reaches_hr(client, monkeypatch):
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="Transfer funds")
+    captured = {}
+
+    def _fake_score(**kwargs):
+        captured.update(kwargs)
+        return _score_stub()
+
+    monkeypatch.setattr(llm_service, "score_round1_submission", _fake_score)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    res = client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{
+            "title": "Transfer with zero amount",
+            "steps": "Enter 0.00 and submit the transfer form",
+            "test_data": "amount = 0.00; from = SAV-1001 (balance 50.00)",
+            "expected_result": "Transfer is rejected and 'Amount must be greater than zero' is shown",
+        }]},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+
+    # Stored on the submission...
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round1 = next(s for s in res.json() if s["round_number"] == 1)
+    assert report_round1["content"][0]["test_data"] == "amount = 0.00; from = SAV-1001 (balance 50.00)"
+
+    # ...and actually handed to the scorer, not silently dropped.
+    assert "amount = 0.00" in captured["candidate_submission"]
+
+
+def test_round1_row_without_test_data_still_submits_and_defaults_to_empty(client, monkeypatch):
+    """Backward compatibility: the field is additive, so a client (or a
+    direct API call) that predates it must still be accepted, and the
+    submit gate must be unchanged - title/steps/expected_result only."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="Legacy shape")
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: _score_stub())
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    res = client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "No data field", "steps": "do the thing", "expected_result": "it happens"}]},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round1 = next(s for s in res.json() if s["round_number"] == 1)
+    assert report_round1["content"][0]["test_data"] == ""
+
+
+def test_round1_specificity_is_surfaced_to_hr_when_the_scorer_returns_it(client, monkeypatch):
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="Specificity")
+    monkeypatch.setattr(
+        llm_service, "score_round1_submission",
+        lambda **kwargs: _score_stub(specificity_score=42, specificity_notes="'valid data' is not a value."),
+    )
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "Vague", "steps": "do it", "test_data": "valid data", "expected_result": "works"}]},
+        cookies=_auth(cand_token),
+    )
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round1 = next(s for s in res.json() if s["round_number"] == 1)
+    assert report_round1["score"]["specificity"] == {"score": 42, "notes": "'valid data' is not a value."}
+
+    # Candidates still never see any of it.
+    res = client.get("/candidate/submissions", cookies=_auth(cand_token))
+    assert "score" not in next(s for s in res.json() if s["round_number"] == 1)
+
+
+def test_round1_score_without_specificity_reports_none_not_an_error(client, monkeypatch):
+    """A Score written before the specificity rubric existed (scorer
+    returns no specificity_score) must read back as None, not raise."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="Pre-rubric")
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: _score_stub())
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post(
+        "/candidate/round/1/submit",
+        json={"content": [{"title": "x", "steps": "y", "expected_result": "z"}]},
+        cookies=_auth(cand_token),
+    )
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_round1 = next(s for s in res.json() if s["round_number"] == 1)
+    assert report_round1["score"]["specificity"] is None
+
+
+def test_round1_prompts_actually_ask_for_and_grade_test_data():
+    """Guards the two prompt files against a future edit quietly dropping
+    the field - the schema/UI can carry test_data all day, but if the
+    prompts stop asking for and grading it, the round silently stops
+    assessing specificity at all."""
+    from app.services.llm_service import _load_prompt
+
+    reference_prompt = _load_prompt("round1_reference_generation.txt")
+    assert "test_data" in reference_prompt
+    assert "test_data" in reference_prompt.split("Respond with ONLY")[1]  # present in the required output shape
+
+    scoring_prompt = _load_prompt("round1_scoring.txt")
+    assert "test_data" in scoring_prompt
+    assert "specificity_score" in scoring_prompt
+    assert "specificity_notes" in scoring_prompt

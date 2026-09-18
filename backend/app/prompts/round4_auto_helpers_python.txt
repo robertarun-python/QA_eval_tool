@@ -1,0 +1,113 @@
+"""
+Automation environment (Python) - provided for you, already working.
+
+This is a SMALL controlled environment, not a framework you need to build
+or extend. It simulates a UI, an API and a database in-process so your
+automation runs deterministically with no real network calls.
+
+Write your automated test(s) at the bottom, under the TODO marker, using
+the helpers below. Do not rewrite the helpers.
+"""
+
+CONFIG = {"base_url": "https://demo.example.test", "timeout_seconds": 5}
+
+
+class _Store:
+    """In-memory stand-in for the application's database."""
+
+    def __init__(self):
+        self.users = {"jordan.rivera@example.com": {"password": "Passw0rd!2026", "name": "Jordan", "status": "active"}}
+        self.records = {}
+        self._next_id = 1
+
+    def insert(self, owner, amount, status):
+        record_id = f"REC-{self._next_id:04d}"
+        self._next_id += 1
+        self.records[record_id] = {"id": record_id, "owner": owner, "amount": amount, "status": status}
+        return record_id
+
+    def get(self, record_id):
+        return self.records.get(record_id)
+
+    def delete(self, record_id):
+        self.records.pop(record_id, None)
+
+
+DB = _Store()
+
+
+class UI:
+    """UI-layer actions."""
+
+    @staticmethod
+    def open(path="/"):
+        return {"url": CONFIG["base_url"] + path, "status": 200}
+
+    @staticmethod
+    def login(email, password):
+        """Returns True on success, False on bad credentials."""
+        user = DB.users.get(email)
+        return bool(user and user["password"] == password and user["status"] == "active")
+
+    @staticmethod
+    def submit_amount(owner, amount):
+        """Submits the amount form. Returns the API's response dict."""
+        return API.create_record(owner, amount)
+
+    @staticmethod
+    def visible_message():
+        """The message currently shown to the user, or '' if none."""
+        return _LAST_MESSAGE[0]
+
+
+_LAST_MESSAGE = [""]
+
+
+class API:
+    """API-layer actions."""
+
+    @staticmethod
+    def create_record(owner, amount):
+        """Rejects a non-positive amount; otherwise persists the record."""
+        if amount is None or amount <= 0:
+            _LAST_MESSAGE[0] = "Amount must be greater than zero"
+            return {"ok": False, "error": "Amount must be greater than zero", "id": None}
+        record_id = DB.insert(owner, amount, status="completed")
+        _LAST_MESSAGE[0] = "Saved successfully"
+        return {"ok": True, "error": None, "id": record_id}
+
+    @staticmethod
+    def get_record(record_id):
+        return DB.get(record_id)
+
+
+class Database:
+    """Direct DB-layer access, for verifying persistence."""
+
+    @staticmethod
+    def find(record_id):
+        return DB.get(record_id)
+
+    @staticmethod
+    def delete(record_id):
+        DB.delete(record_id)
+
+
+def setup():
+    """Runs before your test. Resets any message state."""
+    _LAST_MESSAGE[0] = ""
+
+
+def teardown(record_id=None):
+    """Runs after your test. Pass a record id to clean it up."""
+    if record_id is not None:
+        Database.delete(record_id)
+
+
+# ---------------------------------------------------------------------------
+# TODO: write your automated test(s) below, then call them from __main__.
+# ---------------------------------------------------------------------------
+
+
+if __name__ == "__main__":
+    pass

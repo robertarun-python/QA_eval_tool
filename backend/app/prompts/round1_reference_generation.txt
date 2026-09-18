@@ -6,12 +6,14 @@ Scenario (experience band: {experience_band}):
 Write a reference set of test cases a strong QA engineer at the {experience_band} experience level would produce. Requirements:
 - Cover happy path, edge cases, negative cases, and boundary conditions.
 - Write like a human QA engineer documenting test cases for a team wiki: plain, specific, a little uneven in phrasing - not a uniform AI-generated list. Avoid phrases like "As an AI" or overly generic hedging.
-- Each test case: a short title, preconditions (if any), steps, expected result, a priority, and a type.
+- Each test case: a short title, preconditions (if any), steps, test data, expected result, a priority, and a type.
+- test_data: the CONCRETE values a tester would actually use for this case - specific inputs, accounts, amounts, dates, field values, boundary values. Write real, usable values (e.g. "amount = 0.00; account = SAV-1001 (balance 50.00)"), never a vague placeholder like "valid data" or "any invalid input". If a case genuinely needs no input data, say so explicitly and briefly rather than leaving it blank.
+- expected_result: a specific, checkable assertion - the exact state, message, value, or record a tester would verify, not a general statement like "it works" or "an error is shown".
 - priority is one of: High, Medium, Low.
 - type is one of: Positive, Negative, Boundary, Edge - and your set of cases should include a realistic mix, not all Positive.
 - Aim for the number and depth of cases a real engineer at this level would produce in a focused {time_limit_minutes}-minute session - don't pad with trivial duplicates, and don't generate more than someone could realistically write by hand in that time (roughly 1 case per 1.5-2 minutes is a reasonable ceiling).
 
 Respond with ONLY a JSON array, no other text, in this shape:
 [
-  {{"title": "...", "preconditions": "...", "steps": "...", "expected_result": "...", "priority": "High", "type": "Positive"}}
+  {{"title": "...", "preconditions": "...", "steps": "...", "test_data": "...", "expected_result": "...", "priority": "High", "type": "Positive"}}
 ]

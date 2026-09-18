@@ -105,7 +105,7 @@ def test_expire_saves_whatever_draft_content_was_sent(client, monkeypatch):
 def test_expire_moves_the_candidate_on_to_the_next_round(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="Timed scenario")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     _stub_round1_scoring(monkeypatch)
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     client.post("/candidate/round/1/start", cookies=_auth(cand_token))

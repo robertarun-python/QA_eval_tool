@@ -232,3 +232,78 @@ def test_interactive_session_stop_kills_a_still_running_process():
         assert session.exited is True
 
     asyncio.run(scenario())
+
+
+# ---- UTF-8 child output (see execution_service._child_env) ----
+# Regression for a defect found during live Round 2 validation: a Python
+# program that merely PRINTS a non-ASCII character died with
+# UnicodeEncodeError inside the child, because CPython picked the host
+# locale (cp1252 on Windows) for its output streams. The candidate saw a
+# failed run for a test whose logic was correct. These use the REAL
+# subprocess path on purpose - a mocked _run_subprocess would prove
+# nothing about the child's own encoding.
+
+_TICK = "\u2713"   # the character AI-generated test code reaches for most
+_CROSS = "\u2717"
+
+
+def test_unicode_stdout_does_not_crash_the_child():
+    code = "\n".join(['print("' + _TICK + ' passed")', ""])
+    result = execution_service.run_code(language="python", code=code, stdin=[])
+    assert result.exit_code == 0, f"non-ASCII stdout should not fail the run: {result.stderr}"
+    assert result.infra_error is False
+    assert _TICK in result.stdout
+
+
+def test_unicode_stderr_round_trips():
+    code = "\n".join([
+        "import sys",
+        'sys.stderr.write("' + _CROSS + ' a warning" + chr(10))',
+        "",
+    ])
+    result = execution_service.run_code(language="python", code=code, stdin=[])
+    assert result.exit_code == 0
+    assert _CROSS in result.stderr
+
+
+def test_unicode_survives_both_streams_together():
+    """The exact shape that failed live: a passing assertion plus a tick."""
+    code = "\n".join([
+        "import sys",
+        "assert 1 + 1 == 2",
+        'print("' + _TICK + ' test_reject_zero_amount passed")',
+        'sys.stderr.write("' + _CROSS + ' note" + chr(10))',
+        "",
+    ])
+    result = execution_service.run_code(language="python", code=code, stdin=[])
+    assert result.exit_code == 0
+    assert result.stdout.strip().startswith(_TICK)
+    assert _CROSS in result.stderr
+
+
+def test_non_ascii_beyond_latin1_also_survives():
+    """cp1252 can encode some accented characters but not these - proves
+    the fix is real UTF-8, not a wider single-byte codepage."""
+    code = "\n".join(['print("\u4f60\u597d \u2014 \U0001f600")', ""])
+    result = execution_service.run_code(language="python", code=code, stdin=[])
+    assert result.exit_code == 0
+    assert "\u4f60\u597d" in result.stdout
+
+
+def test_ascii_output_is_unchanged_by_the_utf8_env():
+    """Existing behaviour must be untouched for the ordinary case."""
+    code = "\n".join(["a = int(input())", "b = int(input())", "print(a + b)", ""])
+    result = execution_service.run_code(language="python", code=code, stdin=["2", "3"])
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "5"
+
+
+def test_child_env_sets_utf8_without_dropping_the_real_environment():
+    """PATH etc. must still reach the child - a replaced (rather than
+    extended) environment would break interpreter resolution."""
+    import os
+    env = execution_service._child_env()
+    assert env["PYTHONIOENCODING"] == "utf-8"
+    assert len(env) >= len(os.environ)
+    for key in os.environ:
+        assert key in env

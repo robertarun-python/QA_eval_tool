@@ -128,16 +128,20 @@ FAKE_ROUND3_CODING_REFERENCE = {
     "reference_solution": "a, b = input().split(',')\nprint(int(a) + int(b))",
 }
 
+# Slot-keyed. Since the 2<->4 renumbering the debugging round sits at
+# slot 4 (its generator function keeps its historical round2 name - see
+# scoring_service._SCORERS); slot 2 is the automation round, which has no
+# test-case reference to generate and uses _publish_round4_scenario instead.
 _REFERENCE_GENERATOR_BY_ROUND = {
     1: "generate_round1_reference",
-    2: "generate_round2_reference",
     3: "generate_round3_reference",
+    4: "generate_round2_reference",
 }
 
 _FAKE_REFERENCE_BY_ROUND = {
     1: lambda: list(FAKE_REFERENCE),
-    2: lambda: list(FAKE_REFERENCE),
     3: lambda: dict(FAKE_ROUND3_CODING_REFERENCE),
+    4: lambda: list(FAKE_REFERENCE),
 }
 
 
@@ -188,7 +192,7 @@ def _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7", title="A
 
     scenario = client.post(
         "/hr/scenarios",
-        json={"round_number": 4, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30},
+        json={"round_number": 2, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     ).json()
     client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
@@ -197,22 +201,28 @@ def _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7", title="A
 
 def _create_round4_test_case(client, token, title=None):
     return client.post(
-        "/candidate/round/4/test-case",
+        "/candidate/round/2/test-case",
         json={"title": title},
         cookies=_auth(token),
     ).json()
 
 
-def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band="0-7"):
-    """ROUND_SEQUENCE is (1, 2, 3, 4) - round 4 isn't reachable at all
-    until a candidate has actually submitted rounds 1-3, so any test that
-    needs a candidate sitting at round 4 (e.g. to exercise round 4's own
-    in-progress guard - see test_lazy_expiry.py) has to drive all three
-    first. Pulled out once three call sites needed this exact dance."""
+def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band="0-7", email=None, seed_upto=2):
+    """ROUND_SEQUENCE is (1, 2, 3, 4) - the last round isn't reachable at
+    all until a candidate has actually submitted rounds 1-3, so any test
+    that needs a candidate sitting at the final round has to get them
+    there first.
+
+    Since the 2<->4 renumbering the order is: round 1 (manual design),
+    round 2 (AI-assisted automation), round 3 (coding). Round 2 is seeded
+    rather than driven end-to-end - its real flow needs a test selection,
+    AI turns and an execution, none of which any caller of this helper is
+    actually testing (see test_round4_auto.py for that round's own
+    coverage)."""
     from app.services import llm_service, execution_service
 
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, band=band)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, band=band, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, band=band, title="Debug scenario")
     _publish_scenario(client, hr_token, monkeypatch, round_number=3, band=band, title="Coding challenge")
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **kwargs: {
         "coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok",
@@ -238,12 +248,57 @@ def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band
         json={"content": [{"title": "Login works", "steps": "...", "expected_result": "..."}]},
         cookies=_auth(cand_token),
     )
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
-    client.post(
-        "/candidate/round/2/submit",
-        json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
-        cookies=_auth(cand_token),
-    )
-    client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
+    # seed_upto=1 leaves round 2 untouched, for a caller that wants to
+    # START the automation round itself (it only needs round 1 behind it).
+    _seed_completed_rounds(email or CANDIDATE1_EMAIL, seed_upto)
+    if seed_upto >= 2:
+        client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+        client.post("/candidate/round/3/turn", json={"candidate_prompt": "solve it"}, cookies=_auth(cand_token))
+        client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
+
+
+def _seed_completed_rounds(candidate_email, upto, scenario_id=None):
+    """Marks rounds 1..upto as already submitted for a candidate, directly
+    in the DB.
+
+    Needed since the 2<->4 renumbering moved the debugging round to slot 4,
+    which `_require_round_unlocked` only unlocks after rounds 1-3 are done.
+    Driving the full automation + coding flows inside a debugging test just
+    to satisfy gating would make those tests about everything except
+    debugging, so the prerequisites are seeded instead - the gating rule
+    itself is covered directly by test_round_gating_after_swap.py.
+    """
+    import app.database as database_module
+    from app.models import Submission, Scenario, User, RoundStatus
+    from datetime import datetime
+
+    db = database_module.SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == candidate_email).first()
+        for round_number in range(1, upto + 1):
+            existing = (
+                db.query(Submission)
+                .filter(
+                    Submission.user_id == user.id,
+                    Submission.round_number == round_number,
+                    Submission.archived.is_(False),
+                )
+                .first()
+            )
+            if existing is not None:
+                existing.status = RoundStatus.submitted
+                existing.submitted_at = existing.submitted_at or datetime.utcnow()
+                continue
+            scenario = (
+                db.query(Scenario).filter(Scenario.round_number == round_number).first()
+                or db.query(Scenario).filter(Scenario.id == scenario_id).first()
+                or db.query(Scenario).first()
+            )
+            db.add(Submission(
+                user_id=user.id, scenario_id=scenario.id, round_number=round_number,
+                status=RoundStatus.submitted, started_at=datetime.utcnow(),
+                submitted_at=datetime.utcnow(),
+            ))
+        db.commit()
+    finally:
+        db.close()

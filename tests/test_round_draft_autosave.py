@@ -9,6 +9,7 @@ gap in a tool whose whole value is a trustworthy score, since losing
 work isn't the same as "didn't attempt it".
 """
 from .conftest import (
+    _seed_completed_rounds,
     HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD,
     _login, _auth, _publish_scenario,
 )
@@ -38,7 +39,7 @@ def test_round2_draft_is_saved_and_returned_on_resume(client, monkeypatch):
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"},
@@ -50,16 +51,17 @@ def test_round2_draft_is_saved_and_returned_on_resume(client, monkeypatch):
         json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
         cookies=_auth(cand_token),
     )
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    _seed_completed_rounds(CANDIDATE1_EMAIL, 3)  # debugging is slot 4 since the 2<->4 swap
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(
-        "/candidate/round/2/draft",
+        "/candidate/round/4/draft",
         json={"investigation": [{"area": "Checked the logs"}], "root_cause": "still investigating..."},
         cookies=_auth(cand_token),
     )
     assert res.status_code == 204
 
-    state = client.get("/candidate/round/2", cookies=_auth(cand_token)).json()
+    state = client.get("/candidate/round/4", cookies=_auth(cand_token)).json()
     assert state["submission"]["content"] == {
         "investigation": [{"area": "Checked the logs"}],
         "root_cause": "still investigating...",
@@ -78,7 +80,7 @@ def test_round2_draft_keeps_a_blank_investigation_row_unlike_a_real_submit(clien
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"},
@@ -90,16 +92,17 @@ def test_round2_draft_keeps_a_blank_investigation_row_unlike_a_real_submit(clien
         json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
         cookies=_auth(cand_token),
     )
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    _seed_completed_rounds(CANDIDATE1_EMAIL, 3)  # debugging is slot 4 since the 2<->4 swap
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
 
     res = client.patch(
-        "/candidate/round/2/draft",
+        "/candidate/round/4/draft",
         json={"investigation": [{"area": "Checked the logs"}, {"area": ""}], "root_cause": ""},
         cookies=_auth(cand_token),
     )
     assert res.status_code == 204
 
-    state = client.get("/candidate/round/2", cookies=_auth(cand_token)).json()
+    state = client.get("/candidate/round/4", cookies=_auth(cand_token)).json()
     assert state["submission"]["content"]["investigation"] == [
         {"area": "Checked the logs"}, {"area": ""},
     ]
@@ -148,7 +151,7 @@ def test_round3_draft_is_saved_and_returned_on_resume(client, monkeypatch):
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
@@ -165,12 +168,7 @@ def test_round3_draft_is_saved_and_returned_on_resume(client, monkeypatch):
         json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
         cookies=_auth(cand_token),
     )
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
-    client.post(
-        "/candidate/round/2/submit",
-        json={"investigation": [{"area": "x"}], "root_cause": "x"},
-        cookies=_auth(cand_token),
-    )
+    _seed_completed_rounds(CANDIDATE1_EMAIL, 2)  # round 3 unlocks behind rounds 1-2 since the 2<->4 swap
     client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
 
     res = client.patch(

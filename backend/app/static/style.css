@@ -1284,6 +1284,11 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
   padding: var(--space-tight); overflow-x: auto; white-space: pre-wrap; word-break: break-word;
 }
 
+/* Round 4 pilot ("Focused Automation Pilot") candidate code display -
+   reuses .code-textarea above, just taller (a whole automation file
+   vs. a short JSON snippet). */
+.round4-pilot-code { min-height: 20rem; }
+
 /* ============================================================
    20. SETTINGS PAGE (HR Settings - redesigned to match the reference
    enterprise mockup; UI/UX only, see app.js's loadAppSettings/

@@ -106,6 +106,16 @@ class TestCaseRow(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     preconditions: str = Field(default="", max_length=2000)
     steps: str = Field(min_length=1, max_length=5000)
+    # The concrete values a tester would actually use (inputs, accounts,
+    # amounts, dates, ...) as opposed to the narrative in `steps`.
+    # Captured as its own field rather than left buried in prose so a
+    # later round can consume it structurally - see round1_scoring.txt,
+    # which now grades how SPECIFIC this is. default="": every R1
+    # submission written before this field existed still validates, and
+    # the submit gate is unchanged (title/steps/expected_result only),
+    # so adding this can't retroactively block anyone - vagueness costs
+    # score, it doesn't cost the ability to submit.
+    test_data: str = Field(default="", max_length=2000)
     expected_result: str = Field(min_length=1, max_length=2000)
     priority: Literal["High", "Medium", "Low"] = "Medium"
     type: Literal["Positive", "Negative", "Boundary", "Edge"] = "Positive"
@@ -184,6 +194,15 @@ class ScenarioPublicOut(BaseModel):
     is_live: bool
     time_limit_minutes: int
     published_at: Optional[datetime] = None
+    # Round 4 only: lets the pre-start briefing (before any submission
+    # exists) distinguish the Focused Automation Pilot from the legacy
+    # conversational flow - see models.Scenario.is_pilot. False for every
+    # round 1-3 scenario and every pre-pilot round 4 scenario.
+    is_pilot: bool = False
+    # Round 4 only: the AI-Assisted Test Automation mode (the candidate
+    # automates their own round 1 design) - see models.Scenario.is_auto.
+    # False for every round 1-3 scenario and every other round 4 mode.
+    is_auto: bool = False
 
     class Config:
         from_attributes = True
@@ -274,6 +293,10 @@ class ScoreOut(BaseModel):
     # always present, all null/false until HR ever touches this score.
     original_final_score: Optional[int] = None
     overridden_by_hr: bool = False
+    # Round 1 only - see models.Score.specificity. None for every other
+    # round and for scores predating the specificity rubric. HR-only by
+    # the same construction as evidence_audit below.
+    specificity: Optional[dict] = None
     # Round 4 only - see models.Score.evidence_audit. None for every
     # other round. HR-only by construction: ScoreOut is only ever
     # embedded in SubmissionReportOut, which is only ever returned from
@@ -588,6 +611,18 @@ class Round4TurnResponse(BaseModel):
     status: Literal["pass", "fail", "partial"]
 
 
+class Round4PilotTurnResponse(BaseModel):
+    """The assistant's structured reply for one Round 4 pilot turn - see
+    llm_service.round4_pilot_turn and prompts/round4_pilot_turn.txt. Unlike
+    Round4TurnResponse (no code field, by design - see that class), this
+    round's assistant IS a coding assistant editing a real file, so
+    code_after carries the full updated file when response_kind is
+    "code_edit" - same shape as Round3CodingTurnResponse."""
+    response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
+    response_message: str
+    code_after: Optional[str] = None
+
+
 class Round4FindingEvidence(BaseModel):
     """One citation backing a Round4Finding - see
     services.round4_evidence_audit, which is the deterministic (no LLM)
@@ -686,6 +721,144 @@ class Round4StateOut(BaseModel):
     ui_mockup: Optional[Round4UiMockupOut] = None
     test_cases: list[Round4TestCaseOut]
     turns: list[Round4TurnOut]
+    # Focused Automation Pilot only (see routers/candidate.py's
+    # /round/4/pilot/* endpoints) - all default to "not a pilot scenario"
+    # so a legacy round 4 scenario's response shape is completely
+    # unchanged from before these fields existed.
+    is_pilot: bool = False
+    pilot_starter_code: Optional[str] = None
+    pilot_code: Optional[str] = None
+    pilot_turns: list["Round4PilotTurnOut"] = Field(default_factory=list)
+    pilot_clarification: Optional["Round4PilotClarifyOut"] = None
+    pilot_last_run: Optional["Round4PilotRunOut"] = None
+
+
+class Round4PilotTurnCreate(BaseModel):
+    candidate_prompt: str = Field(min_length=1, max_length=10000)
+
+
+# ---- AI-Assisted Test Automation round (Scenario.config_json["mode"] ==
+# "ai_test_automation") - the candidate automates test cases THEY designed
+# in round 1. Selected per-scenario, alongside the legacy conversational
+# round 4 and the Focused Automation Pilot; see routers/candidate.py's
+# /round/4/auto/* endpoints. ----
+
+class Round4AutoDesignRowOut(BaseModel):
+    """One of the candidate's own Round 1 rows, as an immutable snapshot.
+    `index` is its position in the Round 1 submission - the handle used to
+    select it and to attach refinements to it (Round 1 rows still carry no
+    id of their own). `refinements` is append-only; the other fields are
+    never rewritten once selected."""
+    index: int
+    title: str = ""
+    preconditions: str = ""
+    steps: str = ""
+    test_data: str = ""
+    expected_result: str = ""
+    refinements: list[str] = Field(default_factory=list)
+
+
+class Round4AutoSelectCreate(BaseModel):
+    """1-2 Round 1 rows, by index. Writable exactly once - see
+    routers/candidate.py's round4_auto_select."""
+    row_indexes: list[int] = Field(min_length=1, max_length=2)
+
+
+class Round4AutoRefineCreate(BaseModel):
+    row_index: int
+    note: str = Field(min_length=1, max_length=2000)
+
+
+class Round4AutoTurnCreate(BaseModel):
+    candidate_prompt: str = Field(min_length=1, max_length=10000)
+
+
+class Round4AutoTurnOut(BaseModel):
+    turn_number: int
+    candidate_prompt: str
+    response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
+    response_message: str
+    code_after: Optional[str] = None
+
+
+class Round4AutoCodeUpdate(BaseModel):
+    """The candidate's own direct edit to the code buffer. Recorded as its
+    own audit entry (see Round4AutoStateOut.code_edits) so "what the
+    assistant produced" and "what the candidate changed themselves" stay
+    distinguishable at scoring time."""
+    code: str = Field(min_length=1, max_length=200000)
+
+
+class Round4AutoRunCreate(BaseModel):
+    """Optional body for run/submit - the candidate's current editor
+    contents, so both act on exactly what's on screen. None = use what's
+    already stored."""
+    code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
+
+
+class Round4AutoSubmitCreate(Round4AutoRunCreate):
+    validation: str = Field(min_length=1, max_length=5000)
+
+
+class Round4AutoRunOut(BaseModel):
+    stdout: str
+    stderr: str
+    exit_code: Optional[int] = None
+    timed_out: bool = False
+    infra_error: bool = False
+
+
+class Round4AutoStateOut(BaseModel):
+    """Everything the automation round's candidate screen needs. Nothing
+    here carries ground truth, validation notes, the scoring rubric, or
+    the traceability signal - those are HR/system-only (see
+    prompts/round4_auto_scoring.txt's REFERENCE ONLY section)."""
+    language: str
+    available_rows: list[Round4AutoDesignRowOut]
+    selected: list[Round4AutoDesignRowOut]
+    selection_locked: bool
+    environment_code: str
+    code: str
+    turns: list[Round4AutoTurnOut]
+    code_edits_count: int
+    last_run: Optional[Round4AutoRunOut] = None
+    validation: str = ""
+
+
+class Round4PilotCodeUpdate(BaseModel):
+    """Optional body for /round/4/pilot/run and /round/4/pilot/submit -
+    the candidate's own direct edit to the code buffer, so both operate
+    on exactly what's currently in the editor rather than a stale
+    AI-turn snapshot (see routers/candidate.py's _apply_pilot_code_edit).
+    `code` defaults to None (no edit to apply - use whatever's already
+    stored) so a caller that sends no body at all, or code=null, is a
+    no-op - keeps existing behavior unchanged."""
+    code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
+
+
+class Round4PilotTurnOut(BaseModel):
+    turn_number: int
+    candidate_prompt: str
+    response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
+    response_message: str
+    code_after: Optional[str] = None
+
+
+class Round4PilotClarifyCreate(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class Round4PilotClarifyOut(BaseModel):
+    question: str
+    response: str
+
+
+class Round4PilotRunOut(BaseModel):
+    stdout: str
+    stderr: str
+    exit_code: Optional[int] = None
+    timed_out: bool = False
+    infra_error: bool = False
 
 
 # ---- Round 3 (AI-prompted coding: the candidate never writes code

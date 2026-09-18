@@ -1,0 +1,165 @@
+"""
+Customer Transaction Automation - existing framework
+=====================================================
+This is a small, existing automation codebase covering the customer
+transaction flow of our banking demo application. It simulates a UI, an
+API, and a database layer in-process so the whole suite runs
+deterministically without any real network calls.
+
+Read this file, understand it, and extend it to satisfy the requirement
+given to you separately. Reuse the existing helpers below rather than
+rebuilding them.
+"""
+
+import time
+import uuid
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+CONFIG = {
+    "base_url": "https://demo-bank.example.test",
+    "api_base_url": "https://api.demo-bank.example.test",
+    "default_timeout_seconds": 5,
+}
+
+
+# ---------------------------------------------------------------------------
+# Test data
+# ---------------------------------------------------------------------------
+
+EXISTING_CUSTOMER_ID = "CUST-1001"
+
+VALID_CUSTOMER = {
+    "customer_id": EXISTING_CUSTOMER_ID,
+    "name": "Jordan Rivera",
+    "account_status": "active",
+    "balance": 500.00,
+}
+
+
+# ---------------------------------------------------------------------------
+# Simulated layers (stand-ins for a real UI/API/DB in this offline exercise)
+# ---------------------------------------------------------------------------
+
+class SimulatedDatabase:
+    """In-memory stand-in for the real transactions database."""
+
+    def __init__(self):
+        self._transactions = {}
+
+    def insert_transaction(self, transaction_id, customer_id, amount, status):
+        self._transactions[transaction_id] = {
+            "transaction_id": transaction_id,
+            "customer_id": customer_id,
+            "amount": amount,
+            "status": status,
+        }
+
+    def find_transaction(self, transaction_id):
+        return self._transactions.get(transaction_id)
+
+    def delete_transaction(self, transaction_id):
+        self._transactions.pop(transaction_id, None)
+
+    def all_transactions_for(self, customer_id):
+        return [t for t in self._transactions.values() if t["customer_id"] == customer_id]
+
+
+# Module-level singleton, standing in for a real shared DB connection -
+# every helper below talks to this same instance.
+DB = SimulatedDatabase()
+
+
+class UIHelper:
+    """Reusable UI-layer actions. Use these rather than re-implementing
+    the same steps inline in a new test."""
+
+    @staticmethod
+    def open_app():
+        time.sleep(0.01)
+        return True
+
+    @staticmethod
+    def login(customer_id):
+        account = VALID_CUSTOMER if customer_id == VALID_CUSTOMER["customer_id"] else None
+        time.sleep(0.01)
+        if account is None or account["account_status"] != "active":
+            return False
+        return True
+
+    @staticmethod
+    def submit_transaction(customer_id, amount):
+        """Simulates submitting the transaction form in the UI."""
+        time.sleep(0.05)
+        return ApiHelper.submit_transaction(customer_id, amount)
+
+
+class ApiHelper:
+    """Reusable API-layer actions - the layer that actually talks to the
+    backend and causes a DB write."""
+
+    @staticmethod
+    def submit_transaction(customer_id, amount):
+        transaction_id = f"TXN-{uuid.uuid4().hex[:8]}"
+        DB.insert_transaction(transaction_id, customer_id, amount, status="completed")
+        return transaction_id
+
+    @staticmethod
+    def get_transaction_status(transaction_id):
+        """Returns the status the API reports for a transaction."""
+        record = DB.find_transaction(transaction_id)
+        return record["status"] if record else None
+
+
+class DbHelper:
+    """Reusable DB-layer actions."""
+
+    @staticmethod
+    def get_transaction(transaction_id):
+        return DB.find_transaction(transaction_id)
+
+    @staticmethod
+    def delete_transaction(transaction_id):
+        DB.delete_transaction(transaction_id)
+
+
+# ---------------------------------------------------------------------------
+# Setup / teardown
+# ---------------------------------------------------------------------------
+
+def setup():
+    UIHelper.open_app()
+    logged_in = UIHelper.login(VALID_CUSTOMER["customer_id"])
+    if not logged_in:
+        raise RuntimeError("setup failed: could not log in as the test customer")
+
+
+def teardown(transaction_id=None):
+    if transaction_id is not None:
+        DbHelper.delete_transaction(transaction_id)
+
+
+# ---------------------------------------------------------------------------
+# Existing automation test (already working - provided as a reference for
+# the style/helpers this codebase already uses)
+# ---------------------------------------------------------------------------
+
+def test_login_with_valid_customer():
+    setup()
+    try:
+        assert UIHelper.login(VALID_CUSTOMER["customer_id"]) is True
+        print("PASS: test_login_with_valid_customer")
+    finally:
+        teardown()
+
+
+# ---------------------------------------------------------------------------
+# TODO: automate the new requirement here (see the task instructions).
+# ---------------------------------------------------------------------------
+
+
+if __name__ == "__main__":
+    test_login_with_valid_customer()

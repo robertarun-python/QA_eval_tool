@@ -13,10 +13,12 @@ import anthropic
 from pydantic import ValidationError
 
 from ..config import settings
-from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding
+from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding, Round4PilotTurnResponse
 from . import round3_constructs
 from . import round3_construct_engine
 from . import round3_policy
+from . import round4_pilot_policy
+from . import round4_auto_policy
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -702,6 +704,194 @@ def score_round4_conversation(round4_evidence: dict, round1_reference_context: d
             continue
     result["findings"] = validated
     result["_provenance"] = _scoring_provenance("round4_scoring.txt", prompt_text)
+    return result
+
+
+# ---- Round 4 pilot ("Focused Automation Pilot") ----
+#
+# A different shape from the legacy round 4 above (candidate writes and
+# edits a real single-file Python automation, not a plain-English
+# conversation with a role-playing AI) - see round4_pilot_policy.py and
+# scoring_service.score_round4_pilot_submission. Deliberately separate
+# functions from round4_respond/score_round4_conversation above, not a
+# branch inside them, so the legacy round 4 path is untouched by this.
+
+def round4_pilot_turn(
+    scenario_instructions: str,
+    current_code: str,
+    conversation_so_far: list[dict],
+    candidate_prompt: str,
+) -> dict:
+    """One AI turn in the Round 4 pilot. Deterministic policy check FIRST
+    - round4_pilot_policy.is_prohibited - so a prohibited request never
+    reaches _call_claude at all, same discipline as round3_coding_turn's
+    own pre-generation check."""
+    if round4_pilot_policy.is_prohibited(candidate_prompt):
+        return {"response_kind": "refuse", "response_message": round4_pilot_policy.REFUSAL_MESSAGE, "code_after": None}
+
+    prompt = _load_prompt("round4_pilot_turn.txt").format(
+        current_code=current_code,
+        scenario_instructions=scenario_instructions,
+        conversation_so_far=json.dumps(conversation_so_far, indent=2),
+        candidate_prompt=candidate_prompt,
+    )
+    raw = _call_claude(prompt, max_tokens=4096)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the pilot turn, got: {type(result)}")
+    return Round4PilotTurnResponse.model_validate(result).model_dump()
+
+
+def score_round4_pilot_conversation(
+    scenario_instructions: str, starter_code: str, final_code: str,
+    turns: list[dict], clarification: dict | None, execution_result: dict,
+    reference_solution: str, validation_notes: str,
+) -> dict:
+    """Scores one Round 4 pilot submission against the 5-area rubric (25/
+    20/15/20/20 = 100 - see prompts/round4_pilot_scoring.txt). Findings go
+    through the SAME round4_evidence_audit.audit_round4_findings backstop
+    as the legacy round 4 path (see scoring_service.score_round4_pilot_submission) -
+    reference_solution/validation_notes are REFERENCE ONLY, exactly like
+    round1_reference_context is for score_round4_conversation above; never
+    a source of findings about what the candidate did."""
+    prompt_text = _load_prompt("round4_pilot_scoring.txt")
+    prompt = prompt_text.format(
+        scenario_instructions=scenario_instructions,
+        starter_code=starter_code,
+        final_code=final_code,
+        turns_json=json.dumps(turns, indent=2),
+        clarification_json=json.dumps(clarification, indent=2) if clarification else "(candidate did not ask for clarification)",
+        execution_result_json=json.dumps(execution_result, indent=2),
+        reference_solution=reference_solution,
+        validation_notes=validation_notes,
+    )
+    raw = _call_claude(prompt, max_tokens=8192)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    if "findings" not in result:
+        raise ValueError(f"Expected a 'findings' key in the round 4 pilot scoring response, got keys: {list(result)}")
+    validated = []
+    for entry in result["findings"] or []:
+        try:
+            validated.append(Round4Finding.model_validate(entry).model_dump())
+        except ValidationError:
+            continue
+    result["findings"] = validated
+    result["_provenance"] = _scoring_provenance("round4_pilot_scoring.txt", prompt_text)
+    return result
+
+
+# ---- AI-Assisted Test Automation round ----
+#
+# The candidate automates test cases THEY designed in round 1. Separate
+# functions from both the legacy round 4 and the pilot above, not a branch
+# inside them, so neither existing flow is touched by this one.
+
+def _repair_escaped_code(code: str | None) -> str | None:
+    """Undoes a double-escaped code block.
+
+    Observed live: the model sometimes writes its JSON string with the
+    escape sequences already escaped, so `\\n` arrives as a literal
+    backslash + "n" instead of a newline. json.loads faithfully returns
+    that, and the result is a single-line file that fails to execute with
+    a SyntaxError on line 1 - the candidate's generated automation is
+    simply unusable.
+
+    The guard compares how many escaped pairs the block contains against
+    how many REAL newlines it has, and repairs only a block that is
+    predominantly escaped. An earlier version required zero real newlines
+    and was defeated in a live run by a single trailing newline sitting
+    outside the escaped body: 1 real vs 137 escaped, left unrepaired.
+
+    A well-formed multi-line file has many real newlines and few or no
+    escaped ones, so it is returned untouched. The minimum of 3 escaped
+    pairs additionally stops a short snippet whose only escapes are
+    deliberate string literals from ever being rewritten.
+    """
+    if not code:
+        return code
+    escaped_pairs = code.count("\\n")
+    real_newlines = code.count("\n")
+    if escaped_pairs < 3 or escaped_pairs <= real_newlines:
+        return code
+    # Ordered so an escaped backslash is restored last and doesn't get
+    # re-interpreted as the lead-in of another sequence.
+    for escaped, real in (("\\n", "\n"), ("\\t", "\t"), ('\\"', '"'), ("\\'", "'"), ("\\\\", "\\")):
+        code = code.replace(escaped, real)
+    return code
+
+
+def round4_auto_turn(
+    language: str,
+    selected_design: list[dict],
+    environment_code: str,
+    current_code: str,
+    conversation_so_far: list[dict],
+    candidate_prompt: str,
+) -> dict:
+    """One AI turn. The deterministic pre-generation control runs FIRST -
+    round4_auto_policy.is_prohibited - so a request to invent test cases,
+    data, assertions or coverage never reaches the API at all."""
+    if round4_auto_policy.is_prohibited(candidate_prompt):
+        return {"response_kind": "refuse", "response_message": round4_auto_policy.REFUSAL_MESSAGE, "code_after": None}
+
+    prompt = _load_prompt("round4_auto_turn.txt").format(
+        language=language,
+        selected_design=json.dumps(selected_design, indent=2),
+        environment_code=environment_code,
+        current_code=current_code,
+        conversation_so_far=json.dumps(conversation_so_far, indent=2),
+        candidate_prompt=candidate_prompt,
+    )
+    raw = _call_claude(prompt, max_tokens=4096)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
+    parsed = Round4PilotTurnResponse.model_validate(result).model_dump()
+    parsed["code_after"] = _repair_escaped_code(parsed.get("code_after"))
+    return parsed
+
+
+def score_round4_auto_conversation(
+    language: str, selected_design: list[dict], refinements: list[dict], final_code: str,
+    turns: list[dict], code_edits: list[dict], untraceable_literals: list[str],
+    execution_result: dict, validation_text: str, ground_truth: str, validation_notes: str,
+) -> dict:
+    """Scores one automation submission against the 5-area rubric (20 each
+    = 100 - see prompts/round4_auto_scoring.txt). Findings go through the
+    SAME round4_evidence_audit backstop as every other round 4 flow (see
+    scoring_service.score_round4_auto_submission). ground_truth/
+    validation_notes are REFERENCE ONLY and never reach the candidate or
+    the generator."""
+    prompt_text = _load_prompt("round4_auto_scoring.txt")
+    prompt = prompt_text.format(
+        language=language,
+        selected_design=json.dumps(selected_design, indent=2),
+        refinements=json.dumps(refinements, indent=2) if refinements else "(none added)",
+        final_code=final_code,
+        turns_json=json.dumps(turns, indent=2),
+        code_edits_json=json.dumps(code_edits, indent=2) if code_edits else "(the candidate made no direct edits of their own)",
+        untraceable_literals=json.dumps(untraceable_literals, indent=2) if untraceable_literals else "(none)",
+        execution_result_json=json.dumps(execution_result, indent=2),
+        validation_text=validation_text or "(the candidate submitted no interpretation)",
+        ground_truth=ground_truth,
+        validation_notes=validation_notes,
+    )
+    raw = _call_claude(prompt, max_tokens=8192)
+    result = _parse_json_response(raw)
+    if not isinstance(result, dict):
+        raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    if "findings" not in result:
+        raise ValueError(f"Expected a 'findings' key in the automation scoring response, got keys: {list(result)}")
+    validated = []
+    for entry in result["findings"] or []:
+        try:
+            validated.append(Round4Finding.model_validate(entry).model_dump())
+        except ValidationError:
+            continue
+    result["findings"] = validated
+    result["_provenance"] = _scoring_provenance("round4_auto_scoring.txt", prompt_text)
     return result
 
 

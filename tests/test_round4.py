@@ -83,9 +83,9 @@ def _complete_round1_and_2(client, hr_token, cand_token, monkeypatch):
         json={"content": [{"title": "Login works", "steps": "...", "expected_result": "..."}]},
         cookies=_auth(cand_token),
     )
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
     client.post(
-        "/candidate/round/2/submit",
+        "/candidate/round/4/submit",
         json={"investigation": [{"area": "Reproduced the issue"}], "root_cause": "..."},
         cookies=_auth(cand_token),
     )
@@ -103,7 +103,7 @@ def test_round4_scenario_generates_environment_and_requires_it_to_publish(client
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     scenario = client.post(
         "/hr/scenarios",
-        json={"round_number": 4, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        json={"round_number": 2, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     ).json()
     assert scenario["reference_json"] is None
@@ -137,7 +137,7 @@ def test_round4_ui_mockup_failure_also_prevents_scenario_from_being_usable(clien
     try:
         client.post(
             "/hr/scenarios",
-            json={"round_number": 4, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+            json={"round_number": 2, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
             cookies=_auth(hr_token),
         )
     except ValueError:
@@ -174,7 +174,7 @@ def test_round4_environment_and_mockup_grounded_in_live_round1_scenario(client, 
     # round 4's own description.
     client.post(
         "/hr/scenarios",
-        json={"round_number": 4, "title": "R3 fallback", "description": "r3 own description", "experience_band": "0-7", "time_limit_minutes": 30},
+        json={"round_number": 2, "title": "R3 fallback", "description": "r3 own description", "experience_band": "0-7", "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     )
     assert env_captured["app_description"] == "r3 own description"
@@ -188,7 +188,7 @@ def test_round4_environment_and_mockup_grounded_in_live_round1_scenario(client, 
 
     client.post(
         "/hr/scenarios",
-        json={"round_number": 4, "title": "R3 grounded", "description": "r3 own description", "experience_band": "0-7", "time_limit_minutes": 30},
+        json={"round_number": 2, "title": "R3 grounded", "description": "r3 own description", "experience_band": "0-7", "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     )
     assert env_captured["app_description"] == live_round1_scenario["description"]
@@ -210,7 +210,7 @@ def test_round4_publish_blocked_without_environment(client, monkeypatch):
     try:
         client.post(
             "/hr/scenarios",
-            json={"round_number": 4, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+            json={"round_number": 2, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
             cookies=_auth(hr_token),
         )
     except ValueError:
@@ -234,17 +234,17 @@ def test_round4_locked_until_rounds_1_and_2_submitted(client, monkeypatch):
 def test_round4_state_requires_start_first(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
 
-    res = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
+    res = client.get("/candidate/round/2/state", cookies=_auth(cand_token))
     assert res.status_code == 404
 
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
-    res = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    res = client.get("/candidate/round/2/state", cookies=_auth(cand_token))
     assert res.status_code == 200
     body = res.json()
     assert body["round1_context"]["submitted_rows"][0]["title"] == "Login works"
@@ -261,12 +261,12 @@ def test_round4_state_requires_start_first(client, monkeypatch):
 def test_round4_test_cases_are_freeform_and_independently_addressable(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Login happy path")
     tc2 = _create_round4_test_case(client, cand_token)  # untitled is allowed
@@ -274,7 +274,7 @@ def test_round4_test_cases_are_freeform_and_independently_addressable(client, mo
     assert tc2["title"] is None
     assert tc1["turn_count"] == 0
 
-    res = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
+    res = client.get("/candidate/round/2/state", cookies=_auth(cand_token))
     assert [tc["id"] for tc in res.json()["test_cases"]] == [tc1["id"], tc2["id"]]
 
 
@@ -284,23 +284,23 @@ def test_round4_turn_is_scoped_to_its_test_case_with_no_turn_cap(client, monkeyp
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Login happy path")
     tc2 = _create_round4_test_case(client, cand_token, title="Login negative case")
 
     # Nonexistent/foreign test case id -> 404.
-    res = client.post("/candidate/round/4/turn", json={"test_case_id": 999999, "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/turn", json={"test_case_id": 999999, "candidate_prompt": "go"}, cookies=_auth(cand_token))
     assert res.status_code == 404
 
     # No cap - keep sending turns well past the old default cap of 8.
     for expected_turn_number in range(1, 11):
-        res = client.post("/candidate/round/4/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+        res = client.post("/candidate/round/2/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
         assert res.status_code == 201
         assert res.json()["turn_number"] == expected_turn_number
         assert res.json()["test_case_id"] == tc1["id"]
@@ -308,7 +308,7 @@ def test_round4_turn_is_scoped_to_its_test_case_with_no_turn_cap(client, monkeyp
         assert "code" not in res.json()["model_response"]  # never sent to the candidate - see Round4ExecutionStep
 
     # A different test case has its own independent turn numbering.
-    res = client.post("/candidate/round/4/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
     assert res.status_code == 201
     assert res.json()["turn_number"] == 1
 
@@ -327,12 +327,12 @@ def test_round4_turn_rejects_a_malformed_llm_response_without_corrupting_state(c
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
 
     bad_response = json.dumps({
@@ -344,7 +344,7 @@ def test_round4_turn_rejects_a_malformed_llm_response_without_corrupting_state(c
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: bad_response)
 
     res = client.post(
-        "/candidate/round/4/turn",
+        "/candidate/round/2/turn",
         json={"test_case_id": tc["id"], "candidate_prompt": "Try logging in"},
         cookies=_auth(cand_token),
     )
@@ -353,14 +353,14 @@ def test_round4_turn_rejects_a_malformed_llm_response_without_corrupting_state(c
 
     # Nothing was persisted - state is still readable and empty, not
     # permanently broken.
-    state = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
+    state = client.get("/candidate/round/2/state", cookies=_auth(cand_token))
     assert state.status_code == 200
     assert state.json()["turns"] == []
 
     # A retry with a well-formed response just works.
     monkeypatch.setattr(llm_service, "round4_respond", lambda **kwargs: dict(FAKE_TURN_RESPONSE))
     res = client.post(
-        "/candidate/round/4/turn",
+        "/candidate/round/2/turn",
         json={"test_case_id": tc["id"], "candidate_prompt": "Try logging in"},
         cookies=_auth(cand_token),
     )
@@ -381,12 +381,12 @@ def test_round4_forces_a_flaw_when_the_first_checkable_turn_comes_back_clean(cli
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
 
     clean_response = json.dumps(dict(FAKE_TURN_RESPONSE))  # status "pass" - nothing for the candidate to catch
@@ -405,7 +405,7 @@ def test_round4_forces_a_flaw_when_the_first_checkable_turn_comes_back_clean(cli
     monkeypatch.setattr(llm_service, "_call_claude", _fake_call_claude)
 
     res = client.post(
-        "/candidate/round/4/turn",
+        "/candidate/round/2/turn",
         json={"test_case_id": tc["id"], "candidate_prompt": "Log in with the test account and tell me if it worked"},
         cookies=_auth(cand_token),
     )
@@ -425,12 +425,12 @@ def test_round4_does_not_force_a_flaw_once_an_earlier_turn_already_has_one(clien
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
 
     flawed_first_turn = json.dumps({
@@ -440,7 +440,7 @@ def test_round4_does_not_force_a_flaw_once_an_earlier_turn_already_has_one(clien
     })
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: flawed_first_turn)
     res = client.post(
-        "/candidate/round/4/turn",
+        "/candidate/round/2/turn",
         json={"test_case_id": tc["id"], "candidate_prompt": "Log in with the test account"},
         cookies=_auth(cand_token),
     )
@@ -457,7 +457,7 @@ def test_round4_does_not_force_a_flaw_once_an_earlier_turn_already_has_one(clien
 
     monkeypatch.setattr(llm_service, "_call_claude", _fake_call_claude)
     res = client.post(
-        "/candidate/round/4/turn",
+        "/candidate/round/2/turn",
         json={"test_case_id": tc["id"], "candidate_prompt": "Retry the login"},
         cookies=_auth(cand_token),
     )
@@ -482,7 +482,7 @@ def test_round4_environment_generation_rejects_malformed_shape(client, monkeypat
 
     res = client.post(
         "/hr/scenarios",
-        json={"round_number": 4, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
+        json={"round_number": 2, "title": "Automation challenge", "description": "desc", "experience_band": "0-7", "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     )
     assert res.status_code == 502
@@ -499,28 +499,28 @@ def test_round4_draft_autosave_round_trips_and_is_ownership_checked(client, monk
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
 
     res = client.patch(
-        f"/candidate/round/4/test-case/{tc['id']}/draft",
+        f"/candidate/round/2/test-case/{tc['id']}/draft",
         json={"draft_prompt": "Log in with the test account and verify..."},
         cookies=_auth(cand_token),
     )
     assert res.status_code == 204
 
-    res = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
+    res = client.get("/candidate/round/2/state", cookies=_auth(cand_token))
     saved = next(t for t in res.json()["test_cases"] if t["id"] == tc["id"])
     assert saved["draft_prompt"] == "Log in with the test account and verify..."
 
     # Sending a turn clears the draft server-side.
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
-    res = client.get("/candidate/round/4/state", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    res = client.get("/candidate/round/2/state", cookies=_auth(cand_token))
     saved = next(t for t in res.json()["test_cases"] if t["id"] == tc["id"])
     assert saved["draft_prompt"] == ""
 
@@ -529,9 +529,9 @@ def test_round4_draft_autosave_round_trips_and_is_ownership_checked(client, monk
     from .conftest import CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD
     cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand2_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand2_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand2_token))
     res = client.patch(
-        f"/candidate/round/4/test-case/{tc['id']}/draft",
+        f"/candidate/round/2/test-case/{tc['id']}/draft",
         json={"draft_prompt": "hijack attempt"},
         cookies=_auth(cand2_token),
     )
@@ -545,24 +545,24 @@ def test_round4_submit_requires_at_least_one_test_case_with_a_turn(client, monke
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     # No test cases at all.
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 400
 
     # A test case with no turns still isn't enough.
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 400
 
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 201
     assert res.json()["content"] is None
 
@@ -574,20 +574,20 @@ def test_round4_full_session_scored_and_visible_to_hr(client, monkeypatch):
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="Search box")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch, title="Automate the search feature")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Search returns matching results")
     tc2 = _create_round4_test_case(client, cand_token, title="Search with no matches")
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go again"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go again"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
 
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 201
     submission_id = res.json()["id"]
 
@@ -599,11 +599,11 @@ def test_round4_full_session_scored_and_visible_to_hr(client, monkeypatch):
 
     res = client.get("/hr/candidates", cookies=_auth(hr_token))
     candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
-    round4 = next(r for r in candidate_row["rounds"] if r["round_number"] == 4)
+    round4 = next(r for r in candidate_row["rounds"] if r["round_number"] == 2)
     assert round4["final_score"] == 68
 
     res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
-    report_round4 = next(s for s in res.json() if s["round_number"] == 4)
+    report_round4 = next(s for s in res.json() if s["round_number"] == 2)
     assert len(report_round4["test_cases"]) == 2
     assert len(report_round4["conversation_turns"]) == 3
     by_test_case = {}
@@ -623,15 +623,15 @@ def test_round4_code_snippet_generates_for_the_owner(client, monkeypatch):
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
     turn = client.post(
-        "/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
+        "/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
     ).json()
 
     captured = {}
@@ -642,7 +642,7 @@ def test_round4_code_snippet_generates_for_the_owner(client, monkeypatch):
 
     monkeypatch.setattr(llm_service, "generate_round4_code_snippet", _fake_snippet)
 
-    res = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token))
+    res = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token))
     assert res.status_code == 200
     body = res.json()
     assert body["language"] == "python"
@@ -665,15 +665,15 @@ def test_round4_code_snippet_is_persisted_not_regenerated_on_repeat_views(client
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
     turn = client.post(
-        "/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
+        "/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
     ).json()
 
     call_count = {"n": 0}
@@ -684,14 +684,14 @@ def test_round4_code_snippet_is_persisted_not_regenerated_on_repeat_views(client
 
     monkeypatch.setattr(llm_service, "generate_round4_code_snippet", _fake_snippet)
 
-    first = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token)).json()
-    second = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token)).json()
+    first = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token)).json()
+    second = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token)).json()
     assert first["code"] == second["code"] == "# generated version 1"
     assert call_count["n"] == 1  # the LLM was only ever called once
 
     # A different language for the SAME turn is a genuinely separate
     # generation - not served from the python cache entry.
-    third = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=java", cookies=_auth(cand_token)).json()
+    third = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=java", cookies=_auth(cand_token)).json()
     assert third["code"] == "# generated version 2"
     assert call_count["n"] == 2
 
@@ -723,15 +723,15 @@ def test_round4_code_snippet_rechecks_the_cache_after_acquiring_the_lock(client,
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
     tc = _create_round4_test_case(client, cand_token, title="Login happy path")
     turn = client.post(
-        "/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
+        "/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token)
     ).json()
 
     real_lock = candidate_router._round4_code_lock(turn["id"])
@@ -759,7 +759,7 @@ def test_round4_code_snippet_rechecks_the_cache_after_acquiring_the_lock(client,
 
     monkeypatch.setattr(llm_service, "generate_round4_code_snippet", _must_not_be_called)
 
-    res = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token))
+    res = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=python", cookies=_auth(cand_token))
     assert res.status_code == 200
     assert res.json()["code"] == "# written by a 'concurrent' request"
 
@@ -770,19 +770,19 @@ def test_round4_code_snippet_rejects_invalid_language_and_foreign_turn(client, m
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand1_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand1_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand1_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand1_token))
     tc = _create_round4_test_case(client, cand1_token, title="Login happy path")
     turn = client.post(
-        "/candidate/round/4/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand1_token)
+        "/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand1_token)
     ).json()
 
     # Invalid language.
-    res = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=cobol", cookies=_auth(cand1_token))
+    res = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=cobol", cookies=_auth(cand1_token))
     assert res.status_code == 400
 
     # A different candidate, with round 4 unlocked in their own right, still
@@ -791,12 +791,12 @@ def test_round4_code_snippet_rejects_invalid_language_and_foreign_turn(client, m
     # candidate2, but for the wrong reason).
     cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand2_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand2_token))
-    res = client.get(f"/candidate/round/4/turn/{turn['id']}/code?language=python", cookies=_auth(cand2_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand2_token))
+    res = client.get(f"/candidate/round/2/turn/{turn['id']}/code?language=python", cookies=_auth(cand2_token))
     assert res.status_code == 404
 
     # Nonexistent turn.
-    res = client.get("/candidate/round/4/turn/999999/code?language=python", cookies=_auth(cand1_token))
+    res = client.get("/candidate/round/2/turn/999999/code?language=python", cookies=_auth(cand1_token))
     assert res.status_code == 404
 
 
@@ -870,12 +870,12 @@ def test_round4_resync_skipped_while_a_candidate_is_mid_round4(client, monkeypat
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="First app")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, band="0-7")
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     calls = []
     monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: calls.append(1) or {"fields": {}, "notes": ""})
@@ -911,12 +911,12 @@ def test_round4_config_can_be_changed_on_a_live_scenario(client, monkeypatch):
 def test_round4_config_blocked_while_a_candidate_is_mid_round4(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     res = client.patch(f"/hr/scenarios/{round4['id']}/round4-config", json={"assistance_pct": 45}, cookies=_auth(hr_token))
     assert res.status_code == 409
@@ -933,7 +933,7 @@ def test_round4_config_not_blocked_by_a_different_round4_scenario(client, monkey
     behavior at all yet, so it shouldn't block editing it."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
@@ -995,12 +995,12 @@ def test_round4_instructions_editable_regardless_of_status(client, monkeypatch):
 def test_round4_instructions_blocked_while_a_candidate_is_mid_round4(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     res = client.patch(
         f"/hr/scenarios/{round4['id']}/round4-instructions",
@@ -1059,12 +1059,12 @@ def test_round4_regenerate_reference_works_on_a_live_scenario(client, monkeypatc
 def test_round4_regenerate_reference_blocked_while_a_candidate_is_mid_round4(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     res = client.post(f"/hr/scenarios/{round4['id']}/regenerate-reference", cookies=_auth(hr_token))
     assert res.status_code == 409
@@ -1106,30 +1106,30 @@ def test_round4_scoring_drops_unsupported_findings_and_restores_their_points(cli
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="Search box")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch, title="Automate the search feature")
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     tc1 = _create_round4_test_case(client, cand_token, title="Search returns matching results")
     tc2 = _create_round4_test_case(client, cand_token, title="Search with no matches")
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
-    client.post("/candidate/round/4/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc1["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/turn", json={"test_case_id": tc2["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
 
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 201
 
     res = client.get("/hr/candidates", cookies=_auth(hr_token))
     candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
-    round4_summary = next(r for r in candidate_row["rounds"] if r["round_number"] == 4)
+    round4_summary = next(r for r in candidate_row["rounds"] if r["round_number"] == 2)
     # 60 (LLM's own number) + the "medium" weight given back for the
     # finding the auditor rejected - see round4_evidence_audit.SEVERITY_WEIGHTS.
     assert round4_summary["final_score"] == 60 + SEVERITY_WEIGHTS["medium"]
 
     res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
-    report_round4 = next(s for s in res.json() if s["round_number"] == 4)
+    report_round4 = next(s for s in res.json() if s["round_number"] == 2)
     assert report_round4["score"]["misses_json"] == [
         "Search returns matching results: confirmed the page loaded before checking results"
     ]
@@ -1171,32 +1171,32 @@ def test_round4_full_pipeline_rejects_the_actual_hallucinated_findings(client, m
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4)
     _publish_round4_scenario(client, hr_token, monkeypatch)
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     for tc in TEST_CASES:
         created = _create_round4_test_case(client, cand_token, title=tc["title"])
         for turn in tc["turns"]:
             res = client.post(
-                "/candidate/round/4/turn",
+                "/candidate/round/2/turn",
                 json={"test_case_id": created["id"], "candidate_prompt": turn["candidate_prompt"]},
                 cookies=_auth(cand_token),
             )
             assert res.status_code == 201
 
-    res = client.post("/candidate/round/4/submit", cookies=_auth(cand_token))
+    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
     assert res.status_code == 201
 
     res = client.get("/hr/candidates", cookies=_auth(hr_token))
     candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
-    round4_summary = next(r for r in candidate_row["rounds"] if r["round_number"] == 4)
+    round4_summary = next(r for r in candidate_row["rounds"] if r["round_number"] == 2)
 
     res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
-    report_round4 = next(s for s in res.json() if s["round_number"] == 4)
+    report_round4 = next(s for s in res.json() if s["round_number"] == 2)
     misses = report_round4["score"]["misses_json"]
 
     assert not any("welcome" in m.lower() for m in misses)
@@ -1223,7 +1223,7 @@ def test_round4_full_pipeline_rejects_the_actual_hallucinated_findings(client, m
     # HR-only SubmissionReportOut subclass that adds it), and the HR
     # report route itself rejects a candidate token outright.
     res = client.get("/candidate/submissions", cookies=_auth(cand_token))
-    round4_candidate_view = next(s for s in res.json() if s["round_number"] == 4)
+    round4_candidate_view = next(s for s in res.json() if s["round_number"] == 2)
     assert "score" not in round4_candidate_view
 
     res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(cand_token))

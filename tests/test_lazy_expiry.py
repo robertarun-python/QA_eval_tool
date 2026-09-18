@@ -70,8 +70,8 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     published = _publish_round4_scenario(client, hr_token, monkeypatch)  # 30-minute default limit
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, seed_upto=1)
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     # Blocked while genuinely still within the window.
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
@@ -80,7 +80,7 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # Candidate vanishes - never submits, never calls /expire (simulating
     # a closed tab/crash/logout/network-loss - nothing the server can
     # tell apart from each other). Their deadline passes.
-    _set_started_at(4, minutes_ago=31)
+    _set_started_at(2, minutes_ago=31)
 
     # No longer blocked - the abandoned round is lazily closed out as
     # part of this same request.
@@ -96,7 +96,7 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # still sitting at in_progress.
     report = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     c1 = next(c for c in report if c["email"] == CANDIDATE1_EMAIL)
-    round4 = next(r for r in c1["rounds"] if r["round_number"] == 4)
+    round4 = next(r for r in c1["rounds"] if r["round_number"] == 2)  # automation is slot 2 since the swap
     assert round4["status"] == "scored"
     assert round4["final_score"] == 0
     assert round4["auto_closed_reason"] == "Time limit reached without a manual submit"
@@ -107,11 +107,11 @@ def test_only_the_genuinely_expired_candidate_gets_closed_others_still_block(cli
     published = _publish_round4_scenario(client, hr_token, monkeypatch)
     cand1_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     cand2_token = _login(client, CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD)
-    _complete_rounds_1_through_3(client, hr_token, cand1_token, monkeypatch)
-    _complete_rounds_1_through_3(client, hr_token, cand2_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand1_token))
-    client.post("/candidate/round/4/start", cookies=_auth(cand2_token))
-    _set_started_at(4, minutes_ago=31, email=CANDIDATE1_EMAIL)  # only candidate1 has expired
+    _complete_rounds_1_through_3(client, hr_token, cand1_token, monkeypatch, seed_upto=1)
+    _complete_rounds_1_through_3(client, hr_token, cand2_token, monkeypatch, email=CANDIDATE2_EMAIL, seed_upto=1)
+    client.post("/candidate/round/2/start", cookies=_auth(cand1_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand2_token))
+    _set_started_at(2, minutes_ago=31, email=CANDIDATE1_EMAIL)  # only candidate1 has expired
 
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 409
@@ -151,7 +151,7 @@ def test_candidate_returning_after_the_deadline_sees_the_round_already_closed(cl
     state = client.get("/candidate/round/1", cookies=_auth(cand_token)).json()
     assert state["submission"]["status"] == "scored"
 
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Debug scenario")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     res = client.get("/candidate/round/2", cookies=_auth(cand_token))
     assert res.status_code == 200
 
@@ -227,15 +227,15 @@ def test_expired_round4_in_progress_submission_no_longer_blocks_round4_config_ed
         "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
     })
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/4/start", cookies=_auth(cand_token))
+    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, seed_upto=1)
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     res = client.patch(
         f"/hr/scenarios/{published['id']}/round4-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
     )
     assert res.status_code == 409
 
-    _set_started_at(4, minutes_ago=31)
+    _set_started_at(2, minutes_ago=31)
 
     res = client.patch(
         f"/hr/scenarios/{published['id']}/round4-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),

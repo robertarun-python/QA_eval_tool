@@ -1,0 +1,47 @@
+"""
+HR / system-only reference solution for the Round 4 pilot exercise.
+NEVER shown to a candidate and NEVER passed to the candidate-facing
+Generator (round4_pilot_turn) - only to the scoring prompt
+(round4_pilot_scoring.txt) as ground truth for a human/LLM reviewer.
+One valid way to satisfy the requirement; not the only correct shape -
+see round4_pilot_scoring.txt's own instruction that a candidate may
+implement this differently if the behavior and engineering intent are
+sound.
+"""
+
+def test_customer_transaction_flow_valid_customer():
+    setup()
+    transaction_id = None
+    try:
+        assert UIHelper.login(VALID_CUSTOMER["customer_id"]) is True
+
+        amount = 100.00
+        transaction_id = UIHelper.submit_transaction(VALID_CUSTOMER["customer_id"], amount)
+        assert transaction_id is not None
+
+        # Completion: the UI/API's own confirmation.
+        assert ApiHelper.get_transaction_status(transaction_id) == "completed"
+
+        # Persistence: validated against the DB directly, not just the
+        # UI/API's own report of success - this is the ambiguity a
+        # candidate should have asked HR to clarify before assuming
+        # either interpretation.
+        record = DbHelper.get_transaction(transaction_id)
+        assert record is not None
+        assert record["customer_id"] == VALID_CUSTOMER["customer_id"]
+        assert record["amount"] == amount
+        assert record["status"] == "completed"
+
+        print("PASS: test_customer_transaction_flow_valid_customer")
+    finally:
+        # Repeatability: a fresh, uuid-based transaction id is generated
+        # by ApiHelper.submit_transaction on every run (no hard-coded
+        # transaction data), and teardown removes exactly the one this
+        # run created - independent of whatever the login test or a
+        # prior run left behind.
+        teardown(transaction_id)
+
+
+if __name__ == "__main__":
+    test_login_with_valid_customer()
+    test_customer_transaction_flow_valid_customer()

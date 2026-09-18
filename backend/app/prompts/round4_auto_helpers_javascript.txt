@@ -1,0 +1,69 @@
+/*
+ * Automation environment (JavaScript) - provided for you, already working.
+ *
+ * This is a SMALL controlled environment, not a framework you need to
+ * build or extend. It simulates a UI, an API and a database in-process so
+ * your automation runs deterministically with no real network calls.
+ *
+ * Write your automated test(s) at the bottom, under the TODO marker,
+ * using the helpers below. Do not rewrite the helpers.
+ */
+
+const CONFIG = { baseUrl: "https://demo.example.test", timeoutSeconds: 5 };
+
+const DB = {
+  users: { "jordan.rivera@example.com": { password: "Passw0rd!2026", name: "Jordan", status: "active" } },
+  records: {},
+  _nextId: 1,
+  insert(owner, amount, status) {
+    const id = `REC-${String(this._nextId++).padStart(4, "0")}`;
+    this.records[id] = { id, owner, amount, status };
+    return id;
+  },
+  get(id) { return this.records[id] || null; },
+  delete(id) { delete this.records[id]; },
+};
+
+let LAST_MESSAGE = "";
+
+const API = {
+  // Rejects a non-positive amount; otherwise persists the record.
+  createRecord(owner, amount) {
+    if (amount === null || amount === undefined || amount <= 0) {
+      LAST_MESSAGE = "Amount must be greater than zero";
+      return { ok: false, error: "Amount must be greater than zero", id: null };
+    }
+    const id = DB.insert(owner, amount, "completed");
+    LAST_MESSAGE = "Saved successfully";
+    return { ok: true, error: null, id };
+  },
+  getRecord(id) { return DB.get(id); },
+};
+
+const UI = {
+  open(path = "/") { return { url: CONFIG.baseUrl + path, status: 200 }; },
+  // Returns true on success, false on bad credentials.
+  login(email, password) {
+    const user = DB.users[email];
+    return Boolean(user && user.password === password && user.status === "active");
+  },
+  // Submits the amount form. Returns the API's response object.
+  submitAmount(owner, amount) { return API.createRecord(owner, amount); },
+  // The message currently shown to the user, or "" if none.
+  visibleMessage() { return LAST_MESSAGE; },
+};
+
+const Database = {
+  find(id) { return DB.get(id); },
+  delete(id) { DB.delete(id); },
+};
+
+// Runs before your test. Resets any message state.
+function setup() { LAST_MESSAGE = ""; }
+
+// Runs after your test. Pass a record id to clean it up.
+function teardown(recordId = null) { if (recordId !== null) Database.delete(recordId); }
+
+// ---------------------------------------------------------------------------
+// TODO: write your automated test(s) below, then call them.
+// ---------------------------------------------------------------------------

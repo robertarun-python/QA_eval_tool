@@ -3,7 +3,7 @@ Candidate-only endpoints: fetch the one live (published) scenario for the
 current round + the candidate's own band, start the timer, submit, and view
 past results. Rounds are gated in a fixed sequence (see ROUND_SEQUENCE
 below) rather than by raw round-number arithmetic - round_number 3 was
-freed up by the Round 3 -> Round 4 renumbering and has since been reused
+freed up by the Round 3 -> Round 2 renumbering and has since been reused
 for a new round (AI-prompted coding), unrelated to the manual-testing
 round that used to live at that number.
 """
@@ -25,6 +25,11 @@ from ..schemas import (
     Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload,
     Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut, Round3DirectEditCreate,
     Round3RunInputCreate, Round3RunPollOut, Round3RunOut, Round3StateOut,
+    Round4PilotTurnCreate, Round4PilotTurnOut, Round4PilotClarifyCreate, Round4PilotClarifyOut, Round4PilotRunOut,
+    Round4PilotCodeUpdate,
+    Round4AutoStateOut, Round4AutoDesignRowOut, Round4AutoSelectCreate, Round4AutoRefineCreate,
+    Round4AutoTurnCreate, Round4AutoTurnOut, Round4AutoCodeUpdate, Round4AutoRunCreate,
+    Round4AutoSubmitCreate, Round4AutoRunOut,
 )
 from ..dependencies import require_candidate
 from ..services import llm_service, execution_service
@@ -77,7 +82,7 @@ def _sanitize_expired_round1_row(row: dict) -> dict:
 # endpoint below. Rounds 2 and 4 each have their own dedicated submit
 # endpoint (different payload shapes - see Round2SubmissionCreate; round
 # 4 takes no body at all) registered further up this file, ahead of the
-# generic route on purpose (see the routing-order note in the round 4
+# generic route on purpose (see the routing-order note in the round 2
 # section for why registration order matters here).
 STRUCTURED_ROUNDS = (1,)
 
@@ -190,25 +195,25 @@ def _require_within_time_limit(submission: Submission, scenario: Scenario) -> No
         raise HTTPException(400, "Time limit for this round has passed - it can no longer be submitted.")
 
 
-# ---- Round 2 (debugging investigation, one-shot submit) ----
+# ---- Round 4 (debugging investigation, one-shot submit) ----
 #
 # Registered before the generic /round/{round_number}/... routes for the
-# same routing-order reason round 4's endpoints are below: this would
-# otherwise be shadowed by /round/{round_number}/submit. Round 2's
+# same routing-order reason round 2's endpoints are below: this would
+# otherwise be shadowed by /round/{round_number}/submit. Round 4's
 # candidate payload (investigation rows + one root-cause conclusion) no
 # longer matches SubmissionCreate's test-case-row shape - see
 # schemas.Round2SubmissionCreate - so it needs its own endpoint rather
 # than reusing the generic one the way it used to.
 
-@router.post("/round/2/submit", response_model=SubmissionOut, status_code=201)
+@router.post("/round/4/submit", response_model=SubmissionOut, status_code=201)
 def submit_round2(
     payload: Round2SubmissionCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(2, db, candidate)
-    scenario = _live_scenario(db, 2, candidate)
+    _require_round_unlocked(4, db, candidate)
+    scenario = _live_scenario(db, 4, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for this round.")
 
@@ -217,7 +222,7 @@ def submit_round2(
         # Allow submitting without an explicit prior /start call too (e.g.
         # tests, or a client that just posts straight through).
         submission = Submission(
-            user_id=candidate.id, scenario_id=scenario.id, round_number=2,
+            user_id=candidate.id, scenario_id=scenario.id, round_number=4,
             started_at=datetime.utcnow(),
             appearance_id=_current_appearance_id(db, candidate),
         )
@@ -243,7 +248,7 @@ def submit_round2(
 # ---- Round 3 (AI-prompted coding: the candidate never writes code
 # directly - they direct the LLM turn by turn via dedicated endpoints
 # below, registered ahead of the generic /round/{round_number}/... routes
-# for the same routing-order reason Round 2/4's dedicated endpoints are -
+# for the same routing-order reason Round 4/4's dedicated endpoints are -
 # see those sections' comments.) ----
 
 def _round3_coding_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
@@ -518,15 +523,15 @@ def round3_coding_submit(background_tasks: BackgroundTasks, db: Session = Depend
     return submission
 
 
-# ---- Round 4 (conversational, open-ended: the candidate creates their
+# ---- Round 2 (conversational, open-ended: the candidate creates their
 # own self-titled test cases, no fixed category or ordering) ----
 #
 # Registered before the generic /round/{round_number}/... routes below
 # on purpose: Starlette matches routes in registration order, and
-# /round/4/submit would otherwise be shadowed by /round/{round_number}/submit
-# (both match the literal path "/round/4/submit") - the generic one
+# /round/2/submit would otherwise be shadowed by /round/{round_number}/submit
+# (both match the literal path "/round/2/submit") - the generic one
 # would win and this round's real endpoint would never be reached.
-# /round/{n}/start further down already works unchanged for round 4 (it
+# /round/{n}/start further down already works unchanged for round 2 (it
 # just creates the Submission row - there's no phase to initialize
 # anymore). Everything else round-4-specific lives here rather than
 # being forced through the row-based STRUCTURED_ROUNDS endpoints, since
@@ -543,11 +548,11 @@ def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
         .filter(Submission.user_id == candidate.id, Submission.round_number == 1, Submission.archived.is_(False))
         .first()
     )
-    # Round gating guarantees this exists by the time round 4 is
-    # reachable (round 4 only unlocks after round 1 is submitted) - this
+    # Round gating guarantees this exists by the time round 2 is
+    # reachable (round 2 only unlocks after round 1 is submitted) - this
     # is a defensive guard, not an expected user-facing path.
     if round1_submission is None:
-        raise HTTPException(409, "No round 1 submission found - round 4 automates your round 1 answer, which has to exist first.")
+        raise HTTPException(409, "No round 1 submission found - round 2 automates your round 1 answer, which has to exist first.")
     return Round1ContextOut(
         scenario_title=round1_submission.scenario.title,
         scenario_description=round1_submission.scenario.description,
@@ -556,12 +561,12 @@ def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
 
 
 def _round4_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
-    scenario = _live_scenario(db, 4, candidate)
+    scenario = _live_scenario(db, 2, candidate)
     if scenario is None:
-        raise HTTPException(404, "No published scenario for round 4 yet - check back once HR has published one.")
+        raise HTTPException(404, "No published scenario for round 2 yet - check back once HR has published one.")
     submission = _current_submission(db, candidate, scenario)
     if submission is None:
-        raise HTTPException(404, "Round 4 hasn't been started yet - call /round/4/start first.")
+        raise HTTPException(404, "Round 2 hasn't been started yet - call /round/2/start first.")
     return scenario, submission
 
 
@@ -572,10 +577,36 @@ def _test_case_out(tc: Round4TestCase) -> Round4TestCaseOut:
     )
 
 
+def _is_pilot_scenario(scenario: Scenario) -> bool:
+    return (scenario.config_json or {}).get("mode") == "pilot_automation"
+
+
+def _ensure_pilot_content(scenario: Scenario, submission: Submission, db: Session) -> dict:
+    """Lazily seeds submission.content with the pilot's starter code on
+    first access - /round/2/start (shared with the legacy round 2 flow,
+    unchanged) knows nothing about pilot scenarios, so this is where a
+    fresh pilot submission actually gets its starting state."""
+    content = submission.content
+    if not content or content.get("mode") != "pilot_automation":
+        content = {
+            "mode": "pilot_automation",
+            "language": "python",
+            "code": (scenario.config_json or {}).get("starter_code", ""),
+            "turns": [],
+            "clarification_question": None,
+            "clarification_response": None,
+            "last_run": None,
+        }
+        submission.content = content
+        db.commit()
+        db.refresh(submission)
+    return submission.content
+
+
 def _build_round4_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round4StateOut:
     environment = Round4EnvironmentOut(**scenario.environment_json) if scenario.environment_json else None
     ui_mockup = Round4UiMockupOut(**scenario.ui_mockup_json) if scenario.ui_mockup_json else None
-    return Round4StateOut(
+    fields = dict(
         scenario=scenario,
         submission=submission,
         round1_context=_round1_context_for(candidate, db),
@@ -584,6 +615,20 @@ def _build_round4_state(scenario: Scenario, submission: Submission, candidate: U
         test_cases=[_test_case_out(tc) for tc in submission.round4_test_cases],
         turns=submission.conversation_turns,
     )
+    if _is_pilot_scenario(scenario):
+        content = _ensure_pilot_content(scenario, submission, db)
+        fields.update(
+            is_pilot=True,
+            pilot_starter_code=(scenario.config_json or {}).get("starter_code", ""),
+            pilot_code=content.get("code", ""),
+            pilot_turns=content.get("turns", []),
+            pilot_clarification=(
+                {"question": content["clarification_question"], "response": content["clarification_response"]}
+                if content.get("clarification_question") else None
+            ),
+            pilot_last_run=content.get("last_run"),
+        )
+    return Round4StateOut(**fields)
 
 
 def _owned_test_case(test_case_id: int, submission: Submission, db: Session) -> Round4TestCase:
@@ -593,20 +638,20 @@ def _owned_test_case(test_case_id: int, submission: Submission, db: Session) -> 
     return tc
 
 
-@router.get("/round/4/state", response_model=Round4StateOut)
+@router.get("/round/2/state", response_model=Round4StateOut)
 def round4_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    _require_round_unlocked(4, db, candidate)
+    _require_round_unlocked(2, db, candidate)
     scenario, submission = _round4_scenario_and_submission(candidate, db)
     return _build_round4_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/4/test-case", response_model=Round4TestCaseOut, status_code=201)
+@router.post("/round/2/test-case", response_model=Round4TestCaseOut, status_code=201)
 def round4_create_test_case(
     payload: Round4TestCaseCreate,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(4, db, candidate)
+    _require_round_unlocked(2, db, candidate)
     _, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
@@ -618,14 +663,14 @@ def round4_create_test_case(
     return _test_case_out(tc)
 
 
-@router.patch("/round/4/test-case/{test_case_id}/draft", status_code=204)
+@router.patch("/round/2/test-case/{test_case_id}/draft", status_code=204)
 def round4_save_draft(
     test_case_id: int,
     payload: Round4DraftUpdate,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(4, db, candidate)
+    _require_round_unlocked(2, db, candidate)
     _, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
@@ -635,9 +680,9 @@ def round4_save_draft(
     db.commit()
 
 
-@router.post("/round/4/turn", response_model=Round4TurnOut, status_code=201)
+@router.post("/round/2/turn", response_model=Round4TurnOut, status_code=201)
 def round4_turn(payload: Round4TurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    _require_round_unlocked(4, db, candidate)
+    _require_round_unlocked(2, db, candidate)
     scenario, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
@@ -660,7 +705,7 @@ def round4_turn(payload: Round4TurnCreate, db: Session = Depends(get_db), candid
     # Nothing has been persisted yet at this point, so this is a clean,
     # retryable failure for the candidate - not the stuck-forever state a
     # persisted-then-invalid turn used to cause on every later read of
-    # this candidate's round 4 state.
+    # this candidate's round 2 state.
     try:
         response = llm_service.round4_respond(
             test_case_title=test_case.title or "",
@@ -691,14 +736,14 @@ def round4_turn(payload: Round4TurnCreate, db: Session = Depends(get_db), candid
     return turn
 
 
-@router.get("/round/4/turn/{turn_id}/code", response_model=Round4CodeSnippetOut)
+@router.get("/round/2/turn/{turn_id}/code", response_model=Round4CodeSnippetOut)
 def round4_turn_code(turn_id: int, language: str, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Trial feature: an on-demand, candidate-facing rendering of an
     already-completed turn as a code snippet, in a language the candidate
     picks. Generated from that turn's OWN already-recorded steps/
     observed_result - this can only re-describe what's already visible
     in the transcript, never reveal anything new, and carries no scoring
-    weight. Deliberately isolated from the rest of round 4 so it's easy
+    weight. Deliberately isolated from the rest of round 2 so it's easy
     to remove if it doesn't hold up.
 
     Persisted per (turn, language) in ConversationTurn.generated_code_json
@@ -707,7 +752,7 @@ def round4_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
     different code each time, which is confusing for something meant to
     just be a fixed re-rendering of a decision already made. Also means
     switching back to an already-viewed language costs nothing."""
-    _require_round_unlocked(4, db, candidate)
+    _require_round_unlocked(2, db, candidate)
     if language not in ROUND4_CODE_LANGUAGES:
         raise HTTPException(400, f"language must be one of: {', '.join(ROUND4_CODE_LANGUAGES)}")
     _, submission = _round4_scenario_and_submission(candidate, db)
@@ -743,13 +788,13 @@ def round4_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
         return Round4CodeSnippetOut(language=language, code=code)
 
 
-@router.post("/round/4/submit", response_model=SubmissionOut, status_code=201)
+@router.post("/round/2/submit", response_model=SubmissionOut, status_code=201)
 def round4_submit(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     candidate: User = Depends(require_candidate),
 ):
-    _require_round_unlocked(4, db, candidate)
+    _require_round_unlocked(2, db, candidate)
     scenario, submission = _round4_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
@@ -761,6 +806,550 @@ def round4_submit(
     if not any(tc.turns for tc in submission.round4_test_cases):
         raise HTTPException(400, "Send at least one message in a test case before submitting.")
 
+    submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
+    db.commit()
+    db.refresh(submission)
+
+    background_tasks.add_task(score_submission_in_background, submission.id)
+    return submission
+
+
+# ---- Round 2 pilot ("Focused Automation Pilot") - a single-file Python
+# automation exercise with a narrow AI coding assistant, distinct from the
+# legacy round 2 flow above (candidate writes and edits real code, not a
+# plain-English conversation with a role-playing AI). Selected per-scenario
+# via Scenario.config_json["mode"] == "pilot_automation" (see hr.py's
+# publish_scenario and seed_round4_pilot.py) - every endpoint below is new
+# and additive; nothing above this comment is touched by it. ----
+
+_PERSISTENCE_CLARIFICATION_PATTERNS = (
+    "persist", "database", "db record", "source of truth",
+    "what counts as", "how do i verify", "how should i verify", "verify persist",
+)
+
+
+def _pilot_clarification_response(question: str) -> str:
+    """Deterministic, not an LLM call - same reasoning as round3_policy.py/
+    round4_pilot_policy.py: this is a scripted HR answer to the one
+    intentional ambiguity in the requirement ("persisted correctly"), not
+    something an LLM should be trusted to reveal or invent. A candidate
+    who never asks just doesn't get this - that's the actual signal this
+    round measures (see the assessment's "engineering judgment" rubric
+    area)."""
+    lowered = question.lower()
+    if any(p in lowered for p in _PERSISTENCE_CLARIFICATION_PATTERNS):
+        return (
+            "Good question - the database record is the source of truth for "
+            "\"persisted correctly\" here. The UI/API's own confirmation that a "
+            "transaction went through is not sufficient on its own; validate "
+            "against the database record directly."
+        )
+    return "That's for you to decide as part of this exercise - use your own engineering judgment here."
+
+
+def _round4_pilot_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+    scenario, submission = _round4_scenario_and_submission(candidate, db)
+    if not _is_pilot_scenario(scenario):
+        raise HTTPException(400, "This round 2 scenario is not a pilot-automation scenario.")
+    return scenario, submission
+
+
+def _apply_pilot_code_edit(
+    scenario: Scenario, submission: Submission, db: Session, payload: Round4PilotCodeUpdate | None,
+) -> dict:
+    """Persists the candidate's own direct edit to the code buffer, if
+    the caller sent one - called by both /pilot/run and /pilot/submit so
+    each operates on EXACTLY what's currently in the candidate's editor,
+    never a stale AI-turn snapshot. A caller that sends no body (or
+    code=None - e.g. every pre-existing test) is a no-op, so this is
+    purely additive to the previous behavior."""
+    content = _ensure_pilot_content(scenario, submission, db)
+    if payload is not None and payload.code is not None:
+        updated = dict(content)
+        updated["code"] = payload.code
+        submission.content = updated
+        db.commit()
+        db.refresh(submission)
+        content = submission.content
+    return content
+
+
+@router.post("/round/2/pilot/turn", response_model=Round4PilotTurnOut, status_code=201)
+def round4_pilot_turn(payload: Round4PilotTurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _round4_pilot_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+
+    content = _ensure_pilot_content(scenario, submission, db)
+    turns = list(content.get("turns", []))
+    conversation_so_far = [
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"]}
+        for t in turns
+    ]
+    turn_number = len(turns) + 1
+
+    # Called synchronously, same reasoning as round3_coding_turn/round4_turn -
+    # nothing persisted below until the LLM call succeeds and validates.
+    try:
+        response = llm_service.round4_pilot_turn(
+            scenario_instructions=scenario.description,
+            current_code=content.get("code", ""),
+            conversation_so_far=conversation_so_far,
+            candidate_prompt=payload.candidate_prompt,
+        )
+    except Exception:
+        raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+
+    turn_record = {
+        "turn_number": turn_number,
+        "candidate_prompt": payload.candidate_prompt,
+        "response_kind": response["response_kind"],
+        "response_message": response["response_message"],
+        "code_after": response.get("code_after"),
+    }
+    turns.append(turn_record)
+    updated = dict(content)
+    updated["turns"] = turns
+    if response.get("code_after"):
+        updated["code"] = response["code_after"]
+    submission.content = updated
+    db.commit()
+    return Round4PilotTurnOut(**turn_record)
+
+
+@router.post("/round/2/pilot/clarify", response_model=Round4PilotClarifyOut, status_code=201)
+def round4_pilot_clarify(payload: Round4PilotClarifyCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _round4_pilot_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+
+    content = _ensure_pilot_content(scenario, submission, db)
+    response_text = _pilot_clarification_response(payload.question)
+    updated = dict(content)
+    updated["clarification_question"] = payload.question
+    updated["clarification_response"] = response_text
+    submission.content = updated
+    db.commit()
+    return Round4PilotClarifyOut(question=payload.question, response=response_text)
+
+
+@router.post("/round/2/pilot/run", response_model=Round4PilotRunOut, status_code=201)
+def round4_pilot_run(
+    payload: Round4PilotCodeUpdate | None = None,
+    db: Session = Depends(get_db), candidate: User = Depends(require_candidate),
+):
+    """Batch execution via the EXISTING execution_service.run_code,
+    unmodified - the transaction-flow exercise is a scripted test, not an
+    interactive program, so the simpler batch path (used for scoring
+    everywhere else) is sufficient; no need for round 3's live/interactive
+    session machinery here. payload.code, if sent, is the candidate's own
+    editor contents - see _apply_pilot_code_edit; Run always executes
+    exactly that, never a stale server-side copy."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _round4_pilot_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+
+    content = _apply_pilot_code_edit(scenario, submission, db, payload)
+    result = execution_service.run_code(language="python", code=content.get("code", ""), stdin=[])
+    last_run = {
+        "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code,
+        "timed_out": result.timed_out, "infra_error": result.infra_error,
+    }
+    updated = dict(content)
+    updated["last_run"] = last_run
+    submission.content = updated
+    db.commit()
+    return Round4PilotRunOut(**last_run)
+
+
+@router.post("/round/2/pilot/submit", response_model=SubmissionOut, status_code=201)
+def round4_pilot_submit(
+    background_tasks: BackgroundTasks,
+    payload: Round4PilotCodeUpdate | None = None,
+    db: Session = Depends(get_db), candidate: User = Depends(require_candidate),
+):
+    """payload.code, if sent, is the candidate's own editor contents,
+    applied BEFORE the starter-code check and BEFORE scoring - see
+    _apply_pilot_code_edit. Submit always scores exactly what's in the
+    editor at the moment Submit was clicked, never a stale AI-turn
+    snapshot."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _round4_pilot_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+    _require_within_time_limit(submission, scenario)
+
+    content = _apply_pilot_code_edit(scenario, submission, db, payload)
+    starter = (scenario.config_json or {}).get("starter_code", "")
+    if not content.get("code") or content["code"] == starter:
+        raise HTTPException(400, "Make some changes to the automation before submitting.")
+
+    submission.status = RoundStatus.submitted
+    submission.submitted_at = datetime.utcnow()
+    db.commit()
+    db.refresh(submission)
+
+    background_tasks.add_task(score_submission_in_background, submission.id)
+    return submission
+
+
+# ---- AI-Assisted Test Automation round (Scenario.config_json["mode"] ==
+# "ai_test_automation") - the candidate automates test cases THEY designed
+# in round 1, in the language they picked in round 3. A third round-4 mode
+# alongside the legacy conversational flow and the Focused Automation
+# Pilot; everything below is new and additive, and no existing endpoint is
+# touched by it. State lives entirely in Submission.content (no migration),
+# same as the pilot. ----
+
+_AUTO_LANGUAGE_HELPER_FILES = {
+    "python": "round4_auto_helpers_python.txt",
+    "javascript": "round4_auto_helpers_javascript.txt",
+    "java": "round4_auto_helpers_java.txt",
+}
+
+
+def _is_auto_scenario(scenario: Scenario) -> bool:
+    return (scenario.config_json or {}).get("mode") == "ai_test_automation"
+
+
+def _round3_language_for(candidate: User, db: Session) -> str:
+    """The automation round's language. **Python for every new candidate**
+    - that is a deliberate product decision for the pilot, not a fallback:
+    round 2 measures automation/QA thinking rather than language choice,
+    and adding a language picker to a 30-minute round buys complexity that
+    isn't being assessed.
+
+    Round 3 (coding, where the candidate does pick a language) now runs
+    AFTER round 2 since the 2<->4 renumbering, so for a new candidate
+    there is no round 3 submission to read and this simply returns
+    "python". The lookup below is kept only for legacy/re-entry
+    compatibility - a candidate whose round 3 predates the renumbering, or
+    who re-enters with one already on file, keeps the language they chose
+    rather than being silently switched. Do not extend this into
+    multi-language support for round 2 without revisiting that decision."""
+    round3 = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.round_number == 3, Submission.archived.is_(False))
+        .first()
+    )
+    language = ((round3.content or {}).get("language") if round3 else None) or "python"
+    return language if language in _AUTO_LANGUAGE_HELPER_FILES else "python"
+
+
+def _auto_environment_code(scenario: Scenario, language: str) -> str:
+    """The provided automation environment for this language. Prefers the
+    scenario's own configured environment (HR-authored, see
+    seed_round4_auto.py); falls back to the packaged helper file."""
+    configured = (scenario.config_json or {}).get("environment_code_by_language") or {}
+    if configured.get(language):
+        return configured[language]
+    return llm_service._load_prompt(_AUTO_LANGUAGE_HELPER_FILES[language])
+
+
+def _ensure_auto_content(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> dict:
+    """Seeds this submission's automation state on first access - /round/2/start
+    is shared with the other round 2 flows and knows nothing about this mode."""
+    content = submission.content
+    if not content or content.get("mode") != "ai_test_automation":
+        language = _round3_language_for(candidate, db)
+        content = {
+            "mode": "ai_test_automation",
+            "language": language,
+            "selected": [],
+            "refinements": [],
+            "code": "",
+            "turns": [],
+            "code_edits": [],
+            "last_run": None,
+            "validation": "",
+        }
+        submission.content = content
+        db.commit()
+        db.refresh(submission)
+    return submission.content
+
+
+def _round1_rows_for(candidate: User, db: Session) -> list[dict]:
+    round1 = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.round_number == 1, Submission.archived.is_(False))
+        .first()
+    )
+    if round1 is None:
+        raise HTTPException(409, "No round 1 submission found - this round automates your own round 1 test cases, which have to exist first.")
+    return list(round1.content or [])
+
+
+def _auto_row_out(row: dict) -> Round4AutoDesignRowOut:
+    return Round4AutoDesignRowOut(
+        index=row.get("index", 0),
+        title=row.get("title", "") or "",
+        preconditions=row.get("preconditions", "") or "",
+        steps=row.get("steps", "") or "",
+        # `or ""` covers a round 1 submission written before test_data existed.
+        test_data=row.get("test_data", "") or "",
+        expected_result=row.get("expected_result", "") or "",
+        refinements=list(row.get("refinements") or []),
+    )
+
+
+def _build_auto_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round4AutoStateOut:
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    language = content.get("language", "python")
+    available = [
+        {**row, "index": i} for i, row in enumerate(_round1_rows_for(candidate, db))
+    ]
+    return Round4AutoStateOut(
+        language=language,
+        available_rows=[_auto_row_out(r) for r in available],
+        selected=[_auto_row_out(r) for r in content.get("selected") or []],
+        selection_locked=bool(content.get("selected")),
+        environment_code=_auto_environment_code(scenario, language),
+        code=content.get("code", ""),
+        turns=content.get("turns") or [],
+        code_edits_count=len(content.get("code_edits") or []),
+        last_run=content.get("last_run"),
+        validation=content.get("validation", ""),
+    )
+
+
+def _round4_auto_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+    scenario, submission = _round4_scenario_and_submission(candidate, db)
+    if not _is_auto_scenario(scenario):
+        raise HTTPException(400, "This round 2 scenario is not an AI-assisted automation scenario.")
+    return scenario, submission
+
+
+def _auto_in_progress(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+    scenario, submission = _round4_auto_scenario_and_submission(candidate, db)
+    if submission.status != RoundStatus.in_progress:
+        raise HTTPException(400, "This round has already been submitted.")
+    return scenario, submission
+
+
+def _require_selection(content: dict) -> list[dict]:
+    selected = content.get("selected") or []
+    if not selected:
+        raise HTTPException(400, "Select the test case(s) you're automating first.")
+    return selected
+
+
+def _apply_auto_code_edit(submission: Submission, content: dict, db: Session, code: str | None) -> dict:
+    """Persists the candidate's current editor contents, if sent, so Run
+    and Submit act on exactly what's on screen. Same pattern as the
+    pilot's _apply_pilot_code_edit; a None is a no-op."""
+    if code is None:
+        return content
+    updated = dict(content)
+    updated["code"] = code
+    submission.content = updated
+    db.commit()
+    db.refresh(submission)
+    return submission.content
+
+
+@router.get("/round/2/auto/state", response_model=Round4AutoStateOut)
+def round4_auto_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _round4_auto_scenario_and_submission(candidate, db)
+    return _build_auto_state(scenario, submission, candidate, db)
+
+
+@router.post("/round/2/auto/select", response_model=Round4AutoStateOut, status_code=201)
+def round4_auto_select(payload: Round4AutoSelectCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """Writes the IMMUTABLE snapshot of the candidate's chosen round 1
+    rows. Allowed exactly once: the snapshot is the audit record of what
+    they designed BEFORE automating, so re-selecting later (after seeing
+    how hard something is to automate) would defeat its purpose. The
+    round 1 submission itself is never touched - this copies out of it."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    if content.get("selected"):
+        raise HTTPException(400, "Your test selection is already locked in and can't be changed.")
+
+    rows = _round1_rows_for(candidate, db)
+    if len(set(payload.row_indexes)) != len(payload.row_indexes):
+        raise HTTPException(400, "Each test case can only be selected once.")
+    snapshot = []
+    for index in payload.row_indexes:
+        if index < 0 or index >= len(rows):
+            raise HTTPException(400, f"No round 1 test case at position {index}.")
+        row = rows[index]
+        snapshot.append({
+            "index": index,
+            "title": row.get("title", "") or "",
+            "preconditions": row.get("preconditions", "") or "",
+            "steps": row.get("steps", "") or "",
+            "test_data": row.get("test_data", "") or "",
+            "expected_result": row.get("expected_result", "") or "",
+            "refinements": [],
+        })
+
+    language = content.get("language", "python")
+    updated = dict(content)
+    updated["selected"] = snapshot
+    # Starting code is the provided environment - the candidate directs
+    # the assistant to add their automation to it, rather than starting
+    # from a blank file and rebuilding helpers that already exist.
+    updated["code"] = _auto_environment_code(scenario, language)
+    submission.content = updated
+    db.commit()
+    db.refresh(submission)
+    return _build_auto_state(scenario, submission, candidate, db)
+
+
+@router.post("/round/2/auto/refine", response_model=Round4AutoStateOut, status_code=201)
+def round4_auto_refine(payload: Round4AutoRefineCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """APPEND-ONLY. A refinement note is added alongside the original row;
+    nothing in the snapshot (or in round 1) is ever overwritten, so the
+    original design stays auditable next to whatever the candidate
+    realized later."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    selected = _require_selection(content)
+
+    updated = dict(content)
+    new_selected = []
+    matched = False
+    for row in selected:
+        if row["index"] == payload.row_index:
+            matched = True
+            new_selected.append({**row, "refinements": list(row.get("refinements") or []) + [payload.note]})
+        else:
+            new_selected.append(dict(row))
+    if not matched:
+        raise HTTPException(400, f"Test case {payload.row_index} isn't one of the ones you selected.")
+    updated["selected"] = new_selected
+    updated["refinements"] = list(content.get("refinements") or []) + [
+        {"row_index": payload.row_index, "note": payload.note, "created_at": datetime.utcnow().isoformat()}
+    ]
+    submission.content = updated
+    db.commit()
+    db.refresh(submission)
+    return _build_auto_state(scenario, submission, candidate, db)
+
+
+@router.post("/round/2/auto/turn", response_model=Round4AutoTurnOut, status_code=201)
+def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    selected = _require_selection(content)
+
+    turns = list(content.get("turns") or [])
+    conversation_so_far = [
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"]} for t in turns
+    ]
+    language = content.get("language", "python")
+
+    # Synchronous, same reasoning as every other round's turn endpoint -
+    # nothing is persisted until the call succeeds and validates.
+    try:
+        response = llm_service.round4_auto_turn(
+            language=language,
+            selected_design=selected,
+            environment_code=_auto_environment_code(scenario, language),
+            current_code=content.get("code", ""),
+            conversation_so_far=conversation_so_far,
+            candidate_prompt=payload.candidate_prompt,
+        )
+    except Exception:
+        raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+
+    turn_record = {
+        "turn_number": len(turns) + 1,
+        "candidate_prompt": payload.candidate_prompt,
+        "response_kind": response["response_kind"],
+        "response_message": response["response_message"],
+        "code_after": response.get("code_after"),
+    }
+    turns.append(turn_record)
+    updated = dict(content)
+    updated["turns"] = turns
+    if response.get("code_after"):
+        updated["code"] = response["code_after"]
+    submission.content = updated
+    db.commit()
+    return Round4AutoTurnOut(**turn_record)
+
+
+@router.post("/round/2/auto/code", response_model=Round4AutoStateOut, status_code=201)
+def round4_auto_save_code(payload: Round4AutoCodeUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """The candidate's own direct edit, recorded as its own audit entry so
+    "what the assistant wrote" and "what the candidate changed themselves"
+    stay separable at scoring time (see prompts/round4_auto_scoring.txt's
+    ai_output_review area)."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    _require_selection(content)
+
+    updated = dict(content)
+    updated["code"] = payload.code
+    updated["code_edits"] = list(content.get("code_edits") or []) + [
+        {"seq": len(content.get("code_edits") or []) + 1, "created_at": datetime.utcnow().isoformat(), "code": payload.code}
+    ]
+    submission.content = updated
+    db.commit()
+    db.refresh(submission)
+    return _build_auto_state(scenario, submission, candidate, db)
+
+
+@router.post("/round/2/auto/run", response_model=Round4AutoRunOut, status_code=201)
+def round4_auto_run(
+    payload: Round4AutoRunCreate | None = None,
+    db: Session = Depends(get_db), candidate: User = Depends(require_candidate),
+):
+    """Batch execution through the EXISTING execution_service.run_code,
+    unmodified, in the candidate's round 3 language - single file, which
+    is exactly what that engine already supports."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    _require_selection(content)
+    content = _apply_auto_code_edit(submission, content, db, payload.code if payload else None)
+
+    result = execution_service.run_code(
+        language=content.get("language", "python"), code=content.get("code", ""), stdin=[],
+    )
+    last_run = {
+        "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code,
+        "timed_out": result.timed_out, "infra_error": result.infra_error,
+    }
+    updated = dict(content)
+    updated["last_run"] = last_run
+    submission.content = updated
+    db.commit()
+    return Round4AutoRunOut(**last_run)
+
+
+@router.post("/round/2/auto/submit", response_model=SubmissionOut, status_code=201)
+def round4_auto_submit(
+    payload: Round4AutoSubmitCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db), candidate: User = Depends(require_candidate),
+):
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    _require_within_time_limit(submission, scenario)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    _require_selection(content)
+    content = _apply_auto_code_edit(submission, content, db, payload.code)
+
+    if not content.get("code"):
+        raise HTTPException(400, "There's no automation code to submit yet.")
+    if not content.get("last_run"):
+        raise HTTPException(400, "Run your automation at least once before submitting.")
+
+    updated = dict(content)
+    updated["validation"] = payload.validation
+    submission.content = updated
     submission.status = RoundStatus.submitted
     submission.submitted_at = datetime.utcnow()
     db.commit()
@@ -909,18 +1498,22 @@ def save_round_draft(
     candidate: User = Depends(require_candidate),
 ):
     """Periodic autosave for rounds 1/2's in-progress content, the same
-    pattern round 4's test cases already have (see round4_save_draft
+    pattern round 2's test cases already have (see round4_save_draft
     above) - so a crash, refresh, or network loss mid-round doesn't
     silently lose typed-but-unsubmitted work while the timer keeps
     counting down. Reuses ExpireRoundPayload's shape (deliberately
     permissive - see its docstring), but unlike /expire below this never
     touches submission.status or checks the deadline: only a real
     Submit, or /expire once the deadline has genuinely passed, ever ends
-    the round. Round 4 has no equivalent here - it already autosaves per
-    test case instead (PATCH /round/4/test-case/{id}/draft), since it
-    has no single whole-round form the way rounds 1/2 do."""
-    if round_number not in (1, 2):
-        raise HTTPException(400, "round_number must be 1 or 2 - round 4 autosaves per test case, see PATCH /round/4/test-case/{id}/draft.")
+    the round. Round 2 has no equivalent here - it already autosaves per
+    test case instead (PATCH /round/2/test-case/{id}/draft), since it
+    has no single whole-round form the way rounds 1/4 do.
+
+    Slots 1 and 4 since the 2<->4 renumbering: round 1 is the test-case
+    rows, round 4 is the debugging investigation write-up. Round 2 (the
+    automation round) is the one that autosaves per test case instead."""
+    if round_number not in (1, 4):
+        raise HTTPException(400, "round_number must be 1 or 4 - round 2 autosaves per test case, see PATCH /round/2/test-case/{id}/draft.")
     _require_round_unlocked(round_number, db, candidate)
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
@@ -983,7 +1576,8 @@ def expire_round(
 
     if round_number == 1:
         submission.content = [_sanitize_expired_round1_row(r) for r in payload.content]
-    elif round_number == 2:
+    elif round_number == 4:
+        # Debugging (slot 4 since the 2<->4 renumbering) - investigation-shaped.
         submission.content = {
             "investigation": [
                 {"area": str(r.get("area") or "")} for r in payload.investigation if str(r.get("area") or "").strip()

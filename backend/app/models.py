@@ -105,6 +105,28 @@ class Scenario(Base):
     config_json = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    @property
+    def is_pilot(self) -> bool:
+        """Round 4 only: whether this is the Focused Automation Pilot
+        (single-file coding exercise) rather than the legacy conversational
+        flow - see seed_round4_pilot.py, which is the only writer of
+        config_json["mode"] == "pilot_automation". A computed property
+        (same pattern as Submission.tab_switch_count) so schemas.ScenarioPublicOut
+        can expose it via from_attributes without duplicating the check -
+        candidate.py's pre-start screen needs this to know which briefing
+        to show before a submission (and therefore Round4StateOut.is_pilot)
+        exists yet."""
+        return (self.config_json or {}).get("mode") == "pilot_automation"
+
+    @property
+    def is_auto(self) -> bool:
+        """Round 4 only: whether this is the AI-Assisted Test Automation
+        round (the candidate automates the test cases they designed in
+        round 1) - see seed_round4_auto.py, the only writer of
+        config_json["mode"] == "ai_test_automation". Same computed-property
+        pattern and same reason as is_pilot above."""
+        return (self.config_json or {}).get("mode") == "ai_test_automation"
+
     # Draft -> published lifecycle: HR reviews the generated reference
     # before candidates can see the scenario. Any number of scenarios
     # for the same (round_number, experience_band) can be `published`
@@ -313,6 +335,20 @@ class Score(Base):
         from_attributes. HR only needs the fact that a human touched
         this score, not the raw user id."""
         return self.overridden_by_user_id is not None
+
+    @property
+    def specificity(self) -> dict | None:
+        """Round 1 only - how concrete the candidate's test data and
+        expected results were (see prompts/round1_scoring.txt's
+        specificity_score/specificity_notes). Computed, not a column,
+        for the same reason as evidence_audit below: it already lives
+        inside raw_llm_response_json, so surfacing it needs no migration
+        and no new column. None for every other round, and for any
+        Round 1 score produced before this was added to the prompt."""
+        scoring = (self.raw_llm_response_json or {}).get("scoring") or {}
+        if not isinstance(scoring, dict) or scoring.get("specificity_score") is None:
+            return None
+        return {"score": scoring.get("specificity_score"), "notes": scoring.get("specificity_notes")}
 
     @property
     def evidence_audit(self) -> dict | None:

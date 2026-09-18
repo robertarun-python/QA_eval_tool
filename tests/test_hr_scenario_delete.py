@@ -37,8 +37,8 @@ def test_hr_can_delete_a_published_non_live_scenario_with_no_submissions(client,
     # a second publish for the same round+band stays non-live, which is
     # exactly the "published but never actually used" case this feature
     # is for (e.g. a duplicate scenario title created by mistake).
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Live one")
-    duplicate = _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="Duplicate, never made live")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Live one")
+    duplicate = _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Duplicate, never made live")
 
     fetched = client.get(f"/hr/scenarios/{duplicate['id']}", cookies=_auth(hr_token)).json()
     assert fetched["status"] == "published"

@@ -64,7 +64,7 @@ def test_a_never_started_round_gets_closed_out_once_round1_started_and_window_pa
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="R2")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 90, "misses": [], "final_score": 90, "feedback_text": "great"},
@@ -99,7 +99,7 @@ def test_a_never_started_round_gets_closed_out_once_round1_started_and_window_pa
     client.get("/hr/candidates", cookies=_auth(hr_token))  # closes it out, schedules scoring
     report = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     row = next(c for c in report if c["id"] == candidate_id)
-    round2 = next(r for r in row["rounds"] if r["round_number"] == 2)
+    round2 = next(r for r in row["rounds"] if r["round_number"] == 4)  # debugging is slot 4 since the swap
     assert round2["status"] == "scored"
     assert round2["final_score"] == 0
     assert round2["auto_closed_reason"] == "Assessment window closed before this round was ever started"
@@ -121,7 +121,7 @@ def test_a_seeded_account_gets_enforced_once_it_actually_starts_a_round(client, 
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
-    _publish_scenario(client, hr_token, monkeypatch, round_number=2, title="R2", band="0-7")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="R2", band="0-7")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 90, "misses": [], "final_score": 90, "feedback_text": "great"},
@@ -144,7 +144,7 @@ def test_a_seeded_account_gets_enforced_once_it_actually_starts_a_round(client, 
     client.get("/hr/candidates", cookies=_auth(hr2))
     report = client.get("/hr/candidates", cookies=_auth(hr2)).json()
     row = next(c for c in report if c["email"] == CANDIDATE1_EMAIL)
-    round2 = next(r for r in row["rounds"] if r["round_number"] == 2)
+    round2 = next(r for r in row["rounds"] if r["round_number"] == 4)  # debugging is slot 4 since the swap
     assert round2["status"] == "scored"
     assert round2["auto_closed_reason"] == "Assessment window closed before this round was ever started"
 

@@ -14,7 +14,7 @@
 // Round display names - one source, used by both HR's nav (renderHRRoundNav)
 // and the candidate's nav (renderCandidateRoundNav). Used to be two
 // identical maps (HR_ROUND_LABELS and ROUND_TITLES) defined separately.
-const ROUND_LABELS = { 1: "Manual test cases", 2: "Debugging", 3: "AI-prompted coding", 4: "Conversational" };
+const ROUND_LABELS = { 1: "Manual test cases", 2: "AI-Assisted Test Automation", 3: "AI-prompted coding", 4: "Debugging" };
 
 // Per-round description-field guidance for the shared "Create a scenario"
 // form (see resetCreateScenarioForm) - each round hands the candidate a
@@ -448,11 +448,13 @@ function selectHRRound(n) {
   // haven't opened anything in yet.
   closeScenarioDetail();
 
-  const isRound4 = n === 4;
-  // Round 4 gets its own single settings view instead of the round1/2
-  // author/review/publish flow - see loadRound4Settings for why none of
-  // that maps onto round 4's actual shape (no fixed reference, no
-  // meaningfully different "versions" to browse or compare).
+  // The automation round sits at slot 2 since the 2<->4 renumbering; the
+  // identifier keeps its historical name (see scoring_service._SCORERS).
+  const isRound4 = n === 2;
+  // It gets its own single settings view instead of the author/review/
+  // publish flow - see loadRound4Settings for why none of that maps onto
+  // this round's actual shape (no fixed reference, no meaningfully
+  // different "versions" to browse or compare).
   document.getElementById("create-scenario-row").classList.toggle("hidden", isRound4);
   document.getElementById("screening-history-panel").classList.toggle("hidden", isRound4);
   document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound4);
@@ -850,6 +852,7 @@ async function openScenarioDetail(id) {
           <td>${escapeHtml(r.title)}</td>
           <td>${escapeHtml(r.preconditions || "")}</td>
           <td>${escapeHtml(r.steps)}</td>
+          ${showPriorityType ? `<td>${escapeHtml(r.test_data || "")}</td>` : ""}
           <td>${escapeHtml(r.expected_result)}</td>
           ${showPriorityType ? `<td>${escapeHtml(r.priority)}</td><td>${escapeHtml(r.type)}</td>` : ""}
         </tr>
@@ -885,9 +888,9 @@ async function openScenarioDetail(id) {
       <table>
         <thead><tr>${isCodingReference
           ? "<th>SI.No</th><th>Input</th><th>Expected output</th><th>Description</th>"
-          : `<th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th>${showPriorityType ? "<th>Priority</th><th>Type</th>" : ""}`
+          : `<th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th>${showPriorityType ? "<th>Test data</th>" : ""}<th>Expected result</th>${showPriorityType ? "<th>Priority</th><th>Type</th>" : ""}`
         }</tr></thead>
-        <tbody>${refRows || `<tr><td colspan="${isCodingReference ? 4 : showPriorityType ? 7 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
+        <tbody>${refRows || `<tr><td colspan="${isCodingReference ? 4 : showPriorityType ? 8 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
       </table>
     </div>
     ${isCodingReference && scenario.reference_json ? `<p class="muted"><strong>Expected approach:</strong> ${escapeHtml(scenario.reference_json.expected_approach || "")}</p>` : ""}
@@ -959,7 +962,7 @@ async function loadRound4Settings() {
   // Nothing shows at all if round 4 hasn't been set up yet - not a
   // "create one" prompt (bootstrapping round 4, if ever needed, is a
   // direct API action, not a standing part of this page).
-  const liveScenario = allScenarios.find((s) => s.round_number === 4 && s.experience_band === DEFAULT_BAND && s.is_live);
+  const liveScenario = allScenarios.find((s) => s.round_number === 2 && s.experience_band === DEFAULT_BAND && s.is_live);
   if (!liveScenario) {
     box.innerHTML = "";
     return;
@@ -978,8 +981,8 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
   const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || serverDefault;
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
-      <h3>Round 4 <span class="badge badge-published">LIVE</span></h3>
-      <p class="muted">This is what Round 4 candidates currently see.</p>
+      <h3>Round 2 <span class="badge badge-published">LIVE</span></h3>
+      <p class="muted">This is what Round 2 candidates currently see.</p>
 
       <h4>Instructions</h4>
       <p class="muted">What candidates read when they open this round.</p>
@@ -1597,9 +1600,9 @@ function renderSubmissionsPanels(submissions) {
         </details>
       ` : ""}
       ${renderScoreBlock(s)}
-      ${s.round_number === 4 ? renderRound4Report(s)
+      ${s.round_number === 2 ? renderRound4Report(s)
         : s.round_number === 3 ? renderRound3Report(s)
-        : s.round_number === 2 ? renderRound2Report(s)
+        : s.round_number === 4 ? renderRound2Report(s)
         : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
     </div>
   `).join("");
@@ -2132,9 +2135,9 @@ function renderSideBySide(candidateRows, referenceRows) {
   if (!candidateRows) return "";
   const renderTable = (rows) => `
     <table>
-      <thead><tr><th>Title</th><th>Steps</th><th>Expected</th></tr></thead>
+      <thead><tr><th>Title</th><th>Steps</th><th>Test data</th><th>Expected</th></tr></thead>
       <tbody>
-        ${(rows || []).map((r) => `<tr><td>${escapeHtml(r.title)}</td><td>${escapeHtml(r.steps)}</td><td>${escapeHtml(r.expected_result)}</td></tr>`).join("") || '<tr><td colspan="3" class="muted">-</td></tr>'}
+        ${(rows || []).map((r) => `<tr><td>${escapeHtml(r.title)}</td><td>${escapeHtml(r.steps)}</td><td>${escapeHtml(r.test_data || "")}</td><td>${escapeHtml(r.expected_result)}</td></tr>`).join("") || '<tr><td colspan="4" class="muted">-</td></tr>'}
       </tbody>
     </table>`;
   return `
@@ -2309,7 +2312,7 @@ function renderCandidateRoundNav() {
         return `
           <button class="tick ${stateClass}" ${isUnlocked ? "" : "disabled"} onclick="loadRound(${n})">
             <span class="tick-num">${done ? "&#10003;" : n}</span>
-            <span class="tick-label">${ROUND_LABELS[n]}</span>
+            <span class="tick-label" id="round-tick-label-${n}">${ROUND_LABELS[n]}</span>
           </button>
         `;
       }).join("")}
@@ -2335,6 +2338,22 @@ async function loadRound(n) {
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
+  }
+  // renderCandidateRoundNav (above) already set the page header AND the
+  // rail's tick label from the static ROUND_LABELS map, before this
+  // scenario was known - neither the Focused Automation Pilot (see
+  // models.Scenario.is_pilot) nor AI-Assisted Test Automation (see
+  // models.Scenario.is_auto) is "Conversational" at all, so correct both
+  // now that we actually know which round 4 shape this is. No-op for
+  // every other round/scenario.
+  if (n === 2 && state.scenario && state.scenario.is_pilot) {
+    setPageHeader("Candidate Assessment", "Round 2 · Automation Engineering with AI Assistance", "");
+    const tickLabel = document.getElementById("round-tick-label-2");
+    if (tickLabel) tickLabel.textContent = "Automation Engineering";
+  } else if (n === 2 && state.scenario && state.scenario.is_auto) {
+    setPageHeader("Candidate Assessment", "Round 2 · AI-Assisted Test Automation", "");
+    const tickLabel = document.getElementById("round-tick-label-2");
+    if (tickLabel) tickLabel.textContent = "AI-Assisted Test Automation";
   }
   renderRoundView(box, n, state);
 }
@@ -2364,18 +2383,30 @@ function renderRoundView(box, n, state) {
       showRound3CodingIntro();
       return;
     }
-    if (n === 4) {
+    if (n === 2) {
       // No Start button here at all - the briefing modal below is the
       // only way in, appearing the instant this round is opened. Its own
       // "Got it - Start Round 4" button is what actually starts the
-      // round (see confirmStartRound4) - reading this costs no time
-      // either way, since the timer only starts on that click.
+      // round (see confirmStartRound4/confirmStartRound4Pilot/
+      // confirmStartRound4Auto) - reading this costs no time either way,
+      // since the timer only starts on that click. Pilot (see
+      // models.Scenario.is_pilot) and AI-Assisted Test Automation (see
+      // models.Scenario.is_auto) each get their own self-contained
+      // briefing - showRound4Intro's content (round 1 test cases, a
+      // simulated no-code assistant, UI/API/DB bonus credit) describes
+      // the legacy conversational flow and is wrong for either.
       box.innerHTML = `
         <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
         ${formatScenarioDescription(scenario.description)}
         <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
       `;
-      showRound4Intro();
+      if (scenario.is_pilot) {
+        showRound4PilotIntro(scenario.time_limit_minutes);
+      } else if (scenario.is_auto) {
+        showRound4AutoIntro(scenario.time_limit_minutes);
+      } else {
+        showRound4Intro();
+      }
       return;
     }
     // Same pattern as round 4: no separate Start button - the briefing
@@ -2528,7 +2559,7 @@ async function startRound(n) {
 // immediate Start, since round 4's format (prompt-driven, an
 // intentionally imperfect assistant, no fixed checklist) isn't
 // self-explanatory the way rounds 1/2's plain forms are. Reading this
-// doesn't cost any time - the timer only starts once startRound(4) is
+// doesn't cost any time - the timer only starts once startRound(2) is
 // actually called, from confirmStartRound4 below. Deliberately no
 // specifics on how often or how the assistant gets things wrong - that's
 // what the round is testing; this only sets expectations, not answers.
@@ -2538,7 +2569,7 @@ function showRound4Intro() {
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal-box neutral">
-      <h3>Before you start Round 4</h3>
+      <h3>Before you start Round 2</h3>
       <ul>
         <li>Your Round 1 test cases are the starting point, not a limit - add as many extra as the scenario needs. Describe each to an AI assistant, which simulates running it and reports what it observed (no code involved). You'll have a test environment reference (sample data, credentials, API/DB details) and reference app screens as your source of truth.</li>
         <li>The assistant won't always get it right - it may skip a check, misreport a result, or be wrong on purpose. Review every response like a test log you didn't write, and refine your prompts until you're confident it's actually correct.</li>
@@ -2547,11 +2578,87 @@ function showRound4Intro() {
         <li>Timer starts the moment you click below.</li>
       </ul>
       <div class="row">
-        <button onclick="confirmStartRound4()">Got it - Start Round 4</button>
+        <button onclick="confirmStartRound4()">Got it - Start Round 2</button>
       </div>
     </div>
   `;
   openModalOverlay(overlay);
+}
+
+// Focused Automation Pilot's own briefing (see models.Scenario.is_pilot) -
+// a real single-file Python exercise with a narrow coding assistant, not
+// the legacy conversational flow above. No language choice afterwards
+// (the exercise is fixed Python) - "Got it" goes straight to startRound(2).
+// Deliberately generic process steps only - no scoring weights, no hidden
+// tests, no reference solution, no policy internals, no hint at the
+// requirement's own ambiguity or what a strong answer looks like.
+function showRound4PilotIntro(timeLimitMinutes) {
+  const overlay = document.createElement("div");
+  overlay.id = "round4-intro-overlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box neutral">
+      <h3>Before you start Round 2</h3>
+      <ol>
+        <li>Review the provided automation.</li>
+        <li>Ask clarification questions when a requirement is unclear.</li>
+        <li>Use the provided AI assistant for focused assistance.</li>
+        <li>Modify the automation.</li>
+        <li>Run and inspect the result.</li>
+        <li>Validate repeatability/persistence and the final automation.</li>
+        <li>Submit when satisfied.</li>
+      </ol>
+      <p class="muted">You are responsible for understanding, validating, and maintaining the final automation.</p>
+      <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</p>
+      <div class="row">
+        <button onclick="confirmStartRound4Pilot()">Got it - Start Round 2</button>
+      </div>
+    </div>
+  `;
+  openModalOverlay(overlay);
+}
+
+function confirmStartRound4Pilot() {
+  closeModalOverlay("round4-intro-overlay");
+  startRound(2);
+}
+
+// AI-Assisted Test Automation's own briefing (see models.Scenario.is_auto) -
+// the candidate automates test cases THEY designed in round 1, not the
+// legacy conversational flow above. No language choice here either - the
+// language is inherited from round 3 (see routers/candidate.py's
+// _round3_language_for), so "Got it" goes straight to startRound(2).
+// Deliberately generic process steps only - no scoring weights, no
+// ground truth, no policy internals, no hint at what a strong answer
+// looks like.
+function showRound4AutoIntro(timeLimitMinutes) {
+  const overlay = document.createElement("div");
+  overlay.id = "round4-intro-overlay";
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal-box neutral">
+      <h3>Before you start Round 2</h3>
+      <ol>
+        <li>Pick one or two of your own Round 1 test cases to automate.</li>
+        <li>Use the provided AI assistant to turn your design into working code against the provided environment.</li>
+        <li>Review everything it produces, and edit the code yourself where you disagree.</li>
+        <li>Run it and inspect the result.</li>
+        <li>Explain what the result actually proves.</li>
+        <li>Submit when satisfied.</li>
+      </ol>
+      <p class="muted">The assistant will only encode what you already specified in Round 1 - it won't invent test cases, test data, or assertions. You are responsible for the final automation.</p>
+      <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</p>
+      <div class="row">
+        <button onclick="confirmStartRound4Auto()">Got it - Start Round 2</button>
+      </div>
+    </div>
+  `;
+  openModalOverlay(overlay);
+}
+
+function confirmStartRound4Auto() {
+  closeModalOverlay("round4-intro-overlay");
+  startRound(2);
 }
 
 // Split from the intro (see showRound4Intro) so the language choice
@@ -2574,7 +2681,7 @@ function confirmStartRound4() {
     </div>
     <p class="muted">You can switch languages per turn once the round starts - this just sets your starting default.</p>
     <div class="row">
-      <button id="round4-start-btn" onclick="confirmStartRound4WithLanguage()" disabled>Start Round 4</button>
+      <button id="round4-start-btn" onclick="confirmStartRound4WithLanguage()" disabled>Start Round 2</button>
     </div>
   `);
 }
@@ -2588,7 +2695,7 @@ function confirmStartRound4WithLanguage() {
   const language = document.getElementById("round4-language-select").value;
   if (!language) return;
   round4DefaultLanguage = language;
-  startRound(4);
+  startRound(2);
 }
 
 // Each round's candidate-facing shape is genuinely different now: round
@@ -2598,7 +2705,7 @@ function confirmStartRound4WithLanguage() {
 function renderRoundEntry(n, box, scenario, submission) {
   if (n === 1) {
     renderEntryForm(box, scenario, submission);
-  } else if (n === 2) {
+  } else if (n === 4) {
     renderInvestigationForm(box, scenario, submission);
   } else if (n === 3) {
     renderRound3CodingView(box);
@@ -2634,7 +2741,7 @@ function flushRoundDraft(roundNumber, buildPayload) {
   }).catch(() => {}); // best-effort - see comment above
 }
 
-// Round 1: repeatable test-case rows (title/preconditions/steps/expected_result).
+// Round 1: repeatable test-case rows (title/preconditions/steps/test_data/expected_result).
 
 function round1DraftPayload() {
   return { content: collectRows() };
@@ -2647,7 +2754,7 @@ function renderEntryForm(box, scenario, submission) {
     ${formatScenarioDescription(scenario.description)}
     <div class="table-scroll">
       <table>
-        <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Expected result</th><th></th></tr></thead>
+        <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Test data</th><th>Expected result / assertions</th><th></th></tr></thead>
         <tbody>${exampleTestCaseRowHtml()}</tbody>
         <tbody id="tc-rows"></tbody>
       </table>
@@ -2692,7 +2799,7 @@ function round2DraftPayload() {
 function renderInvestigationForm(box, scenario, submission) {
   rowCount = 0;
   box.innerHTML = `
-    <h3>Round 2: ${escapeHtml(scenario.title)}</h3>
+    <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
     ${formatScenarioDescription(scenario.description)}
     <div class="table-scroll">
       <table>
@@ -2709,7 +2816,7 @@ function renderInvestigationForm(box, scenario, submission) {
     <h4>Possible Root Cause</h4>
     <p class="muted">What you investigated, which areas you eliminated, and your conclusion.</p>
     <p class="muted example-note">Example format: "The [component] shows [incorrect behavior] when [condition]. Ruled out [alternative cause] because [reason]. Root cause is [cause], confirmed by [evidence]."</p>
-    <textarea id="inv-root-cause" oninput="scheduleRoundDraftSave(2, round2DraftPayload); round2UpdateSubmitState()"></textarea>
+    <textarea id="inv-root-cause" oninput="scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea>
     <div class="row">
       <button id="round2-submit-btn" onclick="doSubmitRound2Investigation()">Submit</button>
     </div>
@@ -2735,7 +2842,7 @@ function renderInvestigationForm(box, scenario, submission) {
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
     doSubmitRound2Investigation(true);
-  }, 2);
+  }, 4);  // debugging is slot 4 since the 2<->4 renumbering (this arg drives armTabGuard)
 }
 
 function addInvestigationRow(initial = null) {
@@ -2745,7 +2852,7 @@ function addInvestigationRow(initial = null) {
   tr.id = `inv-row-${id}`;
   tr.innerHTML = `
     <td class="inv-no"></td>
-    <td><textarea class="inv-area" oninput="scheduleRoundDraftSave(2, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
+    <td><textarea class="inv-area" oninput="scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
     <td><button onclick="removeInvestigationRow('inv-row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
@@ -2756,7 +2863,7 @@ function addInvestigationRow(initial = null) {
 function removeInvestigationRow(rowId) {
   document.getElementById(rowId).remove();
   renumberInvestigationRows();
-  scheduleRoundDraftSave(2, round2DraftPayload); // removing a row must survive a refresh too, not just additions
+  scheduleRoundDraftSave(4, round2DraftPayload); // removing a row must survive a refresh too, not just additions
   round2UpdateSubmitState();
 }
 
@@ -2808,7 +2915,7 @@ async function doSubmitRound2Investigation(force = false) {
   }
   if (submitBtn) submitBtn.disabled = true;
   try {
-    await api("/candidate/round/2/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
+    await api("/candidate/round/4/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
     stopTimer();
     disarmTabGuard();
     refreshCandidateNav();
@@ -3385,7 +3492,7 @@ async function showRound4Code(turnId) {
   }
   container.innerHTML = `<p class="muted">Generating...</p>`;
   try {
-    const result = await api(`/candidate/round/4/turn/${turnId}/code?language=${lang}`);
+    const result = await api(`/candidate/round/2/turn/${turnId}/code?language=${lang}`);
     round4CodeCache[cacheKey] = result.code;
     container.innerHTML = `<pre class="code-snippet">${escapeHtml(result.code)}</pre>`;
   } catch (e) {
@@ -3485,31 +3592,64 @@ function selectMockupScreen(idPrefix, index) {
 async function renderRound4View(box) {
   box.innerHTML = loadingHtml();
   try {
-    round4State = await api("/candidate/round/4/state");
+    round4State = await api("/candidate/round/2/state");
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
   }
-  // Seed the draft buffer from whatever was last autosaved server-side -
-  // recovers in-progress text across a full page refresh, not just a tab
-  // switch within the same page load.
-  round4DraftBuffer = {};
-  for (const tc of round4State.test_cases) round4DraftBuffer[tc.id] = tc.draft_prompt || "";
-  round4ViewedTestCaseId = round4State.test_cases.length > 0 ? round4State.test_cases[0].id : null;
-  renderRound4Layout(box);
+  // Focused Automation Pilot (see routers/candidate.py's /round/4/pilot/*
+  // endpoints) is a different candidate-facing shape entirely - a single
+  // Python file + a narrow AI assistant, not test-case tabs and a
+  // conversation - see renderRound4PilotLayout below. Same state fetch
+  // and timer wiring either way; only which layout renders differs.
+  // AI-Assisted Test Automation is a third round-4 mode - the candidate
+  // automates the test cases THEY designed in round 1, so its state is
+  // shaped nothing like the other two and lives behind its own endpoint
+  // (see routers/candidate.py's /round/4/auto/*). The shared
+  // /round/4/state call above still provides scenario + submission, so
+  // the timer/tab-guard wiring below is identical for all three modes.
+  if (round4State.scenario && round4State.scenario.is_auto) {
+    await loadRound4Automation(box);
+  } else if (round4State.is_pilot) {
+    renderRound4PilotLayout(box);
+  } else {
+    // Seed the draft buffer from whatever was last autosaved server-side -
+    // recovers in-progress text across a full page refresh, not just a tab
+    // switch within the same page load.
+    round4DraftBuffer = {};
+    for (const tc of round4State.test_cases) round4DraftBuffer[tc.id] = tc.draft_prompt || "";
+    round4ViewedTestCaseId = round4State.test_cases.length > 0 ? round4State.test_cases[0].id : null;
+    renderRound4Layout(box);
+  }
 
   if (!timerHandle) {
     const submission = round4State.submission;
     const deadline = new Date(submission.started_at + "Z").getTime() + round4State.scenario.time_limit_minutes * 60 * 1000;
-    startTimer(deadline, round4AutoSubmit, 4);
+    startTimer(deadline, round4AutoSubmit, 2);
   }
 }
 
 async function round4AutoSubmit() {
   const timerEl = document.getElementById("timer");
   if (timerEl) timerEl.textContent = "Time's up - submitting automatically...";
+  // Pilot submissions live under a separate endpoint (see
+  // renderRound4PilotLayout/round4PilotSubmitClicked below) - the legacy
+  // one would 400 ("Create at least one test case...") since a pilot
+  // submission has no round4_test_cases at all.
+  // The automation mode can't be auto-submitted with an empty body at
+  // all (it requires the candidate's own interpretation of their run -
+  // see Round4AutoSubmitCreate), so on expiry it sends a placeholder
+  // rather than silently discarding the round; a candidate who never got
+  // that far just fails that rubric area, same as any other unfinished
+  // work. Its own catch below already handles "nothing to submit".
+  const isAuto = round4State && round4State.scenario && round4State.scenario.is_auto;
+  const submitPath = isAuto
+    ? "/candidate/round/2/auto/submit"
+    : (round4State && round4State.is_pilot) ? "/candidate/round/2/pilot/submit" : "/candidate/round/2/submit";
   try {
-    await api("/candidate/round/4/submit", { method: "POST" });
+    await api(submitPath, isAuto
+      ? { method: "POST", body: JSON.stringify({ validation: "(time expired before the candidate submitted an interpretation)" }) }
+      : { method: "POST" });
     round4DraftBuffer = {};
     stopTimer();
     disarmTabGuard();
@@ -3571,7 +3711,7 @@ function renderRound4Layout(box) {
   // composer stays reachable (docked, not buried) regardless of
   // conversation length.
   box.innerHTML = `
-    <h3>Round 4: ${escapeHtml(s.scenario.title)}</h3>
+    <h3>Round 2: ${escapeHtml(s.scenario.title)}</h3>
     ${formatScenarioDescription(s.scenario.description)}
     <details class="hint-box">
       <summary><strong>Automating your own Round 1 answer</strong> - "${escapeHtml(s.round1_context.scenario_title)}"</summary>
@@ -3617,7 +3757,7 @@ function renderRound4Layout(box) {
     </div>
     <div id="round4-test-case-body"></div>
     <div class="row" style="margin-top:1.25rem">
-      <button id="round4-submit-btn" class="btn-block" onclick="round4Submit()" ${s.test_cases.length > 0 ? "" : "disabled"}>Submit Round 4</button>
+      <button id="round4-submit-btn" class="btn-block" onclick="round4Submit()" ${s.test_cases.length > 0 ? "" : "disabled"}>Submit Round 2</button>
     </div>
     <p id="round4-status" class="muted"></p>
   `;
@@ -3652,8 +3792,8 @@ async function round4CreateTestCase() {
   // falls back to "Test case N" for display (see Round4TestCaseOut) and
   // the candidate's own prompts are what actually convey intent.
   try {
-    const tc = await api("/candidate/round/4/test-case", { method: "POST", body: JSON.stringify({ title: null }) });
-    round4State = await api("/candidate/round/4/state");
+    const tc = await api("/candidate/round/2/test-case", { method: "POST", body: JSON.stringify({ title: null }) });
+    round4State = await api("/candidate/round/2/state");
     round4DraftBuffer[tc.id] = "";
     round4ViewedTestCaseId = tc.id;
     renderRound4Tabs();
@@ -3869,7 +4009,7 @@ function round4FlushDraft(tcId) {
   if (tcId == null || round4DraftTimers[tcId] == null) return;
   clearTimeout(round4DraftTimers[tcId]);
   delete round4DraftTimers[tcId];
-  api(`/candidate/round/4/test-case/${tcId}/draft`, {
+  api(`/candidate/round/2/test-case/${tcId}/draft`, {
     method: "PATCH",
     body: JSON.stringify({ draft_prompt: round4DraftBuffer[tcId] || "" }),
   }).catch(() => {}); // best-effort - the in-memory buffer is still correct either way
@@ -3895,14 +4035,14 @@ async function round4SendMessage() {
   statusEl.textContent = "Thinking...";
   if (sendBtn) sendBtn.disabled = true;
   try {
-    await api("/candidate/round/4/turn", {
+    await api("/candidate/round/2/turn", {
       method: "POST",
       body: JSON.stringify({ test_case_id: tcId, candidate_prompt: prompt }),
     });
     clearTimeout(round4DraftTimers[tcId]);
     delete round4DraftTimers[tcId];
     round4DraftBuffer[tcId] = ""; // the server already cleared its copy as part of turn creation
-    round4State = await api("/candidate/round/4/state");
+    round4State = await api("/candidate/round/2/state");
     statusEl.textContent = "";
     renderRound4Tabs();
     renderRound4TestCaseBody();
@@ -3915,7 +4055,7 @@ async function round4SendMessage() {
 async function round4Submit() {
   const statusEl = document.getElementById("round4-status");
   try {
-    await api("/candidate/round/4/submit", { method: "POST" });
+    await api("/candidate/round/2/submit", { method: "POST" });
     stopTimer();
     disarmTabGuard();
     round4DraftBuffer = {};
@@ -3941,7 +4081,8 @@ function exampleTestCaseRowHtml() {
       <td>Verify login with valid credentials</td>
       <td>User has a registered account</td>
       <td>1. Open the login page. 2. Enter a valid username and password. 3. Click "Login".</td>
-      <td>User is redirected to the home/dashboard screen and a welcome message is shown.</td>
+      <td>username = jordan.rivera@example.com; password = Passw0rd!2026</td>
+      <td>User is redirected to /dashboard and the header shows "Welcome, Jordan".</td>
       <td></td>
     </tr>
   `;
@@ -3957,6 +4098,7 @@ function addRow(initial = null) {
     <td><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()" /></td>
     <td><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
     <td><textarea class="tc-steps" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td><textarea class="tc-data" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
     <td><textarea class="tc-expected" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
     <td><button onclick="removeRow('row-${id}')">Remove</button></td>
   `;
@@ -3965,6 +4107,8 @@ function addRow(initial = null) {
     tr.querySelector(".tc-title").value = initial.title || "";
     tr.querySelector(".tc-pre").value = initial.preconditions || "";
     tr.querySelector(".tc-steps").value = initial.steps || "";
+    // `|| ""` covers a draft/submission autosaved before test_data existed.
+    tr.querySelector(".tc-data").value = initial.test_data || "";
     tr.querySelector(".tc-expected").value = initial.expected_result || "";
   }
   renumberRows();
@@ -4002,6 +4146,7 @@ function collectRows() {
       title: tr.querySelector(".tc-title").value,
       preconditions: tr.querySelector(".tc-pre").value,
       steps: tr.querySelector(".tc-steps").value,
+      test_data: tr.querySelector(".tc-data").value,
       expected_result: tr.querySelector(".tc-expected").value,
     }))
     .filter((r) => r.title.trim() || r.steps.trim());
@@ -4322,6 +4467,402 @@ function escapeAttr(str) {
 // reference `const`s declared further up this file (ROUND_LABELS and
 // others) - those are in a "temporal dead zone" until their own
 // declaration line has run.
+
+// ==================== Round 4 pilot ("Focused Automation Pilot") ====================
+// Candidate UI for the single-file automation exercise - see
+// routers/candidate.py's /round/4/pilot/* endpoints and
+// renderRound4View's is_pilot branch above. Renders into the same
+// #round-view container every other round uses; no template/index.html
+// changes needed. Deliberately separate render/action functions from the
+// legacy conversational round 4 UI above (renderRound4Layout etc.) -
+// same reasoning the backend already used to keep the two flows apart.
+//
+// Code editing model: the code textarea is directly editable. Run and
+// Submit both read its current value and send it as {code: ...} to
+// /pilot/run and /pilot/submit (see Round4PilotCodeUpdate/
+// _apply_pilot_code_edit in routers/candidate.py) - the server persists
+// that edit BEFORE executing/scoring, so both always act on exactly
+// what's in the editor at the moment the button was clicked, never a
+// stale server-side copy. An AI turn (Ask AI) can still update the same
+// buffer via code_after, same as before - the two ways of changing the
+// code (typing directly, or an AI-suggested edit) share one buffer.
+
+let round4PilotBusy = false; // guards against overlapping Run/Ask/Clarify/Submit calls
+
+function round4PilotSetBusy(busy) {
+  round4PilotBusy = busy;
+  ["round4-pilot-run-btn", "round4-pilot-ask-btn", "round4-pilot-clarify-btn", "round4-pilot-submit-btn"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+}
+
+function renderRound4PilotTurnsHtml() {
+  const turns = round4State.pilot_turns || [];
+  if (turns.length === 0) return `<p class="muted">No messages yet - ask the assistant something below.</p>`;
+  return turns.map((t) => `
+    <div class="panel-inset" style="margin-bottom:0.5rem">
+      <p style="margin:0 0 0.35rem 0"><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
+      <p style="margin:0 0 ${t.code_after ? "0.35rem" : "0"} 0"><strong>Assistant</strong> <span class="muted">(${escapeHtml(t.response_kind)})</span>: ${escapeHtml(t.response_message)}</p>
+      ${t.code_after ? `<pre class="code-snippet">${escapeHtml(t.code_after)}</pre>` : ""}
+    </div>
+  `).join("");
+}
+
+function renderRound4PilotRunResultHtml(run) {
+  if (!run) return `<p class="muted">Not run yet.</p>`;
+  return `
+    <div class="panel-inset">
+      ${run.timed_out ? `<p style="color:var(--warn)">Timed out.</p>` : ""}
+      ${run.infra_error ? `<p style="color:var(--warn)">The execution service had a problem - try running again.</p>` : ""}
+      <p class="muted" style="margin:0 0 0.3rem 0">Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}</p>
+      ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
+      ${run.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(run.stderr)}</pre>` : ""}
+    </div>
+  `;
+}
+
+function renderRound4PilotLayout(box) {
+  const s = round4State;
+  box.innerHTML = `
+    <h3>Round 2: ${escapeHtml(s.scenario.title)}</h3>
+    ${formatScenarioDescription(s.scenario.description)}
+    <div class="panel-inset" style="margin-bottom:0.85rem">
+      <p class="muted" style="margin:0">You're extending the existing automation below with the AI assistant's help. Ask it to explain code, help debug a failure, or make one specific, narrow change - it won't design your test strategy or write the whole thing for you, and you're responsible for reviewing anything it changes before you rely on it. If anything in the requirement is ambiguous, ask for a clarification rather than guessing.</p>
+    </div>
+
+    <h4>Current automation code</h4>
+    <textarea id="round4-pilot-code" class="code-textarea round4-pilot-code">${escapeHtml(s.pilot_code || "")}</textarea>
+    <p class="muted" style="margin:0.3rem 0 1rem 0">Edit this directly, or ask the assistant for a narrow change below - Run and Submit always use exactly what's in this box.</p>
+
+    <h4>Run</h4>
+    <div class="row" style="margin-bottom:0.5rem">
+      <button id="round4-pilot-run-btn" onclick="round4PilotRunClicked()">Run</button>
+    </div>
+    <div id="round4-pilot-run-result">${renderRound4PilotRunResultHtml(s.pilot_last_run)}</div>
+
+    <h4 style="margin-top:1.25rem">Ask the assistant</h4>
+    <div class="field-row">
+      <div class="field">
+        <textarea id="round4-pilot-prompt" rows="2" placeholder="e.g. Explain what ApiHelper.submit_transaction does, or: add a test that automates the transaction flow for a valid customer, reusing the existing helpers."></textarea>
+      </div>
+      <button id="round4-pilot-ask-btn" onclick="round4PilotAskAIClicked()">Ask AI</button>
+    </div>
+
+    <h4 style="margin-top:1.25rem">Requirement clarification</h4>
+    ${s.pilot_clarification ? `
+      <div class="panel-inset" style="margin-bottom:0.5rem">
+        <p style="margin:0 0 0.35rem 0"><strong>You asked:</strong> ${escapeHtml(s.pilot_clarification.question)}</p>
+        <p style="margin:0">${escapeHtml(s.pilot_clarification.response)}</p>
+      </div>
+    ` : `<p class="muted">You haven't asked for a clarification yet.</p>`}
+    <div class="field-row">
+      <div class="field">
+        <input id="round4-pilot-clarify-input" type="text" maxlength="2000" placeholder="e.g. What does &quot;persisted correctly&quot; mean here?" />
+      </div>
+      <button id="round4-pilot-clarify-btn" onclick="round4PilotClarifyClicked()">Clarify Requirement</button>
+    </div>
+
+    <h4 style="margin-top:1.25rem">Conversation history</h4>
+    <div id="round4-pilot-turns">${renderRound4PilotTurnsHtml()}</div>
+
+    <div class="row" style="margin-top:1.25rem">
+      <button id="round4-pilot-submit-btn" class="btn-block" onclick="round4PilotSubmitClicked()">Submit Round 2</button>
+    </div>
+    <p id="round4-pilot-status" class="muted"></p>
+  `;
+}
+
+// Shared by Run/Ask AI/Clarify: call the endpoint, then re-fetch full
+// state and re-render - simpler and less bug-prone than patching three
+// different DOM regions with three different response shapes, and
+// round4State (source of truth for the next render) never drifts from
+// what the server actually persisted. Submit is handled separately
+// below since a successful submit ends the round instead of re-rendering it.
+async function round4PilotAction(actionFn) {
+  if (round4PilotBusy) return;
+  round4PilotBusy = true;
+  round4PilotSetBusy(true);
+  const statusEl = document.getElementById("round4-pilot-status");
+  if (statusEl) statusEl.textContent = "";
+  try {
+    await actionFn();
+    round4State = await api("/candidate/round/2/state");
+    renderRound4PilotLayout(document.getElementById("round-view"));
+  } catch (e) {
+    const s = document.getElementById("round4-pilot-status");
+    if (s) s.textContent = e.message;
+  } finally {
+    round4PilotBusy = false;
+  }
+}
+
+function round4PilotRunClicked() {
+  const code = document.getElementById("round4-pilot-code").value;
+  round4PilotAction(() => api("/candidate/round/2/pilot/run", { method: "POST", body: JSON.stringify({ code }) }));
+}
+
+function round4PilotAskAIClicked() {
+  const input = document.getElementById("round4-pilot-prompt");
+  const prompt = input.value.trim();
+  if (!prompt) return;
+  round4PilotAction(() => api("/candidate/round/2/pilot/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt }) }));
+}
+
+function round4PilotClarifyClicked() {
+  const input = document.getElementById("round4-pilot-clarify-input");
+  const question = input.value.trim();
+  if (!question) return;
+  round4PilotAction(() => api("/candidate/round/2/pilot/clarify", { method: "POST", body: JSON.stringify({ question }) }));
+}
+
+async function round4PilotSubmitClicked() {
+  if (round4PilotBusy) return;
+  round4PilotBusy = true;
+  round4PilotSetBusy(true);
+  const statusEl = document.getElementById("round4-pilot-status");
+  if (statusEl) statusEl.textContent = "";
+  const code = document.getElementById("round4-pilot-code").value;
+  try {
+    await api("/candidate/round/2/pilot/submit", { method: "POST", body: JSON.stringify({ code }) });
+    stopTimer();
+    disarmTabGuard();
+    refreshCandidateNav();
+  } catch (e) {
+    // Round still in progress (e.g. "Make some changes before submitting.") -
+    // timer/guard must stay engaged, same as legacy round4Submit's own catch.
+    if (statusEl) statusEl.textContent = e.message;
+    round4PilotBusy = false;
+    round4PilotSetBusy(false);
+  }
+}
+
+// ==================== AI-Assisted Test Automation (round 4 slot) ====================
+// The candidate automates the test cases THEY designed in round 1 - see
+// routers/candidate.py's /round/4/auto/* endpoints. Deliberately its own
+// render/action functions, separate from both the legacy round 4 UI and
+// the pilot UI above, same reasoning the backend already uses to keep the
+// three modes apart. Backend stays authoritative throughout: no scoring,
+// policy or selection rule is duplicated here.
+
+let round4AutoState = null;
+let round4AutoBusy = false;
+
+function round4AutoSetBusy(busy) {
+  round4AutoBusy = busy;
+  ["r4a-select-btn", "r4a-ask-btn", "r4a-save-btn", "r4a-run-btn", "r4a-refine-btn", "r4a-submit-btn"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = busy;
+  });
+}
+
+async function loadRound4Automation(box) {
+  try {
+    round4AutoState = await api("/candidate/round/2/auto/state");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
+  renderRound4AutomationLayout(box);
+}
+
+function round4AutoDesignCardHtml(row, { selectable }) {
+  return `
+    <div class="panel-inset" style="margin-bottom:0.5rem">
+      <p style="margin:0 0 0.3rem 0">
+        ${selectable ? `<label><input type="checkbox" class="r4a-pick" value="${row.index}" /> <strong>${escapeHtml(row.title || "(untitled)")}</strong></label>`
+                     : `<strong>${escapeHtml(row.title || "(untitled)")}</strong>`}
+      </p>
+      ${row.preconditions ? `<p class="muted" style="margin:0 0 0.2rem 0"><strong>Preconditions:</strong> ${escapeHtml(row.preconditions)}</p>` : ""}
+      <p style="margin:0 0 0.2rem 0"><strong>Steps:</strong> ${escapeHtml(row.steps || "")}</p>
+      <p style="margin:0 0 0.2rem 0"><strong>Test data:</strong> ${escapeHtml(row.test_data || "(none specified)")}</p>
+      <p style="margin:0"><strong>Expected result:</strong> ${escapeHtml(row.expected_result || "")}</p>
+      ${(row.refinements || []).length > 0 ? `
+        <div style="margin-top:0.4rem">
+          <p class="muted" style="margin:0 0 0.2rem 0"><strong>Your refinement notes</strong> (added during automation - your original design above is unchanged):</p>
+          <ul style="margin:0">${row.refinements.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
+        </div>` : ""}
+    </div>`;
+}
+
+function round4AutoRunResultHtml(run) {
+  if (!run) return `<p class="muted">Not run yet.</p>`;
+  return `
+    <div class="panel-inset">
+      ${run.timed_out ? `<p style="color:var(--warn)">Timed out.</p>` : ""}
+      ${run.infra_error ? `<p style="color:var(--warn)">The execution service had a problem - try running again.</p>` : ""}
+      <p class="muted" style="margin:0 0 0.3rem 0">Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}</p>
+      ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
+      ${run.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(run.stderr)}</pre>` : ""}
+    </div>`;
+}
+
+function round4AutoTurnsHtml() {
+  const turns = round4AutoState.turns || [];
+  if (turns.length === 0) return `<p class="muted">No messages yet.</p>`;
+  return turns.map((t) => `
+    <div class="panel-inset" style="margin-bottom:0.5rem">
+      <p style="margin:0 0 0.35rem 0"><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
+      <p style="margin:0"><strong>Assistant</strong> <span class="muted">(${escapeHtml(t.response_kind)})</span>: ${escapeHtml(t.response_message)}</p>
+    </div>`).join("");
+}
+
+function renderRound4AutomationLayout(box) {
+  const s = round4AutoState;
+  const scenario = round4State.scenario;
+
+  if (!s.selection_locked) {
+    box.innerHTML = `
+      <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
+      ${formatScenarioDescription(scenario.description)}
+      <div class="panel-inset" style="margin-bottom:0.85rem">
+        <p style="margin:0">Pick <strong>one or two</strong> of your own Round 1 test cases to automate. This choice is locked once you confirm it - your original design is kept exactly as you wrote it, and everything you automate is judged against it.</p>
+      </div>
+      <h4>Your Round 1 test cases</h4>
+      ${(s.available_rows || []).map((r) => round4AutoDesignCardHtml(r, { selectable: true })).join("") || `<p class="muted">No Round 1 test cases found.</p>`}
+      <div class="row" style="margin-top:0.75rem">
+        <button id="r4a-select-btn" onclick="round4AutoSelectClicked()">Confirm selection</button>
+      </div>
+      <p id="r4a-status" class="muted"></p>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
+    ${formatScenarioDescription(scenario.description)}
+    <div class="panel-inset" style="margin-bottom:0.85rem">
+      <p style="margin:0">Automating in <strong>${escapeHtml(s.language)}</strong> (the language you chose in Round 3). The assistant will only encode the design below - it won't invent test cases, data or assertions, so anything missing is yours to add. Review everything it writes, edit the code yourself where you disagree, run it, then explain what the result actually proves.</p>
+    </div>
+
+    <h4>Your selected design <span class="muted">(original - never edited here)</span></h4>
+    ${(s.selected || []).map((r) => round4AutoDesignCardHtml(r, { selectable: false })).join("")}
+
+    <details class="hint-box" style="margin-bottom:1rem">
+      <summary><strong>Add a refinement note</strong> (append-only - your original stays intact)</summary>
+      <div class="field-row" style="margin-top:0.5rem">
+        <div class="field">
+          <select id="r4a-refine-row">
+            ${(s.selected || []).map((r) => `<option value="${r.index}">${escapeHtml(r.title || "(untitled)")}</option>`).join("")}
+          </select>
+          <input id="r4a-refine-note" type="text" maxlength="2000" placeholder="e.g. realised the expected message is exact-match, not a substring" />
+        </div>
+        <button id="r4a-refine-btn" onclick="round4AutoRefineClicked()">Add note</button>
+      </div>
+    </details>
+
+    <details class="hint-box" style="margin-bottom:1rem">
+      <summary><strong>Automation environment</strong> (provided - reuse these helpers, don't rebuild them)</summary>
+      <pre class="code-snippet">${escapeHtml(s.environment_code || "")}</pre>
+    </details>
+
+    <h4>Automation code</h4>
+    <textarea id="r4a-code" class="code-textarea round4-pilot-code">${escapeHtml(s.code || "")}</textarea>
+    <div class="row" style="margin:0.4rem 0 1rem 0">
+      <button id="r4a-save-btn" onclick="round4AutoSaveCodeClicked()">Save my edit</button>
+      <button id="r4a-run-btn" onclick="round4AutoRunClicked()">Run</button>
+      <span class="muted">Run uses exactly what's in this box. Your own edits are recorded separately from the assistant's.</span>
+    </div>
+    <div id="r4a-run-result">${round4AutoRunResultHtml(s.last_run)}</div>
+
+    <h4 style="margin-top:1.25rem">Ask the assistant</h4>
+    <div class="field-row">
+      <div class="field">
+        <textarea id="r4a-prompt" rows="2" placeholder="e.g. Encode step 2 of my first test case using UI.login, asserting the expected result I wrote."></textarea>
+      </div>
+      <button id="r4a-ask-btn" onclick="round4AutoAskClicked()">Ask AI</button>
+    </div>
+    <div style="margin-top:0.75rem">${round4AutoTurnsHtml()}</div>
+
+    <h4 style="margin-top:1.25rem">What did your run prove?</h4>
+    <div class="field">
+      <textarea id="r4a-validation" rows="3" placeholder="Interpret your execution result: what does it actually prove about your expected result, and what does it not?">${escapeHtml(s.validation || "")}</textarea>
+    </div>
+    <div class="row" style="margin-top:0.75rem">
+      <button id="r4a-submit-btn" class="btn-block" onclick="round4AutoSubmitClicked()">Submit Round 2</button>
+    </div>
+    <p id="r4a-status" class="muted"></p>`;
+}
+
+// Shared by every action except submit: call the endpoint, re-fetch state,
+// re-render. Same reasoning as the pilot's round4PilotAction - the server
+// is the single source of truth for what actually persisted.
+async function round4AutoAction(actionFn) {
+  if (round4AutoBusy) return;
+  round4AutoBusy = true;
+  round4AutoSetBusy(true);
+  const statusEl = document.getElementById("r4a-status");
+  if (statusEl) statusEl.textContent = "";
+  try {
+    await actionFn();
+    round4AutoState = await api("/candidate/round/2/auto/state");
+    renderRound4AutomationLayout(document.getElementById("round-view"));
+  } catch (e) {
+    const el = document.getElementById("r4a-status");
+    if (el) el.textContent = e.message;
+  } finally {
+    round4AutoBusy = false;
+    round4AutoSetBusy(false);
+  }
+}
+
+function round4AutoSelectClicked() {
+  const picked = [...document.querySelectorAll(".r4a-pick:checked")].map((el) => Number(el.value));
+  const statusEl = document.getElementById("r4a-status");
+  if (picked.length < 1 || picked.length > 2) {
+    if (statusEl) statusEl.textContent = "Select one or two test cases.";
+    return;
+  }
+  round4AutoAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: picked }) }));
+}
+
+function round4AutoRefineClicked() {
+  const note = document.getElementById("r4a-refine-note").value.trim();
+  if (!note) return;
+  const rowIndex = Number(document.getElementById("r4a-refine-row").value);
+  round4AutoAction(() => api("/candidate/round/2/auto/refine", { method: "POST", body: JSON.stringify({ row_index: rowIndex, note }) }));
+}
+
+function round4AutoAskClicked() {
+  const prompt = document.getElementById("r4a-prompt").value.trim();
+  if (!prompt) return;
+  round4AutoAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt }) }));
+}
+
+function round4AutoSaveCodeClicked() {
+  const code = document.getElementById("r4a-code").value;
+  if (!code) return;
+  round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code }) }));
+}
+
+function round4AutoRunClicked() {
+  const code = document.getElementById("r4a-code").value;
+  round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code }) }));
+}
+
+async function round4AutoSubmitClicked() {
+  if (round4AutoBusy) return;
+  const validation = document.getElementById("r4a-validation").value.trim();
+  const statusEl = document.getElementById("r4a-status");
+  if (!validation) {
+    if (statusEl) statusEl.textContent = "Explain what your run proves before submitting.";
+    return;
+  }
+  round4AutoBusy = true;
+  round4AutoSetBusy(true);
+  if (statusEl) statusEl.textContent = "";
+  const code = document.getElementById("r4a-code").value;
+  try {
+    await api("/candidate/round/2/auto/submit", { method: "POST", body: JSON.stringify({ code, validation }) });
+    stopTimer();
+    disarmTabGuard();
+    refreshCandidateNav();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
+    round4AutoBusy = false;
+    round4AutoSetBusy(false);
+  }
+}
+
 // ==================== Round 5 (Progressive Engineering) POC ====================
 // HR authoring UI only (Phase 7) - talks to routers/progressive.py's
 // hr_router, which is a brand-new router (see main.py) not merged into

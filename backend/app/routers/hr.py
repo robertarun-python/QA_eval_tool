@@ -53,7 +53,7 @@ VALID_BANDS = (ExperienceBand.junior.value, ExperienceBand.senior.value)
 # Mirrors app.js's ROUND_LABELS - only used here for the PDF's per-round
 # headings, so a small local copy (not worth a shared-constants file
 # across two different languages) is the pragmatic choice.
-ROUND_LABELS = {1: "Manual test cases", 2: "Debugging", 3: "AI-prompted coding", 4: "Conversational"}
+ROUND_LABELS = {1: "Manual test cases", 2: "AI-Assisted Test Automation", 3: "AI-prompted coding", 4: "Debugging"}
 
 
 def get_settings(db: Session) -> AppSettings:
@@ -160,7 +160,7 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
             experience_band=scenario.experience_band.value,
             time_limit_minutes=scenario.time_limit_minutes,
         )
-    elif scenario.round_number == 2:
+    elif scenario.round_number == 4:
         scenario.reference_json = llm_service.generate_round2_reference(
             scenario_description=scenario.description,
             experience_band=scenario.experience_band.value,
@@ -171,7 +171,7 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
             scenario_description=scenario.description,
             experience_band=scenario.experience_band.value,
         )
-    elif scenario.round_number == 4:
+    elif scenario.round_number == 2:
         # Round 4 has no scenario-level test-case reference (its target
         # is each candidate's own round 1 answer) - what it needs instead
         # is a Test Environment reference sheet (credentials, API
@@ -230,7 +230,7 @@ def _resync_round4_reference_for_band(round1_scenario: Scenario, db: Session) ->
     if round1_scenario.round_number != 1:
         return
     live_round4 = db.query(Scenario).filter(
-        Scenario.round_number == 4,
+        Scenario.round_number == 2,
         Scenario.experience_band == round1_scenario.experience_band,
         Scenario.is_live.is_(True),
     ).first()
@@ -271,7 +271,7 @@ def regenerate_reference(scenario_id: int, background_tasks: BackgroundTasks, db
     first, so it gets the same live-editable-but-blocked-mid-round
     treatment as its other settings instead."""
     scenario = db.get(Scenario, scenario_id)
-    if scenario is not None and scenario.round_number == 4:
+    if scenario is not None and scenario.round_number == 2:
         _require_round4_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")
     else:
         scenario = _get_draft_scenario_or_404(scenario_id, db)
@@ -384,7 +384,7 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
-    if scenario.round_number != 4 and scenario.status != ScenarioStatus.draft:
+    if scenario.round_number != 2 and scenario.status != ScenarioStatus.draft:
         raise HTTPException(400, "This scenario is published - its time limit can't change anymore. Publish a new scenario with the corrected time limit instead.")
 
     band_in_progress = (
@@ -424,7 +424,7 @@ def _get_round4_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
-    if scenario.round_number != 4:
+    if scenario.round_number != 2:
         raise HTTPException(400, "This setting only applies to round 4 scenarios.")
     return scenario
 
@@ -510,7 +510,25 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     # have its own generated content that must exist before candidates
     # see this scenario: the Test Environment reference sheet and the
     # reference UI screens.
-    if scenario.round_number == 4:
+    if scenario.round_number == 2 and (scenario.config_json or {}).get("mode") == "ai_test_automation":
+        # AI-Assisted Test Automation - the candidate automates their own
+        # round 1 design, so there's no scenario-level test-case reference
+        # and no environment/UI mockup to require. What must exist is the
+        # HR/system-only ground truth the scorer judges the candidate's
+        # execution interpretation against (see seed_round4_auto.py).
+        if not (scenario.reference_json or {}).get("ground_truth"):
+            raise HTTPException(400, "Can't publish an automation scenario with no ground truth for execution interpretation yet.")
+        if not (scenario.config_json or {}).get("environment_code_by_language"):
+            raise HTTPException(400, "Can't publish an automation scenario with no automation environment configured yet.")
+    elif scenario.round_number == 2 and (scenario.config_json or {}).get("mode") == "pilot_automation":
+        # Focused Automation Pilot - a single-file coding exercise, not
+        # the legacy role-play flow, so it has no environment_json/
+        # ui_mockup_json to require. Its own scoring ground truth
+        # (reference_json - see seed_round4_pilot.py) is what must exist
+        # before candidates see it, same as every non-round-4 round.
+        if not scenario.reference_json:
+            raise HTTPException(400, "Can't publish a round 4 pilot scenario with no reference solution/validation yet.")
+    elif scenario.round_number == 2:
         if not scenario.environment_json:
             raise HTTPException(400, "Can't publish a round 4 scenario with no test environment generated yet.")
         if not scenario.ui_mockup_json:
@@ -785,7 +803,7 @@ def _build_submission_reports(submissions: list[Submission]) -> list[SubmissionR
                     previous_code = t.code_after
             report.round3_turns = audit_turns
             report.round3_runs = [Round3RunOut.model_validate(r) for r in s.round3_execution_runs]
-        elif s.round_number == 4:
+        elif s.round_number == 2:
             report.test_cases = [
                 Round4TestCaseOut(
                     id=tc.id, title=tc.title, draft_prompt=tc.draft_prompt,
