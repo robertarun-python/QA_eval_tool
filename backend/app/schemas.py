@@ -884,6 +884,14 @@ class Round4AutoRunOut(BaseModel):
     exit_code: Optional[int] = None
     timed_out: bool = False
     infra_error: bool = False
+    # Both already computed by execution_service.run_code (duration_ms)
+    # or trivial to stamp at the call site (ran_at) - not persisted
+    # before this, so an older run recorded before this field existed
+    # reads back as None. "Where available" in the per-TC presentation
+    # requirement, not a new logging system - this is still exactly one
+    # snapshot (the last run), same as every field above it.
+    duration_ms: Optional[int] = None
+    ran_at: Optional[datetime] = None
 
 
 class Round4AutoTCStateOut(BaseModel):

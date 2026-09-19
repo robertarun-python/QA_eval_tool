@@ -1472,6 +1472,10 @@ def round4_auto_run(
     last_run = {
         "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code,
         "timed_out": result.timed_out, "infra_error": result.infra_error,
+        # duration_ms was already computed by execution_service.run_code
+        # and simply discarded before now; ran_at is stamped here since
+        # run_code itself has no reason to know wall-clock time.
+        "duration_ms": result.duration_ms, "ran_at": datetime.utcnow().isoformat(),
     }
     selected = content.get("selected") or []
     updated_selected = [{**r, "last_run": last_run} if r["index"] == row_index else r for r in selected]

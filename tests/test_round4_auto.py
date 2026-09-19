@@ -54,10 +54,21 @@ R1_ROWS = [
 GROUND_TRUTH = "create_record rejects amount <= 0 and writes nothing; Database.find is the only proof of persistence."
 
 
-def _publish_auto_scenario(client, hr_token, band="0-7"):
+def _publish_auto_scenario(client, hr_token, monkeypatch, band="0-7"):
     """Creates + publishes the automation scenario directly (its config/
     reference are HR/system-authored, not LLM-generated - see
-    seed_round4_auto.py, which this mirrors without touching the real DB)."""
+    seed_round4_auto.py, which this mirrors without touching the real DB).
+
+    create_scenario (hr.py) unconditionally calls _generate_reference for
+    every round_number==2 scenario regardless of config_json["mode"] - it
+    has no ai_test_automation-specific branch, so creating even this
+    scenario triggers the legacy round4 environment/UI-mockup generator.
+    Mocked the same way _publish_round4_scenario already does, so this
+    helper never makes a real LLM call."""
+    from .conftest import FAKE_ENVIRONMENT, FAKE_UI_MOCKUP
+    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
+    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+
     scenario = client.post(
         "/hr/scenarios",
         json={
@@ -91,7 +102,7 @@ def _reach_automation_round(client, hr_token, monkeypatch, r1_rows=None, languag
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
     _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
-    _publish_auto_scenario(client, hr_token)
+    _publish_auto_scenario(client, hr_token, monkeypatch)
 
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **k: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
     monkeypatch.setattr(llm_service, "score_round2_submission", lambda **k: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
@@ -146,7 +157,7 @@ def test_r2_requires_an_explicit_language_before_anything_else(client, monkeypat
     requirement, replacing the old python-only default."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_auto_scenario(client, hr_token)
+    _publish_auto_scenario(client, hr_token, monkeypatch)
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **k: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
 
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
@@ -660,6 +671,61 @@ test_reject_zero()
     assert run["infra_error"] is False
     assert run["exit_code"] == 0
     assert "PASS: rejected zero amount" in run["stdout"]
+    # execution_service.run_code already computes duration_ms - this only
+    # confirms it's no longer discarded before reaching the candidate.
+    assert isinstance(run["duration_ms"], int) and run["duration_ms"] >= 0
+    assert run["ran_at"] is not None
+
+
+def test_run_result_presentation_fields_are_independent_per_tc(client, monkeypatch):
+    """TC ID, duration and timestamp - the per-TC presentation fields -
+    for one test case's run must not appear on, or be overwritten by,
+    another's."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    res0 = client.post("/candidate/round/2/auto/run", json={"code": "print('tc0')", "row_index": 0}, cookies=_auth(cand_token))
+    assert res0.json()["duration_ms"] is not None
+    ran_at_0 = res0.json()["ran_at"]
+
+    res1 = client.post("/candidate/round/2/auto/run", json={"code": "print('tc1')", "row_index": 1}, cookies=_auth(cand_token))
+    assert res1.json()["duration_ms"] is not None
+
+    state = _state(client, cand_token)
+    tc0 = next(t for t in state["tc_state"] if t["row_index"] == 0)
+    tc1 = next(t for t in state["tc_state"] if t["row_index"] == 1)
+    assert tc0["last_run"]["ran_at"] == ran_at_0
+    assert tc1["last_run"]["ran_at"] == res1.json()["ran_at"]
+    assert tc0["last_run"]["duration_ms"] is not None
+    assert tc1["last_run"]["duration_ms"] is not None
+
+
+def test_state_tolerates_a_run_recorded_before_duration_and_timestamp_existed(client, monkeypatch):
+    """"Where available" - an older last_run dict with neither field must
+    still read back cleanly, not 500."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+
+    import app.database as database_module
+    from app.models import User, Submission
+    db = database_module.SessionLocal()
+    user = db.query(User).filter(User.email == CANDIDATE1_EMAIL).first()
+    submission = db.query(Submission).filter(Submission.user_id == user.id, Submission.round_number == 2).first()
+    content = dict(submission.content)
+    content["selected"] = [
+        {**row, "last_run": {"stdout": "old", "stderr": "", "exit_code": 0, "timed_out": False, "infra_error": False}}
+        for row in content["selected"]
+    ]
+    submission.content = content
+    db.commit()
+    db.close()
+
+    state = _state(client, cand_token)
+    assert state["tc_state"][0]["last_run"]["duration_ms"] is None
+    assert state["tc_state"][0]["last_run"]["ran_at"] is None
+    assert state["tc_state"][0]["last_run"]["stdout"] == "old"
 
 
 def test_run_requires_a_selection_first(client, monkeypatch):
@@ -809,6 +875,60 @@ def test_submit_requires_a_run_and_an_interpretation(client, monkeypatch):
     assert "run" in res.json()["detail"].lower()
 
 
+# ---- Pilot challenges: a weak AI-generated assertion, or controlled app
+# behavior contradicting R1's expected result. Both are authored into the
+# scenario's existing HR-only ground_truth/validation_notes - no new
+# field or mechanism - so "do not reveal which TC or what caused it"
+# reduces to an existing guarantee (ScenarioPublicOut/SubmissionOut
+# already exclude reference_json - see their own docstrings) that this
+# test exercises directly against a ground_truth actually describing a
+# challenge, across every candidate-facing R2 response. ----
+
+def test_challenge_ground_truth_never_reaches_any_candidate_facing_response(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+
+    challenge_text = "CHALLENGE-WEAK-ASSERTION-ROW-0-TRAP"
+    validation_notes_text = "CHALLENGE-CONTRADICTS-EXPECTED-RESULT-TRAP"
+    import app.database as database_module
+    from app.models import Scenario
+    db = database_module.SessionLocal()
+    scenario = db.query(Scenario).filter(Scenario.round_number == 2).one()
+    scenario.reference_json = {"ground_truth": challenge_text, "validation_notes": validation_notes_text}
+    db.commit()
+    db.close()
+
+    bodies = []
+
+    bodies.append(_state(client, cand_token))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"response_kind": "code_edit", "response_message": "Encoded it.", "code_after": "print('x')"}))
+    bodies.append(client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode step 1"}, cookies=_auth(cand_token)).json())
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps({"status": "sufficient"}))
+    bodies.append(client.post("/candidate/round/2/auto/clarify", json={"candidate_prompt": "submit the amount"}, cookies=_auth(cand_token)).json())
+
+    bodies.append(client.post("/candidate/round/2/auto/run", json={"code": "print('x')"}, cookies=_auth(cand_token)).json())
+
+    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+        "scores": {"automation_design": 20, "test_data_and_assertions": 20, "ai_usage": 20,
+                   "ai_output_review": 20, "execution_and_validation": 20},
+        "final_score": 100, "findings": [], "feedback_text": "ok",
+    })
+    bodies.append(client.post("/candidate/round/2/auto/submit", json=_submit_payload(), cookies=_auth(cand_token)).json())
+    bodies.append(client.get("/candidate/submissions", cookies=_auth(cand_token)).json())
+    bodies.append(client.get("/candidate/round/2", cookies=_auth(cand_token)).json())
+
+    for body in bodies:
+        blob = json.dumps(body)
+        assert challenge_text not in blob
+        assert validation_notes_text not in blob
+        assert "ground_truth" not in blob
+        assert "validation_notes" not in blob
+
+
 def test_full_submission_scores_and_audits_via_the_existing_patterns(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)
@@ -863,6 +983,97 @@ def test_full_submission_scores_and_audits_via_the_existing_patterns(client, mon
     # Candidate still never sees any score.
     res = client.get("/candidate/submissions", cookies=_auth(cand_token))
     assert "score" not in next(s for s in res.json() if s["round_number"] == 2)
+
+
+def test_auto_tc_audit_payload_builds_one_real_entry_per_selected_tc():
+    """Pure function, no LLM/HTTP - see scoring_service._auto_tc_audit_payload.
+    Replaces the old single synthetic "Automation session" entry: titles
+    are index-prefixed (unique even if two test cases share a
+    candidate-authored title), and each test case's own turns keep their
+    own turn_number (restarting at 1 per test case is fine here - only
+    the AUDIT's flattened position, computed from this list's order,
+    is what a citation's "turn" integer actually means)."""
+    from app.services.scoring_service import _auto_tc_audit_payload
+
+    selected = [
+        {"index": 0, "title": "Reject zero amount", "turns": [
+            {"turn_number": 1, "candidate_prompt": "encode TC0 step", "response_message": "Encoded TC0."},
+        ]},
+        {"index": 1, "title": "Accept valid amount", "turns": [
+            {"turn_number": 1, "candidate_prompt": "encode TC1 step", "response_message": "Encoded TC1 distinctively."},
+        ]},
+    ]
+    payload = _auto_tc_audit_payload(selected)
+    assert len(payload) == 2
+    assert payload[0]["title"] == "Test case 0: Reject zero amount"
+    assert payload[1]["title"] == "Test case 1: Accept valid amount"
+    # response_message remapped to model_response - what round4_evidence_audit's
+    # _turn_text actually reads (see the remapping this mirrors).
+    assert payload[0]["turns"][0]["model_response"] == "Encoded TC0."
+    assert payload[1]["turns"][0]["model_response"] == "Encoded TC1 distinctively."
+
+    # Single-TC behavior: exactly one entry, unchanged shape otherwise.
+    single = _auto_tc_audit_payload(selected[:1])
+    assert len(single) == 1
+    assert single[0]["title"] == "Test case 0: Reject zero amount"
+
+
+def test_evidence_audit_never_attributes_one_tcs_turn_to_the_other(client, monkeypatch):
+    """Reproduces the exact collision shape: two selected test cases each
+    with their OWN turn 1 (turn_number restarts per test case - see
+    _auto_tc_audit_payload). A finding correctly citing the flattened
+    position of test case 1's own turn must be SUPPORTED; a finding
+    citing test case 0's position while quoting test case 1's text must
+    NOT be - proving test case 1's evidence can never be validated
+    against test case 0's turn, or vice versa."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"response_kind": "code_edit", "response_message": "Encoded TC0.", "code_after": "print('tc0')"}))
+    client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode tc0 step", "row_index": 0}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"response_kind": "code_edit", "response_message": "Encoded TC1.", "code_after": "print('tc1')"}))
+    client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode tc1 step", "row_index": 1}, cookies=_auth(cand_token))
+
+    client.post("/candidate/round/2/auto/run", json={"code": "print('tc0')", "row_index": 0}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/auto/run", json={"code": "print('tc1')", "row_index": 1}, cookies=_auth(cand_token))
+
+    # Flattened order is TC0's turn (position 1) then TC1's turn (position 2).
+    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+        "scores": {"automation_design": 18, "test_data_and_assertions": 18, "ai_usage": 18,
+                   "ai_output_review": 18, "execution_and_validation": 18},
+        "final_score": 90,
+        "findings": [
+            {"claim": "Test case 1: correctly cited at the real flattened position",
+             "severity": "low", "evidence": [{"turn": 2, "quote": "encode tc1 step"}]},
+            {"claim": "Test case 1: wrongly cited at test case 0's position",
+             "severity": "low", "evidence": [{"turn": 1, "quote": "encode tc1 step"}]},
+        ],
+        "feedback_text": "ok",
+    })
+    entries = [
+        {"row_index": 0, "validation": "TC0 run proves rejection."},
+        {"row_index": 1, "validation": "TC1 run proves persistence."},
+    ]
+    res = client.post("/candidate/round/2/auto/submit", json={"entries": entries}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_r2 = next(s for s in res.json() if s["round_number"] == 2)
+
+    # Only the correctly-attributed finding survives - the misattributed
+    # one is dropped and its deduction refunded, not silently credited.
+    assert report_r2["score"]["misses_json"] == ["Test case 1: correctly cited at the real flattened position"]
+    ea = report_r2["score"]["evidence_audit"]
+    assert ea["total_findings"] == 2
+    assert ea["supported"] == 1
+    assert ea["not_established"] == 1
+    assert report_r2["score"]["final_score"] == 93  # 90 + one low-severity refund (3), the other stands
 
 
 def test_unsupported_finding_is_dropped_by_the_shared_evidence_audit(client, monkeypatch):
@@ -928,6 +1139,10 @@ def test_auto_endpoints_reject_a_non_automation_round4_scenario(client, monkeypa
 
 
 def test_publish_gate_requires_ground_truth_and_environment(client, monkeypatch):
+    from .conftest import FAKE_ENVIRONMENT, FAKE_UI_MOCKUP
+    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
+    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     scenario = client.post(
         "/hr/scenarios",

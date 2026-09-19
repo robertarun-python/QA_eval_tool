@@ -510,6 +510,40 @@ def _aggregate_auto_tc_state(selected: list[dict]) -> dict:
     }
 
 
+def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
+    """One real per-test-case entry - not the single synthetic
+    "Automation session" entry this used to build. round4_evidence_audit
+    numbers a turn citation as a 1-indexed position in the FLATTENED
+    sequence across every entry in this list, in order (see that
+    module's own docstring) - with one synthetic entry, two selected
+    test cases' own turn 1 (each test case's stored turn_number restarts
+    at 1 - see row.get("turns")) both occupied flattened position 1, so
+    a citation naming one test case's turn could validate against the
+    OTHER's turn text. Splitting into real per-test-case entries is
+    exactly the shape the audit module was built for - proven already by
+    round4_scoring.txt's legacy debugging flow, which uses the identical
+    convention - so round4_evidence_audit.py itself needs no change.
+
+    For exactly one selected test case this returns exactly one entry,
+    so flattened position and that test case's own turn_number coincide
+    - single-TC citation behavior is unchanged.
+
+    The title is prefixed with the row's own index (guaranteed unique,
+    unlike a candidate-authored title two test cases could share) so
+    turn_counts (keyed by title, used only for the no_turns evidence
+    shape) can never collide either, even though round4_auto_scoring.txt
+    doesn't currently ask for that shape."""
+    payload = []
+    for row in selected:
+        audit_turns = [
+            {"turn_number": t["turn_number"], "candidate_prompt": t["candidate_prompt"], "model_response": t.get("response_message", "")}
+            for t in (row.get("turns") or [])
+        ]
+        title = f"Test case {row.get('index')}: {row.get('title', '')}".strip()
+        payload.append({"title": title, "turns": audit_turns})
+    return payload
+
+
 def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     """AI-Assisted Test Automation - see llm_service.score_round4_auto_conversation
     and prompts/round4_auto_scoring.txt's 5-area rubric. Every piece of
@@ -537,14 +571,10 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     turns = tc_state["turns"]
     final_code = tc_state["final_code"]
 
-    audit_turns = [
-        {"turn_number": t["turn_number"], "candidate_prompt": t["candidate_prompt"], "model_response": t.get("response_message", "")}
-        for t in turns
-    ]
-    # One synthetic "test case" so round4_evidence_audit (written for the
-    # legacy per-test-case shape) can check citations against this round's
-    # flat turn list completely unmodified.
-    audit_payload = [{"title": "Automation session", "turns": audit_turns}]
+    # One real entry per selected test case - see _auto_tc_audit_payload's
+    # docstring for why the old single synthetic entry let a citation
+    # naming one test case's turn validate against another's.
+    audit_payload = _auto_tc_audit_payload(selected)
 
     environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
     untraceable = round4_auto_policy.untraceable_literals(

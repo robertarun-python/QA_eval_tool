@@ -51,9 +51,11 @@ Score these five areas, each 0-20 (total 100), using PRIMARY EVIDENCE only:
 final_score is the sum of the five (0-100).
 
 For every negative finding, cite PRIMARY EVIDENCE as an exact quote:
-- about the conversation: {{"turn": <int>, "quote": "<exact words from that turn>"}}
+- about the conversation: {{"turn": <int>, "quote": "<exact words from that turn>"}}. If more than one test case was selected, turn is a position in the FULL conversation shown above, counting every turn from every test case sequentially in the order they appear (test case 1's turns, then test case 2's, ...) starting at 1 - NOT the turn_number field inside each turn object, which restarts at 1 for each test case. A second test case's own first turn is therefore NOT turn 1 unless it's also the first turn shown overall.
 - about the final code, the execution result, or the candidate's own interpretation: {{"quote": "<exact text copied from that artefact>"}} - quote it verbatim, character for character, from the final_code / execution result / interpretation shown above.
 Every quote is checked against what was actually recorded. A finding whose quote cannot be located is discarded before it affects scoring, so quote real text rather than paraphrasing, and do not invent a finding to justify a lower score.
+
+If more than one test case was selected, every finding's claim must name which test case it's about (e.g. "Test case 1: ...") - identify it from the "Test case N" labels in the final code/execution sections above, or the tc_index field on each turn in the conversation, whichever the finding's evidence points to. Never leave it ambiguous which of the candidate's test cases a finding describes.
 
 Respond with ONLY a JSON object, no other text, in this exact shape:
 {{

@@ -2649,6 +2649,7 @@ function showRound4AutoIntro(timeLimitMinutes) {
         <li>Submit when satisfied.</li>
       </ol>
       <p class="muted">The assistant will only encode what you already specified in Round 1 - it won't invent test cases, test data, or assertions. You are responsible for the final automation.</p>
+      <p class="muted">AI-generated code may not always be clean, complete, correct, or reliable. You are responsible for reviewing and validating it.</p>
       <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</p>
       <div class="row">
         <button onclick="confirmStartRound4Auto()">Got it - Start Round 2</button>
@@ -4660,13 +4661,21 @@ function round4AutoDesignCardHtml(row, { selectable }) {
     </div>`;
 }
 
-function round4AutoRunResultHtml(run) {
+function round4AutoRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
+  const passed = run.exit_code === 0 && !run.timed_out && !run.infra_error;
+  const meta = [
+    `Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}`,
+    run.duration_ms !== null && run.duration_ms !== undefined ? `${run.duration_ms}ms` : null,
+    run.ran_at ? new Date(run.ran_at).toLocaleString() : null,   // "where available" - absent on a run recorded before this field existed
+  ].filter(Boolean).join(" · ");
   return `
     <div class="panel-inset">
+      <p style="margin:0 0 0.3rem 0"><strong>Test case ${rowIndex}</strong> - <span style="color:${passed ? "var(--accent)" : "var(--warn)"}">${passed ? "PASS" : "FAIL"}</span></p>
       ${run.timed_out ? `<p style="color:var(--warn)">Timed out.</p>` : ""}
       ${run.infra_error ? `<p style="color:var(--warn)">The execution service had a problem - try running again.</p>` : ""}
-      <p class="muted" style="margin:0 0 0.3rem 0">Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}</p>
+      <p class="muted" style="margin:0 0 0.3rem 0">${meta}</p>
+      ${passed ? `<p class="muted" style="margin:0 0 0.3rem 0">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
       ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
       ${run.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(run.stderr)}</pre>` : ""}
     </div>`;
@@ -4717,7 +4726,7 @@ function round4AutoTcPanelHtml(row, active) {
         <button class="r4a-run-btn" onclick="round4AutoRunClicked(${row.index})">Run</button>
         <span class="muted">Run uses exactly what's in this box. Your own edits are recorded separately from the assistant's.</span>
       </div>
-      <div id="r4a-run-result-${row.index}">${round4AutoRunResultHtml(tc.last_run)}</div>
+      <div id="r4a-run-result-${row.index}">${round4AutoRunResultHtml(row.index, tc.last_run)}</div>
 
       <h4 style="margin-top:1.25rem">Ask the assistant</h4>
       <div class="field-row">
