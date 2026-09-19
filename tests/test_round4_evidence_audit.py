@@ -317,3 +317,79 @@ def test_empty_or_none_supporting_texts_change_nothing():
     for support in (None, [], ["", "   "]):
         report = audit_round4_findings(_TURNS, [finding], supporting_texts=support)
         assert report.findings[0].status == "NOT_ESTABLISHED"
+
+
+# ---- supporting_texts as a dict: R2's per-test-case evidence isolation ----
+# R2's tc_evidence blocks are self-contained per selected test case (see
+# scoring_service._auto_tc_evidence_blocks); a quote-only citation tagged
+# with evidence["test_case"] must only be checked against THAT test case's
+# own supporting texts, not any other selected test case's, even though the
+# quoted text is real and appears somewhere in the submission.
+
+_TC0_TITLE = "Test case 0: Reject zero amount"
+_TC1_TITLE = "Test case 1: Accept valid amount"
+_TWO_TC_TEST_CASES = _test_cases({_TC0_TITLE: [], _TC1_TITLE: []})
+_SUPPORT_BY_TC = {
+    _TC0_TITLE: ["TC0 run proves the zero amount was rejected."],
+    _TC1_TITLE: ["TC1 run proves the valid amount was persisted."],
+}
+
+
+def test_supporting_texts_by_tc_scopes_a_quote_to_its_own_test_case():
+    finding = {
+        "claim": "Test case 1: interpretation matches the run.",
+        "severity": "low",
+        "evidence": [{"quote": "TC1 run proves the valid amount was persisted.", "test_case": _TC1_TITLE}],
+    }
+    report = audit_round4_findings(_TWO_TC_TEST_CASES, [finding], supporting_texts=_SUPPORT_BY_TC)
+    assert report.findings[0].status == "SUPPORTED"
+    assert report.score_adjustment() == 0
+
+
+def test_supporting_texts_by_tc_rejects_cross_test_case_citation():
+    """The quoted text is real and belongs to test case 1, but the finding
+    tags it as test case 0's evidence - must be refused, not silently
+    matched against the submission as a whole."""
+    finding = {
+        "claim": "Test case 0: interpretation matches the run.",
+        "severity": "low",
+        "evidence": [{"quote": "TC1 run proves the valid amount was persisted.", "test_case": _TC0_TITLE}],
+    }
+    report = audit_round4_findings(_TWO_TC_TEST_CASES, [finding], supporting_texts=_SUPPORT_BY_TC)
+    assert report.findings[0].status == "NOT_ESTABLISHED"
+    assert report.score_adjustment() == SEVERITY_WEIGHTS["low"]
+
+
+def test_untagged_quote_falls_back_to_lenient_whole_submission_check_with_dict_shape():
+    """No test_case tag at all - still checked leniently against every
+    selected test case's supporting texts combined, same tolerance as the
+    flat-list shape."""
+    finding = {
+        "claim": "Interpretation matches the run.",
+        "severity": "low",
+        "evidence": [{"quote": "TC0 run proves the zero amount was rejected."}],
+    }
+    report = audit_round4_findings(_TWO_TC_TEST_CASES, [finding], supporting_texts=_SUPPORT_BY_TC)
+    assert report.findings[0].status == "SUPPORTED"
+
+
+def test_unrecognized_test_case_tag_falls_back_to_lenient_whole_submission_check():
+    """A tag that doesn't match any block's label (e.g. the model
+    paraphrased it) must not hard-fail - it falls through to the same
+    lenient whole-submission check an untagged citation gets."""
+    finding = {
+        "claim": "Interpretation matches the run.",
+        "severity": "low",
+        "evidence": [{"quote": "TC0 run proves the zero amount was rejected.", "test_case": "Some other label"}],
+    }
+    report = audit_round4_findings(_TWO_TC_TEST_CASES, [finding], supporting_texts=_SUPPORT_BY_TC)
+    assert report.findings[0].status == "SUPPORTED"
+
+
+def test_dict_shaped_supporting_texts_still_supports_turn_citations_unchanged():
+    """Turn citations are untouched by the new dict shape - only quote-only
+    citations gain TC scoping."""
+    finding = {"claim": "Asked the assistant to encode step 1.", "severity": "low",
+               "evidence": [{"turn": 1, "quote": "encode my step 1"}]}
+    report = audit_round4_findings(_TURNS, [finding], supporting_texts={"Automation session": [_VALIDATION]})
+    assert report.findings[0].status == "SUPPORTED"

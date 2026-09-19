@@ -960,12 +960,14 @@ def test_full_submission_scores_and_audits_via_the_existing_patterns(client, mon
     res = client.post("/candidate/round/2/auto/submit", json=_submit_payload(validation="Proves rejection; does not prove persistence."), cookies=_auth(cand_token))
     assert res.status_code == 201
 
-    # The scorer got the full primary-evidence set, plus REFERENCE-ONLY ground truth.
-    assert captured["selected_design"][0]["title"] == "Reject zero amount"
-    assert captured["refinements"][0]["note"] == "exact-match message"
-    assert len(captured["turns"]) == 1
-    assert len(captured["code_edits"]) == 1
-    assert captured["validation_text"].startswith("Proves rejection")
+    # The scorer got the full primary-evidence set, as one self-contained
+    # per-TC block, plus REFERENCE-ONLY ground truth.
+    tc0 = captured["tc_evidence"][0]
+    assert tc0["design"]["title"] == "Reject zero amount"
+    assert tc0["design"]["refinements"] == ["exact-match message"]
+    assert len(tc0["turns"]) == 1
+    assert len(tc0["code_edits"]) == 1
+    assert tc0["validation"].startswith("Proves rejection")
     assert captured["ground_truth"] == GROUND_TRUTH
     assert captured["language"] == "python"
 
@@ -1270,3 +1272,127 @@ def test_fabricated_finding_is_still_dropped_and_refunded(client, monkeypatch):
     assert score["final_score"] == 100
     assert score["misses_json"] == []
     assert score["evidence_audit"]["not_established"] == 1
+
+
+# ---- R2 final scoring: self-contained per-TC evidence blocks ----
+# tc_evidence replaces the old flattened/concatenated multi-TC state (see
+# scoring_service._auto_tc_evidence_blocks) - each selected test case's
+# design, code, turns, code edits, execution result and validation must
+# reach the scorer as its OWN block, never merged with another selected
+# test case's.
+
+def test_two_tc_evidence_blocks_are_fully_isolated(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    # Refinement attribution: only TC0 gets a refinement note.
+    client.post("/candidate/round/2/auto/refine", json={"row_index": 0, "note": "tc0-only refinement"}, cookies=_auth(cand_token))
+
+    # Clarification attribution: only TC0 gets a clarify turn.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"status": "insufficient", "question": "What exactly should prove this step worked?"}))
+    client.post("/candidate/round/2/auto/clarify", json={"candidate_prompt": "submit it", "row_index": 0}, cookies=_auth(cand_token))
+
+    # A code_edit turn and a direct edit on TC1 only.
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"response_kind": "code_edit", "response_message": "Encoded TC1.", "code_after": "print('tc1 ai code')"}))
+    client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode tc1 step", "row_index": 1}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/auto/code", json={"code": "print('tc1 edited')", "row_index": 1}, cookies=_auth(cand_token))
+
+    # Execution isolation: distinct output per TC. _reach_automation_round
+    # mocks execution_service.run_code to always return empty stdout, so
+    # echo the code back as stdout here to tell the two runs apart.
+    monkeypatch.setattr(execution_service, "run_code", lambda **k: execution_service.ExecutionResult(
+        stdout=k["code"], stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1,
+    ))
+    client.post("/candidate/round/2/auto/run", json={"code": "print('tc0 output')", "row_index": 0}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/auto/run", json={"code": "print('tc1 edited')", "row_index": 1}, cookies=_auth(cand_token))
+
+    captured = {}
+
+    def _fake_scoring(**kwargs):
+        captured.update(kwargs)
+        return {
+            "scores": {"automation_design": 16, "test_data_and_assertions": 16, "ai_usage": 16,
+                       "ai_output_review": 16, "execution_and_validation": 16},
+            "final_score": 80, "findings": [], "feedback_text": "ok",
+        }
+
+    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", _fake_scoring)
+
+    entries = [
+        {"row_index": 0, "validation": "TC0 run proves rejection."},
+        {"row_index": 1, "validation": "TC1 run proves persistence."},
+    ]
+    res = client.post("/candidate/round/2/auto/submit", json={"entries": entries}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    blocks = captured["tc_evidence"]
+    assert len(blocks) == 2
+    tc0, tc1 = blocks
+    assert tc0["label"] == "Test case 0: Reject zero amount"
+    assert tc1["label"] == "Test case 1: Accept a valid amount"
+
+    # Refinement attribution - TC0's own note never leaks into TC1.
+    assert tc0["design"]["refinements"] == ["tc0-only refinement"]
+    assert tc1["design"]["refinements"] == []
+
+    # Clarification attribution - the clarify turn stays on TC0 alone.
+    assert [t["response_kind"] for t in tc0["turns"]] == ["clarify"]
+    assert [t["response_kind"] for t in tc1["turns"]] == ["code_edit"]
+
+    # Code edit attribution - TC1's own direct edit never leaks into TC0.
+    assert len(tc1["code_edits"]) == 1
+    assert tc0["code_edits"] == []
+
+    # Execution isolation - each TC's own run result, not the other's.
+    assert "tc0 output" in tc0["execution_result"]["stdout"]
+    assert "tc0 output" not in tc1["execution_result"]["stdout"]
+    assert "tc1 edited" in tc1["execution_result"]["stdout"]
+    assert "tc1 edited" not in tc0["execution_result"]["stdout"]
+
+    # Validation attribution.
+    assert tc0["validation"] == "TC0 run proves rejection."
+    assert tc1["validation"] == "TC1 run proves persistence."
+
+
+def test_quote_evidence_tagged_with_wrong_test_case_is_rejected_end_to_end(client, monkeypatch):
+    """A finding quotes TC1's own validation text but tags the citation as
+    TC0's evidence (evidence.test_case) - must be discarded and refunded,
+    not silently matched because the quote is real text somewhere in the
+    submission. See round4_evidence_audit._check_evidence's "wrong_test_case"
+    branch."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+    client.post("/candidate/round/2/auto/run", json={"code": "print('tc0')", "row_index": 0}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/auto/run", json={"code": "print('tc1')", "row_index": 1}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+        "scores": {"automation_design": 18, "test_data_and_assertions": 18, "ai_usage": 18,
+                   "ai_output_review": 18, "execution_and_validation": 18},
+        "final_score": 90,
+        "findings": [{
+            "claim": "Test case 0: interpretation overstates what the run proves.",
+            "severity": "low",
+            "evidence": [{"quote": "TC1 run proves persistence, uniquely worded.",
+                          "test_case": "Test case 0: Reject zero amount"}],
+        }],
+        "feedback_text": "ok",
+    })
+    entries = [
+        {"row_index": 0, "validation": "TC0 run proves rejection."},
+        {"row_index": 1, "validation": "TC1 run proves persistence, uniquely worded."},
+    ]
+    res = client.post("/candidate/round/2/auto/submit", json={"entries": entries}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+    res = client.get("/hr/candidates", cookies=_auth(hr_token))
+    candidate_row = next(c for c in res.json() if c["email"] == CANDIDATE1_EMAIL)
+    res = client.get(f"/hr/candidates/{candidate_row['id']}/report", cookies=_auth(hr_token))
+    report_r2 = next(s for s in res.json() if s["round_number"] == 2)
+
+    assert report_r2["score"]["misses_json"] == []
+    assert report_r2["score"]["evidence_audit"]["not_established"] == 1
+    assert report_r2["score"]["final_score"] == 93  # 90 + one low-severity refund (3)

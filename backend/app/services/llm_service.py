@@ -926,27 +926,22 @@ def round4_auto_clarify(
 
 
 def score_round4_auto_conversation(
-    language: str, selected_design: list[dict], refinements: list[dict], final_code: str,
-    turns: list[dict], code_edits: list[dict], untraceable_literals: list[str],
-    execution_result: dict, validation_text: str, ground_truth: str, validation_notes: str,
+    language: str, tc_evidence: list[dict], ground_truth: str, validation_notes: str,
 ) -> dict:
     """Scores one automation submission against the 5-area rubric (20 each
-    = 100 - see prompts/round4_auto_scoring.txt). Findings go through the
-    SAME round4_evidence_audit backstop as every other round 4 flow (see
+    = 100 - see prompts/round4_auto_scoring.txt). tc_evidence is a list of
+    self-contained per-test-case evidence blocks (see
+    scoring_service._auto_tc_evidence_blocks) - each one's own design,
+    final code, turns, code edits, execution result and validation, with
+    no cross-TC concatenation. Findings go through the SAME
+    round4_evidence_audit backstop as every other round 4 flow (see
     scoring_service.score_round4_auto_submission). ground_truth/
     validation_notes are REFERENCE ONLY and never reach the candidate or
     the generator."""
     prompt_text = _load_prompt("round4_auto_scoring.txt")
     prompt = prompt_text.format(
         language=language,
-        selected_design=json.dumps(selected_design, indent=2),
-        refinements=json.dumps(refinements, indent=2) if refinements else "(none added)",
-        final_code=final_code,
-        turns_json=json.dumps(turns, indent=2),
-        code_edits_json=json.dumps(code_edits, indent=2) if code_edits else "(the candidate made no direct edits of their own)",
-        untraceable_literals=json.dumps(untraceable_literals, indent=2) if untraceable_literals else "(none)",
-        execution_result_json=json.dumps(execution_result, indent=2),
-        validation_text=validation_text or "(the candidate submitted no interpretation)",
+        tc_evidence_json=json.dumps(tc_evidence, indent=2),
         ground_truth=ground_truth,
         validation_notes=validation_notes,
     )

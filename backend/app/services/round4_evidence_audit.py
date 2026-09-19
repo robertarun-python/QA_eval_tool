@@ -175,7 +175,7 @@ class AuditReport:
 
 def _check_evidence(
     evidence: dict, flat: list[dict], turn_texts: list[str], turn_counts: dict[str, int],
-    supporting_texts: list[str] | None = None,
+    supporting_texts: list[str] | None = None, supporting_texts_by_tc: dict[str, list[str]] | None = None,
 ) -> EvidenceCheck:
     # A quote that appears verbatim in one of the caller's OTHER persisted
     # evidence artefacts (see audit_round4_findings' supporting_texts) is
@@ -185,6 +185,41 @@ def _check_evidence(
     # execution output has no meaningful turn number to cite. Callers that
     # pass nothing here are completely unaffected.
     quote_text = evidence.get("quote")
+    # Only a genuinely quote-only citation (no turn, not the no_turns
+    # shape) is eligible for TC-scoped matching below - tagging a real
+    # turn citation with test_case isn't a shape this module's callers
+    # ever produce, and scoping a turn citation by it would be meaningless.
+    is_quote_only = quote_text is not None and evidence.get("turn") is None and not evidence.get("no_turns")
+
+    if is_quote_only and _normalize(quote_text):
+        needle = _normalize(quote_text)
+        # TC-scoped check, when the caller supplied per-test-case evidence
+        # (supporting_texts_by_tc, keyed the same way
+        # _auto_tc_audit_payload/round4_auto_scoring.txt label a test
+        # case) AND the finding tagged which one this quote is about.
+        # Multi-TC submissions only - see scoring_service.
+        # _auto_tc_evidence_blocks. A recognized tag that ISN'T found
+        # there is a confirmed cross-test-case misattribution - reject
+        # outright, do NOT fall through to the lenient whole-submission
+        # check below, or a quote genuinely from a DIFFERENT selected
+        # test case's evidence could validate a finding that claims this
+        # one. An unrecognized/missing tag (single-TC submissions,
+        # legacy callers, or a model that didn't tag it) falls through
+        # unchanged - this feature only ever ADDS strictness, it never
+        # removes the existing lenient behavior below.
+        tc_label = evidence.get("test_case")
+        if supporting_texts_by_tc and tc_label and tc_label in supporting_texts_by_tc:
+            if any(needle in text for text in supporting_texts_by_tc[tc_label]):
+                return EvidenceCheck(True, "ok_supporting_evidence")
+            return EvidenceCheck(False, "wrong_test_case")
+
+    # Unchanged from before this feature existed: a quote that appears
+    # verbatim in one of the caller's OTHER persisted evidence artefacts
+    # is established the same way a turn quote is - the text demonstrably
+    # exists in something this submission actually recorded. Runs
+    # regardless of is_quote_only (preserves the exact original condition
+    # - any quote-bearing citation, not only quote-only ones) so every
+    # existing caller's behavior is untouched byte-for-byte.
     if supporting_texts and quote_text and _normalize(quote_text):
         needle = _normalize(quote_text)
         if any(needle in text for text in supporting_texts):
@@ -234,7 +269,8 @@ def _contradicted_by_followup(claim: str, evidence: list[dict], flat: list[dict]
 
 
 def audit_round4_findings(
-    test_cases: list[dict], findings: list[dict], supporting_texts: list[str] | None = None,
+    test_cases: list[dict], findings: list[dict],
+    supporting_texts: list[str] | dict[str, list[str]] | None = None,
 ) -> AuditReport:
     """The single entry point: check every LLM-generated finding against
     the transcript and return a verdict per finding, deterministically.
@@ -254,11 +290,29 @@ def audit_round4_findings(
     verbatim in real recorded evidence. It does NOT weaken the model - a
     fabricated quote still matches nothing and stays unestablished - and
     callers that omit it (the legacy round 4 and pilot flows) behave
-    exactly as before."""
+    exactly as before.
+
+    Two shapes are accepted. A plain list is the original, whole-submission
+    pool (unchanged behavior for every existing caller). A dict, keyed by
+    the same test-case label _auto_tc_audit_payload uses for `test_cases`
+    entries, additionally lets a quote-only citation be checked against
+    ONLY the test case it's tagged as being about (see _check_evidence) -
+    for a round where more than one test case's own code/execution/
+    interpretation could otherwise be confused with another's. A finding
+    with no recognizable tag still falls back to the flattened union of
+    every test case's texts, so this is purely additive strictness."""
     flat = _flatten(test_cases)
     turn_texts = [_turn_text(item["raw"]) for item in flat]
     turn_counts = {(tc.get("title") or ""): len(tc.get("turns") or []) for tc in test_cases or []}
-    normalized_support = [_normalize(t) for t in (supporting_texts or []) if t and _normalize(t)]
+    if isinstance(supporting_texts, dict):
+        support_by_tc = {
+            str(label): [_normalize(t) for t in (texts or []) if t and _normalize(t)]
+            for label, texts in supporting_texts.items()
+        }
+        normalized_support = [text for texts in support_by_tc.values() for text in texts]
+    else:
+        support_by_tc = {}
+        normalized_support = [_normalize(t) for t in (supporting_texts or []) if t and _normalize(t)]
 
     audited = []
     for raw in findings or []:
@@ -270,7 +324,7 @@ def audit_round4_findings(
             status = "NOT_ESTABLISHED"
             checks: list[EvidenceCheck] = []
         else:
-            checks = [_check_evidence(ev, flat, turn_texts, turn_counts, normalized_support) for ev in evidence]
+            checks = [_check_evidence(ev, flat, turn_texts, turn_counts, normalized_support, support_by_tc) for ev in evidence]
             if any(c.reason == "turns_exist" for c in checks):
                 status = "CONTRADICTED"
             elif all(c.valid for c in checks):

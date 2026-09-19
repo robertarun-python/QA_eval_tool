@@ -325,7 +325,8 @@ def score_round4_submission(db: Session, submission: Submission) -> Score:
 
 
 def _round4_findings_to_misses(
-    result: dict, test_cases_payload: list[dict], supporting_texts: list[str] | None = None,
+    result: dict, test_cases_payload: list[dict],
+    supporting_texts: list[str] | dict[str, list[str]] | None = None,
 ) -> tuple[list[str], int | None, dict | None]:
     """Runs the scorer's structured findings (see prompts/round4_scoring.txt
     and schemas.Round4Finding) through the deterministic, non-LLM evidence
@@ -448,99 +449,78 @@ def _auto_tc_design_only(row: dict) -> dict:
     return {k: row[k] for k in _TC_DESIGN_FIELDS if k in row}
 
 
-def _aggregate_auto_tc_state(selected: list[dict]) -> dict:
-    """Flattens each selected test case's independent automation state
-    (code/turns/code_edits/last_run/validation - see
-    routers/candidate.py's round4_auto_turn/code/run/submit) into the
-    single-call shape score_round4_auto_conversation already expects.
-    This round's scoring model itself is NOT being redesigned here - only
-    the shape of the data feeding it changed, since it used to live in
-    one shared buffer and now lives per selected test case.
+def _auto_tc_label(row: dict) -> str:
+    """The exact per-test-case label shown both to the scorer (as each
+    evidence block's own heading - see _auto_tc_evidence_blocks) and to
+    the evidence auditor (_auto_tc_audit_payload's title;
+    round4_evidence_audit's test_case matching for both the no_turns
+    shape and the TC-scoped quote-only shape) - defined once so the two
+    can never drift out of sync. Index-prefixed so it's unique even if
+    two selected test cases share a candidate-authored title."""
+    return f"Test case {row.get('index')}: {row.get('title', '')}".strip()
 
-    For the common single-TC case this is a lossless passthrough of that
-    one test case's own state - every existing single-TC scoring
-    expectation holds exactly as before. For two selected test cases,
-    each field is concatenated with a per-TC label so the scorer can
-    still tell them apart; turns/code_edits are tagged with tc_index for
-    the same reason."""
-    if len(selected) == 1:
-        row = selected[0]
-        return {
+
+def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
+    """One self-contained evidence block per selected test case - no
+    concatenation, no cross-TC label-parsing, replacing the old
+    _aggregate_auto_tc_state flattening. Each block carries exactly what
+    routers/candidate.py's round4_auto_turn/clarify/code/run/submit
+    persist for that ONE test case: its own design (title/steps/
+    test_data/expected_result AND its own append-only refinement notes -
+    see _auto_tc_design_only, which already scopes "refinements" to this
+    one row), its own final code, its own turns (including clarify turns
+    - already distinguished from code-generating ones by response_kind,
+    nothing extra needed here), its own code_edits, its own last
+    execution result, its own validation. This round's scoring MODEL is
+    not being redesigned - only the shape of the data feeding it, since
+    it used to live in one shared buffer (then one flattened string) and
+    now lives, and is shown, per selected test case. For exactly one
+    selected test case this is still a lossless passthrough of that one
+    test case's own state - every existing single-TC scoring expectation
+    holds exactly as before, just one level more nested."""
+    blocks = []
+    for row in selected:
+        blocks.append({
+            "tc_index": row.get("index"),
+            "label": _auto_tc_label(row),
+            "design": _auto_tc_design_only(row),
             "final_code": row.get("code", ""),
             "turns": list(row.get("turns") or []),
             "code_edits": list(row.get("code_edits") or []),
-            "last_run": row.get("last_run") or {},
+            "execution_result": row.get("last_run") or {},
             "validation": row.get("validation", ""),
-        }
-
-    final_code_parts, turns, code_edits, validation_parts = [], [], [], []
-    stdout_parts, stderr_parts, exit_codes = [], [], []
-    timed_out = infra_error = False
-    for row in selected:
-        idx = row.get("index")
-        label = f"Test case {idx} ({row.get('title', '')})".strip()
-        final_code_parts.append(f"# ---- {label} ----\n{row.get('code', '')}")
-        turns.extend({**t, "tc_index": idx} for t in (row.get("turns") or []))
-        code_edits.extend({**e, "tc_index": idx} for e in (row.get("code_edits") or []))
-        run = row.get("last_run") or {}
-        if run:
-            exit_codes.append(run.get("exit_code"))
-            timed_out = timed_out or bool(run.get("timed_out"))
-            infra_error = infra_error or bool(run.get("infra_error"))
-            stdout_parts.append(f"[{label}]\n{run.get('stdout', '')}")
-            if run.get("stderr"):
-                stderr_parts.append(f"[{label}]\n{run['stderr']}")
-        if row.get("validation"):
-            validation_parts.append(f"{label}: {row['validation']}")
-
-    return {
-        "final_code": "\n\n".join(final_code_parts),
-        "turns": turns,
-        "code_edits": code_edits,
-        "last_run": {
-            "stdout": "\n\n".join(stdout_parts),
-            "stderr": "\n\n".join(stderr_parts),
-            # A non-zero/failed run anywhere should surface, not be
-            # averaged away by whichever TC happened to run last.
-            "exit_code": next((c for c in exit_codes if c), exit_codes[0] if exit_codes else None),
-            "timed_out": timed_out,
-            "infra_error": infra_error,
-        },
-        "validation": "\n\n".join(validation_parts),
-    }
+        })
+    return blocks
 
 
 def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
-    """One real per-test-case entry - not the single synthetic
-    "Automation session" entry this used to build. round4_evidence_audit
-    numbers a turn citation as a 1-indexed position in the FLATTENED
-    sequence across every entry in this list, in order (see that
-    module's own docstring) - with one synthetic entry, two selected
-    test cases' own turn 1 (each test case's stored turn_number restarts
-    at 1 - see row.get("turns")) both occupied flattened position 1, so
-    a citation naming one test case's turn could validate against the
-    OTHER's turn text. Splitting into real per-test-case entries is
-    exactly the shape the audit module was built for - proven already by
-    round4_scoring.txt's legacy debugging flow, which uses the identical
-    convention - so round4_evidence_audit.py itself needs no change.
+    """One real per-test-case entry - not a single synthetic "Automation
+    session" entry. round4_evidence_audit numbers a turn citation as a
+    1-indexed position in the FLATTENED sequence across every entry in
+    this list, in order (see that module's own docstring) - with one
+    synthetic entry, two selected test cases' own turn 1 (each test
+    case's stored turn_number restarts at 1 - see row.get("turns")) both
+    occupied flattened position 1, so a citation naming one test case's
+    turn could validate against the OTHER's turn text. Splitting into
+    real per-test-case entries is exactly the shape the audit module was
+    built for - proven already by round4_scoring.txt's legacy debugging
+    flow, which uses the identical convention - so round4_evidence_audit.py
+    itself needs no change for turn citations. The SAME label
+    (_auto_tc_label) is also the key scoring_service.score_round4_auto_submission
+    builds its TC-scoped supporting_texts dict with, so a quote-only
+    citation tagged with this exact label gets checked against only that
+    test case's own evidence too - see round4_evidence_audit._check_evidence.
 
     For exactly one selected test case this returns exactly one entry,
     so flattened position and that test case's own turn_number coincide
-    - single-TC citation behavior is unchanged.
-
-    The title is prefixed with the row's own index (guaranteed unique,
-    unlike a candidate-authored title two test cases could share) so
-    turn_counts (keyed by title, used only for the no_turns evidence
-    shape) can never collide either, even though round4_auto_scoring.txt
-    doesn't currently ask for that shape."""
+    - single-TC citation behavior is unchanged."""
     payload = []
     for row in selected:
         audit_turns = [
             {"turn_number": t["turn_number"], "candidate_prompt": t["candidate_prompt"], "model_response": t.get("response_message", "")}
             for t in (row.get("turns") or [])
         ]
-        title = f"Test case {row.get('index')}: {row.get('title', '')}".strip()
-        payload.append({"title": title, "turns": audit_turns})
+        payload.append({"title": _auto_tc_label(row), "turns": audit_turns})
     return payload
 
 
@@ -556,59 +536,65 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     live inside raw_llm_response_json rather than new Score columns -
     same reasoning as score_round4_pilot_submission.
 
-    Each selected test case now carries its own independent state (see
-    _aggregate_auto_tc_state) - this function still makes exactly ONE
-    scoring call per submission, same as before; only how its inputs are
-    gathered changed, not the scoring model itself."""
+    Each selected test case now carries its own independent state, sent
+    to the scorer as its own self-contained evidence block (see
+    _auto_tc_evidence_blocks) - no concatenated multi-TC code/turns/
+    execution state crosses into the prompt. This function still makes
+    exactly ONE scoring call per submission, same as before; only how
+    its inputs are gathered and shaped changed, not the scoring model
+    itself."""
     from . import round4_auto_policy
 
     scenario = submission.scenario
     reference = scenario.reference_json or {}
     content = submission.content or {}
     selected = content.get("selected") or []
-    design_only = [_auto_tc_design_only(r) for r in selected]
-    tc_state = _aggregate_auto_tc_state(selected)
-    turns = tc_state["turns"]
-    final_code = tc_state["final_code"]
+    language = content.get("language", "python")
+    tc_evidence = _auto_tc_evidence_blocks(selected)
 
-    # One real entry per selected test case - see _auto_tc_audit_payload's
-    # docstring for why the old single synthetic entry let a citation
-    # naming one test case's turn validate against another's.
+    # Literal-invention checking stays scoped to the ONE test case a
+    # literal could actually have come from - a candidate's design for
+    # TC0 is not evidence for what's traceable in TC1's code, so this
+    # runs per block rather than once over concatenated code/design.
+    environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
+    environment_code = environments.get(language, "")
+    for block in tc_evidence:
+        block["untraceable_literals"] = round4_auto_policy.untraceable_literals(
+            block["final_code"], [block["design"]], environment_code=environment_code,
+        )
+
+    # One real audit entry per selected test case - see
+    # _auto_tc_audit_payload's docstring for why a single synthetic entry
+    # let a citation naming one test case's turn validate against
+    # another's.
     audit_payload = _auto_tc_audit_payload(selected)
 
-    environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
-    untraceable = round4_auto_policy.untraceable_literals(
-        final_code, design_only, environment_code=environments.get(content.get("language", "python"), ""),
-    )
-
     result = llm_service.score_round4_auto_conversation(
-        language=content.get("language", "python"),
-        selected_design=design_only,
-        refinements=content.get("refinements") or [],
-        final_code=final_code,
-        turns=turns,
-        code_edits=tc_state["code_edits"],
-        untraceable_literals=untraceable,
-        execution_result=tc_state["last_run"],
-        validation_text=tc_state["validation"],
+        language=language,
+        tc_evidence=tc_evidence,
         ground_truth=reference.get("ground_truth", ""),
         validation_notes=reference.get("validation_notes", ""),
     )
     # This round's PRIMARY EVIDENCE is not only the conversation: the
-    # rubric grades the final code, the execution result and the
-    # candidate's own interpretation, all of which are persisted above.
-    # Without them the auditor can't locate a finding about any of those
-    # and silently refunds its deduction - see audit_round4_findings'
-    # supporting_texts docstring.
-    last_run = tc_state["last_run"]
-    supporting_texts = [
-        final_code,
-        tc_state["validation"],
-        last_run.get("stdout", ""),
-        last_run.get("stderr", ""),
-    ]
+    # rubric grades each TC's own final code, execution result and
+    # candidate interpretation too. supporting_texts_by_tc keeps a
+    # quote-only citation scoped to the ONE test case it's tagged with
+    # (evidence.test_case = that block's own label) so a finding can't
+    # borrow evidence that only exists in a different selected test
+    # case - see round4_evidence_audit._check_evidence. An untagged or
+    # unrecognized-tag citation still falls back to the lenient
+    # whole-submission check below it, unchanged from before.
+    supporting_texts_by_tc = {
+        block["label"]: [
+            block["final_code"],
+            block["validation"],
+            block["execution_result"].get("stdout", ""),
+            block["execution_result"].get("stderr", ""),
+        ]
+        for block in tc_evidence
+    }
     misses, final_score, evidence_audit_summary = _round4_findings_to_misses(
-        result, audit_payload, supporting_texts,
+        result, audit_payload, supporting_texts_by_tc,
     )
 
     score = _get_or_create_score(db, submission)
@@ -617,14 +603,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     score.final_score = final_score
     score.feedback_text = result.get("feedback_text")
     raw_response = {
-        "selected_design": design_only,
-        "refinements": content.get("refinements") or [],
-        "turns": turns,
-        "code_edits": tc_state["code_edits"],
-        "final_code": final_code,
-        "execution_result": last_run,
-        "validation": tc_state["validation"],
-        "untraceable_literals": untraceable,
+        "tc_evidence": tc_evidence,
         "scoring": result,
     }
     if evidence_audit_summary is not None:
