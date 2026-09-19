@@ -435,6 +435,81 @@ def score_round4_pilot_submission(db: Session, submission: Submission) -> Score:
     return score
 
 
+_TC_DESIGN_FIELDS = ("index", "title", "preconditions", "steps", "test_data", "expected_result", "refinements")
+
+
+def _auto_tc_design_only(row: dict) -> dict:
+    """Strips a selected row down to its immutable design fields only -
+    the shape every selected row had before round 2 gained independent
+    per-TC automation state (see routers/candidate.py's round4_auto_select).
+    Used wherever "the candidate's design" is shown, so mutable state
+    (code/turns/code_edits/last_run/validation) never leaks into what's
+    supposed to be the immutable-design section of the scoring prompt."""
+    return {k: row[k] for k in _TC_DESIGN_FIELDS if k in row}
+
+
+def _aggregate_auto_tc_state(selected: list[dict]) -> dict:
+    """Flattens each selected test case's independent automation state
+    (code/turns/code_edits/last_run/validation - see
+    routers/candidate.py's round4_auto_turn/code/run/submit) into the
+    single-call shape score_round4_auto_conversation already expects.
+    This round's scoring model itself is NOT being redesigned here - only
+    the shape of the data feeding it changed, since it used to live in
+    one shared buffer and now lives per selected test case.
+
+    For the common single-TC case this is a lossless passthrough of that
+    one test case's own state - every existing single-TC scoring
+    expectation holds exactly as before. For two selected test cases,
+    each field is concatenated with a per-TC label so the scorer can
+    still tell them apart; turns/code_edits are tagged with tc_index for
+    the same reason."""
+    if len(selected) == 1:
+        row = selected[0]
+        return {
+            "final_code": row.get("code", ""),
+            "turns": list(row.get("turns") or []),
+            "code_edits": list(row.get("code_edits") or []),
+            "last_run": row.get("last_run") or {},
+            "validation": row.get("validation", ""),
+        }
+
+    final_code_parts, turns, code_edits, validation_parts = [], [], [], []
+    stdout_parts, stderr_parts, exit_codes = [], [], []
+    timed_out = infra_error = False
+    for row in selected:
+        idx = row.get("index")
+        label = f"Test case {idx} ({row.get('title', '')})".strip()
+        final_code_parts.append(f"# ---- {label} ----\n{row.get('code', '')}")
+        turns.extend({**t, "tc_index": idx} for t in (row.get("turns") or []))
+        code_edits.extend({**e, "tc_index": idx} for e in (row.get("code_edits") or []))
+        run = row.get("last_run") or {}
+        if run:
+            exit_codes.append(run.get("exit_code"))
+            timed_out = timed_out or bool(run.get("timed_out"))
+            infra_error = infra_error or bool(run.get("infra_error"))
+            stdout_parts.append(f"[{label}]\n{run.get('stdout', '')}")
+            if run.get("stderr"):
+                stderr_parts.append(f"[{label}]\n{run['stderr']}")
+        if row.get("validation"):
+            validation_parts.append(f"{label}: {row['validation']}")
+
+    return {
+        "final_code": "\n\n".join(final_code_parts),
+        "turns": turns,
+        "code_edits": code_edits,
+        "last_run": {
+            "stdout": "\n\n".join(stdout_parts),
+            "stderr": "\n\n".join(stderr_parts),
+            # A non-zero/failed run anywhere should surface, not be
+            # averaged away by whichever TC happened to run last.
+            "exit_code": next((c for c in exit_codes if c), exit_codes[0] if exit_codes else None),
+            "timed_out": timed_out,
+            "infra_error": infra_error,
+        },
+        "validation": "\n\n".join(validation_parts),
+    }
+
+
 def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     """AI-Assisted Test Automation - see llm_service.score_round4_auto_conversation
     and prompts/round4_auto_scoring.txt's 5-area rubric. Every piece of
@@ -445,15 +520,22 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     round4_evidence_audit backstop (_round4_findings_to_misses, reused
     unmodified) as the other round 4 flows, and the per-area sub-scores
     live inside raw_llm_response_json rather than new Score columns -
-    same reasoning as score_round4_pilot_submission."""
+    same reasoning as score_round4_pilot_submission.
+
+    Each selected test case now carries its own independent state (see
+    _aggregate_auto_tc_state) - this function still makes exactly ONE
+    scoring call per submission, same as before; only how its inputs are
+    gathered changed, not the scoring model itself."""
     from . import round4_auto_policy
 
     scenario = submission.scenario
     reference = scenario.reference_json or {}
     content = submission.content or {}
     selected = content.get("selected") or []
-    turns = content.get("turns") or []
-    final_code = content.get("code", "")
+    design_only = [_auto_tc_design_only(r) for r in selected]
+    tc_state = _aggregate_auto_tc_state(selected)
+    turns = tc_state["turns"]
+    final_code = tc_state["final_code"]
 
     audit_turns = [
         {"turn_number": t["turn_number"], "candidate_prompt": t["candidate_prompt"], "model_response": t.get("response_message", "")}
@@ -466,19 +548,19 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
 
     environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
     untraceable = round4_auto_policy.untraceable_literals(
-        final_code, selected, environment_code=environments.get(content.get("language", "python"), ""),
+        final_code, design_only, environment_code=environments.get(content.get("language", "python"), ""),
     )
 
     result = llm_service.score_round4_auto_conversation(
         language=content.get("language", "python"),
-        selected_design=selected,
+        selected_design=design_only,
         refinements=content.get("refinements") or [],
         final_code=final_code,
         turns=turns,
-        code_edits=content.get("code_edits") or [],
+        code_edits=tc_state["code_edits"],
         untraceable_literals=untraceable,
-        execution_result=content.get("last_run") or {},
-        validation_text=content.get("validation", ""),
+        execution_result=tc_state["last_run"],
+        validation_text=tc_state["validation"],
         ground_truth=reference.get("ground_truth", ""),
         validation_notes=reference.get("validation_notes", ""),
     )
@@ -488,10 +570,10 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     # Without them the auditor can't locate a finding about any of those
     # and silently refunds its deduction - see audit_round4_findings'
     # supporting_texts docstring.
-    last_run = content.get("last_run") or {}
+    last_run = tc_state["last_run"]
     supporting_texts = [
         final_code,
-        content.get("validation", ""),
+        tc_state["validation"],
         last_run.get("stdout", ""),
         last_run.get("stderr", ""),
     ]
@@ -505,13 +587,13 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     score.final_score = final_score
     score.feedback_text = result.get("feedback_text")
     raw_response = {
-        "selected_design": selected,
+        "selected_design": design_only,
         "refinements": content.get("refinements") or [],
         "turns": turns,
-        "code_edits": content.get("code_edits") or [],
+        "code_edits": tc_state["code_edits"],
         "final_code": final_code,
-        "execution_result": content.get("last_run") or {},
-        "validation": content.get("validation", ""),
+        "execution_result": last_run,
+        "validation": tc_state["validation"],
         "untraceable_literals": untraceable,
         "scoring": result,
     }

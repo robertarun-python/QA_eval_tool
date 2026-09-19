@@ -83,8 +83,11 @@ def _publish_auto_scenario(client, hr_token, band="0-7"):
 
 
 def _reach_automation_round(client, hr_token, monkeypatch, r1_rows=None, language="python"):
-    """Drives rounds 1-3 so round 4 is unlocked, submitting the candidate's
-    real R1 rows (this round's whole input) and the R3 language choice."""
+    """Drives round 1, starts round 2, and locks `language` - the
+    precondition for every other round 2 auto endpoint (see
+    round4_auto_select's guard). The round 3/4 calls below don't actually
+    unlock (round 2 isn't complete yet at that point) and are effectively
+    no-ops; harmless, left as-is."""
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
     _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
     _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
@@ -110,6 +113,7 @@ def _reach_automation_round(client, hr_token, monkeypatch, r1_rows=None, languag
     client.post("/candidate/round/3/turn", json={"candidate_prompt": "write it"}, cookies=_auth(cand_token))
     client.post("/candidate/round/3/submit", cookies=_auth(cand_token))
     client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/2/auto/language", json={"language": language}, cookies=_auth(cand_token))
     return cand_token
 
 
@@ -136,32 +140,83 @@ def test_r1_design_including_test_data_reaches_the_automation_round(client, monk
     assert state["selection_locked"] is False
 
 
-def test_new_candidate_always_gets_python(client, monkeypatch):
-    """DECIDED for the pilot: the automation round is Python-only for new
-    candidates. It measures automation/QA thinking, not language choice,
-    and a language picker isn't worth the complexity in a 30-minute round.
+def test_r2_requires_an_explicit_language_before_anything_else(client, monkeypatch):
+    """A brand new candidate sees no language until they pick one, and
+    cannot select a test case before locking it - the redesign's core
+    requirement, replacing the old python-only default."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
+    _publish_auto_scenario(client, hr_token)
+    monkeypatch.setattr(llm_service, "score_round1_submission", lambda **k: {"coverage_score": 80, "misses": [], "final_score": 80, "feedback_text": "ok"})
 
-    Round 3 (where a language IS chosen) runs after round 2 since the
-    2<->4 renumbering, so a new candidate has no round 3 on file at all -
-    the setup below deliberately asks for "javascript" to prove that a
-    round 3 preference expressed later cannot leak backwards into this
-    round. See _round3_language_for."""
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": R1_ROWS}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
+
+    state = _state(client, cand_token)
+    assert state["language"] is None
+    assert state["language_locked"] is False
+
+    res = _select(client, cand_token, (0,))
+    assert res.status_code == 400
+    assert "language" in res.json()["detail"].lower()
+
+
+def test_locking_a_language_persists_it_and_unblocks_selection(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, language="java")
+
+    state = _state(client, cand_token)
+    assert state["language"] == "java"
+    assert state["language_locked"] is True
+
+    res = _select(client, cand_token, (0,))
+    assert res.status_code == 201
+    assert res.json()["language"] == "java"
+
+
+def test_language_cannot_be_locked_twice(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, language="python")
+
+    res = client.post("/candidate/round/2/auto/language", json={"language": "java"}, cookies=_auth(cand_token))
+    assert res.status_code == 400
+    assert _state(client, cand_token)["language"] == "python"  # unchanged
+
+
+def test_r3_inherits_the_locked_r2_language(client, monkeypatch):
+    """The normal path for every new candidate: round 3 reads the language
+    locked in round 2 and never asks again."""
+    from app.routers import candidate as candidate_router
+    import app.database as database_module
+    from app.models import User
+
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch, language="javascript")
-    assert _state(client, cand_token)["language"] == "python"
+    assert _state(client, cand_token)["language"] == "javascript"
+
+    db = database_module.SessionLocal()
+    user = db.query(User).filter(User.email == CANDIDATE1_EMAIL).first()
+    resolved = candidate_router._round3_language_for(user, db)
+    db.close()
+
+    assert resolved == "javascript"
 
 
 def test_language_still_honours_an_existing_round3_submission(client, monkeypatch):
-    """The inheritance path itself is intact for the cases where a round 3
-    submission does exist (a re-entering candidate, or data written before
-    the renumbering) - it just isn't reachable in the normal new order."""
+    """Legacy re-entry only: a candidate with no round 2 automation
+    language locked at all (e.g. data written before this lock existed),
+    but an existing round 3 submission on file, keeps that round 3
+    language rather than being defaulted to python."""
     from app.routers import candidate as candidate_router
     import app.database as database_module
     from app.models import Submission, Scenario, User, RoundStatus
     from datetime import datetime
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="Coding challenge")
+    _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
 
     db = database_module.SessionLocal()
     user = db.query(User).filter(User.email == CANDIDATE1_EMAIL).first()
@@ -190,8 +245,14 @@ def test_selecting_one_or_two_rows_locks_an_immutable_snapshot(client, monkeypat
     assert state["selection_locked"] is True
     assert [r["index"] for r in state["selected"]] == [0, 1]
     assert state["selected"][0]["test_data"] == "owner = jordan.rivera@example.com; amount = 0.00"
-    # Starting code is the provided environment, not a blank file.
-    assert "class UI:" in state["code"]
+    # Each selected test case gets its OWN independent state, starting
+    # from the provided environment - not a blank file, and not shared
+    # between the two selected test cases.
+    assert [t["row_index"] for t in state["tc_state"]] == [0, 1]
+    assert "class UI:" in state["tc_state"][0]["code"]
+    assert "class UI:" in state["tc_state"][1]["code"]
+    assert state["tc_state"][0]["turns"] == [] and state["tc_state"][1]["turns"] == []
+    assert state["tc_state"][0]["last_run"] is None and state["tc_state"][1]["last_run"] is None
 
 
 def test_selection_cannot_be_changed_once_locked(client, monkeypatch):
@@ -319,7 +380,8 @@ def test_legitimate_request_reaches_the_generator_and_updates_the_code(client, m
     )
     assert res.status_code == 201
     assert res.json()["response_kind"] == "code_edit"
-    assert _state(client, cand_token)["code"] == generated
+    assert res.json()["row_index"] == 0  # inferred - only one test case selected
+    assert _state(client, cand_token)["tc_state"][0]["code"] == generated
 
     # The candidate's own design IS given to the generator; the scenario's
     # HR-only ground truth is NOT.
@@ -348,11 +410,11 @@ def test_candidate_code_edit_is_recorded_separately_from_ai_output(client, monke
     edited = PYTHON_ENV + "\n# my own edit\n"
     res = client.post("/candidate/round/2/auto/code", json={"code": edited}, cookies=_auth(cand_token))
     assert res.status_code == 201
-    assert res.json()["code"] == edited
-    assert res.json()["code_edits_count"] == 1
+    assert res.json()["tc_state"][0]["code"] == edited
+    assert res.json()["tc_state"][0]["code_edits_count"] == 1
 
     client.post("/candidate/round/2/auto/code", json={"code": edited + "# again\n"}, cookies=_auth(cand_token))
-    assert _state(client, cand_token)["code_edits_count"] == 2
+    assert _state(client, cand_token)["tc_state"][0]["code_edits_count"] == 2
 
 
 # ---- Execution ----
@@ -390,6 +452,123 @@ def test_run_requires_a_selection_first(client, monkeypatch):
     assert client.post("/candidate/round/2/auto/run", cookies=_auth(cand_token)).status_code == 400
 
 
+# ---- Independent per-TC state ----
+
+def test_row_index_is_required_once_two_test_cases_are_selected(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    for path, body in [
+        ("/candidate/round/2/auto/turn", {"candidate_prompt": "encode it"}),
+        ("/candidate/round/2/auto/code", {"code": "x = 1"}),
+        ("/candidate/round/2/auto/run", {}),
+    ]:
+        res = client.post(path, json=body, cookies=_auth(cand_token))
+        assert res.status_code == 400, path
+        assert "row_index" in res.json()["detail"]
+
+    # An invalid row_index (not one of the selected ones) is also rejected.
+    res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode it", "row_index": 2}, cookies=_auth(cand_token))
+    assert res.status_code == 400
+    assert "2" in res.json()["detail"]
+
+
+def test_ai_turns_on_one_tc_never_touch_the_others_code_or_turns(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"response_kind": "code_edit", "response_message": "Encoded TC0.", "code_after": "print('tc0 code')"}))
+    res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode my first case", "row_index": 0}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+    assert res.json()["row_index"] == 0
+
+    state = _state(client, cand_token)
+    tc0 = next(t for t in state["tc_state"] if t["row_index"] == 0)
+    tc1 = next(t for t in state["tc_state"] if t["row_index"] == 1)
+    assert tc0["code"] == "print('tc0 code')"
+    assert len(tc0["turns"]) == 1
+    # TC1 is completely untouched - still its own environment-seeded code, no turns.
+    assert tc1["code"] != tc0["code"]
+    assert "class UI:" in tc1["code"]
+    assert tc1["turns"] == []
+
+    # A direct edit to TC1 leaves TC0 alone too.
+    client.post("/candidate/round/2/auto/code", json={"code": "x = 'tc1 edit'", "row_index": 1}, cookies=_auth(cand_token))
+    state = _state(client, cand_token)
+    tc0 = next(t for t in state["tc_state"] if t["row_index"] == 0)
+    tc1 = next(t for t in state["tc_state"] if t["row_index"] == 1)
+    assert tc1["code"] == "x = 'tc1 edit'"
+    assert tc1["code_edits_count"] == 1
+    assert tc0["code"] == "print('tc0 code')"      # unchanged
+    assert tc0["code_edits_count"] == 0             # unchanged
+
+
+def test_each_tc_runs_independently_starting_from_its_own_code(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    # execution_service.run_code is mocked (see _reach_automation_round) -
+    # this test is about which TC a run attaches to, not real output.
+    res0 = client.post("/candidate/round/2/auto/run", json={"code": "print('run tc0')", "row_index": 0}, cookies=_auth(cand_token))
+    assert res0.status_code == 201
+    assert res0.json()["exit_code"] == 0
+
+    state = _state(client, cand_token)
+    tc0 = next(t for t in state["tc_state"] if t["row_index"] == 0)
+    tc1 = next(t for t in state["tc_state"] if t["row_index"] == 1)
+    assert tc0["code"] == "print('run tc0')"
+    assert tc0["last_run"] is not None
+    # TC1 was never run and never edited - its own last_run and code are
+    # untouched by TC0's run.
+    assert tc1["last_run"] is None
+    assert tc1["code"] != "print('run tc0')"
+    assert "class UI:" in tc1["code"]
+
+
+def test_submit_requires_entries_once_two_test_cases_are_selected(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+    client.post("/candidate/round/2/auto/run", json={"code": "x = 1", "row_index": 0}, cookies=_auth(cand_token))
+    client.post("/candidate/round/2/auto/run", json={"code": "x = 1", "row_index": 1}, cookies=_auth(cand_token))
+
+    # The old flat single-TC shape is ambiguous once two are selected.
+    res = client.post("/candidate/round/2/auto/submit", json={"validation": "proves it"}, cookies=_auth(cand_token))
+    assert res.status_code == 400
+    assert "entries" in res.json()["detail"].lower()
+
+
+def test_submit_validates_each_selected_tc_independently(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+    client.post("/candidate/round/2/auto/run", json={"code": "x = 1", "row_index": 0}, cookies=_auth(cand_token))
+    # TC1 deliberately never run.
+
+    res = client.post("/candidate/round/2/auto/submit", json={"entries": [
+        {"row_index": 0, "validation": "TC0 proves rejection."},
+        {"row_index": 1, "validation": "TC1 proves persistence."},
+    ]}, cookies=_auth(cand_token))
+    assert res.status_code == 400
+    assert "1" in res.json()["detail"]  # names the un-run test case
+
+    client.post("/candidate/round/2/auto/run", json={"code": "y = 2", "row_index": 1}, cookies=_auth(cand_token))
+    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+        "scores": {"automation_design": 20, "test_data_and_assertions": 20, "ai_usage": 20,
+                   "ai_output_review": 20, "execution_and_validation": 20},
+        "final_score": 100, "findings": [], "feedback_text": "ok",
+    })
+    res = client.post("/candidate/round/2/auto/submit", json={"entries": [
+        {"row_index": 0, "validation": "TC0 proves rejection."},
+        {"row_index": 1, "validation": "TC1 proves persistence."},
+    ]}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+
+
 # ---- Submission + scoring/audit ----
 
 def _submit_payload(code="x = 1\n", validation="The run proves the zero amount was rejected and nothing persisted."):
@@ -401,8 +580,13 @@ def test_submit_requires_a_run_and_an_interpretation(client, monkeypatch):
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)
     _select(client, cand_token, (0,))
 
-    # No interpretation -> schema rejection.
-    assert client.post("/candidate/round/2/auto/submit", json={"code": "x = 1"}, cookies=_auth(cand_token)).status_code == 422
+    # No interpretation -> business rejection. (validation moved from a
+    # schema-required field to an endpoint-level check when submit grew
+    # the entries= shape for multiple independently-validated test cases -
+    # pydantic can't express "required unless entries is given" cleanly.)
+    res = client.post("/candidate/round/2/auto/submit", json={"code": "x = 1"}, cookies=_auth(cand_token))
+    assert res.status_code == 400
+    assert "explain" in res.json()["detail"].lower()
     # Never run -> business rejection.
     res = client.post("/candidate/round/2/auto/submit", json=_submit_payload(), cookies=_auth(cand_token))
     assert res.status_code == 400

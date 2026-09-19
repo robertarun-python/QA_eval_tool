@@ -2625,9 +2625,11 @@ function confirmStartRound4Pilot() {
 
 // AI-Assisted Test Automation's own briefing (see models.Scenario.is_auto) -
 // the candidate automates test cases THEY designed in round 1, not the
-// legacy conversational flow above. No language choice here either - the
-// language is inherited from round 3 (see routers/candidate.py's
-// _round3_language_for), so "Got it" goes straight to startRound(2).
+// legacy conversational flow above. "Got it" goes straight to
+// startRound(2); the language choice happens inside the round itself
+// (see renderRound4AutomationLayout's language-lock step) rather than in
+// this briefing, since it's locked for the round AND inherited by round 3
+// (see routers/candidate.py's _round3_language_for) - round 3 never asks.
 // Deliberately generic process steps only - no scoring weights, no
 // ground truth, no policy internals, no hint at what a strong answer
 // looks like.
@@ -2662,10 +2664,10 @@ function confirmStartRound4Auto() {
 }
 
 // Split from the intro (see showRound4Intro) so the language choice
-// happens as its own confirmed step, matching Round 3's
-// confirmRound3CodingIntro/confirmStartRound3Coding pattern - not
-// silently defaulting round4DefaultLanguage's initial "python" value
-// the way it used to. Unlike Round 3 this choice ISN'T locked for the
+// happens as its own confirmed step, matching the "Got it" -> pick ->
+// Start pattern used elsewhere - not silently defaulting
+// round4DefaultLanguage's initial "python" value the way it used to.
+// Unlike round 2/3's locked language, this choice ISN'T locked for the
 // round - round4OnLanguageChange already lets the candidate switch per
 // turn - this only sets what that default starts as, so no code has to
 // change to support it.
@@ -2953,7 +2955,7 @@ function showRound3CodingIntro() {
         <li>It won't decide for you either - "which loop is right?" gets a question back, not an answer.</li>
         <li>Run is a real terminal: code executes for real, and if it calls input(), you type the answer and it continues. Debugging is on you - the assistant won't fix a pasted error; tell it exactly what to change.</li>
         <li>Submission runs against hidden test cases you never see - scored on how many pass, how precisely you specified things, and whether you pushed toward a more efficient solution.</li>
-        <li>Pick your language next - Python, Java, or JavaScript - the timer starts then, and the choice is final for the round.</li>
+        <li>The timer starts the moment you click below, in the language you locked during Round 2.</li>
       </ul>
       <div class="row">
         <button onclick="confirmRound3CodingIntro()">Got it</button>
@@ -2963,49 +2965,18 @@ function showRound3CodingIntro() {
   openModalOverlay(overlay);
 }
 
-// Split from the intro (see showRound3CodingIntro) so language choice
-// happens as its own step after the candidate has actually read the
-// notes, not bundled into the same click - matching round 4's intro,
-// which also only ever asks the candidate to confirm one thing at a
-// time. The language picker renders into the round view itself (below
-// the scenario title/description already sitting there - see
-// renderRoundEntry), not another modal.
+// Split from the intro (see showRound3CodingIntro) purely to match round
+// 4's pattern of "Got it" being its own confirmed step. No language
+// picker here anymore - round 3 inherits whatever was locked in round 2
+// (see routers/candidate.py's _round3_language_for), so "Got it" goes
+// straight to starting the round.
 function confirmRound3CodingIntro() {
   closeModalOverlay("round3-coding-intro-overlay");
-  document.getElementById("round-view").insertAdjacentHTML("beforeend", `
-    <div class="field-row" style="align-items:center">
-      <span class="muted">Language</span>
-      <select id="round3-language-select" onchange="round3OnLanguageSelectChange()">
-        <option value="" selected>Select a language...</option>
-        <option value="python">Python</option>
-        <option value="java">Java</option>
-        <option value="javascript">JavaScript</option>
-      </select>
-    </div>
-    <p class="muted">This is a one-time choice - you won't be able to change it once the round starts.</p>
-    <div class="row">
-      <button id="round3-start-btn" onclick="confirmStartRound3Coding()" disabled>Start Round 3</button>
-    </div>
-  `);
+  startRound3Coding();
 }
 
-// A blank first option (no default language pre-selected) plus this
-// disable/enable toggle is what actually mandates the choice - without
-// it the select's first real <option> would be silently accepted as
-// the language the instant the candidate clicked Start.
-function round3OnLanguageSelectChange() {
-  const language = document.getElementById("round3-language-select").value;
-  document.getElementById("round3-start-btn").disabled = !language;
-}
-
-function confirmStartRound3Coding() {
-  const language = document.getElementById("round3-language-select").value;
-  if (!language) return;
-  startRound3Coding(language);
-}
-
-async function startRound3Coding(language) {
-  await api("/candidate/round/3/start", { method: "POST", body: JSON.stringify({ language }) });
+async function startRound3Coding() {
+  await api("/candidate/round/3/start", { method: "POST", body: JSON.stringify({}) });
   const box = document.getElementById("round-view");
   renderRoundEntry(3, box, null, null);
 }
@@ -4650,13 +4621,17 @@ let round4AutoBusy = false;
 
 function round4AutoSetBusy(busy) {
   round4AutoBusy = busy;
-  ["r4a-select-btn", "r4a-ask-btn", "r4a-save-btn", "r4a-run-btn", "r4a-refine-btn", "r4a-submit-btn"].forEach((id) => {
+  ["r4a-lock-language-btn", "r4a-select-btn", "r4a-refine-btn", "r4a-submit-btn"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = busy;
   });
+  // ask/save/run buttons are one-per-selected-TC (see round4AutoTcPanelHtml),
+  // so they're classes, not unique ids.
+  document.querySelectorAll(".r4a-ask-btn, .r4a-save-btn, .r4a-run-btn").forEach((el) => { el.disabled = busy; });
 }
 
 async function loadRound4Automation(box) {
+  round4AutoActiveTc = null;
   try {
     round4AutoState = await api("/candidate/round/2/auto/state");
   } catch (e) {
@@ -4697,9 +4672,8 @@ function round4AutoRunResultHtml(run) {
     </div>`;
 }
 
-function round4AutoTurnsHtml() {
-  const turns = round4AutoState.turns || [];
-  if (turns.length === 0) return `<p class="muted">No messages yet.</p>`;
+function round4AutoTurnsHtml(turns) {
+  if (!turns || turns.length === 0) return `<p class="muted">No messages yet.</p>`;
   return turns.map((t) => `
     <div class="panel-inset" style="margin-bottom:0.5rem">
       <p style="margin:0 0 0.35rem 0"><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
@@ -4707,9 +4681,83 @@ function round4AutoTurnsHtml() {
     </div>`).join("");
 }
 
+// Each selected test case (1-2) has its own independent automation state
+// (see Round4AutoTCStateOut) - code, AI conversation, run result and
+// interpretation, none of it shared with the other selected test case.
+// All selected TCs' panels are rendered into the DOM at once and toggled
+// via display:none rather than re-rendered on tab switch, so whatever's
+// typed into the inactive tab's fields survives switching tabs (it does
+// NOT survive round4AutoAction's re-render after a server call, same
+// unsaved-draft limitation the single-buffer design already had).
+let round4AutoActiveTc = null;
+
+function round4AutoTcState(rowIndex) {
+  return (round4AutoState.tc_state || []).find((t) => t.row_index === rowIndex)
+    || { code: "", turns: [], code_edits_count: 0, last_run: null, validation: "" };
+}
+
+function round4AutoSwitchTc(rowIndex) {
+  round4AutoActiveTc = rowIndex;
+  document.querySelectorAll(".r4a-tc-panel").forEach((el) => {
+    el.style.display = Number(el.dataset.rowIndex) === rowIndex ? "" : "none";
+  });
+  document.querySelectorAll(".r4a-tc-tab").forEach((el) => {
+    el.classList.toggle("active", Number(el.dataset.rowIndex) === rowIndex);
+  });
+}
+
+function round4AutoTcPanelHtml(row, active) {
+  const tc = round4AutoTcState(row.index);
+  return `
+    <div class="r4a-tc-panel" data-row-index="${row.index}" style="${active ? "" : "display:none"}">
+      <h4>Automation code <span class="muted">- ${escapeHtml(row.title || "(untitled)")}</span></h4>
+      <textarea id="r4a-code-${row.index}" class="code-textarea round4-pilot-code">${escapeHtml(tc.code || "")}</textarea>
+      <div class="row" style="margin:0.4rem 0 1rem 0">
+        <button class="r4a-save-btn" onclick="round4AutoSaveCodeClicked(${row.index})">Save my edit</button>
+        <button class="r4a-run-btn" onclick="round4AutoRunClicked(${row.index})">Run</button>
+        <span class="muted">Run uses exactly what's in this box. Your own edits are recorded separately from the assistant's.</span>
+      </div>
+      <div id="r4a-run-result-${row.index}">${round4AutoRunResultHtml(tc.last_run)}</div>
+
+      <h4 style="margin-top:1.25rem">Ask the assistant</h4>
+      <div class="field-row">
+        <div class="field">
+          <textarea id="r4a-prompt-${row.index}" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
+        </div>
+        <button class="r4a-ask-btn" onclick="round4AutoAskClicked(${row.index})">Ask AI</button>
+      </div>
+      <div style="margin-top:0.75rem">${round4AutoTurnsHtml(tc.turns)}</div>
+
+      <h4 style="margin-top:1.25rem">What did your run prove?</h4>
+      <div class="field">
+        <textarea id="r4a-validation-${row.index}" rows="3" placeholder="Interpret your execution result: what does it actually prove about your expected result, and what does it not?">${escapeHtml(tc.validation || "")}</textarea>
+      </div>
+    </div>`;
+}
+
 function renderRound4AutomationLayout(box) {
   const s = round4AutoState;
   const scenario = round4State.scenario;
+
+  if (!s.language_locked) {
+    box.innerHTML = `
+      <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
+      ${formatScenarioDescription(scenario.description)}
+      <div class="panel-inset" style="margin-bottom:0.85rem">
+        <p style="margin:0">Choose the language you'll automate in. This is locked for the rest of Round 2 and carries into Round 3 - you won't be asked again.</p>
+      </div>
+      <div class="field-row" style="align-items:center">
+        <select id="r4a-language-select">
+          <option value="" selected>Select a language...</option>
+          <option value="python">Python</option>
+          <option value="java">Java</option>
+          <option value="javascript">JavaScript</option>
+        </select>
+        <button id="r4a-lock-language-btn" onclick="round4AutoLockLanguageClicked()">Lock language</button>
+      </div>
+      <p id="r4a-status" class="muted"></p>`;
+    return;
+  }
 
   if (!s.selection_locked) {
     box.innerHTML = `
@@ -4727,22 +4775,27 @@ function renderRound4AutomationLayout(box) {
     return;
   }
 
+  const selected = s.selected || [];
+  if (round4AutoActiveTc === null || !selected.some((r) => r.index === round4AutoActiveTc)) {
+    round4AutoActiveTc = selected.length > 0 ? selected[0].index : null;
+  }
+
   box.innerHTML = `
     <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
     ${formatScenarioDescription(scenario.description)}
     <div class="panel-inset" style="margin-bottom:0.85rem">
-      <p style="margin:0">Automating in <strong>${escapeHtml(s.language)}</strong> (the language you chose in Round 3). The assistant will only encode the design below - it won't invent test cases, data or assertions, so anything missing is yours to add. Review everything it writes, edit the code yourself where you disagree, run it, then explain what the result actually proves.</p>
+      <p style="margin:0">Automating in <strong>${escapeHtml(s.language)}</strong> (locked at the start of this round). The assistant will only encode the design below - it won't invent test cases, data or assertions, so anything missing is yours to add. Review everything it writes, edit the code yourself where you disagree, run it, then explain what the result actually proves.${selected.length > 1 ? " Each test case below has its own code, conversation and run, completely independent of the other." : ""}</p>
     </div>
 
     <h4>Your selected design <span class="muted">(original - never edited here)</span></h4>
-    ${(s.selected || []).map((r) => round4AutoDesignCardHtml(r, { selectable: false })).join("")}
+    ${selected.map((r) => round4AutoDesignCardHtml(r, { selectable: false })).join("")}
 
     <details class="hint-box" style="margin-bottom:1rem">
       <summary><strong>Add a refinement note</strong> (append-only - your original stays intact)</summary>
       <div class="field-row" style="margin-top:0.5rem">
         <div class="field">
           <select id="r4a-refine-row">
-            ${(s.selected || []).map((r) => `<option value="${r.index}">${escapeHtml(r.title || "(untitled)")}</option>`).join("")}
+            ${selected.map((r) => `<option value="${r.index}">${escapeHtml(r.title || "(untitled)")}</option>`).join("")}
           </select>
           <input id="r4a-refine-note" type="text" maxlength="2000" placeholder="e.g. realised the expected message is exact-match, not a substring" />
         </div>
@@ -4755,29 +4808,14 @@ function renderRound4AutomationLayout(box) {
       <pre class="code-snippet">${escapeHtml(s.environment_code || "")}</pre>
     </details>
 
-    <h4>Automation code</h4>
-    <textarea id="r4a-code" class="code-textarea round4-pilot-code">${escapeHtml(s.code || "")}</textarea>
-    <div class="row" style="margin:0.4rem 0 1rem 0">
-      <button id="r4a-save-btn" onclick="round4AutoSaveCodeClicked()">Save my edit</button>
-      <button id="r4a-run-btn" onclick="round4AutoRunClicked()">Run</button>
-      <span class="muted">Run uses exactly what's in this box. Your own edits are recorded separately from the assistant's.</span>
-    </div>
-    <div id="r4a-run-result">${round4AutoRunResultHtml(s.last_run)}</div>
+    ${selected.length > 1 ? `
+    <div class="scenario-tabs">
+      ${selected.map((r) => `<button class="scenario-tab r4a-tc-tab${r.index === round4AutoActiveTc ? " active" : ""}" data-row-index="${r.index}" onclick="round4AutoSwitchTc(${r.index})">${escapeHtml(r.title || `Test case ${r.index}`)}</button>`).join("")}
+    </div>` : ""}
 
-    <h4 style="margin-top:1.25rem">Ask the assistant</h4>
-    <div class="field-row">
-      <div class="field">
-        <textarea id="r4a-prompt" rows="2" placeholder="e.g. Encode step 2 of my first test case using UI.login, asserting the expected result I wrote."></textarea>
-      </div>
-      <button id="r4a-ask-btn" onclick="round4AutoAskClicked()">Ask AI</button>
-    </div>
-    <div style="margin-top:0.75rem">${round4AutoTurnsHtml()}</div>
+    ${selected.map((r) => round4AutoTcPanelHtml(r, r.index === round4AutoActiveTc)).join("")}
 
-    <h4 style="margin-top:1.25rem">What did your run prove?</h4>
-    <div class="field">
-      <textarea id="r4a-validation" rows="3" placeholder="Interpret your execution result: what does it actually prove about your expected result, and what does it not?">${escapeHtml(s.validation || "")}</textarea>
-    </div>
-    <div class="row" style="margin-top:0.75rem">
+    <div class="row" style="margin-top:1rem">
       <button id="r4a-submit-btn" class="btn-block" onclick="round4AutoSubmitClicked()">Submit Round 2</button>
     </div>
     <p id="r4a-status" class="muted"></p>`;
@@ -4805,6 +4843,16 @@ async function round4AutoAction(actionFn) {
   }
 }
 
+function round4AutoLockLanguageClicked() {
+  const language = document.getElementById("r4a-language-select").value;
+  const statusEl = document.getElementById("r4a-status");
+  if (!language) {
+    if (statusEl) statusEl.textContent = "Pick a language first.";
+    return;
+  }
+  round4AutoAction(() => api("/candidate/round/2/auto/language", { method: "POST", body: JSON.stringify({ language }) }));
+}
+
 function round4AutoSelectClicked() {
   const picked = [...document.querySelectorAll(".r4a-pick:checked")].map((el) => Number(el.value));
   const statusEl = document.getElementById("r4a-status");
@@ -4822,37 +4870,48 @@ function round4AutoRefineClicked() {
   round4AutoAction(() => api("/candidate/round/2/auto/refine", { method: "POST", body: JSON.stringify({ row_index: rowIndex, note }) }));
 }
 
-function round4AutoAskClicked() {
-  const prompt = document.getElementById("r4a-prompt").value.trim();
+function round4AutoAskClicked(rowIndex) {
+  const promptEl = document.getElementById(`r4a-prompt-${rowIndex}`);
+  const prompt = promptEl.value.trim();
   if (!prompt) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt }) }));
+  round4AutoAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) }));
 }
 
-function round4AutoSaveCodeClicked() {
-  const code = document.getElementById("r4a-code").value;
+function round4AutoSaveCodeClicked(rowIndex) {
+  const code = document.getElementById(`r4a-code-${rowIndex}`).value;
   if (!code) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code }) }));
+  round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }));
 }
 
-function round4AutoRunClicked() {
-  const code = document.getElementById("r4a-code").value;
-  round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code }) }));
+function round4AutoRunClicked(rowIndex) {
+  const code = document.getElementById(`r4a-code-${rowIndex}`).value;
+  round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }));
 }
 
 async function round4AutoSubmitClicked() {
   if (round4AutoBusy) return;
-  const validation = document.getElementById("r4a-validation").value.trim();
+  const selected = round4AutoState.selected || [];
   const statusEl = document.getElementById("r4a-status");
-  if (!validation) {
-    if (statusEl) statusEl.textContent = "Explain what your run proves before submitting.";
-    return;
+
+  // Every selected test case needs its own run and its own
+  // interpretation - gathered independently per TC, not one shared
+  // validation for the whole round (see Round4AutoSubmitCreate.entries).
+  const entries = [];
+  for (const r of selected) {
+    const validation = document.getElementById(`r4a-validation-${r.index}`).value.trim();
+    if (!validation) {
+      round4AutoSwitchTc(r.index);
+      if (statusEl) statusEl.textContent = `Explain what your run proves for "${r.title || `test case ${r.index}`}" before submitting.`;
+      return;
+    }
+    entries.push({ row_index: r.index, code: document.getElementById(`r4a-code-${r.index}`).value, validation });
   }
+
   round4AutoBusy = true;
   round4AutoSetBusy(true);
   if (statusEl) statusEl.textContent = "";
-  const code = document.getElementById("r4a-code").value;
   try {
-    await api("/candidate/round/2/auto/submit", { method: "POST", body: JSON.stringify({ code, validation }) });
+    await api("/candidate/round/2/auto/submit", { method: "POST", body: JSON.stringify({ entries }) });
     stopTimer();
     disarmTabGuard();
     refreshCandidateNav();

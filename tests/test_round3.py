@@ -110,14 +110,14 @@ def test_round3_coding_full_happy_path(client, monkeypatch):
     client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]}, cookies=_auth(cand_token))
     _seed_completed_rounds(CANDIDATE1_EMAIL, 2)  # round 3 unlocks behind rounds 1-2 since the 2<->4 swap
 
-    # Round 3 isn't reachable without a language.
+    # Round 3 no longer needs a language in the body at all - it inherits
+    # whatever was locked in round 2 (see _round3_language_for). This
+    # candidate's round 2 was seeded directly with no language on file,
+    # so it falls back to python.
     res = client.post("/candidate/round/3/start", json={}, cookies=_auth(cand_token))
-    assert res.status_code == 422
-
-    res = client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
     assert res.status_code == 201
     # Idempotent - a second call with the same body doesn't reset anything.
-    res2 = client.post("/candidate/round/3/start", json={"language": "python"}, cookies=_auth(cand_token))
+    res2 = client.post("/candidate/round/3/start", json={}, cookies=_auth(cand_token))
     assert res2.json()["id"] == res.json()["id"]
 
     state = client.get("/candidate/round/3/state", cookies=_auth(cand_token)).json()

@@ -758,9 +758,17 @@ class Round4AutoDesignRowOut(BaseModel):
     refinements: list[str] = Field(default_factory=list)
 
 
+class Round4AutoLanguageCreate(BaseModel):
+    """The candidate's language for this round. Writable exactly once,
+    and before any test case can be selected - see routers/candidate.py's
+    round4_auto_lock_language. Round 3 inherits whatever is locked here
+    (see _round3_language_for) rather than asking again."""
+    language: Literal["python", "java", "javascript"]
+
+
 class Round4AutoSelectCreate(BaseModel):
-    """1-2 Round 1 rows, by index. Writable exactly once - see
-    routers/candidate.py's round4_auto_select."""
+    """1-2 Round 1 rows, by index. Writable exactly once, and only after
+    the language is locked - see routers/candidate.py's round4_auto_select."""
     row_indexes: list[int] = Field(min_length=1, max_length=2)
 
 
@@ -770,10 +778,15 @@ class Round4AutoRefineCreate(BaseModel):
 
 
 class Round4AutoTurnCreate(BaseModel):
+    """row_index picks which selected test case this turn is about -
+    optional only when exactly one test case is selected (see
+    routers/candidate.py's _resolve_tc_row), required once there are two."""
     candidate_prompt: str = Field(min_length=1, max_length=10000)
+    row_index: Optional[int] = None
 
 
 class Round4AutoTurnOut(BaseModel):
+    row_index: int
     turn_number: int
     candidate_prompt: str
     response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
@@ -782,22 +795,47 @@ class Round4AutoTurnOut(BaseModel):
 
 
 class Round4AutoCodeUpdate(BaseModel):
-    """The candidate's own direct edit to the code buffer. Recorded as its
-    own audit entry (see Round4AutoStateOut.code_edits) so "what the
-    assistant produced" and "what the candidate changed themselves" stay
-    distinguishable at scoring time."""
+    """The candidate's own direct edit to one selected test case's own
+    code buffer. Recorded as its own audit entry (see
+    Round4AutoTCStateOut.code_edits_count) so "what the assistant
+    produced" and "what the candidate changed themselves" stay
+    distinguishable at scoring time. row_index: see Round4AutoTurnCreate."""
     code: str = Field(min_length=1, max_length=200000)
+    row_index: Optional[int] = None
 
 
 class Round4AutoRunCreate(BaseModel):
-    """Optional body for run/submit - the candidate's current editor
-    contents, so both act on exactly what's on screen. None = use what's
-    already stored."""
+    """Optional body for run - one test case's current editor contents,
+    so it acts on exactly what's on screen for that TC. code: None = use
+    what's already stored. row_index: see Round4AutoTurnCreate."""
     code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
+    row_index: Optional[int] = None
 
 
-class Round4AutoSubmitCreate(Round4AutoRunCreate):
+class Round4AutoTCSubmitEntry(BaseModel):
+    """One selected test case's final code and the candidate's own
+    interpretation of its run - see Round4AutoSubmitCreate.entries."""
+    row_index: int
+    code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
     validation: str = Field(min_length=1, max_length=5000)
+
+
+class Round4AutoSubmitCreate(BaseModel):
+    """`entries` is one per selected test case - submit checks that each
+    selected test case was independently run and interpreted, not just
+    one shared interpretation for the whole round (see
+    routers/candidate.py's round4_auto_submit).
+
+    Back-compat convenience: with exactly one test case selected, the
+    flat `code`/`validation` fields below may be used instead of
+    `entries` - the shape every existing single-TC caller already sends,
+    wrapped into a single-entry list for that one TC. Two or more
+    selected test cases must use `entries` explicitly - there's no
+    longer a single buffer for a flat `validation` to unambiguously
+    refer to."""
+    entries: Optional[list[Round4AutoTCSubmitEntry]] = None
+    code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
+    validation: Optional[str] = Field(default=None, min_length=1, max_length=5000)
 
 
 class Round4AutoRunOut(BaseModel):
@@ -808,21 +846,40 @@ class Round4AutoRunOut(BaseModel):
     infra_error: bool = False
 
 
+class Round4AutoTCStateOut(BaseModel):
+    """One selected test case's own independent automation state - its
+    own code, AI turns, direct-edit count, last run and interpretation,
+    untouched by any other selected test case (see routers/candidate.py's
+    round4_auto_turn/code/run, all row_index-scoped). code starts as the
+    provided environment at selection time (see round4_auto_select)."""
+    row_index: int
+    code: str = ""
+    turns: list[Round4AutoTurnOut] = Field(default_factory=list)
+    code_edits_count: int = 0
+    last_run: Optional[Round4AutoRunOut] = None
+    validation: str = ""
+
+
 class Round4AutoStateOut(BaseModel):
     """Everything the automation round's candidate screen needs. Nothing
     here carries ground truth, validation notes, the scoring rubric, or
     the traceability signal - those are HR/system-only (see
-    prompts/round4_auto_scoring.txt's REFERENCE ONLY section)."""
-    language: str
+    prompts/round4_auto_scoring.txt's REFERENCE ONLY section).
+
+    language is None until the candidate locks it (see
+    round4_auto_lock_language) - test-case selection is blocked until
+    then, so every other field below is meaningless pre-lock.
+
+    tc_state carries each selected test case's own independent
+    automation state (see Round4AutoTCStateOut); `selected` itself stays
+    the immutable design snapshot only, never mutable state."""
+    language: Optional[str] = None
+    language_locked: bool = False
     available_rows: list[Round4AutoDesignRowOut]
     selected: list[Round4AutoDesignRowOut]
     selection_locked: bool
     environment_code: str
-    code: str
-    turns: list[Round4AutoTurnOut]
-    code_edits_count: int
-    last_run: Optional[Round4AutoRunOut] = None
-    validation: str = ""
+    tc_state: list[Round4AutoTCStateOut] = Field(default_factory=list)
 
 
 class Round4PilotCodeUpdate(BaseModel):
@@ -867,7 +924,12 @@ class Round4PilotRunOut(BaseModel):
 
 
 class Round3StartRequest(BaseModel):
-    language: Literal["python", "java", "javascript"]
+    """language is accepted but ignored: round 3 now inherits whatever
+    the candidate locked in round 2's automation round rather than asking
+    again (see routers/candidate.py's _round3_language_for). Kept
+    Optional, rather than removed, purely so an existing client still
+    sending it isn't broken by this change."""
+    language: Optional[Literal["python", "java", "javascript"]] = None
 
 
 class Round3DraftUpdate(BaseModel):
