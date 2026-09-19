@@ -794,6 +794,46 @@ class Round4AutoTurnOut(BaseModel):
     code_after: Optional[str] = None
 
 
+class Round4AutoClarifyCreate(BaseModel):
+    """The candidate's automation instruction, submitted to the
+    clarification-only flow (see routers/candidate.py's
+    round4_auto_clarify) rather than /turn - this endpoint never writes
+    code, regardless of how complete the instruction turns out to be.
+    row_index: see Round4AutoTurnCreate."""
+    candidate_prompt: str = Field(min_length=1, max_length=10000)
+    row_index: Optional[int] = None
+
+
+class Round4AutoClarifyLLMResponse(BaseModel):
+    """The raw shape the clarify-check LLM call returns - see
+    llm_service.round4_auto_clarify and prompts/round4_auto_clarify.txt.
+    Internal to that function; the endpoint's actual response is the
+    same Round4AutoTurnOut every other R2 turn uses, with code_after
+    always null - this flow never generates code.
+
+    The LLM is deliberately confined to CLASSIFICATION (a bounded
+    status, plus the raw material a deterministic rule needs), not
+    given authority over the actual outcome - round4_auto_clarify_policy
+    .build_clarify_response is what decides what the candidate sees.
+    "contradicts_prior" is its own status, not folded into
+    "insufficient": a candidate who already said two different things
+    has too much information, not too little, and needs a different
+    follow-up (which one did you mean) than an honestly incomplete
+    instruction does (what should happen)."""
+    status: Literal["sufficient", "insufficient", "contradicts_prior"]
+    question: Optional[str] = None
+    prior_value: Optional[str] = None
+    current_value: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _fields_match_status(self):
+        if self.status == "insufficient" and not self.question:
+            raise ValueError("question is required when status is 'insufficient'")
+        if self.status == "contradicts_prior" and not (self.prior_value and self.current_value):
+            raise ValueError("prior_value and current_value are required when status is 'contradicts_prior'")
+        return self
+
+
 class Round4AutoCodeUpdate(BaseModel):
     """The candidate's own direct edit to one selected test case's own
     code buffer. Recorded as its own audit entry (see

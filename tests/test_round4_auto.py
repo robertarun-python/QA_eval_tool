@@ -389,6 +389,134 @@ def test_legitimate_request_reaches_the_generator_and_updates_the_code(client, m
     assert GROUND_TRUTH not in captured["prompt"]
 
 
+# ---- Clarification flow (/round/2/auto/clarify) ----
+
+def test_clarify_asks_a_neutral_question_and_writes_no_code(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+    baseline_code = _state(client, cand_token)["tc_state"][0]["code"]
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"status": "insufficient", "question": "What exactly should happen when this step runs, and what should prove it worked?"}))
+    res = client.post(
+        "/candidate/round/2/auto/clarify",
+        json={"candidate_prompt": "submit the amount and confirm it worked"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["response_kind"] == "clarify"
+    assert body["code_after"] is None
+    assert body["row_index"] == 0
+    assert "worked" in body["response_message"]
+
+    state = _state(client, cand_token)
+    assert state["tc_state"][0]["code"] == baseline_code  # completely untouched
+    assert len(state["tc_state"][0]["turns"]) == 1
+    assert state["tc_state"][0]["turns"][0]["response_kind"] == "clarify"
+
+
+def test_clarify_never_writes_code_even_when_the_instruction_is_complete(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+    baseline_code = _state(client, cand_token)["tc_state"][0]["code"]
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps({"status": "sufficient"}))
+    res = client.post(
+        "/candidate/round/2/auto/clarify",
+        json={"candidate_prompt": "log in as jordan.rivera and confirm login succeeds"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    assert res.json()["response_kind"] == "explain"
+    assert res.json()["code_after"] is None
+    assert _state(client, cand_token)["tc_state"][0]["code"] == baseline_code  # still never touched
+
+
+@pytest.mark.parametrize("leaking_question", [
+    "Should this go through the UI or call the API directly?",
+    "Do you want to check this via the database?",
+    "Which layer should this hit - the front end or the backend?",
+])
+def test_clarify_substitutes_the_fallback_when_the_drafted_question_leaks_the_layer(client, monkeypatch, leaking_question):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"status": "insufficient", "question": leaking_question}))
+    res = client.post(
+        "/candidate/round/2/auto/clarify",
+        json={"candidate_prompt": "submit the amount"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["response_kind"] == "clarify"
+    # The leaking draft never reaches the candidate - a fixed, pre-approved,
+    # category-neutral question is substituted instead.
+    from app.services.round4_auto_clarify_policy import FALLBACK_QUESTION
+    assert body["response_message"] == FALLBACK_QUESTION
+    for leaked_word in ("ui", "api", "database", "backend", "front end", "layer"):
+        assert leaked_word not in body["response_message"].lower()
+
+
+@pytest.mark.parametrize("prompt", PROHIBITED)
+def test_clarify_reuses_the_existing_prohibited_request_policy(client, monkeypatch, prompt):
+    """Preserved, not duplicated: the same is_prohibited check /turn uses,
+    so a request to invent coverage/data/assertions can't be routed
+    around the guardrail just by calling /clarify instead of /turn."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+
+    calls = {"n": 0}
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: calls.update(n=calls["n"] + 1) or "{}")
+    res = client.post("/candidate/round/2/auto/clarify", json={"candidate_prompt": prompt}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+    assert res.json()["response_kind"] == "refuse"
+    assert res.json()["code_after"] is None
+    assert calls["n"] == 0, "the deterministic policy must short-circuit before any LLM call"
+
+
+def test_clarify_requires_row_index_once_two_test_cases_are_selected(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0, 1))
+
+    res = client.post("/candidate/round/2/auto/clarify", json={"candidate_prompt": "submit the amount"}, cookies=_auth(cand_token))
+    assert res.status_code == 400
+    assert "row_index" in res.json()["detail"]
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps({"status": "sufficient"}))
+    res = client.post("/candidate/round/2/auto/clarify", json={"candidate_prompt": "submit the amount", "row_index": 1}, cookies=_auth(cand_token))
+    assert res.status_code == 201
+    assert res.json()["row_index"] == 1
+    state = _state(client, cand_token)
+    assert len(state["tc_state"][1]["turns"]) == 1
+    assert state["tc_state"][0]["turns"] == []  # the other TC is untouched
+
+
+def test_clarify_and_turn_share_one_conversation_log_per_tc(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"status": "insufficient", "question": "What exactly should happen when this step runs, and what should prove it worked?"}))
+    client.post("/candidate/round/2/auto/clarify", json={"candidate_prompt": "submit it"}, cookies=_auth(cand_token))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"response_kind": "code_edit", "response_message": "Encoded it.", "code_after": PYTHON_ENV + "\nprint('ok')\n"}))
+    client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "submit 0.00 and confirm it's rejected via API.create_record"}, cookies=_auth(cand_token))
+
+    turns = _state(client, cand_token)["tc_state"][0]["turns"]
+    assert [t["response_kind"] for t in turns] == ["clarify", "code_edit"]
+    assert [t["turn_number"] for t in turns] == [1, 2]
+
+
 def test_untraceable_literal_detection_flags_invented_values_only():
     """Deterministic post-generation control - see round4_auto_policy."""
     selected = [{"test_data": "amount = 0.00", "expected_result": "rejected", "steps": "submit", "title": "t"}]
@@ -398,6 +526,94 @@ def test_untraceable_literal_detection_flags_invented_values_only():
     assert "77.77" in flagged                      # value the candidate never specified
     assert "nobody@example.com" in flagged
     assert "0.00" not in flagged                   # straight from their own test data
+
+
+def test_clarify_policy_flags_layer_vocabulary_but_not_ordinary_english():
+    """Deterministic post-generation control - see round4_auto_clarify_policy.
+    Isolated from round3_constructs on purpose (see that module's own
+    docstring) - this is its own, much smaller vocabulary."""
+    from app.services import round4_auto_clarify_policy as policy
+
+    for leaking in [
+        "Should this go through the UI or the API?",
+        "Do you want to check the database directly?",
+        "Which layer should this hit - the front end or the backend?",
+        "Should the test call API.create_record directly?",
+    ]:
+        assert policy.contains_forbidden_vocab(leaking), leaking
+
+    for safe in [
+        "What exactly should happen when this step runs, and what should prove it worked?",
+        "What value should be used for the owner field?",
+        "How should the result be confirmed?",
+    ]:
+        assert not policy.contains_forbidden_vocab(safe), safe
+
+
+def test_placeholder_prefilter_catches_empty_instructions_but_not_short_real_ones():
+    """Deterministic pre-filter - see
+    round4_auto_clarify_policy.is_placeholder_instruction. Conservative on
+    purpose: a short instruction that still says something real ("confirm
+    login fails") must NOT be caught here - only genuinely empty ones,
+    the false-positive risk this design explicitly called out."""
+    from app.services import round4_auto_clarify_policy as policy
+
+    for placeholder in ["test it", "go", "do it", "please automate this", "check it now", "   "]:
+        assert policy.is_placeholder_instruction(placeholder), placeholder
+
+    for real in ["confirm login fails", "submit 0.00", "log in as jordan.rivera", "check the message"]:
+        assert not policy.is_placeholder_instruction(real), real
+
+
+def test_build_clarify_response_decision_rule():
+    """Pure function, no LLM/HTTP - the deterministic rule that turns the
+    LLM's bounded classification into what the candidate sees."""
+    from app.services import round4_auto_clarify_policy as policy
+
+    sufficient = policy.build_clarify_response(status="sufficient")
+    assert sufficient["response_kind"] == "explain"
+
+    safe = policy.build_clarify_response(status="insufficient", question="What value should be used here?")
+    assert safe["response_kind"] == "clarify"
+    assert safe["response_message"] == "What value should be used here?"
+
+    leaking = policy.build_clarify_response(status="insufficient", question="Should this use the API?")
+    assert leaking["response_kind"] == "clarify"
+    assert leaking["response_message"] == policy.FALLBACK_QUESTION  # substituted, not passed through
+
+    contradiction = policy.build_clarify_response(status="contradicts_prior", prior_value="0.00", current_value="50")
+    assert contradiction["response_kind"] == "clarify"
+    assert "0.00" in contradiction["response_message"]
+    assert "50" in contradiction["response_message"]
+    assert "which one" in contradiction["response_message"].lower()
+
+
+def test_clarify_flags_an_instruction_that_contradicts_the_candidates_own_design(client, monkeypatch):
+    """contradicts_prior is a distinct outcome from insufficient - the
+    candidate said two different things, so the follow-up asks which one
+    is current rather than asking a fresh neutral question."""
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token, (0,))
+
+    monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
+        {"status": "contradicts_prior", "prior_value": "0.00", "current_value": "50"}))
+    res = client.post(
+        "/candidate/round/2/auto/clarify",
+        json={"candidate_prompt": "actually submit 50 for this one"},
+        cookies=_auth(cand_token),
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["response_kind"] == "clarify"
+    assert body["code_after"] is None
+    assert "0.00" in body["response_message"]
+    assert "50" in body["response_message"]
+    # Quoting the candidate's own two statements back is not a category
+    # leak - neither value contains layer vocabulary here, and the
+    # template itself never mentions UI/API/DB either way.
+    for leaked_word in ("ui", "api", "database"):
+        assert leaked_word not in body["response_message"].lower()
 
 
 # ---- Candidate code edit ----

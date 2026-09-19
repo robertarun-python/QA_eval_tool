@@ -28,7 +28,7 @@ from ..schemas import (
     Round4PilotTurnCreate, Round4PilotTurnOut, Round4PilotClarifyCreate, Round4PilotClarifyOut, Round4PilotRunOut,
     Round4PilotCodeUpdate,
     Round4AutoStateOut, Round4AutoDesignRowOut, Round4AutoLanguageCreate, Round4AutoSelectCreate, Round4AutoRefineCreate,
-    Round4AutoTurnCreate, Round4AutoTurnOut, Round4AutoCodeUpdate, Round4AutoRunCreate,
+    Round4AutoTurnCreate, Round4AutoTurnOut, Round4AutoClarifyCreate, Round4AutoCodeUpdate, Round4AutoRunCreate,
     Round4AutoSubmitCreate, Round4AutoTCSubmitEntry, Round4AutoRunOut, Round4AutoTCStateOut,
 )
 from ..dependencies import require_candidate
@@ -1352,6 +1352,64 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
     new_row["turns"] = turns
     if response.get("code_after"):
         new_row["code"] = response["code_after"]
+    updated_selected = [new_row if r["index"] == row_index else r for r in selected]
+    updated = dict(content)
+    updated["selected"] = updated_selected
+    submission.content = updated
+    db.commit()
+    return Round4AutoTurnOut(row_index=row_index, **turn_record)
+
+
+@router.post("/round/2/auto/clarify", response_model=Round4AutoTurnOut, status_code=201)
+def round4_auto_clarify(payload: Round4AutoClarifyCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """The clarification-only flow for ONE selected test case: checks
+    whether the candidate's instruction leaves a decision open, and if
+    so asks a neutral question that never names the environment layer
+    (UI/API/DB) it would take to encode - see llm_service.round4_auto_clarify
+    and round4_auto_clarify_policy for the two-layer guard. Distinct from
+    round4_auto_turn: this endpoint NEVER writes code, regardless of
+    whether the instruction turns out to be complete or not - code
+    generation stays exclusively /turn's job, unmodified. Same
+    prohibited-request policy as /turn, reused unmodified, so a request
+    to invent test data or assertions can't be routed around it through
+    here. Writes into the SAME per-test-case turns log /turn does - this
+    is the same conversation, just an entry point that can't produce
+    code."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    selected = _require_selection(content)
+    row = _resolve_tc_row(selected, payload.row_index)
+    row_index = row["index"]
+
+    turns = list(row.get("turns") or [])
+    conversation_so_far = [
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"]} for t in turns
+    ]
+    language = content.get("language", "python")
+
+    try:
+        response = llm_service.round4_auto_clarify(
+            language=language,
+            selected_design=[row],
+            environment_code=_auto_environment_code(scenario, language),
+            current_code=row.get("code", ""),
+            conversation_so_far=conversation_so_far,
+            candidate_prompt=payload.candidate_prompt,
+        )
+    except Exception:
+        raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+
+    turn_record = {
+        "turn_number": len(turns) + 1,
+        "candidate_prompt": payload.candidate_prompt,
+        "response_kind": response["response_kind"],
+        "response_message": response["response_message"],
+        "code_after": None,  # this endpoint never writes code, whatever the response
+    }
+    turns.append(turn_record)
+    new_row = dict(row)
+    new_row["turns"] = turns
     updated_selected = [new_row if r["index"] == row_index else r for r in selected]
     updated = dict(content)
     updated["selected"] = updated_selected

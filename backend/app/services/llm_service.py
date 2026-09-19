@@ -13,12 +13,16 @@ import anthropic
 from pydantic import ValidationError
 
 from ..config import settings
-from ..schemas import Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding, Round4PilotTurnResponse
+from ..schemas import (
+    Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding,
+    Round4PilotTurnResponse, Round4AutoClarifyLLMResponse,
+)
 from . import round3_constructs
 from . import round3_construct_engine
 from . import round3_policy
 from . import round4_pilot_policy
 from . import round4_auto_policy
+from . import round4_auto_clarify_policy
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -861,6 +865,64 @@ def round4_auto_turn(
     parsed = Round4PilotTurnResponse.model_validate(result).model_dump()
     parsed["code_after"] = _repair_escaped_code(parsed.get("code_after"))
     return parsed
+
+
+def round4_auto_clarify(
+    language: str,
+    selected_design: list[dict],
+    environment_code: str,
+    current_code: str,
+    conversation_so_far: list[dict],
+    candidate_prompt: str,
+) -> dict:
+    """The specification-sufficiency gate (see routers/candidate.py's
+    round4_auto_clarify) - never generates code, regardless of how
+    complete the instruction turns out to be; that stays round4_auto_turn's
+    job. Same deterministic prohibited-request control as round4_auto_turn,
+    reused unmodified so the existing policy isn't duplicated or drifted.
+
+    Three layers, same split as R3's neutral-question design
+    (round3_construct_engine/round3_constructs) without its per-category
+    state machinery, which has nothing to track here:
+    1. A cheap deterministic pre-filter (round4_auto_clarify_policy.
+       is_placeholder_instruction) catches an instruction with no content
+       at all before any LLM call is made.
+    2. The LLM classifies - sufficient / insufficient / contradicts a
+       prior statement - and, for the non-sufficient cases, supplies the
+       raw material (a drafted question, or the two conflicting values) a
+       deterministic rule needs. It is never given authority over the
+       actual outcome.
+    3. round4_auto_clarify_policy.build_clarify_response deterministically
+       turns that classification into what the candidate sees, including
+       the anti-leakage check on any LLM-drafted question - the model can
+       be instructed not to reveal the environment layer (UI/API/DB), but
+       only a deterministic check after the fact is an actual guarantee."""
+    if round4_auto_policy.is_prohibited(candidate_prompt):
+        return {"response_kind": "refuse", "response_message": round4_auto_policy.REFUSAL_MESSAGE, "code_after": None}
+
+    if round4_auto_clarify_policy.is_placeholder_instruction(candidate_prompt):
+        response = {"response_kind": "clarify", "response_message": round4_auto_clarify_policy.FALLBACK_QUESTION}
+    else:
+        prompt = _load_prompt("round4_auto_clarify.txt").format(
+            language=language,
+            selected_design=json.dumps(selected_design, indent=2),
+            environment_code=environment_code,
+            current_code=current_code,
+            conversation_so_far=json.dumps(conversation_so_far, indent=2),
+            candidate_prompt=candidate_prompt,
+        )
+        raw = _call_claude(prompt, max_tokens=1024)
+        result = _parse_json_response(raw)
+        if not isinstance(result, dict):
+            raise ValueError(f"Expected a JSON object for the clarification check, got: {type(result)}")
+        parsed = Round4AutoClarifyLLMResponse.model_validate(result)
+        response = round4_auto_clarify_policy.build_clarify_response(
+            status=parsed.status, question=parsed.question,
+            prior_value=parsed.prior_value, current_value=parsed.current_value,
+        )
+
+    response["code_after"] = None
+    return response
 
 
 def score_round4_auto_conversation(
