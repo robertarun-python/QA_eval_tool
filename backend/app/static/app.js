@@ -387,6 +387,20 @@ function setPageHeader(eyebrow, title, subtitle) {
   if (main) main.scrollTop = 0;
 }
 
+// Icons for the rail's non-round items - the round ticks already have
+// their number, but these three were text-only, so the tablet rail
+// (labels hidden, see style.css's 68rem breakpoint) showed them blank.
+const HR_RAIL_ICONS = {
+  candidates: '<svg class="index-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+  settings: '<svg class="index-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
+  progressive: '<svg class="index-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6"/><path d="M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2h12.4a1.5 1.5 0 0 0 1.3-2L14 9V3"/></svg>',
+};
+
+function railIndexItem(page, label, icon) {
+  const active = hrPage === page;
+  return `<button class="index-item has-icon ${active ? "active" : ""}" ${active ? 'aria-current="page"' : ""} onclick="selectHRPage('${page}')" title="${label}">${icon}<span>${label}</span></button>`;
+}
+
 function renderHRRoundNav() {
   const nav = document.getElementById("hr-round-nav");
   // HR authors rounds in any order - no done/locked state here, just
@@ -396,7 +410,7 @@ function renderHRRoundNav() {
     <div class="rail-section-label">Author scenarios</div>
     <nav class="tick-rail">
       ${[1, 2, 3, 4].map((n) => `
-        <button class="tick ${hrPage === "rounds" && n === currentHRRound ? "active" : ""}" onclick="selectHRRound(${n})">
+        <button class="tick ${hrPage === "rounds" && n === currentHRRound ? "active" : ""}" ${hrPage === "rounds" && n === currentHRRound ? 'aria-current="page"' : ""} onclick="selectHRRound(${n})" title="Round ${n} · ${ROUND_LABELS[n]}">
           <span class="tick-num">${n}</span>
           <span class="tick-label">${ROUND_LABELS[n]}</span>
         </button>
@@ -404,12 +418,12 @@ function renderHRRoundNav() {
     </nav>
     <div class="rail-divider">
       <div class="rail-section-label">Reporting</div>
-      <button class="index-item ${hrPage === "candidates" ? "active" : ""}" onclick="selectHRPage('candidates')"><span>Candidates</span></button>
-      <button class="index-item ${hrPage === "settings" ? "active" : ""}" onclick="selectHRPage('settings')"><span>Settings</span></button>
+      ${railIndexItem("candidates", "Candidates", HR_RAIL_ICONS.candidates)}
+      ${railIndexItem("settings", "Settings", HR_RAIL_ICONS.settings)}
     </div>
     <div class="rail-divider">
       <div class="rail-section-label">Experimental</div>
-      <button class="index-item ${hrPage === "progressive" ? "active" : ""}" onclick="selectHRPage('progressive')"><span>Progressive Engineering</span></button>
+      ${railIndexItem("progressive", "Progressive Engineering", HR_RAIL_ICONS.progressive)}
     </div>
   `;
 
@@ -1301,14 +1315,63 @@ const CANDIDATES_KPI_ICONS = {
 
 async function loadCandidates() {
   const box = document.getElementById("candidates-table");
+  const footer = document.getElementById("candidates-footer");
+  // Skeleton only on the very first load - a refresh after an upload or
+  // a settings save keeps the current table on screen instead of
+  // flashing placeholders over data that's about to come back the same.
+  if (!lastLoadedCandidates.length) {
+    box.innerHTML = candidatesSkeletonHtml();
+    footer.innerHTML = "";
+  }
   try {
     lastLoadedCandidates = await api("/hr/candidates");
   } catch (e) {
-    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    box.innerHTML = `
+      <div class="banner banner-error cd-error" role="alert">
+        <span class="banner-icon" aria-hidden="true">!</span>
+        <div>
+          <strong>Couldn't load candidates</strong>
+          <p class="muted">${escapeHtml(e.message)}</p>
+          <button type="button" class="btn-secondary btn-sm" onclick="loadCandidates()">Try again</button>
+        </div>
+      </div>
+    `;
+    footer.innerHTML = "";
+    document.getElementById("candidates-count").textContent = "";
+    document.getElementById("candidates-total-pill").textContent = "";
     return;
   }
   candidatesPage = 1;
   renderCandidatesKpis();
+  renderCandidatesTable();
+}
+
+function candidatesSkeletonHtml() {
+  const row = `
+    <div class="cd-skeleton-row">
+      <div class="skeleton-block cd-skeleton-avatar"></div>
+      <div class="cd-skeleton-lines"><div class="skeleton-block"></div><div class="skeleton-block cd-skeleton-short"></div></div>
+      <div class="skeleton-block cd-skeleton-wide"></div>
+    </div>
+  `;
+  return `<div class="cd-skeleton" aria-busy="true"><span class="sr-only">Loading candidates...</span>${row.repeat(4)}</div>`;
+}
+
+// Opens the (collapsed-by-default) upload panel below the table and
+// brings it into view - the toolbar's Upload button, so the action is
+// discoverable from the top of the page without the panel itself
+// taking up space above the table.
+function openCandidateUpload() {
+  const panel = document.getElementById("candidate-upload-panel");
+  panel.open = true;
+  panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  document.getElementById("upload-file").focus({ preventScroll: true });
+}
+
+function clearCandidateFilters() {
+  document.getElementById("candidates-search").value = "";
+  document.getElementById("candidates-status-filter").value = "";
+  candidatesPage = 1;
   renderCandidatesTable();
 }
 
@@ -1323,21 +1386,27 @@ function renderCandidatesKpis() {
   const notStarted = lastLoadedCandidates.filter((c) => c.rounds.every((r) => r.status === "not_started")).length;
   const inProgress = total - completed - notStarted;
   const kpis = [
-    { label: "Total Candidates", value: total, caption: "Across all assessments", icon: "users", cls: "kpi-icon-accent" },
-    { label: "In Progress", value: inProgress, caption: "Actively taking assessment", icon: "clock", cls: "kpi-icon-warning" },
+    { label: "Total candidates", value: total, caption: "All assessments", icon: "users", cls: "kpi-icon-accent" },
+    { label: "In progress", value: inProgress, caption: "Taking an assessment", icon: "clock", cls: "kpi-icon-warning" },
     { label: "Completed", value: completed, caption: "Finished all rounds", icon: "check", cls: "kpi-icon-success" },
-    { label: "Not Started", value: notStarted, caption: "Invited but not started", icon: "clock", cls: "kpi-icon-neutral" },
+    { label: "Not started", value: notStarted, caption: "Invited, not started", icon: "clock", cls: "kpi-icon-neutral" },
   ];
-  box.innerHTML = kpis.map((k) => `
-    <div class="kpi-card">
-      <div class="kpi-icon ${k.cls}">${CANDIDATES_KPI_ICONS[k.icon]}</div>
-      <div class="kpi-text">
-        <div class="kpi-label">${k.label}</div>
+  // Same four counts as always; each also shown as a share of the total
+  // (100% on the total card itself) so all four cards share one shape.
+  box.innerHTML = kpis.map((k) => {
+    const share = total ? Math.round((k.value / total) * 100) : 0;
+    return `
+      <div class="kpi-card cd-kpi">
+        <div class="cd-kpi-head">
+          <span class="kpi-label">${k.label}</span>
+          <span class="kpi-icon cd-kpi-icon ${k.cls}" aria-hidden="true">${CANDIDATES_KPI_ICONS[k.icon]}</span>
+        </div>
         <div class="kpi-value">${k.value}</div>
-        <div class="kpi-caption muted">${k.caption}</div>
+        <div class="kpi-caption muted">${share}% · ${k.caption}</div>
+        <div class="cd-kpi-share ${k.cls}" aria-hidden="true"><i style="width:${share}%"></i></div>
       </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 }
 
 // Search (email substring) + status filter + pagination, all applied to
@@ -1354,8 +1423,29 @@ function renderCandidatesTable() {
   if (statusFilter) rows = rows.filter((c) => c.result === statusFilter);
 
   const totalRows = rows.length;
+  const filtered = Boolean(query || statusFilter);
+  const all = lastLoadedCandidates.length;
+  document.getElementById("candidates-count").textContent = filtered
+    ? `${totalRows} of ${all} candidate${all === 1 ? "" : "s"} match`
+    : `${all} candidate${all === 1 ? "" : "s"}`;
+  // Visible only while filtering (the pill beside the title already
+  // shows the total); still read out to screen readers either way.
+  document.getElementById("candidates-count").classList.toggle("sr-only", !filtered);
+  document.getElementById("candidates-total-pill").textContent = all;
+  renderCandidateStatusTabs(query, statusFilter);
+
   if (totalRows === 0) {
-    box.innerHTML = `<p class="muted">No candidates match your search/filter.</p>`;
+    box.innerHTML = all === 0
+      ? `<div class="empty-state cd-empty">
+           <div class="empty-eyebrow">No candidates yet</div>
+           <p>Upload a candidate file to generate logins - candidates appear here as soon as they're created.</p>
+           <button type="button" class="btn-secondary btn-sm" onclick="openCandidateUpload()">Upload candidates</button>
+         </div>`
+      : `<div class="empty-state cd-empty">
+           <div class="empty-eyebrow">No matches</div>
+           <p>No candidates match your search or status filter.</p>
+           <button type="button" class="btn-secondary btn-sm" onclick="clearCandidateFilters()">Clear filters</button>
+         </div>`;
     footer.innerHTML = "";
     return;
   }
@@ -1370,26 +1460,75 @@ function renderCandidatesTable() {
       <table class="candidates-table-el">
         <thead>
           <tr>
-            <th>#</th><th>Candidate</th><th>Exam Date</th>
-            <th>Round 1</th><th>Round 2</th><th>Round 3</th><th>Round 4</th>
-            <th>Aggregate</th><th>Status</th><th>Actions</th>
+            <th scope="col">Candidate</th>
+            <th scope="col">Progress</th>
+            <th scope="col">Round scores</th>
+            <th scope="col">Overall</th>
+            <th scope="col">Status</th>
+            <th scope="col"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
-          ${pageRows.map((c, i) => renderCandidateRow(c, start + i + 1)).join("")}
+          ${pageRows.map((c) => renderCandidateRow(c)).join("")}
         </tbody>
       </table>
     </div>
   `;
 
+  // First, last, and the current page's neighbours - with a gap marker
+  // between runs - so a long list doesn't render dozens of page buttons.
+  const pages = [];
+  for (let p = 1; p <= pageCount; p++) {
+    if (p === 1 || p === pageCount || Math.abs(p - candidatesPage) <= 1) pages.push(p);
+    else if (pages[pages.length - 1] !== "gap") pages.push("gap");
+  }
   footer.innerHTML = `
     <span class="muted">Showing ${start + 1}-${Math.min(start + CANDIDATES_PAGE_SIZE, totalRows)} of ${totalRows} candidate${totalRows === 1 ? "" : "s"}</span>
-    <div class="candidates-pagination">
-      <button class="btn-secondary btn-sm" ${candidatesPage <= 1 ? "disabled" : ""} onclick="changeCandidatesPage(-1)">Previous</button>
-      <span class="candidates-page-num">${candidatesPage}</span>
-      <button class="btn-secondary btn-sm" ${candidatesPage >= pageCount ? "disabled" : ""} onclick="changeCandidatesPage(1)">Next</button>
-    </div>
+    ${pageCount > 1 ? `
+      <nav class="candidates-pagination" aria-label="Candidates pages">
+        <button class="btn-secondary btn-sm" ${candidatesPage <= 1 ? "disabled" : ""} onclick="changeCandidatesPage(-1)">Previous</button>
+        ${pages.map((p) => p === "gap" ? `<span class="cd-page-gap" aria-hidden="true">&hellip;</span>` : `
+          <button class="cd-page-btn${p === candidatesPage ? " active" : ""}" ${p === candidatesPage ? 'aria-current="page"' : ""} onclick="goToCandidatesPage(${p})" aria-label="Page ${p}">${p}</button>
+        `).join("")}
+        <button class="btn-secondary btn-sm" ${candidatesPage >= pageCount ? "disabled" : ""} onclick="changeCandidatesPage(1)">Next</button>
+      </nav>
+    ` : ""}
   `;
+}
+
+// Status filter as toggle buttons with counts. The <select> stays the
+// source of truth: a click just sets its value and runs the exact same
+// handler as its own onchange, and this re-renders from select.value
+// every time the table does - so the two can never disagree. Counts
+// honour the current search (the same email filter the table uses).
+const CANDIDATE_STATUS_TABS = [
+  { value: "", label: "All" },
+  { value: "in_progress", label: "In progress" },
+  { value: "selected", label: "Selected" },
+  { value: "not_selected", label: "Not selected" },
+];
+
+function renderCandidateStatusTabs(query, statusFilter) {
+  const searched = query ? lastLoadedCandidates.filter((c) => c.email.toLowerCase().includes(query)) : lastLoadedCandidates;
+  document.getElementById("candidates-status-tabs").innerHTML = CANDIDATE_STATUS_TABS.map((t) => {
+    const count = t.value ? searched.filter((c) => c.result === t.value).length : searched.length;
+    const active = t.value === statusFilter;
+    return `
+      <button type="button" class="tab cd-status-tab${active ? " active" : ""}" aria-pressed="${active}" onclick="selectCandidateStatusTab('${t.value}')">
+        ${t.label}<span class="cd-status-tab-count">${count}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+function selectCandidateStatusTab(value) {
+  const select = document.getElementById("candidates-status-filter");
+  select.value = value;
+  select.onchange();
+  // Re-render replaced the button that had focus - put it back.
+  const tabs = document.querySelectorAll("#candidates-status-tabs .cd-status-tab");
+  const idx = CANDIDATE_STATUS_TABS.findIndex((t) => t.value === value);
+  if (tabs[idx]) tabs[idx].focus();
 }
 
 function changeCandidatesPage(delta) {
@@ -1397,36 +1536,106 @@ function changeCandidatesPage(delta) {
   renderCandidatesTable();
 }
 
+function goToCandidatesPage(page) {
+  candidatesPage = page;
+  renderCandidatesTable();
+}
+
 // Cosmetic "CAND-00N" label from the candidate's own real database id
 // (not a row number, which would shift under search/filter/pagination,
 // and not invented data - just a formatted view of the existing id).
-function renderCandidateRow(c, rank) {
+function renderCandidateRow(c) {
   const idLabel = `CAND-${String(c.id).padStart(3, "0")}`;
-  const avatarPalette = ["kpi-icon-accent", "kpi-icon-success", "kpi-icon-warning"];
-  const avatarCls = avatarPalette[c.id % avatarPalette.length];
+  // One neutral avatar for everyone - the old per-id colour cycle looked
+  // like it meant something, and it didn't.
   return `
     <tr>
-      <td class="tabular">${rank}</td>
-      <td>
+      <td data-label="Candidate">
         <div class="candidate-identity">
-          <div class="candidate-avatar ${avatarCls}">C${c.id}</div>
+          <div class="candidate-avatar cd-avatar" aria-hidden="true">${escapeHtml(candidateInitials(c.email))}</div>
           <div class="candidate-identity-text">
             <div class="candidate-email">${escapeHtml(c.email)}</div>
-            <div class="candidate-id muted">ID: ${idLabel}</div>
-            ${c.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}
+            <div class="candidate-id muted">
+              ${idLabel}${c.exam_date ? ` · Exam ${formatDate(c.exam_date)}` : ""}
+              ${c.reapplied_within_window ? '<span class="cd-reapplied">Re-applied</span>' : ""}
+            </div>
           </div>
         </div>
       </td>
-      <td>${c.exam_date ? formatDate(c.exam_date) : `<span class="muted">-</span>`}</td>
-      ${c.rounds.map((r) => `<td>${roundStatusCell(r)}</td>`).join("")}
-      <td>${aggregateCell(c)}</td>
-      <td>${statusCell(c)}</td>
-      <td>
+      <td data-label="Progress">${candidateProgressCell(c)}</td>
+      <td data-label="Round scores">${candidateRoundScoresCell(c)}</td>
+      <td data-label="Overall">${aggregateCell(c)}</td>
+      <td data-label="Status">${statusCell(c)}</td>
+      <td class="cd-actions-cell">
         <div class="row-actions">
-          <button class="btn-primary btn-sm" onclick="openCandidateDetail(${c.id})">View</button>
+          <button type="button" class="cd-view-btn" onclick="openCandidateDetail(${c.id})" aria-label="View report for ${escapeAttr(c.email)}">
+            View report <span aria-hidden="true">&rsaquo;</span>
+          </button>
         </div>
       </td>
     </tr>
+  `;
+}
+
+// Two letters from the email's local part (the only identity field the
+// API has - no name) - "jordan.rivera@..." -> "JR", "candidate1@..." -> "CA".
+function candidateInitials(email) {
+  const local = (email || "").split("@")[0];
+  const parts = local.split(/[._\-+\d]+/).filter(Boolean);
+  const letters = parts.length > 1 ? parts[0][0] + parts[1][0] : (parts[0] || local).slice(0, 2);
+  return (letters || "?").toUpperCase();
+}
+
+// Human labels for CandidateRoundSummary.status - the raw enum values
+// ("scoring_failed", "not_started") used to be shown as-is.
+const CANDIDATE_ROUND_STATUS_LABELS = {
+  not_started: "Not started",
+  in_progress: "In progress",
+  submitted: "Scoring",
+  scored: "Scored",
+  scoring_failed: "Scoring failed",
+};
+
+// Four-step progress indicator + the existing one-line caption
+// (candidateStatusCaption). A round counts as done once it's been
+// submitted, whether or not scoring has finished yet.
+function candidateProgressCell(c) {
+  const done = c.rounds.filter((r) => ["submitted", "scored", "scoring_failed"].includes(r.status)).length;
+  const steps = c.rounds.map((r) => {
+    const cls = r.status === "scored" ? "is-done"
+      : r.status === "scoring_failed" ? "is-failed"
+      : r.status === "submitted" ? "is-submitted"
+      : r.status === "in_progress" ? "is-current" : "";
+    return `<span class="cd-step ${cls}" title="Round ${r.round_number} · ${ROUND_LABELS[r.round_number]}: ${CANDIDATE_ROUND_STATUS_LABELS[r.status] || r.status}"></span>`;
+  }).join("");
+  return `
+    <div class="cd-progress">
+      <div class="cd-progress-label"><strong>${done}</strong> of ${c.rounds.length} rounds</div>
+      <div class="cd-steps" role="img" aria-label="${done} of ${c.rounds.length} rounds submitted">${steps}</div>
+      <div class="status-caption muted">${candidateStatusCaption(c)}</div>
+    </div>
+  `;
+}
+
+// The four per-round chips, then any integrity flags underneath (tab
+// switches / auto-close) - the same flags the old per-round columns
+// showed, labelled with their round now that they share one cell.
+function candidateRoundScoresCell(c) {
+  // Integrity flags as one line of plain text (grouped by kind, rounds
+  // listed) rather than boxed badges - every flag still visible; the
+  // auto-close reason stays on hover per round, as before.
+  const autoClosed = c.rounds.filter((r) => r.auto_closed_reason);
+  const switched = c.rounds.filter((r) => r.tab_switch_count > 0);
+  const flags = [];
+  if (autoClosed.length) {
+    flags.push(`<div class="cd-flag cd-flag-warning"><span class="cd-flag-icon" aria-hidden="true">&#9888;</span><span>Auto-closed: ${autoClosed.map((r) => `<span title="${escapeAttr(r.auto_closed_reason)}">R${r.round_number}</span>`).join(", ")}</span></div>`);
+  }
+  if (switched.length) {
+    flags.push(`<div class="cd-flag cd-flag-error"><span class="cd-flag-icon" aria-hidden="true">&#9888;</span><span>Tab switch: ${switched.map((r) => `<span title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">R${r.round_number} (${r.tab_switch_count}&times;)</span>`).join(", ")}</span></div>`);
+  }
+  return `
+    <div class="cd-round-strip">${c.rounds.map((r) => roundStatusCell(r)).join("")}</div>
+    ${flags.length ? `<div class="cd-flags">${flags.join("")}</div>` : ""}
   `;
 }
 
@@ -1484,7 +1693,7 @@ function exportCandidatesCsv() {
 function resultBadge(result) {
   if (result === "selected") return `<span class="badge badge-published">Selected</span>`;
   if (result === "not_selected") return `<span class="badge badge-neutral">Not selected</span>`;
-  return `<span class="badge badge-draft">In progress</span>`;
+  return `<span class="badge cd-badge-info">In progress</span>`;
 }
 
 // One-line summary of what's actually happening for this candidate
@@ -1497,8 +1706,10 @@ function candidateStatusCaption(c) {
   return c.rounds.some((r) => r.status !== "not_started") ? "Awaiting next round" : "Not started yet";
 }
 
+// Just the result badge - the one-line "what's happening now" caption
+// moved under the Progress column (see candidateProgressCell).
 function statusCell(c) {
-  return `<div class="status-cell">${resultBadge(c.result)}<div class="status-caption muted">${candidateStatusCaption(c)}</div></div>`;
+  return `<div class="status-cell">${resultBadge(c.result)}</div>`;
 }
 
 // Aggregate score, its % of the fixed 400-point scale (4 rounds x 100 -
@@ -1506,15 +1717,26 @@ function statusCell(c) {
 // and a mini bar - reusing .readout-bar (see style.css section 10)
 // rather than a new bar component.
 function aggregateCell(c) {
-  if (c.aggregate_score == null) return `<span class="muted">-</span>`;
+  if (c.aggregate_score == null) {
+    return `<div class="aggregate-cell"><span class="cd-overall-score muted">&ndash;</span><span class="status-caption muted">Not scored yet</span></div>`;
+  }
   const passing = appSettings ? appSettings.final_passing_score : 280;
   const passed = c.aggregate_score >= passing;
   const pct = Math.round((c.aggregate_score / 400) * 100);
+  const passPct = Math.min(100, Math.round((passing / 400) * 100));
+  // Pass/fail is spelled out in the caption (with a mark), not left to
+  // the number's colour alone; the bar's tick shows where the mark sits.
   return `
     <div class="aggregate-cell">
-      <span class="${passed ? "score-good" : "score-bad"}">${c.aggregate_score}/400</span>
-      <div class="readout-bar aggregate-bar${passed ? "" : " is-bad"}" style="--pct:${Math.min(100, pct)}%"><i></i></div>
-      <span class="muted aggregate-pct">${pct}%</span>
+      <div class="cd-overall-top">
+        <span class="cd-overall-score ${passed ? "score-good" : "score-bad"}">${c.aggregate_score}</span>
+        <span class="cd-overall-max muted">/ 400</span>
+        <span class="cd-overall-pct muted">&middot; ${pct}%</span>
+      </div>
+      <div class="readout-bar aggregate-bar${passed ? "" : " is-bad"}" style="--pct:${Math.min(100, pct)}%" aria-hidden="true">
+        <i></i><b class="cd-pass-marker" style="left:${passPct}%"></b>
+      </div>
+      <span class="cd-pass-caption ${passed ? "is-pass" : "is-fail"}"><span aria-hidden="true">${passed ? "&#10003;" : "&#10005;"}</span> ${passed ? "Meets" : "Below"} pass mark ${passing}</span>
     </div>
   `;
 }
@@ -1584,31 +1806,40 @@ async function uploadCandidates() {
   }
 }
 
+// One cell of the per-row round strip (label, score + pass mark or a
+// status word, mini bar with the round's pass-mark tick). The
+// tab-switch/auto-closed flags are rendered by the caller
+// (candidateRoundScoresCell), since the four cells share one column.
 function roundStatusCell(r) {
-  const flag = r.tab_switch_count > 0
-    ? ` <span class="badge badge-fail" title="Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"} during this round">${r.tab_switch_count}x tab switch</span>`
-    : "";
-  const autoClosedFlag = r.auto_closed_reason
-    ? ` <span class="badge badge-draft" title="${escapeAttr(r.auto_closed_reason)}">Auto-closed</span>`
-    : "";
   // Real completion timestamp (see models.Submission.submitted_at) on
   // hover - a title attribute rather than its own table column, so the
   // already-wide dashboard doesn't grow a column per round just for
   // this. Only ever set once a round has actually finished, so this
   // naturally never appears on a not_started/in_progress cell.
-  const submittedTitle = r.submitted_at ? ` title="Submitted ${formatDateTime(r.submitted_at)}"` : "";
+  const tip = `Round ${r.round_number} · ${ROUND_LABELS[r.round_number]}${r.submitted_at ? ` · Submitted ${formatDateTime(r.submitted_at)}` : ""}`;
   if (r.final_score != null) {
-    const passed = r.final_score >= passingScoreForRound(r.round_number);
-    const cls = passed ? "score-good" : "score-bad";
+    const passing = passingScoreForRound(r.round_number);
+    const passed = r.final_score >= passing;
     return `
-      <div class="round-cell">
-        <span class="${cls}"${submittedTitle}>${r.final_score}/100</span>
-        <div class="readout-bar round-bar${passed ? "" : " is-bad"}" style="--pct:${r.final_score}%"><i></i></div>
-        ${flag}${autoClosedFlag}
+      <div class="cd-round-chip ${passed ? "is-pass" : "is-fail"}" title="${escapeAttr(`${tip} · Pass mark ${passing}`)}">
+        <span class="cd-round-label">R${r.round_number}</span>
+        <span class="cd-round-value">
+          <span class="cd-round-score ${passed ? "score-good" : "score-bad"}">${r.final_score}</span>
+          <span class="cd-round-mark" aria-hidden="true">${passed ? "&#10003;" : "&#10005;"}</span>
+        </span>
+        <span class="sr-only">out of 100, ${passed ? "passed" : `below pass mark ${passing}`}</span>
+        <div class="readout-bar round-bar${passed ? "" : " is-bad"}" style="--pct:${r.final_score}%" aria-hidden="true">
+          <i></i><b class="cd-pass-marker" style="left:${Math.min(100, passing)}%"></b>
+        </div>
       </div>
     `;
   }
-  return `<div class="round-cell"><span class="muted"${submittedTitle}>${r.status.replace("_", " ")}</span>${flag}${autoClosedFlag}</div>`;
+  return `
+    <div class="cd-round-chip is-${r.status}" title="${escapeAttr(tip)}">
+      <span class="cd-round-label">R${r.round_number}</span>
+      <span class="cd-round-status">${CANDIDATE_ROUND_STATUS_LABELS[r.status] || escapeHtml(r.status)}</span>
+    </div>
+  `;
 }
 
 // Shared by the live candidate-detail view and the "Past appearances"

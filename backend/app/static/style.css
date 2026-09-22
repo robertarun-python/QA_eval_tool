@@ -1538,3 +1538,301 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
   .tc-table .tc-col-title { width: 16%; }
   .tc-table .tc-col-pre { width: 14%; }
 }
+
+/* ============================================================
+   22. CANDIDATES DASHBOARD - ENTERPRISE REFRESH
+   ------------------------------------------------------------
+   Everything below is scoped to #hr-page-candidates (or to .cd-*
+   classes only this page renders), so the Scenarios and Progressive
+   pages - which share .kpi-card/.candidates-footer/.tabs - are
+   untouched. Built on the section 1 tokens, so light and dark both
+   follow automatically. Column order matches how HR reads a row:
+   candidate -> progress -> round scores -> overall -> status ->
+   action. Pass/fail is never colour alone: rounds carry a check/cross
+   mark and a pass-mark tick, the overall score a worded caption.
+   ============================================================ */
+
+/* ---- Rail: icons on the non-round items (visible when the tablet
+   rail hides labels - see the 68rem breakpoint in section 4) ---- */
+.index-item.has-icon::before { display: none; }
+.index-icon { flex-shrink: 0; opacity: 0.8; }
+.index-item.active .index-icon { color: var(--nav-accent); opacity: 1; }
+@media (max-width: 68rem) { .index-item.has-icon { padding: 0.55rem 0; } }
+
+/* ---- KPI cards: label + icon, value, one-line caption, share bar -
+   same shape on all four, so the row is equal height. ---- */
+#candidates-kpis:empty { display: none; }
+#candidates-kpis .cd-kpi {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  background: var(--surface-elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-card);
+  padding: 1rem 1.25rem 1.1rem;
+}
+.cd-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-tight); }
+#candidates-kpis .kpi-label { font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+#candidates-kpis .cd-kpi-icon { width: 2rem; height: 2rem; border-radius: var(--radius-sm); }
+#candidates-kpis .cd-kpi-icon svg { width: 16px; height: 16px; }
+#candidates-kpis .kpi-value { font-size: 1.875rem; font-weight: 700; line-height: 1.1; margin: 0.35rem 0 0.2rem; letter-spacing: -0.01em; }
+#candidates-kpis .kpi-caption { font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Track takes the soft tint from its kpi-icon-* class; fill is the
+   same class's solid colour (currentColor). */
+.cd-kpi-share { height: 4px; border-radius: 999px; margin-top: 0.75rem; overflow: hidden; }
+.cd-kpi-share > i { display: block; height: 100%; border-radius: inherit; background: currentColor; }
+
+/* ---- Table card: merged title/toolbar row, then the status tabs ---- */
+#hr-page-candidates .candidates-panel { padding: 0; overflow: visible; }
+#hr-page-candidates .cd-table-header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-compact);
+  padding: 1.25rem var(--space-default) 0.9rem; margin: 0; border: none;
+}
+.cd-title-group { display: flex; align-items: center; gap: 0.55rem; margin-right: auto; }
+.cd-table-title { font-size: var(--text-lg); margin: 0; white-space: nowrap; }
+.cd-count-pill {
+  min-width: 1.6rem; padding: 0.1rem 0.5rem; border-radius: 999px; text-align: center;
+  background: var(--surface-interactive); color: var(--text-secondary);
+  font-size: var(--text-xs); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.cd-count-pill:empty { display: none; }
+#hr-page-candidates .candidates-search-field { position: relative; flex: 0 1 20rem; max-width: 20rem; }
+.cd-search-icon { position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+#hr-page-candidates .candidates-search-field input { padding-left: 2.25rem; }
+.cd-filter-source { display: none; }
+.cd-btn-icon { display: inline-flex; align-items: center; gap: 0.45rem; }
+#hr-page-candidates .export-menu-dropdown { border-radius: var(--radius); }
+
+.cd-filter-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-tight) var(--space-compact);
+  padding: 0 var(--space-default) var(--space-compact); border-bottom: 1px solid var(--border);
+}
+.cd-table-subtitle { margin: 0; font-size: var(--text-sm); }
+#hr-page-candidates .cd-status-tabs { margin: 0; }
+#hr-page-candidates .cd-status-tab { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.4rem 0.8rem; border: none; }
+/* The global button:hover paints every button with the accent fill -
+   keep these as quiet segmented tabs instead. */
+#hr-page-candidates .cd-status-tab:hover:not(:disabled) { background: color-mix(in srgb, var(--surface-elevated) 60%, transparent); color: var(--text-primary); }
+#hr-page-candidates .cd-status-tab.active,
+#hr-page-candidates .cd-status-tab.active:hover:not(:disabled) { background: var(--surface-elevated); color: var(--accent); }
+.cd-status-tab-count {
+  min-width: 1.35rem; padding: 0 0.35rem; border-radius: 999px; text-align: center;
+  background: var(--surface-elevated); color: var(--text-secondary); font-size: var(--text-xs); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.cd-status-tab.active .cd-status-tab-count { background: var(--accent-soft); color: var(--accent); }
+
+/* ---- Table ---- */
+#hr-page-candidates .candidates-panel .table-scroll { padding: 0 var(--space-default); }
+#hr-page-candidates .candidates-table-el { min-width: 0; }
+#hr-page-candidates .candidates-table-el th {
+  font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  padding: 0.8rem 0 0.6rem; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+#hr-page-candidates .candidates-table-el th + th,
+#hr-page-candidates .candidates-table-el td + td { padding-left: 0.9rem; }
+#hr-page-candidates .candidates-table-el td { padding-top: 0.85rem; padding-bottom: 0.85rem; vertical-align: top; }
+#hr-page-candidates .candidates-table-el td:first-child { color: inherit; }
+#hr-page-candidates .candidates-table-el tbody tr:hover { background: color-mix(in srgb, var(--surface-interactive) 50%, transparent); }
+
+/* B. Identity: one neutral avatar, inline Re-applied tag */
+#hr-page-candidates .candidate-identity { align-items: flex-start; gap: 0.7rem; }
+.cd-avatar {
+  width: 2.25rem; height: 2.25rem; font-size: var(--text-xs); letter-spacing: 0.03em;
+  background: var(--accent-soft); color: var(--accent);
+}
+#hr-page-candidates .candidate-identity-text { min-width: 12rem; display: flex; flex-direction: column; gap: 0.15rem; }
+#hr-page-candidates .candidate-email { font-weight: 600; color: var(--text-primary); }
+#hr-page-candidates .candidate-id { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.4rem; font-size: var(--text-xs); line-height: 1.6; }
+.cd-reapplied {
+  display: inline-block; padding: 0 0.4rem; border-radius: var(--radius-sm);
+  background: var(--warning-soft); color: var(--warning); font-weight: 600; white-space: nowrap;
+}
+
+/* Progress: 4-step indicator */
+.cd-progress { display: flex; flex-direction: column; gap: 0.35rem; min-width: 8rem; }
+.cd-progress-label { font-size: var(--text-sm); color: var(--text-secondary); white-space: nowrap; }
+.cd-progress-label strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.cd-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; max-width: 8rem; }
+.cd-step { height: 6px; border-radius: 999px; background: var(--surface-interactive); border: 1px solid var(--border); }
+.cd-step.is-done { background: var(--success); border-color: var(--success); }
+.cd-step.is-submitted { background: var(--accent); border-color: var(--accent); }
+.cd-step.is-failed { background: var(--error); border-color: var(--error); }
+.cd-step.is-current {
+  border-color: var(--accent);
+  background: repeating-linear-gradient(135deg, var(--accent-soft) 0 4px, color-mix(in srgb, var(--accent) 35%, transparent) 4px 8px);
+}
+#hr-page-candidates .status-caption { font-size: var(--text-xs); }
+
+/* A. Round scores: one strip of four equal cells + a text flag line */
+.cd-round-strip { display: grid; grid-template-columns: repeat(4, minmax(3.4rem, 1fr)); gap: 0.25rem; max-width: 16rem; }
+.cd-round-chip {
+  display: flex; flex-direction: column; gap: 0.1rem; min-width: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface);
+  padding: 0.3rem 0.45rem 0.4rem;
+}
+.cd-round-label { font-size: 0.6875rem; font-weight: 700; color: var(--text-muted); letter-spacing: 0.02em; }
+.cd-round-value { display: flex; align-items: baseline; gap: 0.2rem; }
+.cd-round-score { font-family: var(--font-body); font-size: var(--text-md); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.cd-round-mark { font-size: 0.6875rem; font-weight: 700; }
+.cd-round-chip.is-pass .cd-round-mark { color: var(--success); }
+.cd-round-chip.is-fail .cd-round-mark { color: var(--error); }
+.cd-round-status { font-size: 0.6875rem; line-height: 1.3; color: var(--text-muted); }
+.cd-round-chip .readout-bar { width: 100%; margin-top: 0.2rem; height: 3px; border-radius: 999px; overflow: visible; }
+.cd-round-chip .readout-bar > i { border-radius: inherit; }
+.cd-round-chip .cd-pass-marker { top: -2px; bottom: -2px; }
+.cd-round-chip.is-in_progress { border-color: var(--accent); background: var(--accent-soft); }
+.cd-round-chip.is-in_progress .cd-round-status { color: var(--accent); font-weight: 600; }
+.cd-round-chip.is-submitted .cd-round-status { color: var(--text-secondary); }
+.cd-round-chip.is-scoring_failed { border-color: var(--error); background: var(--error-soft); }
+.cd-round-chip.is-scoring_failed .cd-round-status { color: var(--error); font-weight: 600; }
+.cd-round-chip.is-not_started { border-style: dashed; background: none; }
+.cd-flags { display: flex; flex-direction: column; gap: 0.1rem; margin-top: 0.45rem; font-size: var(--text-xs); line-height: 1.45; max-width: 16rem; }
+.cd-flag { display: flex; align-items: baseline; gap: 0.35rem; font-weight: 600; }
+.cd-flag-icon { flex-shrink: 0; }
+.cd-flag-warning { color: var(--warning); }
+.cd-flag-error { color: var(--error); }
+
+/* F. Overall score */
+#hr-page-candidates .aggregate-cell { display: flex; flex-direction: column; gap: 0.35rem; min-width: 8rem; }
+.cd-overall-top { display: flex; align-items: baseline; gap: 0.3rem; white-space: nowrap; }
+.cd-overall-score { font-family: var(--font-body); font-size: var(--text-lg); font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.cd-overall-max, .cd-overall-pct { font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+#hr-page-candidates .aggregate-bar { width: 100%; max-width: 8rem; height: 6px; border-radius: 999px; margin-top: 0; overflow: visible; }
+#hr-page-candidates .aggregate-bar > i { border-radius: inherit; }
+.cd-pass-marker { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text-secondary); border-radius: 1px; }
+.cd-pass-caption { font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
+.cd-pass-caption.is-pass { color: var(--success); }
+.cd-pass-caption.is-fail { color: var(--error); }
+
+/* E. Status (soft dot badge) vs. action (quiet text button) */
+.cd-badge-info { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+#hr-page-candidates .status-cell { display: flex; flex-direction: column; align-items: flex-start; }
+#hr-page-candidates .status-cell .badge { border-color: transparent; border-radius: 999px; padding: 0.3rem 0.7rem 0.3rem 0.6rem; white-space: nowrap; }
+#hr-page-candidates .status-cell .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.cd-actions-cell { text-align: right; white-space: nowrap; }
+#hr-page-candidates .cd-view-btn {
+  display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap;
+  background: none; border: 1px solid transparent; color: var(--accent);
+  font-size: var(--text-sm); font-weight: 600; padding: 0.35rem 0.6rem; border-radius: var(--radius-sm);
+}
+#hr-page-candidates .cd-view-btn span { font-size: 1.1em; line-height: 1; transition: transform var(--duration-fast) var(--ease); }
+#hr-page-candidates .cd-view-btn:hover:not(:disabled),
+#hr-page-candidates .candidates-table-el tbody tr:hover .cd-view-btn {
+  background: var(--accent-soft); border-color: transparent; color: var(--accent);
+}
+#hr-page-candidates .cd-view-btn:hover span { transform: translateX(2px); }
+
+/* ---- Footer + pagination ---- */
+#hr-page-candidates .candidates-footer { margin: 0; padding: var(--space-compact) var(--space-default); }
+#hr-page-candidates .candidates-footer:empty { display: none; }
+.cd-page-btn {
+  min-width: 2rem; height: 2rem; padding: 0 0.5rem; border-radius: var(--radius-sm);
+  background: none; border: 1px solid transparent; color: var(--text-secondary); font-size: var(--text-sm); font-weight: 600;
+}
+.cd-page-btn:hover:not(:disabled) { background: var(--surface-interactive); border-color: var(--border); color: var(--text-primary); }
+.cd-page-btn.active, .cd-page-btn.active:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.cd-page-gap { color: var(--text-muted); padding: 0 0.2rem; }
+
+/* ---- Empty / loading / error ---- */
+.cd-empty { margin: var(--space-default); padding-top: var(--space-default); }
+.cd-empty p { max-width: 46ch; }
+.cd-error { margin: var(--space-default); }
+.cd-error p { margin: 0.2rem 0 0.6rem; }
+.cd-skeleton { padding: var(--space-compact) var(--space-default); }
+.cd-skeleton-row { display: grid; grid-template-columns: 2.4rem 1fr 2fr; gap: var(--space-compact); align-items: center; padding: 0.8rem 0; border-bottom: 1px solid var(--border); }
+.cd-skeleton-row:last-child { border-bottom: none; }
+.cd-skeleton-avatar { width: 2.4rem; height: 2.4rem; border-radius: 50%; }
+.cd-skeleton-lines { display: flex; flex-direction: column; gap: 0.4rem; }
+.cd-skeleton-short { width: 60%; height: 0.7rem; }
+.cd-skeleton-wide { height: 1.6rem; border-radius: var(--radius-sm); }
+.cd-skeleton .skeleton-block { border-radius: var(--radius-sm); }
+
+/* ---- Upload panel (collapsed <details>) ---- */
+.cd-upload-panel > summary { list-style: none; cursor: pointer; }
+.cd-upload-panel > summary::-webkit-details-marker { display: none; }
+.cd-upload-summary { display: flex; align-items: center; gap: var(--space-tight); border-radius: var(--radius-sm); }
+.cd-upload-summary > span:last-child { display: flex; flex-direction: column; }
+.cd-upload-summary .muted { font-size: var(--text-sm); }
+.cd-upload-summary::after { content: "\25BE"; margin-left: auto; color: var(--text-muted); transition: transform var(--duration-base) var(--ease); }
+.cd-upload-panel[open] > .cd-upload-summary { margin-bottom: var(--space-compact); padding-bottom: var(--space-compact); border-bottom: 1px solid var(--border); }
+.cd-upload-panel[open] > .cd-upload-summary::after { transform: rotate(180deg); }
+.cd-upload-panel .row { align-items: center; }
+.cd-upload-panel input[type="file"] { margin-bottom: 0; }
+
+/* ---- Responsive ----
+   > 86rem: full table (its columns need ~61rem plus rail and padding).
+   40-86rem: each row becomes a two-line grid - identity/status/action
+   on top, progress/round scores/overall beneath - rather than a
+   horizontal scroll that hid the action column.
+   < 40rem: fully stacked card with inline labels (td[data-label]). */
+@media (max-width: 86rem) {
+  #hr-page-candidates .candidates-table-el thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  #hr-page-candidates .candidates-table-el,
+  #hr-page-candidates .candidates-table-el tbody { display: block; width: 100%; }
+  #hr-page-candidates .candidates-table-el tr {
+    display: grid; column-gap: var(--space-default); row-gap: var(--space-compact);
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1.1fr) minmax(0, 0.85fr);
+    grid-template-areas: "cand status act" "prog rounds overall";
+    padding: 1.1rem 0; border-bottom: 1px solid var(--border);
+  }
+  #hr-page-candidates .candidates-table-el tbody tr:last-child { border-bottom: none; }
+  #hr-page-candidates .candidates-table-el td { display: block; border: none; padding: 0; min-width: 0; }
+  #hr-page-candidates .candidates-table-el td + td { padding-left: 0; }
+  #hr-page-candidates td[data-label="Candidate"] { grid-area: cand; }
+  #hr-page-candidates td[data-label="Progress"] { grid-area: prog; }
+  #hr-page-candidates td[data-label="Round scores"] { grid-area: rounds; }
+  #hr-page-candidates td[data-label="Overall"] { grid-area: overall; }
+  #hr-page-candidates td[data-label="Status"] { grid-area: status; justify-self: end; align-self: center; }
+  #hr-page-candidates td.cd-actions-cell { grid-area: act; justify-self: end; align-self: center; }
+  #hr-page-candidates .candidates-table-el td[data-label]:not([data-label="Candidate"]):not([data-label="Status"])::before {
+    content: attr(data-label); display: block; margin-bottom: 0.4rem;
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  }
+  #hr-page-candidates .candidate-identity-text { min-width: 0; }
+  .cd-round-strip, .cd-flags { max-width: none; }
+  #hr-page-candidates .aggregate-bar { max-width: none; }
+}
+@media (max-width: 60rem) {
+  #hr-page-candidates .candidates-search-field { flex: 1 1 14rem; max-width: none; order: 3; }
+  /* Identity spans two columns here; status sits above the action in
+     the third (row 1 is tall enough for both - see min row height). */
+  #hr-page-candidates .candidates-table-el tr {
+    column-gap: var(--space-compact); grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr) minmax(0, 0.9fr);
+    grid-template-rows: minmax(4.6rem, auto) auto; grid-template-areas: "cand cand side" "prog rounds overall";
+  }
+  #hr-page-candidates td[data-label="Status"] { grid-area: side; align-self: start; }
+  #hr-page-candidates td.cd-actions-cell { grid-area: side; align-self: end; }
+  .cd-round-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .cd-round-chip { padding-left: 0.35rem; padding-right: 0.35rem; }
+}
+@media (max-width: 40rem) {
+  #hr-page-candidates .candidates-panel .table-scroll { padding: 0 var(--space-compact); }
+  #hr-page-candidates .candidates-table-el tr { display: flex; flex-direction: column; gap: var(--space-compact); padding: var(--space-compact) 0; }
+  #hr-page-candidates td[data-label="Status"],
+  #hr-page-candidates td.cd-actions-cell { justify-self: stretch; align-self: stretch; }
+  #hr-page-candidates .cd-actions-cell .row-actions { display: block; }
+  #hr-page-candidates .candidates-table-el td[data-label="Status"]::before {
+    content: attr(data-label); display: block; margin-bottom: 0.4rem;
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted);
+  }
+  .cd-actions-cell { text-align: left; }
+  #hr-page-candidates .cd-view-btn { width: 100%; justify-content: center; border-color: var(--border); }
+  #hr-page-candidates .cd-table-header, .cd-filter-bar { padding-left: var(--space-compact); padding-right: var(--space-compact); }
+  /* The shared rule's flex-basis turns into a height once the toolbar
+     stacks - pin the search box to its content. */
+  #hr-page-candidates .candidates-search-field { flex: 0 0 auto; width: 100%; order: 2; }
+  #hr-page-candidates .candidates-toolbar-actions { order: 3; }
+  #hr-page-candidates .candidates-toolbar-actions { width: 100%; }
+  #hr-page-candidates .candidates-toolbar-actions > * { flex: 1 1 auto; }
+  #hr-page-candidates .candidates-toolbar-actions .cd-btn-icon { width: 100%; justify-content: center; }
+  #hr-page-candidates .candidates-footer { flex-direction: column; align-items: flex-start; padding: var(--space-compact); }
+}
+
+/* Theme toggle in the collapsed (tablet) rail - its text label isn't a
+   .btn-label, so the 68rem rule in section 4 never hid it and it spilled
+   out of the 4.75rem rail. */
+@media (max-width: 68rem) and (min-width: 47.5rem) {
+  #theme-toggle-label { display: none; }
+  .theme-toggle-btn { justify-content: center; }
+}
+/* Log out gets an icon so it doesn't vanish when that same rule hides
+   its .btn-label. */
+.rail-logout-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; }
+.rail-logout-btn svg { flex-shrink: 0; }
+@media (max-width: 68rem) and (min-width: 47.5rem) { .rail-logout-btn { padding-left: 0; padding-right: 0; } }
