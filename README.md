@@ -42,6 +42,8 @@ python -m app.seed
 
 Windows users can also just double-click `run_server.bat`, which does
 all of the above (venv, deps, `.env`, seeding) and starts the server.
+On macOS/Linux, `./run_server.sh` does the same (it needs Python 3.10+;
+on macOS, `brew install python@3.12`).
 
 ## Run it
 
