@@ -58,7 +58,12 @@ def contains_forbidden_vocab(text: str) -> bool:
 
 
 # Generic filler an instruction can be made of and still say nothing at
-# all ("test it", "go", "do it now", "please automate this"). Deliberately
+# all ("test it", "go", "do it now", "please automate this", "I want to
+# automate the given test case, please do" - a real one observed live,
+# padded with enough filler words around "just do it" that it originally
+# slipped past a narrower version of this list straight to the LLM,
+# which filled the resulting gap with the candidate's OWN design
+# specifics instead of asking a genuinely open question). Deliberately
 # tiny and conservative: this only exists to catch the degenerate case at
 # zero LLM cost, never to judge a real instruction's completeness - a
 # short but concrete instruction ("confirm login fails") has content
@@ -67,6 +72,9 @@ def contains_forbidden_vocab(text: str) -> bool:
 _PLACEHOLDER_WORDS = {
     "test", "it", "this", "that", "please", "go", "do", "automate",
     "run", "check", "now", "the", "a", "an", "and", "to", "for", "my", "it's", "its",
+    "i", "you", "we", "want", "need", "would", "like", "help", "me", "us",
+    "given", "case", "cases", "one", "can", "could", "should", "write",
+    "make", "kindly", "possible", "just",
 }
 
 
@@ -77,6 +85,66 @@ def is_placeholder_instruction(text: str) -> bool:
     the LLM (see llm_service.round4_auto_clarify)."""
     words = re.findall(r"[a-zA-Z']+", (text or "").lower())
     return all(w in _PLACEHOLDER_WORDS for w in words) if words else True
+
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_value(text: str | None) -> str:
+    return _WHITESPACE_RE.sub(" ", (text or "").strip().lower())
+
+
+# The exact fixed phrase build_clarify_response's contradicts_prior
+# branch always ends its response_message with - the only place this
+# wording is ever generated, so matching it in a PRIOR turn's own
+# response_message is a reliable, deterministic way to count how many
+# times this conversation has already hit contradicts_prior. See
+# _contradicts_prior_count.
+_CONTRADICTS_PRIOR_MARKER = "for the same thing - which one should the automation use?"
+
+
+def contradicts_prior_count(conversation_so_far: list[dict]) -> int:
+    """How many prior turns in this conversation were already classified
+    contradicts_prior. Used by llm_service.round4_auto_clarify as a
+    deterministic circuit breaker: verified live that the LLM classifier
+    can get stuck re-flagging a candidate's own already-stated, already-
+    settled scope choice as an unresolved contradiction indefinitely,
+    with no way for the candidate to ever get past it - real instruction-
+    prompt wording alone did not reliably stop this. Once a conversation
+    has already had one contradicts_prior, a second is treated as
+    "sufficient" instead of asked again - the candidate has restated
+    their answer, and it's scoring's job to judge whether it was the
+    right call, not this gate's job to keep re-litigating it forever."""
+    return sum(
+        1 for turn in (conversation_so_far or [])
+        if _CONTRADICTS_PRIOR_MARKER in (turn.get("response_message") or "")
+    )
+
+
+def value_traces_to_candidate(value: str | None, selected_design: list[dict], conversation_so_far: list[dict]) -> bool:
+    """Whether `value` (an LLM-claimed "prior_value" for contradicts_prior)
+    genuinely traces back to something the CANDIDATE said - their own
+    design's fields/refinements, or an earlier message they sent - as
+    opposed to only appearing in the provided environment code. Verified
+    live that the LLM classifier sometimes cites a value baked into the
+    environment's own configuration (e.g. a base_url constant) as
+    something "the candidate said earlier", which they never did -
+    round4_auto_clarify uses this to deterministically refuse to treat
+    that as a real contradiction, the same defense-in-depth pattern
+    contains_forbidden_vocab already uses for a different failure mode."""
+    needle = _normalize_value(value)
+    if not needle:
+        return False
+    haystacks = []
+    for row in selected_design or []:
+        for v in row.values():
+            if isinstance(v, str):
+                haystacks.append(v)
+            elif isinstance(v, list):
+                haystacks.extend(x for x in v if isinstance(x, str))
+    for turn in conversation_so_far or []:
+        haystacks.append(turn.get("candidate_prompt") or "")
+    return any(needle in _normalize_value(h) for h in haystacks)
 
 
 def build_clarify_response(

@@ -836,6 +836,19 @@ def _repair_escaped_code(code: str | None) -> str | None:
     return code
 
 
+# Only ever passed for a test case's first generated code (see
+# routers/candidate.py's round4_auto_turn gate) - deliberately plants one
+# misleading-pass gap so the round exercises ai_output_review/
+# execution_and_validation for real instead of handing the candidate
+# correct code to rubber-stamp. Every later generation for the same test
+# case leaves inject_flaw False and gets fully correct code, same as
+# before this feature existed.
+_FLAW_INJECTION_INSTRUCTION = """
+FOR THIS RESPONSE ONLY (the candidate has not seen any code for this test case yet - this is the first version they will see):
+Write code that RUNS SUCCESSFULLY and LOOKS like it passes, but does not actually prove the candidate's stated expected result. Introduce exactly one such gap - for example, assert something the code itself just set or computed rather than the real outcome the candidate's design describes, check an easier or incidental condition instead of the one that actually matters, or omit the part of the expected result that would actually catch a failure. Do NOT make the code crash, throw, or exit non-zero, and do NOT fabricate test data or an assertion the candidate didn't ask for - the gap must be about WHICH real check is performed, not about inventing anything new. Never mention, hint at, or apologize for this in response_message - write it exactly as you would if you believed the code were fully correct.
+"""
+
+
 def round4_auto_turn(
     language: str,
     selected_design: list[dict],
@@ -843,6 +856,7 @@ def round4_auto_turn(
     current_code: str,
     conversation_so_far: list[dict],
     candidate_prompt: str,
+    inject_flaw: bool = False,
 ) -> dict:
     """One AI turn. The deterministic pre-generation control runs FIRST -
     round4_auto_policy.is_prohibited - so a request to invent test cases,
@@ -857,6 +871,7 @@ def round4_auto_turn(
         current_code=current_code,
         conversation_so_far=json.dumps(conversation_so_far, indent=2),
         candidate_prompt=candidate_prompt,
+        flaw_instruction=_FLAW_INJECTION_INSTRUCTION if inject_flaw else "",
     )
     raw = _call_claude(prompt, max_tokens=4096)
     result = _parse_json_response(raw)
@@ -916,8 +931,24 @@ def round4_auto_clarify(
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the clarification check, got: {type(result)}")
         parsed = Round4AutoClarifyLLMResponse.model_validate(result)
+        status = parsed.status
+        # Two deterministic overrides on the LLM's own contradicts_prior
+        # call - verified live that prompt wording alone does not
+        # reliably prevent either failure mode:
+        if status == "contradicts_prior":
+            if not round4_auto_clarify_policy.value_traces_to_candidate(parsed.prior_value, selected_design, conversation_so_far):
+                # The claimed "prior" value never came from the candidate
+                # (e.g. it's actually the environment's own base_url) -
+                # there is no real contradiction to report.
+                status = "sufficient"
+            elif round4_auto_clarify_policy.contradicts_prior_count(conversation_so_far) >= 1:
+                # Already flagged once this conversation - a second flag
+                # on the same axis just loops forever once the candidate
+                # has restated their answer. Accept it; scoring judges
+                # whether it was the right call, not this gate.
+                status = "sufficient"
         response = round4_auto_clarify_policy.build_clarify_response(
-            status=parsed.status, question=parsed.question,
+            status=status, question=parsed.question,
             prior_value=parsed.prior_value, current_value=parsed.current_value,
         )
 

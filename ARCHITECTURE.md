@@ -415,7 +415,15 @@ app_settings   -- singleton row (id=1), HR-editable at runtime, no restart
   per scenario, shown to every candidate alongside the description
   (`Scenario.environment_json`, same generate/review/regenerate/
   publish-gate lifecycle as `reference_json` for rounds 1/2 - see
-  `llm_service.generate_round4_environment`). One holistic score per
+  `llm_service.generate_round4_environment`). HR can also hand-edit these
+  fields directly (e.g. pin a specific login) - `Scenario.
+  environment_hr_edited` then protects that edit from the automatic
+  resync that normally re-runs when a different round 1 scenario goes
+  live for the band (see `hr._resync_round4_reference_for_band`). Round 1
+  shows the same live reference read-only alongside its own test-case
+  table (`RoundStateOut.environment`/`ui_mockup`, see `candidate.
+  get_round`) - not a separate copy, so a candidate's round 1 test data
+  stays accurate once they reach round 2. One holistic score per
   submission, weighted toward methodical verification (catching the
   assistant's flaws, not just accepting the first answer) and
   independent breadth of judgment about what to test, with category
@@ -446,12 +454,20 @@ syntax-only fix, same construct classification and leak-check, no
 gap-flagging — see `docs/superpowers/specs/2026-08-27-round3-direct-code-edit-design.md`),
 HR-editable runtime settings (per-round passing scores, reapplication
 window — `app_settings`) and manual score override, a tab-switch/
-fullscreen guard during timed rounds, and a screening-history dashboard
+fullscreen guard during timed rounds (all four) that logs every exit and
+force-ends the round on the 3rd, scored on whatever's already persisted
+— no "continue without fullscreen" escape; see `candidate.log_tab_switch`
+and `Submission.tab_switch_count` — and a screening-history dashboard
 aggregating clear rate and common misses per scenario (round-agnostic —
 covers rounds 1 and 2 today; rounds 3/4's conversational/coding shape
 doesn't fit the same misses-pattern aggregation). Frontend is a
-token-based "Calibration" design system (light + dark themes), not the
-original bare Jinja2 page.
+token-based design system (light + dark themes), not the original bare
+Jinja2 page - as of the Phase 1 enterprise redesign, the candidate shell/
+login/round 1/round 2 (`style.css` section 21+) moved from the earlier
+"Calibration" instrument look (near-zero radius, mono-heavy labels, teal
+accent) to a navy-nav/blue-accent enterprise-SaaS direction; round 3/4
+and HR screens still carry the original Calibration styling pending a
+later phase, sharing the same token architecture either way.
 
 Explicitly deferred (see the construct-checklist design spec's own
 "Explicitly out of scope" section): changing the start-of-round language

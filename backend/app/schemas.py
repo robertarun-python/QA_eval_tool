@@ -218,6 +218,10 @@ class ScenarioOut(ScenarioPublicOut):
     # for direct candidate display rather than HR's raw-JSON review.
     environment_json: Optional[dict] = None
     ui_mockup_json: Optional[dict] = None
+    # Round 4 only: whether environment_json.fields were hand-set by HR
+    # (see Scenario.environment_hr_edited) - the frontend uses this to
+    # explain why the "resyncs automatically" note doesn't apply anymore.
+    environment_hr_edited: bool = False
     # Round 4 only in practice (round 1/2 scenarios never set anything
     # here) - see Round4ConfigUpdate. HR-facing so the assistant-accuracy
     # editor can show the current value; candidates never see this.
@@ -270,6 +274,17 @@ class ExpireRoundPayload(BaseModel):
     content: list[dict] = Field(default=[], max_length=100)          # round 1 rows, as collected client-side
     investigation: list[dict] = Field(default=[], max_length=50)     # round 2
     root_cause: str = Field(default="", max_length=5000)             # round 2
+
+
+class TabSwitchOut(BaseModel):
+    """Response to logging one fullscreen-exit - see candidate.py's
+    log_tab_switch. strike_count is the running total for this
+    submission (Submission.tab_switch_count); round_ended is True the
+    moment the 3rd strike just force-finalized the round (see
+    app.js's fullscreenchange handler, which reacts to this instead of
+    guessing the count client-side)."""
+    strike_count: int
+    round_ended: bool
 
 
 class ScoreOut(BaseModel):
@@ -412,6 +427,17 @@ class RoundStateOut(BaseModel):
     with no reference answer attached) plus their own submission for it."""
     scenario: Optional[ScenarioPublicOut] = None
     submission: Optional[SubmissionOut] = None
+    # Round 1 only: a read-only look at the SAME test-environment
+    # reference (credentials, API/DB details, ...) round 2 generates and
+    # owns (Scenario.environment_json on the live round-2 scenario for
+    # this band) - so a candidate can write round 1 test data that's
+    # still accurate once they reach round 2, without round 1 ever
+    # generating or storing its own separate copy. None if no round 2
+    # scenario is live yet for this band. See candidate.py's get_round.
+    environment: Optional["Round4EnvironmentOut"] = None
+    # Same deal as environment above, for the reference app screens
+    # (Scenario.ui_mockup_json on that same live round-2 scenario).
+    ui_mockup: Optional["Round4UiMockupOut"] = None
 
 
 # ---- HR candidate dashboard ----
@@ -557,6 +583,16 @@ class Round4EnvironmentOut(BaseModel):
     fixed fields, since different scenarios legitimately need different
     reference facts (a login flow needs credentials; a reporting feature
     might need a date range instead)."""
+    fields: dict[str, str]
+    notes: Optional[str] = None
+
+
+class Round4EnvironmentUpdate(BaseModel):
+    """Body for hr.py's update_round4_environment - HR hand-editing the
+    auto-generated environment_json.fields (e.g. pinning a specific test
+    login) instead of only being able to regenerate the whole sheet. Same
+    shape as Round4EnvironmentOut; kept separate since an update payload
+    and a read shape can diverge later even though they match today."""
     fields: dict[str, str]
     notes: Optional[str] = None
 
@@ -767,14 +803,28 @@ class Round4AutoLanguageCreate(BaseModel):
 
 
 class Round4AutoSelectCreate(BaseModel):
-    """1-2 Round 1 rows, by index. Writable exactly once, and only after
-    the language is locked - see routers/candidate.py's round4_auto_select."""
+    """1-2 Round 1 rows, by index - normally sent one at a time (the
+    candidate automates a test case, then decides whether to add a
+    second), but a caller may still send both together. Only after the
+    language is locked, and never re-selecting a row already added - see
+    routers/candidate.py's round4_auto_select."""
     row_indexes: list[int] = Field(min_length=1, max_length=2)
 
 
 class Round4AutoRefineCreate(BaseModel):
     row_index: int
     note: str = Field(min_length=1, max_length=2000)
+
+
+class Round4AutoTestDataUpdate(BaseModel):
+    """Corrects ONE selected test case's own test data for automation
+    purposes - see routers/candidate.py's round4_auto_update_test_data.
+    Never touches the immutable Round 1 record or the original design
+    snapshot's own test_data, which stays available for HR/scoring
+    transparency once a correction is made (see
+    scoring_service._auto_tc_design_only)."""
+    row_index: int
+    test_data: str = Field(min_length=1, max_length=2000)
 
 
 class Round4AutoTurnCreate(BaseModel):
@@ -853,29 +903,28 @@ class Round4AutoRunCreate(BaseModel):
 
 
 class Round4AutoTCSubmitEntry(BaseModel):
-    """One selected test case's final code and the candidate's own
-    interpretation of its run - see Round4AutoSubmitCreate.entries."""
+    """One selected test case's final code - see Round4AutoSubmitCreate.entries.
+    No candidate-written interpretation: whether the run genuinely proves
+    the expected result is judged from the code and execution result
+    alone (see prompts/round4_auto_scoring.txt)."""
     row_index: int
     code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
-    validation: str = Field(min_length=1, max_length=5000)
 
 
 class Round4AutoSubmitCreate(BaseModel):
     """`entries` is one per selected test case - submit checks that each
-    selected test case was independently run and interpreted, not just
-    one shared interpretation for the whole round (see
-    routers/candidate.py's round4_auto_submit).
+    selected test case was independently run at least once, not just one
+    shared run for the whole round (see routers/candidate.py's
+    round4_auto_submit).
 
     Back-compat convenience: with exactly one test case selected, the
-    flat `code`/`validation` fields below may be used instead of
-    `entries` - the shape every existing single-TC caller already sends,
-    wrapped into a single-entry list for that one TC. Two or more
-    selected test cases must use `entries` explicitly - there's no
-    longer a single buffer for a flat `validation` to unambiguously
-    refer to."""
+    flat `code` field below may be used instead of `entries` - the shape
+    every existing single-TC caller already sends, wrapped into a
+    single-entry list for that one TC. Two or more selected test cases
+    must use `entries` explicitly - there's no longer a single buffer a
+    flat `code` could unambiguously refer to."""
     entries: Optional[list[Round4AutoTCSubmitEntry]] = None
     code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
-    validation: Optional[str] = Field(default=None, min_length=1, max_length=5000)
 
 
 class Round4AutoRunOut(BaseModel):
@@ -927,6 +976,16 @@ class Round4AutoStateOut(BaseModel):
     selected: list[Round4AutoDesignRowOut]
     selection_locked: bool
     environment_code: str
+    # Candidate-facing reference material, reused unmodified from whatever
+    # the legacy round 4 generator already produced for this scenario at
+    # creation time (see hr.py's create_scenario - it runs for every
+    # round_number==2 scenario regardless of mode) - never code, never the
+    # solution, just what a real QA engineer would be handed before
+    # writing a test plan: the app's own screens and its test-environment
+    # facts (credentials, base URL, ...). None if this scenario predates
+    # that generator or it failed - the frontend just shows nothing then.
+    environment: Optional[Round4EnvironmentOut] = None
+    ui_mockup: Optional[Round4UiMockupOut] = None
     tc_state: list[Round4AutoTCStateOut] = Field(default_factory=list)
 
 

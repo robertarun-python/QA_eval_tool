@@ -1032,10 +1032,19 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
         <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>
         ${scenario.environment_json ? `
           <div class="hint-box env-panel">
-            <dl class="env-fields">
-              ${Object.entries(scenario.environment_json.fields || {}).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+            <dl class="env-fields" id="r4-env-fields-${scenario.id}">
+              ${Object.entries(scenario.environment_json.fields || {}).map(([k, v]) => `
+                <dt>${escapeHtml(k)}</dt>
+                <dd><input type="text" class="env-field-input" data-key="${escapeAttr(k)}" value="${escapeAttr(v)}" /></dd>
+              `).join("")}
             </dl>
-            ${scenario.environment_json.notes ? `<p>${escapeHtml(scenario.environment_json.notes)}</p>` : ""}
+            <textarea id="r4-env-notes-${scenario.id}" rows="2" placeholder="Notes (optional)">${escapeHtml(scenario.environment_json.notes || "")}</textarea>
+            <div class="row">
+              <button onclick="saveRound4Environment(${scenario.id})">Save environment fields</button>
+            </div>
+            ${scenario.environment_hr_edited
+              ? `<p class="muted">These fields were hand-set by HR - the automatic refresh that runs when a different round 1 scenario goes live won't overwrite them. Only "Regenerate" below replaces them.</p>`
+              : ""}
           </div>
         ` : `<p class="muted">No test environment generated yet.</p>`}
         ${scenario.ui_mockup_json ? renderMockupScreens(scenario.ui_mockup_json, `hr-mockup-${scenario.id}`) : `<p class="muted">No reference screens generated yet.</p>`}
@@ -1103,6 +1112,27 @@ async function saveRound4ConfigEdit(id) {
     statusEl.textContent = "Saved.";
   } catch (e) {
     inputEl.value = inputEl.defaultValue;
+    statusEl.className = "error-text";
+    statusEl.textContent = e.message;
+  }
+}
+
+async function saveRound4Environment(id) {
+  const statusEl = document.getElementById(`r4-status-${id}`);
+  const container = document.getElementById(`r4-env-fields-${id}`);
+  const fields = {};
+  container.querySelectorAll(".env-field-input").forEach((input) => {
+    fields[input.dataset.key] = input.value.trim();
+  });
+  const notes = document.getElementById(`r4-env-notes-${id}`).value.trim();
+  statusEl.className = "muted";
+  try {
+    await api(`/hr/scenarios/${id}/round4-environment`, {
+      method: "PATCH",
+      body: JSON.stringify({ fields, notes: notes || null }),
+    });
+    loadRound4Settings();
+  } catch (e) {
     statusEl.className = "error-text";
     statusEl.textContent = e.message;
   }
@@ -2359,7 +2389,7 @@ async function loadRound(n) {
 }
 
 function renderRoundView(box, n, state) {
-  const { scenario, submission } = state;
+  const { scenario, submission, environment, ui_mockup } = state;
 
   if (!scenario) {
     box.innerHTML = `<h3>Round ${n}: ${ROUND_LABELS[n]}</h3><div class="empty-state">Not available yet - check back once HR has published this round's scenario.</div>`;
@@ -2417,11 +2447,11 @@ function renderRoundView(box, n, state) {
       ${formatScenarioDescription(scenario.description)}
       <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
     `;
-    showRoundIntro(n, scenario.time_limit_minutes);
+    showRoundIntro(n, scenario.time_limit_minutes, environment);
     return;
   }
 
-  renderRoundEntry(n, box, scenario, submission);
+  renderRoundEntry(n, box, scenario, submission, environment, ui_mockup);
 }
 
 // Shared open/close for every full-screen modal-overlay (round intros,
@@ -2523,7 +2553,8 @@ function closeModalOverlay(id) {
   overlay._closeTimeout = setTimeout(() => overlay.remove(), 200);
 }
 
-function showRoundIntro(n, timeLimitMinutes) {
+function showRoundIntro(n, timeLimitMinutes, environment) {
+  const hasEnvironment = n === 1 && environment && Object.keys(environment.fields || {}).length > 0;
   const overlay = document.createElement("div");
   overlay.id = "round-intro-overlay";
   overlay.className = "modal-overlay";
@@ -2534,6 +2565,7 @@ function showRoundIntro(n, timeLimitMinutes) {
         <li>You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</li>
         <li>If time runs out, whatever you've written gets submitted automatically as it stands.</li>
         <li>Finished earlier? Submit yourself and move straight to the next round - no need to wait out the clock.</li>
+        ${hasEnvironment ? `<li>You'll see a test environment reference (login, sample data, ...) below - it's a starting point you can use as-is, but feel free to add your own test data and cases beyond it.</li>` : ""}
       </ul>
       <div class="row">
         <button onclick="confirmStartRound(${n})">Got it - Start Round ${n}</button>
@@ -2552,7 +2584,7 @@ async function startRound(n) {
   const submission = await api(`/candidate/round/${n}/start`, { method: "POST" });
   const state = await api(`/candidate/round/${n}`);
   const box = document.getElementById("round-view");
-  renderRoundEntry(n, box, state.scenario, submission);
+  renderRoundEntry(n, box, state.scenario, submission, state.environment, state.ui_mockup);
 }
 
 // One-time briefing before round 4's timer starts - shown instead of an
@@ -2625,11 +2657,14 @@ function confirmStartRound4Pilot() {
 
 // AI-Assisted Test Automation's own briefing (see models.Scenario.is_auto) -
 // the candidate automates test cases THEY designed in round 1, not the
-// legacy conversational flow above. "Got it" goes straight to
-// startRound(2); the language choice happens inside the round itself
-// (see renderRound4AutomationLayout's language-lock step) rather than in
-// this briefing, since it's locked for the round AND inherited by round 3
-// (see routers/candidate.py's _round3_language_for) - round 3 never asks.
+// legacy conversational flow above. Unlike the other round 2 briefings,
+// this one picks and locks the language ITSELF (see confirmStartRound4Auto)
+// before startRound(2) ever fires, so the timer never burns on a
+// language screen and the round's own first view is test case
+// selection - renderRound4AutomationLayout's own language-lock branch is
+// now only a defensive fallback for a round already in progress from
+// before this. Locked here is inherited by round 3 too (see
+// routers/candidate.py's _round3_language_for) - round 3 never asks.
 // Deliberately generic process steps only - no scoring weights, no
 // ground truth, no policy internals, no hint at what a strong answer
 // looks like.
@@ -2641,6 +2676,7 @@ function showRound4AutoIntro(timeLimitMinutes) {
     <div class="modal-box neutral">
       <h3>Before you start Round 2</h3>
       <ol>
+        <li>Choose the language you'll automate in - locked for the rest of this round.</li>
         <li>Pick one or two of your own Round 1 test cases to automate.</li>
         <li>Use the provided AI assistant to turn your design into working code against the provided environment.</li>
         <li>Review everything it produces, and edit the code yourself where you disagree.</li>
@@ -2650,18 +2686,42 @@ function showRound4AutoIntro(timeLimitMinutes) {
       </ol>
       <p class="muted">The assistant will only encode what you already specified in Round 1 - it won't invent test cases, test data, or assertions. You are responsible for the final automation.</p>
       <p class="muted">AI-generated code may not always be clean, complete, correct, or reliable. You are responsible for reviewing and validating it.</p>
-      <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</p>
+      <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately, after you pick a language.</p>
+      <div class="field-row" style="align-items:center">
+        <select id="r4a-intro-language-select" onchange="round4AutoIntroLanguageChanged()">
+          <option value="" selected>Select a language...</option>
+          <option value="python">Python</option>
+          <option value="java">Java</option>
+          <option value="javascript">JavaScript</option>
+        </select>
+      </div>
       <div class="row">
-        <button onclick="confirmStartRound4Auto()">Got it - Start Round 2</button>
+        <button id="r4a-intro-start-btn" onclick="confirmStartRound4Auto()" disabled>Got it - Start Round 2</button>
       </div>
     </div>
   `;
   openModalOverlay(overlay);
 }
 
-function confirmStartRound4Auto() {
+function round4AutoIntroLanguageChanged() {
+  const language = document.getElementById("r4a-intro-language-select").value;
+  document.getElementById("r4a-intro-start-btn").disabled = !language;
+}
+
+async function confirmStartRound4Auto() {
+  const language = document.getElementById("r4a-intro-language-select").value;
+  if (!language) return;
   closeModalOverlay("round4-intro-overlay");
-  startRound(2);
+  // Locked here, before the round's own view ever renders, so the
+  // candidate never sees an in-round language screen and the timer
+  // (started by /start below) never burns on picking one - see
+  // renderRound4AutomationLayout's now-defensive-only language_locked
+  // branch, kept for any round already in progress from before this.
+  await api("/candidate/round/2/start", { method: "POST" });
+  await api("/candidate/round/2/auto/language", { method: "POST", body: JSON.stringify({ language }) });
+  const state = await api("/candidate/round/2");
+  const box = document.getElementById("round-view");
+  renderRoundEntry(2, box, state.scenario, null);
 }
 
 // Split from the intro (see showRound4Intro) so the language choice
@@ -2705,9 +2765,9 @@ function confirmStartRound4WithLanguage() {
 // 1 is repeatable test-case rows, round 2 is a shorter investigation
 // list + one root-cause conclusion, round 4 is conversational. No
 // shared "structured rounds" bucket anymore - just dispatch by number.
-function renderRoundEntry(n, box, scenario, submission) {
+function renderRoundEntry(n, box, scenario, submission, environment, uiMockup) {
   if (n === 1) {
-    renderEntryForm(box, scenario, submission);
+    renderEntryForm(box, scenario, submission, environment, uiMockup);
   } else if (n === 4) {
     renderInvestigationForm(box, scenario, submission);
   } else if (n === 3) {
@@ -2750,21 +2810,62 @@ function round1DraftPayload() {
   return { content: collectRows() };
 }
 
-function renderEntryForm(box, scenario, submission) {
+// Read-only look at the same test-environment reference round 2
+// generates/owns (see RoundStateOut.environment) - a specific example to
+// anchor "Test data" around instead of writing something vague, but
+// never the only allowed values (see the pre-start note in
+// showRoundIntro). Same markup as round4AutoReferenceHtml's env block,
+// just without the edit controls - this view is read-only.
+function round1EnvironmentReferenceHtml(environment, uiMockup) {
+  const mockupHtml = uiMockup ? `
+    <details class="hint-box mockup-details" open>
+      <summary><strong>Reference: App screens</strong></summary>
+      ${renderMockupScreens(uiMockup, "r1-ref-mockup")}
+    </details>
+  ` : "";
+  const envFields = environment ? Object.entries(environment.fields || {}) : [];
+  const envHtml = envFields.length > 0 ? `
+    <details class="hint-box env-panel" open>
+      <summary><strong>Reference: test environment</strong> - use this test data, or add your own beyond it</summary>
+      <dl class="env-fields">
+        ${envFields.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+      </dl>
+      ${environment.notes ? `<p>${escapeHtml(environment.notes)}</p>` : ""}
+    </details>
+  ` : "";
+  return mockupHtml + envHtml;
+}
+
+function renderEntryForm(box, scenario, submission, environment, uiMockup) {
   rowCount = 0;
   box.innerHTML = `
-    <h3>Round 1: ${escapeHtml(scenario.title)}</h3>
-    ${formatScenarioDescription(scenario.description)}
+    <div class="page-header">
+      <span class="eyebrow">Round 1 &middot; Manual Test Cases</span>
+      <h1>${escapeHtml(scenario.title)}</h1>
+    </div>
+    <div class="surface" style="margin-bottom: var(--space-default)">
+      ${formatScenarioDescription(scenario.description)}
+    </div>
+    ${round1EnvironmentReferenceHtml(environment, uiMockup)}
+    <div class="section-header">
+      <h2>Your test cases</h2>
+      <span class="muted">Fill in every field below - be as specific as possible, especially test data.</span>
+    </div>
     <div class="table-scroll">
-      <table>
-        <thead><tr><th>SI.No</th><th>Title</th><th>Preconditions</th><th>Steps</th><th>Test data</th><th>Expected result / assertions</th><th></th></tr></thead>
+      <table class="tc-table">
+        <thead><tr><th class="tc-col-no">#</th><th class="tc-col-title">Test Case / Scenario</th><th class="tc-col-pre">Preconditions</th><th class="tc-col-steps">Steps</th><th class="tc-col-data">Test Data</th><th class="tc-col-expected">Expected Result / Assertions</th><th class="tc-col-actions"></th></tr></thead>
         <tbody>${exampleTestCaseRowHtml()}</tbody>
         <tbody id="tc-rows"></tbody>
       </table>
     </div>
     <div class="row">
-      <button onclick="addRow()">+ Add row</button>
-      <button id="round1-submit-btn" onclick="doSubmitRound1()">Submit</button>
+      <button class="btn-secondary" onclick="addRow()">+ Add Test Case</button>
+    </div>
+    <div class="action-bar">
+      <span class="autosave-status is-saved">Your progress autosaves as you type</span>
+      <div class="action-bar-buttons">
+        <button id="round1-submit-btn" class="btn-primary" onclick="doSubmitRound1()">Submit Round 1</button>
+      </div>
     </div>
     <p id="submit-status" class="muted"></p>
   `;
@@ -3372,7 +3473,19 @@ function renderRound3Terminal() {
   if (inputRow) inputRow.classList.toggle("hidden", !round3RunActive);
   if (round3RunActive) {
     const inputEl = document.getElementById("round3-terminal-input");
-    if (inputEl && document.activeElement !== inputEl) inputEl.focus();
+    const active = document.activeElement;
+    // Only steal focus into the terminal when nothing else is claiming
+    // it - this re-renders on every poll tick (ROUND3_RUN_POLL_MS) while
+    // a run is active, so an unconditional focus() here would yank the
+    // candidate's cursor back out of the composer/code-edit textarea on
+    // every tick the instant they click into either to type a new
+    // instruction while their program is still running - effectively
+    // locking them out of typing anywhere but the terminal until the
+    // run ends. Only take focus when the candidate hasn't deliberately
+    // put it somewhere else (an <input>/<textarea>, or already the
+    // terminal input itself).
+    const userTypingElsewhere = active && active !== inputEl && (active.tagName === "TEXTAREA" || active.tagName === "INPUT");
+    if (inputEl && active !== inputEl && !userTypingElsewhere) inputEl.focus();
   }
 }
 
@@ -4072,7 +4185,7 @@ function addRow(initial = null) {
     <td><textarea class="tc-steps" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
     <td><textarea class="tc-data" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
     <td><textarea class="tc-expected" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
-    <td><button onclick="removeRow('row-${id}')">Remove</button></td>
+    <td><button class="btn-danger btn-sm" onclick="removeRow('row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
   if (initial) {
@@ -4287,22 +4400,52 @@ function disarmTabGuard() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
 
-function logTabSwitch(roundNumber) {
-  if (role !== "candidate") return;
-  api(`/candidate/round/${roundNumber}/tab-switch`, { method: "POST" }).catch(() => {});
+// Logs one fullscreen-exit and reports back the running strike count -
+// see candidate.py's log_tab_switch, the single source of truth for the
+// count (never tracked separately client-side, so a page reload mid-round
+// can't desync it). On network failure, treat it as "no strike yet" -
+// same fail-open spirit as the old fire-and-forget version, since a
+// dropped request here must never itself end a candidate's round.
+async function logTabSwitch(roundNumber) {
+  if (role !== "candidate") return { strike_count: 0, round_ended: false };
+  try {
+    return await api(`/candidate/round/${roundNumber}/tab-switch`, { method: "POST" });
+  } catch (e) {
+    return { strike_count: 0, round_ended: false };
+  }
+}
+
+// Shared by both exit-detection paths below (fullscreenchange and the
+// passive visibilitychange/blur fallback) - the 3rd strike ends the
+// round the same way regardless of which path caught it.
+function handleStrikeRoundEnded() {
+  removeFsOverlay();
+  const toast = document.getElementById("tab-switch-toast");
+  if (toast) toast.remove();
+  const timerEl = document.getElementById("timer");
+  if (timerEl) timerEl.textContent = "Round ended - left fullscreen 3 times. Saving your work...";
+  stopTimer();
+  disarmTabGuard();
+  refreshCandidateNav();
 }
 
 document.addEventListener("fullscreenchange", () => {
   if (!fsGuardArmed || !fsGuardActive) return;
   if (document.fullscreenElement) {
     removeFsOverlay();
-  } else {
-    logTabSwitch(fsGuardRound);
-    showFsOverlay(fsGuardRound);
+    return;
   }
+  const roundNumber = fsGuardRound;
+  logTabSwitch(roundNumber).then((result) => {
+    if (result.round_ended) {
+      handleStrikeRoundEnded();
+    } else {
+      showFsOverlay(roundNumber, result.strike_count);
+    }
+  });
 });
 
-function showFsOverlay(roundNumber) {
+function showFsOverlay(roundNumber, strikeCount) {
   // A rapid exit/re-enter/exit-fullscreen sequence can call this again
   // while the previous overlay is still mid fade-out (see
   // closeModalOverlay's 200ms delayed remove()) - reuse it and cancel
@@ -4313,6 +4456,8 @@ function showFsOverlay(roundNumber) {
   if (existing) {
     clearTimeout(existing._closeTimeout);
     existing.classList.add("modal-open");
+    const warn = existing.querySelector("#fs-guard-warning");
+    if (warn) warn.textContent = `Warning ${strikeCount} of 3 - one more and this round ends automatically, scored on what you've written so far.`;
     return;
   }
   const overlay = document.createElement("div");
@@ -4322,9 +4467,9 @@ function showFsOverlay(roundNumber) {
     <div class="modal-box">
       <h3>Fullscreen required</h3>
       <p>This round must be taken in fullscreen. Leaving it has been logged and is visible to HR.</p>
+      <p id="fs-guard-warning"><strong>Warning ${strikeCount} of 3</strong> - one more and this round ends automatically, scored on what you've written so far.</p>
       <div class="row">
         <button onclick="reenterFullscreen()">Return to fullscreen</button>
-        <button class="btn-ghost" onclick="continueWithoutFullscreen()">Continue without fullscreen</button>
       </div>
       <p id="fs-guard-status" class="muted"></p>
     </div>
@@ -4339,41 +4484,44 @@ function removeFsOverlay() {
 function reenterFullscreen() {
   // Browsers throttle repeated requestFullscreen() calls in a short
   // window as anti-annoyance protection - a candidate who taps Escape a
-  // few times quickly can trigger that, and this call silently rejecting
-  // used to leave them stuck behind the overlay with literally no way
-  // forward (no Submit, no Exit, nothing). "Continue without fullscreen"
-  // below is the guaranteed way out regardless of what this does.
+  // few times quickly can trigger that. This is always temporary (a
+  // few seconds), never permanent, so simply retrying this same button
+  // shortly after is the way through - no separate "continue without
+  // fullscreen" escape is needed (and none is offered: every exit
+  // already counted as a strike the instant it happened, in
+  // logTabSwitch above, regardless of whether re-entry ever succeeds).
   document.documentElement.requestFullscreen().catch(() => {
     const statusEl = document.getElementById("fs-guard-status");
-    if (statusEl) statusEl.textContent = "Couldn't re-enter fullscreen - try again, or continue without it below.";
+    if (statusEl) statusEl.textContent = "Couldn't re-enter fullscreen yet - wait a moment and try again.";
   });
-}
-
-function continueWithoutFullscreen() {
-  // Drops to the same passive logging used when fullscreen was never
-  // available in the first place (see the visibilitychange/blur
-  // listeners below) - still logged and visible to HR, just no longer
-  // blocking. The round is never held hostage by a browser quirk.
-  fsGuardActive = false;
-  removeFsOverlay();
 }
 
 // Fallback for browsers/contexts where fullscreen enforcement isn't
 // available at all (fsGuardActive stays false) - same passive log +
 // dismissible toast as before, so there's still some signal instead of
-// no guard whatsoever.
+// no guard whatsoever. Exits here count toward the same 3-strike total
+// (see log_tab_switch) - fullscreen being unavailable isn't a reason to
+// exempt this path from the same consequence.
 let tabSwitchPending = false;
 
 document.addEventListener("visibilitychange", () => {
   if (fsGuardArmed && !fsGuardActive && document.hidden && !tabSwitchPending) {
     tabSwitchPending = true;
-    logTabSwitch(fsGuardRound);
+    const roundNumber = fsGuardRound;
+    logTabSwitch(roundNumber).then((result) => {
+      if (result.round_ended) handleStrikeRoundEnded();
+    });
   }
 });
 window.addEventListener("blur", () => {
   if (fsGuardArmed && !fsGuardActive && !tabSwitchPending) {
     tabSwitchPending = true;
-    logTabSwitch(fsGuardRound);
+    logTabSwitch(fsGuardRound).then((result) => {
+      if (result.round_ended) {
+        tabSwitchPending = false; // nothing to show a returning-focus toast for - the round is already over
+        handleStrikeRoundEnded();
+      }
+    });
   }
 });
 window.addEventListener("focus", () => {
@@ -4622,17 +4770,16 @@ let round4AutoBusy = false;
 
 function round4AutoSetBusy(busy) {
   round4AutoBusy = busy;
-  ["r4a-lock-language-btn", "r4a-select-btn", "r4a-refine-btn", "r4a-submit-btn"].forEach((id) => {
+  ["r4a-lock-language-btn", "r4a-automate-btn", "r4a-submit-btn"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = busy;
   });
-  // ask/save/run buttons are one-per-selected-TC (see round4AutoTcPanelHtml),
+  // ask/save/run buttons are one-per-selected-TC (see round4AutoTcSectionHtml),
   // so they're classes, not unique ids.
-  document.querySelectorAll(".r4a-ask-btn, .r4a-save-btn, .r4a-run-btn").forEach((el) => { el.disabled = busy; });
+  document.querySelectorAll(".r4a-ask-btn, .r4a-save-btn, .r4a-run-btn, .r4a-test-data-btn").forEach((el) => { el.disabled = busy; });
 }
 
 async function loadRound4Automation(box) {
-  round4AutoActiveTc = null;
   try {
     round4AutoState = await api("/candidate/round/2/auto/state");
   } catch (e) {
@@ -4642,23 +4789,74 @@ async function loadRound4Automation(box) {
   renderRound4AutomationLayout(box);
 }
 
-function round4AutoDesignCardHtml(row, { selectable }) {
+// Read-only reference table of every Round 1 test case, mirroring
+// Round 1's own entry table exactly (see renderEntryForm) - SI.No/Title/
+// Preconditions/Steps/Test data/Expected result, no checkboxes or picks
+// here at all. Selection itself happens via round4AutoNextPickHtml's
+// dropdown, one test case at a time.
+function round4AutoTcTableHtml(rows, selectedIndexes) {
+  if (rows.length === 0) return `<p class="muted">No Round 1 test cases found.</p>`;
+  const selectedSet = new Set(selectedIndexes || []);
+  return rows.map((r) => `
+    <div class="tc-card${selectedSet.has(r.index) ? " is-selected" : ""}">
+      <div class="tc-card-head">
+        <div class="tc-card-title-group">
+          <span class="tc-card-num">${r.index}</span>
+          <span class="tc-card-title">${escapeHtml(r.title || "(untitled)")}</span>
+        </div>
+        ${selectedSet.has(r.index) ? `<span class="tc-card-selected-tag">Being automated</span>` : ""}
+      </div>
+      <div class="tc-card-grid">
+        <div>
+          <div class="tc-card-field-label">Preconditions</div>
+          <div class="tc-card-field-value">${escapeHtml(r.preconditions || "-")}</div>
+        </div>
+        <div>
+          <div class="tc-card-field-label">Steps</div>
+          <div class="tc-card-field-value">${escapeHtml(r.steps || "-")}</div>
+        </div>
+        <div>
+          <div class="tc-card-field-label">Test Data</div>
+          <div class="tc-card-field-value">${escapeHtml(r.test_data || "-")}</div>
+        </div>
+        <div>
+          <div class="tc-card-field-label">Expected Result</div>
+          <div class="tc-card-field-value">${escapeHtml(r.expected_result || "-")}</div>
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+// The dropdown that starts automating one more test case (see
+// round4AutoAutomateClicked) - only ever offers rows not already in
+// round4AutoState.selected. Shown by renderRound4AutomationLayout: once
+// with every test case when nothing's picked yet, and again after the
+// most recently added test case has a run result, as long as the
+// two-test-case cap hasn't been reached and something's left to offer.
+function round4AutoNextPickHtml(remaining) {
   return `
-    <div class="panel-inset" style="margin-bottom:0.5rem">
-      <p style="margin:0 0 0.3rem 0">
-        ${selectable ? `<label><input type="checkbox" class="r4a-pick" value="${row.index}" /> <strong>${escapeHtml(row.title || "(untitled)")}</strong></label>`
-                     : `<strong>${escapeHtml(row.title || "(untitled)")}</strong>`}
-      </p>
-      ${row.preconditions ? `<p class="muted" style="margin:0 0 0.2rem 0"><strong>Preconditions:</strong> ${escapeHtml(row.preconditions)}</p>` : ""}
-      <p style="margin:0 0 0.2rem 0"><strong>Steps:</strong> ${escapeHtml(row.steps || "")}</p>
-      <p style="margin:0 0 0.2rem 0"><strong>Test data:</strong> ${escapeHtml(row.test_data || "(none specified)")}</p>
-      <p style="margin:0"><strong>Expected result:</strong> ${escapeHtml(row.expected_result || "")}</p>
-      ${(row.refinements || []).length > 0 ? `
-        <div style="margin-top:0.4rem">
-          <p class="muted" style="margin:0 0 0.2rem 0"><strong>Your refinement notes</strong> (added during automation - your original design above is unchanged):</p>
-          <ul style="margin:0">${row.refinements.map((n) => `<li>${escapeHtml(n)}</li>`).join("")}</ul>
-        </div>` : ""}
+    <div class="surface" style="margin:var(--space-default) 0; border-style:dashed">
+      <div class="field-label" style="margin-bottom:0.4rem">Automate a test case</div>
+      <div class="field-row" style="align-items:flex-end">
+        <div class="field" style="flex:1 1 18rem">
+          <select id="r4a-next-pick-select">
+            <option value="" selected>Select...</option>
+            ${remaining.map((r) => `<option value="${r.index}">${escapeHtml(r.title || `Test case ${r.index}`)}</option>`).join("")}
+          </select>
+        </div>
+        <button class="btn-primary" id="r4a-automate-btn" onclick="round4AutoAutomateClicked()">Automate this test case</button>
+      </div>
     </div>`;
+}
+
+function round4AutoAutomateClicked() {
+  const val = document.getElementById("r4a-next-pick-select").value;
+  const statusEl = document.getElementById("r4a-status");
+  if (!val) {
+    if (statusEl) statusEl.textContent = "Select a test case first.";
+    return;
+  }
+  round4AutoAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: [Number(val)] }) }));
 }
 
 function round4AutoRunResultHtml(rowIndex, run) {
@@ -4670,77 +4868,180 @@ function round4AutoRunResultHtml(rowIndex, run) {
     run.ran_at ? new Date(run.ran_at).toLocaleString() : null,   // "where available" - absent on a run recorded before this field existed
   ].filter(Boolean).join(" · ");
   return `
-    <div class="panel-inset">
-      <p style="margin:0 0 0.3rem 0"><strong>Test case ${rowIndex}</strong> - <span style="color:${passed ? "var(--accent)" : "var(--warn)"}">${passed ? "PASS" : "FAIL"}</span></p>
-      ${run.timed_out ? `<p style="color:var(--warn)">Timed out.</p>` : ""}
-      ${run.infra_error ? `<p style="color:var(--warn)">The execution service had a problem - try running again.</p>` : ""}
-      <p class="muted" style="margin:0 0 0.3rem 0">${meta}</p>
-      ${passed ? `<p class="muted" style="margin:0 0 0.3rem 0">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
-      ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
-      ${run.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(run.stderr)}</pre>` : ""}
+    <div class="result-state ${passed ? "is-pass" : "is-fail"}">
+      <span class="result-state-icon">${passed ? "✓" : "✕"}</span>
+      <div class="result-state-body">
+        <div class="result-state-label">${passed ? "PASS" : "FAIL"} - Test case ${rowIndex}</div>
+        <p class="result-state-detail">${meta}</p>
+        ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
+        ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
+        ${passed ? `<p class="result-state-caveat">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
+        <details style="margin-top:0.6rem">
+          <summary>Execution log</summary>
+          ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
+          ${run.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(run.stderr)}</pre>` : ""}
+        </details>
+      </div>
     </div>`;
 }
 
 function round4AutoTurnsHtml(turns) {
   if (!turns || turns.length === 0) return `<p class="muted">No messages yet.</p>`;
-  return turns.map((t) => `
-    <div class="panel-inset" style="margin-bottom:0.5rem">
-      <p style="margin:0 0 0.35rem 0"><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
-      <p style="margin:0"><strong>Assistant</strong> <span class="muted">(${escapeHtml(t.response_kind)})</span>: ${escapeHtml(t.response_message)}</p>
-    </div>`).join("");
+  return `<div class="ai-thread">${turns.map((t) => `
+    <div class="ai-turn ai-turn-candidate">
+      <div class="ai-turn-role">You</div>
+      <div class="ai-turn-body">${escapeHtml(t.candidate_prompt)}</div>
+    </div>
+    <div class="ai-turn ai-turn-assistant">
+      <div class="ai-turn-role">Assistant &middot; ${escapeHtml(t.response_kind)}</div>
+      <div class="ai-turn-body">${escapeHtml(t.response_message)}</div>
+    </div>`).join("")}</div>`;
 }
 
 // Each selected test case (1-2) has its own independent automation state
 // (see Round4AutoTCStateOut) - code, AI conversation, run result and
 // interpretation, none of it shared with the other selected test case.
-// All selected TCs' panels are rendered into the DOM at once and toggled
-// via display:none rather than re-rendered on tab switch, so whatever's
-// typed into the inactive tab's fields survives switching tabs (it does
-// NOT survive round4AutoAction's re-render after a server call, same
-// unsaved-draft limitation the single-buffer design already had).
-let round4AutoActiveTc = null;
+// Every selected test case's own section stacks permanently in the DOM,
+// always visible (no tabs, nothing hidden) - the candidate can return to
+// an earlier one at any time to keep fixing/rerunning it (see
+// renderRound4AutomationLayout, which decides when a NEW section for a
+// not-yet-automated test case should appear below the rest).
 
 function round4AutoTcState(rowIndex) {
   return (round4AutoState.tc_state || []).find((t) => t.row_index === rowIndex)
     || { code: "", turns: [], code_edits_count: 0, last_run: null, validation: "" };
 }
 
-function round4AutoSwitchTc(rowIndex) {
-  round4AutoActiveTc = rowIndex;
-  document.querySelectorAll(".r4a-tc-panel").forEach((el) => {
-    el.style.display = Number(el.dataset.rowIndex) === rowIndex ? "" : "none";
-  });
-  document.querySelectorAll(".r4a-tc-tab").forEach((el) => {
-    el.classList.toggle("active", Number(el.dataset.rowIndex) === rowIndex);
-  });
+function round4AutoTcIsUnlocked(tc) {
+  // Permanent once true - matches the backend's own derivation (see
+  // routers/candidate.py's _tc_is_unlocked): the assistant has produced
+  // its first code_edit for this test case, via a prompt it already
+  // judged complete enough to encode without guessing.
+  return (tc.turns || []).some((t) => t.response_kind === "code_edit");
 }
 
-function round4AutoTcPanelHtml(row, active) {
-  const tc = round4AutoTcState(row.index);
+// Editable test data, separate from the immutable Round 1 table above -
+// lets the candidate correct their OWN mistake (a typo, a stale value)
+// for automation purposes without touching the Round 1 record or the
+// original design snapshot (see routers/candidate.py's
+// round4_auto_update_test_data / scoring_service._auto_tc_design_only,
+// which keeps the original alongside for transparency once corrected).
+function round4AutoTestDataHtml(row) {
   return `
-    <div class="r4a-tc-panel" data-row-index="${row.index}" style="${active ? "" : "display:none"}">
-      <h4>Automation code <span class="muted">- ${escapeHtml(row.title || "(untitled)")}</span></h4>
-      <textarea id="r4a-code-${row.index}" class="code-textarea round4-pilot-code">${escapeHtml(tc.code || "")}</textarea>
-      <div class="row" style="margin:0.4rem 0 1rem 0">
-        <button class="r4a-save-btn" onclick="round4AutoSaveCodeClicked(${row.index})">Save my edit</button>
-        <button class="r4a-run-btn" onclick="round4AutoRunClicked(${row.index})">Run</button>
-        <span class="muted">Run uses exactly what's in this box. Your own edits are recorded separately from the assistant's.</span>
-      </div>
-      <div id="r4a-run-result-${row.index}">${round4AutoRunResultHtml(row.index, tc.last_run)}</div>
-
-      <h4 style="margin-top:1.25rem">Ask the assistant</h4>
+    <div class="surface" style="margin:0.85rem 0">
+      <div class="field-label" style="margin-bottom:0.3rem">Test data</div>
+      <p class="text-muted" style="margin:0 0 0.6rem 0">What your automation runs against. Made a mistake in Round 1? Correct it here - your original Round 1 answer is never changed.</p>
       <div class="field-row">
-        <div class="field">
+        <div class="field" style="flex:1 1 20rem">
+          <textarea id="r4a-test-data-${row.index}" rows="2">${escapeHtml(row.test_data || "")}</textarea>
+        </div>
+        <button class="btn-secondary r4a-test-data-btn" onclick="round4AutoSaveTestDataClicked(${row.index})">Save test data</button>
+      </div>
+    </div>`;
+}
+
+function round4AutoSaveTestDataClicked(rowIndex) {
+  const testData = document.getElementById(`r4a-test-data-${rowIndex}`).value.trim();
+  if (!testData) return;
+  round4AutoAction(() => api("/candidate/round/2/auto/test-data", { method: "POST", body: JSON.stringify({ row_index: rowIndex, test_data: testData }) }));
+}
+
+// Reference material - the app's own screens and test-environment facts,
+// reused unmodified from whatever the scenario already generated (see
+// Round4AutoStateOut.ui_mockup/environment) - never code, never the
+// solution. Shown ONCE at the page level, right alongside the Round 1
+// table (see renderRound4AutomationLayout) - it's the same reference
+// regardless of which selected test case is being worked on, so
+// repeating it inside every test case's own section was just noise, not
+// scoped information. Never hidden either way - visible before any test
+// case is even picked, and permanently after.
+// Segmented into tabs (one pane visible at a time) rather than two
+// stacked <details> blocks - same underlying data (Round4AutoStateOut.
+// ui_mockup/environment), just presented so only the section the
+// candidate actually needs right now is on screen. Switching is pure
+// client-side visibility (round4AutoReferenceTabClicked below) - never
+// re-fetches or re-derives anything.
+function round4AutoReferenceHtml() {
+  const s = round4AutoState;
+  const hasMockup = !!s.ui_mockup;
+  const hasEnv = !!(s.environment && Object.keys(s.environment.fields || {}).length > 0);
+  if (!hasMockup && !hasEnv) return "";
+  const envFields = hasEnv ? Object.entries(s.environment.fields || {}) : [];
+  return `
+    <div class="surface">
+      <div class="section-header"><h3>Reference material</h3></div>
+      <div class="tabs" role="tablist">
+        ${hasMockup ? `<button class="tab active" data-r4a-ref-tab="screens" onclick="round4AutoReferenceTabClicked('screens')">Reference Screens</button>` : ""}
+        ${hasEnv ? `<button class="tab${hasMockup ? "" : " active"}" data-r4a-ref-tab="environment" onclick="round4AutoReferenceTabClicked('environment')">Test Environment</button>` : ""}
+      </div>
+      ${hasMockup ? `
+        <div class="tab-panel active" data-r4a-ref-panel="screens">
+          ${renderMockupScreens(s.ui_mockup, "r4a-ref-mockup")}
+        </div>` : ""}
+      ${hasEnv ? `
+        <div class="tab-panel${hasMockup ? "" : " active"}" data-r4a-ref-panel="environment">
+          <dl class="env-fields">
+            ${envFields.map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+          </dl>
+          ${s.environment.notes ? `<p class="text-muted">${escapeHtml(s.environment.notes)}</p>` : ""}
+        </div>` : ""}
+    </div>`;
+}
+
+// Pure display toggle - no state fetch, no re-render of anything else.
+function round4AutoReferenceTabClicked(name) {
+  document.querySelectorAll("[data-r4a-ref-tab]").forEach((btn) => btn.classList.toggle("active", btn.dataset.r4aRefTab === name));
+  document.querySelectorAll("[data-r4a-ref-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.r4aRefPanel === name));
+}
+
+function round4AutoTcSectionHtml(row) {
+  const tc = round4AutoTcState(row.index);
+  const unlocked = round4AutoTcIsUnlocked(tc);
+  // Order matches the actual workflow: prompt first (below), code
+  // appears as a result of that and sits right under where the
+  // candidate was just typing, then the test data it's about to run
+  // against (a "run space", editable right before running - not
+  // scattered after the result it's supposed to explain), THEN the Run
+  // action, and the result comes last - only after everything it
+  // depends on has already been shown.
+  const codeSectionHtml = unlocked ? `
+      <div class="section-header"><h3>Generated code &middot; your edits</h3></div>
+      <div class="code-panel">
+        <div class="code-panel-head"><span>Automation code</span><span>Editable - review before you trust a PASS</span></div>
+        <div class="code-panel-body">
+          <textarea id="r4a-code-${row.index}" class="round4-pilot-code">${escapeHtml(tc.code || "")}</textarea>
+        </div>
+      </div>
+      ${round4AutoTestDataHtml(row)}
+      <div class="action-bar" style="border-top:none; margin-top:0; padding-top:0">
+        <span class="muted">Run uses exactly what's in the code box above. Your own edits are recorded separately from the assistant's.</span>
+        <div class="action-bar-buttons">
+          <button class="btn-secondary r4a-save-btn" onclick="round4AutoSaveCodeClicked(${row.index})">Save my edit</button>
+          <button class="btn-primary r4a-run-btn" onclick="round4AutoRunClicked(${row.index})">Run</button>
+        </div>
+      </div>
+      <div class="section-header" style="margin-top:var(--space-default)"><h3>Execution result</h3></div>
+      <div id="r4a-run-result-${row.index}">${round4AutoRunResultHtml(row.index, tc.last_run)}</div>` : `
+      <p class="muted" style="margin-top:1.25rem">No code yet - describe what you want automated above. Once the assistant has enough detail to encode it without guessing, it'll write the first version here.</p>`;
+
+  return `
+    <div class="surface r4a-tc-panel" data-row-index="${row.index}" style="margin:var(--space-default) 0">
+      <div class="section-header">
+        <h2>Test case ${row.index} <span class="muted" style="font-weight:400">- ${escapeHtml(row.title || "(untitled)")}</span></h2>
+      </div>
+      ${(row.refinements || []).length > 0 ? `<p class="muted" style="margin:0 0 0.5rem 0"><strong>Your refinement notes:</strong> ${row.refinements.map((n) => escapeHtml(n)).join(" &middot; ")}</p>` : ""}
+      <p class="muted" style="margin:0 0 var(--space-compact) 0">AI-generated code may be buggy, incomplete, or subtly wrong even when it runs cleanly - review it before trusting a PASS.</p>
+
+      <div class="section-header"><h3>Your instruction &middot; AI conversation</h3></div>
+      <div class="r4a-chat-log">${round4AutoTurnsHtml(tc.turns)}</div>
+      <div class="field-row" style="margin-top:0.5rem; align-items:flex-start">
+        <div class="field" style="flex:1 1 20rem">
           <textarea id="r4a-prompt-${row.index}" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
         </div>
-        <button class="r4a-ask-btn" onclick="round4AutoAskClicked(${row.index})">Ask AI</button>
+        <button class="btn-primary r4a-ask-btn" onclick="round4AutoAskClicked(${row.index})">Ask AI</button>
       </div>
-      <div style="margin-top:0.75rem">${round4AutoTurnsHtml(tc.turns)}</div>
 
-      <h4 style="margin-top:1.25rem">What did your run prove?</h4>
-      <div class="field">
-        <textarea id="r4a-validation-${row.index}" rows="3" placeholder="Interpret your execution result: what does it actually prove about your expected result, and what does it not?">${escapeHtml(tc.validation || "")}</textarea>
-      </div>
+      ${codeSectionHtml}
     </div>`;
 }
 
@@ -4750,83 +5051,71 @@ function renderRound4AutomationLayout(box) {
 
   if (!s.language_locked) {
     box.innerHTML = `
-      <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
-      ${formatScenarioDescription(scenario.description)}
-      <div class="panel-inset" style="margin-bottom:0.85rem">
-        <p style="margin:0">Choose the language you'll automate in. This is locked for the rest of Round 2 and carries into Round 3 - you won't be asked again.</p>
+      <div class="page-header">
+        <span class="eyebrow">Round 2 &middot; AI-Assisted Test Automation</span>
+        <h1>${escapeHtml(scenario.title)}</h1>
       </div>
-      <div class="field-row" style="align-items:center">
-        <select id="r4a-language-select">
-          <option value="" selected>Select a language...</option>
-          <option value="python">Python</option>
-          <option value="java">Java</option>
-          <option value="javascript">JavaScript</option>
-        </select>
-        <button id="r4a-lock-language-btn" onclick="round4AutoLockLanguageClicked()">Lock language</button>
-      </div>
-      <p id="r4a-status" class="muted"></p>`;
+      <div class="surface">${formatScenarioDescription(scenario.description)}</div>
+      <div class="surface">
+        <div class="field-label" style="margin-bottom:0.3rem">Programming language</div>
+        <p class="text-muted" style="margin:0 0 var(--space-compact) 0">Choose the language you'll automate in. This is locked for the rest of Round 2 and carries into Round 3 - you won't be asked again.</p>
+        <div class="field-row" style="align-items:center">
+          <select id="r4a-language-select" style="max-width:16rem">
+            <option value="" selected>Select a language...</option>
+            <option value="python">Python</option>
+            <option value="java">Java</option>
+            <option value="javascript">JavaScript</option>
+          </select>
+          <button class="btn-primary" id="r4a-lock-language-btn" onclick="round4AutoLockLanguageClicked()">Lock language</button>
+        </div>
+        <p id="r4a-status" class="muted"></p>
+      </div>`;
     return;
   }
 
-  if (!s.selection_locked) {
-    box.innerHTML = `
-      <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
-      ${formatScenarioDescription(scenario.description)}
-      <div class="panel-inset" style="margin-bottom:0.85rem">
-        <p style="margin:0">Pick <strong>one or two</strong> of your own Round 1 test cases to automate. This choice is locked once you confirm it - your original design is kept exactly as you wrote it, and everything you automate is judged against it.</p>
-      </div>
-      <h4>Your Round 1 test cases</h4>
-      ${(s.available_rows || []).map((r) => round4AutoDesignCardHtml(r, { selectable: true })).join("") || `<p class="muted">No Round 1 test cases found.</p>`}
-      <div class="row" style="margin-top:0.75rem">
-        <button id="r4a-select-btn" onclick="round4AutoSelectClicked()">Confirm selection</button>
-      </div>
-      <p id="r4a-status" class="muted"></p>`;
-    return;
-  }
-
+  // No more "pick both, then confirm" screen - test cases are selected
+  // one at a time via round4AutoNextPickHtml's dropdown, immutably per
+  // pick (see routers/candidate.py's round4_auto_select), so the whole
+  // rest of the page renders unconditionally once the language is
+  // locked, whether zero, one or two test cases have been picked so far.
   const selected = s.selected || [];
-  if (round4AutoActiveTc === null || !selected.some((r) => r.index === round4AutoActiveTc)) {
-    round4AutoActiveTc = selected.length > 0 ? selected[0].index : null;
-  }
+  const remaining = (s.available_rows || []).filter((r) => !selected.some((sel) => sel.index === r.index));
+  const lastSelected = selected.length > 0 ? selected[selected.length - 1] : null;
+  const lastHasResult = lastSelected ? !!round4AutoTcState(lastSelected.index).last_run : false;
+  // The picker shows for the very first test case unconditionally, and
+  // again after the most recently added one has a result (pass or fail
+  // - "has a result" is the trigger, not whether it's correct yet) - as
+  // long as the two-test-case cap isn't reached and something's left.
+  const showPicker = remaining.length > 0 && selected.length < 2 && (selected.length === 0 || lastHasResult);
 
   box.innerHTML = `
-    <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
-    ${formatScenarioDescription(scenario.description)}
-    <div class="panel-inset" style="margin-bottom:0.85rem">
-      <p style="margin:0">Automating in <strong>${escapeHtml(s.language)}</strong> (locked at the start of this round). The assistant will only encode the design below - it won't invent test cases, data or assertions, so anything missing is yours to add. Review everything it writes, edit the code yourself where you disagree, run it, then explain what the result actually proves.${selected.length > 1 ? " Each test case below has its own code, conversation and run, completely independent of the other." : ""}</p>
+    <div class="page-header">
+      <span class="eyebrow">Round 2 &middot; AI-Assisted Test Automation</span>
+      <h1>${escapeHtml(scenario.title)}</h1>
     </div>
-
-    <h4>Your selected design <span class="muted">(original - never edited here)</span></h4>
-    ${selected.map((r) => round4AutoDesignCardHtml(r, { selectable: false })).join("")}
-
-    <details class="hint-box" style="margin-bottom:1rem">
-      <summary><strong>Add a refinement note</strong> (append-only - your original stays intact)</summary>
-      <div class="field-row" style="margin-top:0.5rem">
-        <div class="field">
-          <select id="r4a-refine-row">
-            ${selected.map((r) => `<option value="${r.index}">${escapeHtml(r.title || "(untitled)")}</option>`).join("")}
-          </select>
-          <input id="r4a-refine-note" type="text" maxlength="2000" placeholder="e.g. realised the expected message is exact-match, not a substring" />
-        </div>
-        <button id="r4a-refine-btn" onclick="round4AutoRefineClicked()">Add note</button>
+    <div class="surface">
+      ${formatScenarioDescription(scenario.description)}
+      <div class="row" style="margin-top:var(--space-compact); margin-bottom:0">
+        <span class="tag tag-accent">Language locked: ${escapeHtml(s.language)}</span>
       </div>
-    </details>
-
-    <details class="hint-box" style="margin-bottom:1rem">
-      <summary><strong>Automation environment</strong> (provided - reuse these helpers, don't rebuild them)</summary>
-      <pre class="code-snippet">${escapeHtml(s.environment_code || "")}</pre>
-    </details>
-
-    ${selected.length > 1 ? `
-    <div class="scenario-tabs">
-      ${selected.map((r) => `<button class="scenario-tab r4a-tc-tab${r.index === round4AutoActiveTc ? " active" : ""}" data-row-index="${r.index}" onclick="round4AutoSwitchTc(${r.index})">${escapeHtml(r.title || `Test case ${r.index}`)}</button>`).join("")}
-    </div>` : ""}
-
-    ${selected.map((r) => round4AutoTcPanelHtml(r, r.index === round4AutoActiveTc)).join("")}
-
-    <div class="row" style="margin-top:1rem">
-      <button id="r4a-submit-btn" class="btn-block" onclick="round4AutoSubmitClicked()">Submit Round 2</button>
+      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it - your original design is kept exactly as you wrote it, and the assistant will only encode what you specify, never inventing test cases, data or assertions. Review everything it writes, edit the code yourself where you disagree, and run it. You can automate up to two, one at a time - you'll decide on a second only after finishing the first.</p>
     </div>
+
+    <div class="section-header"><h2>Your Round 1 test cases</h2></div>
+    ${round4AutoTcTableHtml(s.available_rows || [], selected.map((r) => r.index))}
+    ${round4AutoReferenceHtml()}
+
+    ${selected.map((r) => round4AutoTcSectionHtml(r)).join("")}
+
+    ${showPicker ? round4AutoNextPickHtml(remaining) : ""}
+
+    ${selected.length > 0 ? `
+    <div class="action-bar">
+      <span class="muted">Submitting ends Round 2 and moves you on - you can't return to it afterward.</span>
+      <div class="action-bar-buttons">
+        <button id="r4a-submit-btn" class="btn-primary" onclick="round4AutoSubmitClicked()">Submit Round 2</button>
+      </div>
+    </div>` : ""}
     <p id="r4a-status" class="muted"></p>`;
 }
 
@@ -4862,23 +5151,6 @@ function round4AutoLockLanguageClicked() {
   round4AutoAction(() => api("/candidate/round/2/auto/language", { method: "POST", body: JSON.stringify({ language }) }));
 }
 
-function round4AutoSelectClicked() {
-  const picked = [...document.querySelectorAll(".r4a-pick:checked")].map((el) => Number(el.value));
-  const statusEl = document.getElementById("r4a-status");
-  if (picked.length < 1 || picked.length > 2) {
-    if (statusEl) statusEl.textContent = "Select one or two test cases.";
-    return;
-  }
-  round4AutoAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: picked }) }));
-}
-
-function round4AutoRefineClicked() {
-  const note = document.getElementById("r4a-refine-note").value.trim();
-  if (!note) return;
-  const rowIndex = Number(document.getElementById("r4a-refine-row").value);
-  round4AutoAction(() => api("/candidate/round/2/auto/refine", { method: "POST", body: JSON.stringify({ row_index: rowIndex, note }) }));
-}
-
 function round4AutoAskClicked(rowIndex) {
   const promptEl = document.getElementById(`r4a-prompt-${rowIndex}`);
   const prompt = promptEl.value.trim();
@@ -4902,18 +5174,26 @@ async function round4AutoSubmitClicked() {
   const selected = round4AutoState.selected || [];
   const statusEl = document.getElementById("r4a-status");
 
-  // Every selected test case needs its own run and its own
-  // interpretation - gathered independently per TC, not one shared
-  // validation for the whole round (see Round4AutoSubmitCreate.entries).
+  // Every selected test case needs its own generated code and its own
+  // run - gathered independently per TC, not one shared check for the
+  // whole round (see Round4AutoSubmitCreate.entries). No candidate-
+  // written interpretation required: whether the run genuinely proves
+  // the expected result is scored from the code and result alone.
   const entries = [];
   for (const r of selected) {
-    const validation = document.getElementById(`r4a-validation-${r.index}`).value.trim();
-    if (!validation) {
-      round4AutoSwitchTc(r.index);
-      if (statusEl) statusEl.textContent = `Explain what your run proves for "${r.title || `test case ${r.index}`}" before submitting.`;
+    const sectionEl = document.querySelector(`.r4a-tc-panel[data-row-index="${r.index}"]`);
+    const tc = round4AutoTcState(r.index);
+    if (!round4AutoTcIsUnlocked(tc)) {
+      if (sectionEl) sectionEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (statusEl) statusEl.textContent = `Ask the assistant to generate code for "${r.title || `test case ${r.index}`}" before submitting.`;
       return;
     }
-    entries.push({ row_index: r.index, code: document.getElementById(`r4a-code-${r.index}`).value, validation });
+    if (!tc.last_run) {
+      if (sectionEl) sectionEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (statusEl) statusEl.textContent = `Run "${r.title || `test case ${r.index}`}" at least once before submitting.`;
+      return;
+    }
+    entries.push({ row_index: r.index, code: document.getElementById(`r4a-code-${r.index}`).value });
   }
 
   round4AutoBusy = true;

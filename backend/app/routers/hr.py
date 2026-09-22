@@ -40,6 +40,7 @@ from ..schemas import (
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
     ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate, TestCaseRow,
+    Round4EnvironmentUpdate, Round4EnvironmentOut,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
@@ -197,6 +198,9 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
         scenario.ui_mockup_json = llm_service.generate_round4_ui_mockup(
             app_description=app_description,
         )
+        # A fresh AI-generated sheet, not HR's own edit anymore - see
+        # environment_hr_edited and update_round4_environment below.
+        scenario.environment_hr_edited = False
     db.commit()
     db.refresh(scenario)
 
@@ -248,9 +252,15 @@ def _resync_round4_reference_for_band(round1_scenario: Scenario, db: Session) ->
     if in_progress_count > 0:
         return
     try:
-        live_round4.environment_json = llm_service.generate_round4_environment(
-            app_description=round1_scenario.description,
-        )
+        # environment_hr_edited (see models.Scenario) means HR hand-typed
+        # specific credentials/fields here - e.g. so a candidate's round 1
+        # test case and round 4 automation both key off the same login.
+        # This resync must not silently overwrite that; only HR's own
+        # "Regenerate" button (regenerate_reference) is allowed to.
+        if not live_round4.environment_hr_edited:
+            live_round4.environment_json = llm_service.generate_round4_environment(
+                app_description=round1_scenario.description,
+            )
         live_round4.ui_mockup_json = llm_service.generate_round4_ui_mockup(
             app_description=round1_scenario.description,
         )
@@ -491,6 +501,26 @@ def update_round4_instructions(scenario_id: int, payload: Round4InstructionsUpda
 
     scenario.title = payload.title
     scenario.description = payload.description
+    db.commit()
+    db.refresh(scenario)
+    return scenario
+
+
+@router.patch("/scenarios/{scenario_id}/round4-environment", response_model=ScenarioOut)
+def update_round4_environment(scenario_id: int, payload: Round4EnvironmentUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Lets HR hand-set the auto-generated environment_json.fields (e.g.
+    pin a specific test login) instead of only being able to regenerate
+    the whole sheet blind. Sets environment_hr_edited so
+    _resync_round4_reference_for_band stops silently overwriting this on
+    an unrelated round1 rotation - see that function and models.Scenario.
+    Blocked mid-round for the same fairness reason as round4-config/
+    round4-instructions: a candidate's test data shouldn't change under
+    them mid-conversation."""
+    scenario = _get_round4_scenario_or_404(scenario_id, db)
+    _require_round4_not_in_progress(scenario_id, db, background_tasks, "change this round's test environment")
+
+    scenario.environment_json = Round4EnvironmentOut(fields=payload.fields, notes=payload.notes).model_dump()
+    scenario.environment_hr_edited = True
     db.commit()
     db.refresh(scenario)
     return scenario

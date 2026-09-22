@@ -7,9 +7,36 @@ from .conftest import (
     CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD,  # 0-7 band
     CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD,  # 0-7 band
     CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD,
-    FAKE_REFERENCE, _login, _auth, _publish_scenario, _publish_round4_scenario, _complete_rounds_1_through_3,
+    FAKE_REFERENCE, FAKE_ENVIRONMENT, FAKE_UI_MOCKUP, _login, _auth, _publish_scenario, _publish_round4_scenario, _complete_rounds_1_through_3,
     _create_round4_test_case,
 )
+
+
+def test_round1_shows_the_round2_environment_reference_read_only(client, monkeypatch):
+    # Round 1 doesn't generate/own its own copy of this - it's a read-only
+    # look at the same reference round 2 already generates (see
+    # RoundStateOut.environment), so a candidate can write round 1 test
+    # data that's still accurate once they reach round 2.
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="Checkout flow")
+    _publish_round4_scenario(client, hr_token, monkeypatch)
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.get("/candidate/round/1", cookies=_auth(cand_token))
+    assert res.status_code == 200
+    assert res.json()["environment"] == FAKE_ENVIRONMENT
+    assert res.json()["ui_mockup"] == FAKE_UI_MOCKUP
+
+
+def test_round1_has_no_environment_reference_when_round2_isnt_live_yet(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, title="Checkout flow")
+
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    res = client.get("/candidate/round/1", cookies=_auth(cand_token))
+    assert res.status_code == 200
+    assert res.json()["environment"] is None
+    assert res.json()["ui_mockup"] is None
 
 
 def test_candidate_sees_only_matching_band_scenario(client, monkeypatch):

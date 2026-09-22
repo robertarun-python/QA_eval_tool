@@ -22,12 +22,13 @@ from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
     Round1ContextOut, Round4StateOut, Round4TurnCreate, Round4TurnOut,
     Round4TestCaseCreate, Round4TestCaseOut, Round4DraftUpdate, Round4EnvironmentOut,
-    Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload,
+    Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload, TabSwitchOut,
     Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut, Round3DirectEditCreate,
     Round3RunInputCreate, Round3RunPollOut, Round3RunOut, Round3StateOut,
     Round4PilotTurnCreate, Round4PilotTurnOut, Round4PilotClarifyCreate, Round4PilotClarifyOut, Round4PilotRunOut,
     Round4PilotCodeUpdate,
     Round4AutoStateOut, Round4AutoDesignRowOut, Round4AutoLanguageCreate, Round4AutoSelectCreate, Round4AutoRefineCreate,
+    Round4AutoTestDataUpdate,
     Round4AutoTurnCreate, Round4AutoTurnOut, Round4AutoClarifyCreate, Round4AutoCodeUpdate, Round4AutoRunCreate,
     Round4AutoSubmitCreate, Round4AutoTCSubmitEntry, Round4AutoRunOut, Round4AutoTCStateOut,
 )
@@ -1103,8 +1104,12 @@ def _auto_row_out(row: dict) -> Round4AutoDesignRowOut:
         title=row.get("title", "") or "",
         preconditions=row.get("preconditions", "") or "",
         steps=row.get("steps", "") or "",
-        # `or ""` covers a round 1 submission written before test_data existed.
-        test_data=row.get("test_data", "") or "",
+        # The candidate's own correction, if they made one (see
+        # round4_auto_update_test_data), else the original - `or ""`
+        # also covers a round 1 submission written before test_data
+        # existed. available_rows entries never have an override key, so
+        # this is a no-op there; only a selected row can carry one.
+        test_data=row.get("test_data_override") or row.get("test_data", "") or "",
         expected_result=row.get("expected_result", "") or "",
         refinements=list(row.get("refinements") or []),
     )
@@ -1136,6 +1141,8 @@ def _build_auto_state(scenario: Scenario, submission: Submission, candidate: Use
         selected=[_auto_row_out(r) for r in selected],
         selection_locked=bool(selected),
         environment_code=_auto_environment_code(scenario, language) if language else "",
+        environment=scenario.environment_json,
+        ui_mockup=scenario.ui_mockup_json,
         tc_state=[_auto_tc_state_out(r) for r in selected],
     )
 
@@ -1174,6 +1181,20 @@ def _resolve_tc_row(selected: list[dict], row_index: int | None) -> dict:
         if row["index"] == row_index:
             return row
     raise HTTPException(400, f"Test case {row_index} isn't one of the ones you selected.")
+
+
+def _tc_is_unlocked(row: dict) -> bool:
+    """Whether this test case's code panel (hand-editing and running) has
+    ever been unlocked - permanently, once the assistant has produced its
+    first code_edit for it (see round4_auto_turn's clarify-then-generate
+    gate). Derived from existing turn history, not a stored flag - a
+    code_edit turn can only exist once that gate has already been passed."""
+    return any(t.get("response_kind") == "code_edit" for t in row.get("turns") or [])
+
+
+def _require_tc_unlocked(row: dict) -> None:
+    if not _tc_is_unlocked(row):
+        raise HTTPException(400, "Ask the assistant to encode your design first - you can edit or run the code once it generates a first version.")
 
 
 def _apply_tc_code_edit(submission: Submission, content: dict, db: Session, row_index: int, code: str | None) -> dict:
@@ -1227,28 +1248,41 @@ def round4_auto_lock_language(payload: Round4AutoLanguageCreate, db: Session = D
 
 @router.post("/round/2/auto/select", response_model=Round4AutoStateOut, status_code=201)
 def round4_auto_select(payload: Round4AutoSelectCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    """Writes the IMMUTABLE snapshot of the candidate's chosen round 1
-    rows. Allowed exactly once: the snapshot is the audit record of what
-    they designed BEFORE automating, so re-selecting later (after seeing
-    how hard something is to automate) would defeat its purpose. The
-    round 1 submission itself is never touched - this copies out of it."""
+    """Adds one (normally) or two Round 1 rows to the IMMUTABLE snapshot
+    of test cases the candidate is automating. Callable again later, up
+    to a total of two, so the candidate can automate one test case at a
+    time and only decide on a second after seeing the first's result
+    (see _build_auto_state's remaining_rows, and the frontend's
+    "Automate a test case" section, which reappears once the most
+    recently added row has a result). A row already in the snapshot is
+    never touched again by a later call - it's the audit record of what
+    the candidate designed BEFORE automating it, so re-selecting or
+    changing it would defeat that purpose. The round 1 submission itself
+    is never touched - this copies out of it."""
     _require_round_unlocked(2, db, candidate)
     scenario, submission = _auto_in_progress(candidate, db)
     content = _ensure_auto_content(scenario, submission, candidate, db)
     if not content.get("language"):
         raise HTTPException(400, "Lock your language first.")
-    if content.get("selected"):
-        raise HTTPException(400, "Your test selection is already locked in and can't be changed.")
+    existing = content.get("selected") or []
+    already_selected = {r["index"] for r in existing}
+    if len(existing) >= 2:
+        raise HTTPException(400, "You've already automated two test cases - that's the most this round allows.")
 
     rows = _round1_rows_for(candidate, db)
     if len(set(payload.row_indexes)) != len(payload.row_indexes):
         raise HTTPException(400, "Each test case can only be selected once.")
+    if len(existing) + len(payload.row_indexes) > 2:
+        raise HTTPException(400, "You can automate at most two test cases in total.")
     language = content.get("language", "python")
-    snapshot = []
+    snapshot = list(existing)
     for index in payload.row_indexes:
         if index < 0 or index >= len(rows):
             raise HTTPException(400, f"No round 1 test case at position {index}.")
+        if index in already_selected:
+            raise HTTPException(400, f"Test case {index} is already selected.")
         row = rows[index]
+        already_selected.add(index)
         snapshot.append({
             "index": index,
             "title": row.get("title", "") or "",
@@ -1308,8 +1342,46 @@ def round4_auto_refine(payload: Round4AutoRefineCreate, db: Session = Depends(ge
     return _build_auto_state(scenario, submission, candidate, db)
 
 
+@router.post("/round/2/auto/test-data", response_model=Round4AutoStateOut, status_code=201)
+def round4_auto_update_test_data(payload: Round4AutoTestDataUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """Corrects ONE selected test case's own test data for automation
+    purposes - e.g. the candidate notices a typo in their own Round 1
+    answer. Recorded as an override alongside the row, never overwriting
+    row["test_data"] itself (that stays the immutable Round 1 record -
+    see _auto_row_out, which exposes the override as the effective value
+    for the "selected" design, and scoring_service._auto_tc_design_only,
+    which does the same for the scorer/AI). Allowed at any time,
+    independent of whether this test case's code is unlocked yet."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    content = _ensure_auto_content(scenario, submission, candidate, db)
+    selected = _require_selection(content)
+    row = _resolve_tc_row(selected, payload.row_index)
+    row_index = row["index"]
+
+    new_row = dict(row)
+    new_row["test_data_override"] = payload.test_data
+    updated_selected = [new_row if r["index"] == row_index else r for r in selected]
+    updated = dict(content)
+    updated["selected"] = updated_selected
+    submission.content = updated
+    db.commit()
+    db.refresh(submission)
+    return _build_auto_state(scenario, submission, candidate, db)
+
+
 @router.post("/round/2/auto/turn", response_model=Round4AutoTurnOut, status_code=201)
 def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """Before this test case's first ever code_edit, every instruction
+    goes through the specification-sufficiency check (llm_service.
+    round4_auto_clarify) first - insufficient/contradicts_prior comes
+    back as a clarify turn with no code, same as the standalone /clarify
+    endpoint always has; only once that check comes back sufficient does
+    this call proceed to generation, and that one first generation is
+    the only one asked to plant a misleading-pass gap (see llm_service.
+    round4_auto_turn's inject_flaw) rather than fully correct code -
+    every later turn for this same test case skips the check and
+    generates normally, same as before this gate existed."""
     _require_round_unlocked(2, db, candidate)
     scenario, submission = _auto_in_progress(candidate, db)
     content = _ensure_auto_content(scenario, submission, candidate, db)
@@ -1322,6 +1394,8 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
         {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"]} for t in turns
     ]
     language = content.get("language", "python")
+    environment_code = _auto_environment_code(scenario, language)
+    is_first_generation = not _tc_is_unlocked(row)
 
     # Synchronous, same reasoning as every other round's turn endpoint -
     # nothing is persisted until the call succeeds and validates.
@@ -1329,14 +1403,41 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
     # selected test case gets its own independent instructions/turns, not
     # a combined design spanning every selected row.
     try:
-        response = llm_service.round4_auto_turn(
-            language=language,
-            selected_design=[row],
-            environment_code=_auto_environment_code(scenario, language),
-            current_code=row.get("code", ""),
-            conversation_so_far=conversation_so_far,
-            candidate_prompt=payload.candidate_prompt,
-        )
+        if is_first_generation:
+            clarify_response = llm_service.round4_auto_clarify(
+                language=language,
+                selected_design=[row],
+                environment_code=environment_code,
+                current_code=row.get("code", ""),
+                conversation_so_far=conversation_so_far,
+                candidate_prompt=payload.candidate_prompt,
+            )
+            # round4_auto_clarify_policy.build_clarify_response only ever
+            # returns "explain" for a "sufficient" classification - every
+            # other outcome (insufficient/contradicts_prior/a prohibited
+            # request) comes back as "clarify"/"refuse" instead, so that's
+            # the one signal here that means "proceed to generation".
+            if clarify_response["response_kind"] != "explain":
+                response = clarify_response
+            else:
+                response = llm_service.round4_auto_turn(
+                    language=language,
+                    selected_design=[row],
+                    environment_code=environment_code,
+                    current_code=row.get("code", ""),
+                    conversation_so_far=conversation_so_far,
+                    candidate_prompt=payload.candidate_prompt,
+                    inject_flaw=True,
+                )
+        else:
+            response = llm_service.round4_auto_turn(
+                language=language,
+                selected_design=[row],
+                environment_code=environment_code,
+                current_code=row.get("code", ""),
+                conversation_so_far=conversation_so_far,
+                candidate_prompt=payload.candidate_prompt,
+            )
     except Exception:
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
@@ -1430,6 +1531,7 @@ def round4_auto_save_code(payload: Round4AutoCodeUpdate, db: Session = Depends(g
     selected = _require_selection(content)
     row = _resolve_tc_row(selected, payload.row_index)
     row_index = row["index"]
+    _require_tc_unlocked(row)
 
     new_row = dict(row)
     new_row["code"] = payload.code
@@ -1463,6 +1565,7 @@ def round4_auto_run(
     selected = _require_selection(content)
     row = _resolve_tc_row(selected, payload.row_index if payload else None)
     row_index = row["index"]
+    _require_tc_unlocked(row)
     content = _apply_tc_code_edit(submission, content, db, row_index, payload.code if payload else None)
     row = _resolve_tc_row(content.get("selected") or [], row_index)
 
@@ -1498,22 +1601,20 @@ def round4_auto_submit(
     content = _ensure_auto_content(scenario, submission, candidate, db)
     selected = _require_selection(content)
 
-    # Every selected test case is validated independently: back-compat
-    # single-TC shape (code/validation) is only ever wrapped into a
+    # Every selected test case is checked independently: back-compat
+    # single-TC shape (flat `code`) is only ever wrapped into a
     # single-entry list when there is exactly one to wrap - two or more
     # selected test cases must send `entries` explicitly, since there's
-    # no longer one buffer a flat `validation` could unambiguously mean.
+    # no longer one buffer a flat `code` could unambiguously mean.
     entries = payload.entries
     if not entries:
         if len(selected) != 1:
-            raise HTTPException(400, "Each selected test case needs its own run and interpretation - submit with entries.")
-        if not payload.validation:
-            raise HTTPException(400, "Explain what your run proves before submitting.")
-        entries = [Round4AutoTCSubmitEntry(row_index=selected[0]["index"], code=payload.code, validation=payload.validation)]
+            raise HTTPException(400, "Each selected test case needs its own run - submit with entries.")
+        entries = [Round4AutoTCSubmitEntry(row_index=selected[0]["index"], code=payload.code)]
 
     entry_by_index = {e.row_index: e for e in entries}
     if set(entry_by_index) != {row["index"] for row in selected}:
-        raise HTTPException(400, "Every selected test case needs its own interpretation to submit.")
+        raise HTTPException(400, "Every selected test case needs its own entry to submit.")
 
     updated_selected = []
     for row in selected:
@@ -1525,7 +1626,6 @@ def round4_auto_submit(
             raise HTTPException(400, f"There's no automation code to submit yet for test case {row['index']}.")
         if not new_row.get("last_run"):
             raise HTTPException(400, f"Run test case {row['index']} at least once before submitting.")
-        new_row["validation"] = entry.validation
         updated_selected.append(new_row)
 
     updated = dict(content)
@@ -1566,7 +1666,19 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
         return RoundStateOut(scenario=None, submission=None)
 
     submission = _current_submission(db, candidate, scenario)
-    return RoundStateOut(scenario=scenario, submission=submission)
+    environment = None
+    ui_mockup = None
+    if round_number == 1:
+        # Same reference round 2 already generates/owns (see
+        # RoundStateOut.environment's docstring) - a read-only look, not
+        # a separate copy, so there's nothing here to keep in sync.
+        round2_scenario = _live_scenario(db, 2, candidate)
+        if round2_scenario is not None:
+            if round2_scenario.environment_json:
+                environment = Round4EnvironmentOut(**round2_scenario.environment_json)
+            if round2_scenario.ui_mockup_json:
+                ui_mockup = Round4UiMockupOut(**round2_scenario.ui_mockup_json)
+    return RoundStateOut(scenario=scenario, submission=submission, environment=environment, ui_mockup=ui_mockup)
 
 
 @router.post("/round/{round_number}/start", response_model=SubmissionOut, status_code=201)
@@ -1643,24 +1755,36 @@ def submit_round(
     return submission
 
 
-@router.post("/round/{round_number}/tab-switch", status_code=204)
-def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
-    """Fire-and-forget telemetry from app.js's tab-switch guard: the
-    candidate left this tab/app while a round's timer was running. Purely
-    passive, same as how real assessment platforms handle this (see
-    app.js's tab-switch guard) - never blocks the candidate or interrupts
-    the round, just logs it for HR to see later (Submission.
-    tab_switch_events_json). Silently a no-op if there's nothing
-    in-progress to attach it to (the round may have already ended by the
-    time this request lands)."""
+@router.post("/round/{round_number}/tab-switch", response_model=TabSwitchOut)
+def log_tab_switch(
+    round_number: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    candidate: User = Depends(require_candidate),
+):
+    """Telemetry from app.js's tab-switch guard: the candidate left this
+    tab/app (or exited fullscreen) while a round's timer was running.
+    Logged for HR either way (Submission.tab_switch_events_json), but
+    now also a genuine 3-strike gate: on the 3rd exit in one round, this
+    force-ends the round right here - same "whatever they've got is the
+    final answer" outcome as expire_round below, just triggered by
+    strikes instead of the deadline, and without expire_round's deadline
+    check (a strike-ended round can, by design, finish well before time
+    runs out). No content payload needed - unlike expire_round (which
+    takes the client's draft because a round can end mid-edit with
+    unsaved changes), whatever's already persisted via each round's own
+    periodic autosave/incremental writes IS "what they'd written so
+    far." Silently a no-op (0/false) if there's nothing in-progress to
+    attach it to (the round may have already ended by the time this
+    request lands) - app.js only acts on round_ended, so this is safe."""
     if round_number not in (1, 2, 3, 4):
         raise HTTPException(400, "round_number must be 1, 2, 3, or 4")
     scenario = _live_scenario(db, round_number, candidate)
     if scenario is None:
-        return
+        return TabSwitchOut(strike_count=0, round_ended=False)
     submission = _current_submission(db, candidate, scenario)
     if submission is None or submission.status != RoundStatus.in_progress:
-        return
+        return TabSwitchOut(strike_count=0, round_ended=False)
     # A fresh list, not an in-place mutation of the loaded one - SQLAlchemy
     # doesn't track in-place JSON-column mutations, so appending to the
     # existing list and reassigning it (same object identity) can leave
@@ -1668,7 +1792,17 @@ def log_tab_switch(round_number: int, db: Session = Depends(get_db), candidate: 
     events = list(submission.tab_switch_events_json or [])
     events.append(datetime.utcnow().isoformat())
     submission.tab_switch_events_json = events
+
+    round_ended = False
+    if len(events) >= 3:
+        round_ended = True
+        submission.status = RoundStatus.submitted
+        submission.submitted_at = datetime.utcnow()
+        submission.auto_closed_reason = "Left fullscreen 3 times - round ended automatically"
+        background_tasks.add_task(score_submission_in_background, submission.id)
+
     db.commit()
+    return TabSwitchOut(strike_count=len(events), round_ended=round_ended)
 
 
 @router.patch("/round/{round_number}/draft", status_code=204)

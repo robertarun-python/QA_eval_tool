@@ -445,8 +445,21 @@ def _auto_tc_design_only(row: dict) -> dict:
     per-TC automation state (see routers/candidate.py's round4_auto_select).
     Used wherever "the candidate's design" is shown, so mutable state
     (code/turns/code_edits/last_run/validation) never leaks into what's
-    supposed to be the immutable-design section of the scoring prompt."""
-    return {k: row[k] for k in _TC_DESIGN_FIELDS if k in row}
+    supposed to be the immutable-design section of the scoring prompt.
+
+    test_data reflects the candidate's own correction if they made one
+    (see routers/candidate.py's round4_auto_update_test_data) - that's
+    what the AI actually automated against and what the scorer should
+    judge against, not a value the candidate has since flagged as wrong.
+    The original is kept alongside as original_test_data whenever a
+    correction exists, purely for transparency - never overwritten,
+    never silently dropped."""
+    design = {k: row[k] for k in _TC_DESIGN_FIELDS if k in row}
+    override = row.get("test_data_override")
+    if override:
+        design["test_data"] = override
+        design["original_test_data"] = row.get("test_data", "")
+    return design
 
 
 def _auto_tc_label(row: dict) -> str:
@@ -471,13 +484,16 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
     one row), its own final code, its own turns (including clarify turns
     - already distinguished from code-generating ones by response_kind,
     nothing extra needed here), its own code_edits, its own last
-    execution result, its own validation. This round's scoring MODEL is
-    not being redesigned - only the shape of the data feeding it, since
-    it used to live in one shared buffer (then one flattened string) and
-    now lives, and is shown, per selected test case. For exactly one
-    selected test case this is still a lossless passthrough of that one
-    test case's own state - every existing single-TC scoring expectation
-    holds exactly as before, just one level more nested."""
+    execution result. No candidate-written interpretation field - whether
+    a run genuinely proves the expected result is judged from final_code
+    and execution_result alone (see prompts/round4_auto_scoring.txt).
+    This round's scoring MODEL is not being redesigned - only the shape
+    of the data feeding it, since it used to live in one shared buffer
+    (then one flattened string) and now lives, and is shown, per selected
+    test case. For exactly one selected test case this is still a
+    lossless passthrough of that one test case's own state - every
+    existing single-TC scoring expectation holds exactly as before, just
+    one level more nested."""
     blocks = []
     for row in selected:
         blocks.append({
@@ -488,7 +504,6 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
             "turns": list(row.get("turns") or []),
             "code_edits": list(row.get("code_edits") or []),
             "execution_result": row.get("last_run") or {},
-            "validation": row.get("validation", ""),
         })
     return blocks
 
@@ -576,18 +591,17 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
         validation_notes=reference.get("validation_notes", ""),
     )
     # This round's PRIMARY EVIDENCE is not only the conversation: the
-    # rubric grades each TC's own final code, execution result and
-    # candidate interpretation too. supporting_texts_by_tc keeps a
-    # quote-only citation scoped to the ONE test case it's tagged with
-    # (evidence.test_case = that block's own label) so a finding can't
-    # borrow evidence that only exists in a different selected test
-    # case - see round4_evidence_audit._check_evidence. An untagged or
+    # rubric grades each TC's own final code and execution result too.
+    # supporting_texts_by_tc keeps a quote-only citation scoped to the
+    # ONE test case it's tagged with (evidence.test_case = that block's
+    # own label) so a finding can't borrow evidence that only exists in a
+    # different selected test case - see
+    # round4_evidence_audit._check_evidence. An untagged or
     # unrecognized-tag citation still falls back to the lenient
     # whole-submission check below it, unchanged from before.
     supporting_texts_by_tc = {
         block["label"]: [
             block["final_code"],
-            block["validation"],
             block["execution_result"].get("stdout", ""),
             block["execution_result"].get("stderr", ""),
         ]

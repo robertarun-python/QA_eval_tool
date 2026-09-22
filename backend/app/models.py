@@ -152,6 +152,13 @@ class Scenario(Base):
     # lifecycle as environment_json: generated at creation, HR can
     # regenerate it (together with environment_json), required before publish.
     ui_mockup_json = Column(JSON, nullable=True)
+    # Round 4 only: set when HR hand-edits environment_json's fields (see
+    # hr.py's update_round4_environment) - makes _resync_round4_reference_for_band
+    # skip regenerating environment_json for this scenario when a different
+    # round 1 scenario goes live for the same band, so an HR-typed credential
+    # isn't silently overwritten by that background resync. Only HR's own
+    # "Regenerate" button (regenerate_reference) clears it back to False.
+    environment_hr_edited = Column(Boolean, default=False, nullable=False)
     time_limit_minutes = Column(Integer, default=30, nullable=False)
     published_at = Column(DateTime, nullable=True)
 
