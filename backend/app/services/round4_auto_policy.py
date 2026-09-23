@@ -111,3 +111,119 @@ def untraceable_literals(code: str, selected_rows: list[dict], environment_code:
         if len(found) >= 25:
             break
     return found
+
+
+# ---- Post-generation checks (Sep 2026 guardrail review) --------------------
+#
+# 3. UNREQUESTED ASSERTIONS: every assertion the assistant ADDS must trace to
+#    something the candidate wrote - their design (title/steps/test data/
+#    expected result/refinements) or one of their messages. Transcript
+#    review and a live check both found the assistant adding checks nobody
+#    asked for, e.g. `assert page["status"] == 200` after "No only this".
+#    An assertion traces when one of its meaningful words or values appears
+#    in the candidate's own text; one with no meaningful words at all
+#    (`assert ok`) can't be judged and is left alone.
+#
+# 4. ENVIRONMENT LEAKS: an explain/clarify/refuse reply must not reveal a
+#    value that exists only in the provided environment (a credential, an
+#    expected message, a URL) - reading the environment is part of what's
+#    assessed. Values the candidate already wrote themselves are fine.
+
+_ASSERTION_LINE_RE = {
+    "python": re.compile(r"^\s*assert\b"),
+    "javascript": re.compile(r"^\s*(assert(\.\w+)?\s*\(|expect\s*\()"),
+    "java": re.compile(r"^\s*(assert\b|Assert\.\w+\s*\(|assert(Equals|True|False|NotNull|Null|That)\s*\()"),
+}
+
+# Words that appear in almost any assertion and say nothing about WHAT is
+# being checked.
+_NEUTRAL_WORDS = {
+    "assert", "assertequals", "asserttrue", "assertfalse", "assertnotnull", "assertnull", "assertthat",
+    "expect", "tobe", "toequal", "equals", "true", "false", "none", "null", "not", "and", "the", "is",
+    "result", "response", "res", "resp", "value", "text", "self", "get", "data", "ok", "msg",
+    "message", "error", "code", "var", "let", "const", "str", "string", "int", "len", "size", "length",
+    "status", "page", "actual", "expected", "should", "failed", "passed", "test", "check",
+}
+
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _norm_words(text: str) -> set[str]:
+    return {w for w in _WORD_RE.findall((text or "").lower()) if len(w) >= 3 and w not in _NEUTRAL_WORDS}
+
+
+def _candidate_text(selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str) -> str:
+    parts = [_snapshot_text(selected_rows), candidate_prompt or ""]
+    parts += [t.get("candidate_prompt") or "" for t in conversation_so_far or []]
+    return " ".join(parts).lower()
+
+
+def _added_lines(before: str | None, after: str | None) -> list[str]:
+    seen = {l.strip() for l in (before or "").splitlines()}
+    return [l for l in (after or "").splitlines() if l.strip() and l.strip() not in seen]
+
+
+def unrequested_assertions(
+    language: str, before: str | None, after: str | None,
+    selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str,
+) -> list[str]:
+    """Added assertion lines with nothing in them the candidate asked for."""
+    pattern = _ASSERTION_LINE_RE.get(language)
+    if pattern is None:
+        return []
+    haystack = _candidate_text(selected_rows, conversation_so_far, candidate_prompt)
+    flagged = []
+    for line in _added_lines(before, after):
+        if not pattern.search(line):
+            continue
+        words = _norm_words(line)
+        if words and not any(w in haystack for w in words):
+            flagged.append(line.strip())
+    return flagged
+
+
+def drop_single_line_statements(code: str, lines: list[str]) -> tuple[str, list[str]]:
+    """Removes each flagged line that is a complete statement on its own
+    (balanced brackets; Java/JS lines ending in ';'). Returns the new code
+    and the flagged lines that couldn't be removed safely."""
+    remaining = []
+    out = code or ""
+    for flagged in lines:
+        complete = flagged.count("(") == flagged.count(")") and flagged.count("[") == flagged.count("]")
+        complete = complete and (flagged.startswith("assert ") or flagged.endswith(";"))
+        kept = [l for l in out.splitlines() if l.strip() != flagged]
+        if complete and len(kept) < len(out.splitlines()):
+            out = "\n".join(kept) + ("\n" if out.endswith("\n") else "")
+        else:
+            remaining.append(flagged)
+    return out, remaining
+
+
+_STRING_LITERAL_RE = re.compile(r"""["']([^"'\n]{5,})["']""")
+
+
+def leaked_environment_values(
+    message: str | None, environment_code: str,
+    selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str,
+) -> list[str]:
+    """String values from the environment code that appear in `message` but
+    that the candidate never wrote themselves. Plain lowercase identifiers
+    (dictionary keys like "completed") are ignored - they aren't secrets."""
+    msg = (message or "").lower()
+    if not msg:
+        return []
+    known = _candidate_text(selected_rows, conversation_so_far, candidate_prompt)
+    leaks = []
+    for value in dict.fromkeys(_STRING_LITERAL_RE.findall(environment_code or "")):
+        v = value.strip()
+        if re.fullmatch(r"[a-z_]+", v) or v.lower() in known:
+            continue
+        if v.lower() in msg:
+            leaks.append(v)
+    return leaks
+
+
+def redact(message: str, values: list[str]) -> str:
+    for v in values:
+        message = re.sub(re.escape(v), "[withheld]", message, flags=re.IGNORECASE)
+    return message

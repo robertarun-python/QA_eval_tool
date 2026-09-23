@@ -526,6 +526,20 @@ def update_round4_environment(scenario_id: int, payload: Round4EnvironmentUpdate
     return scenario
 
 
+def _reject_retired_round2_mode(scenario: Scenario) -> None:
+    """See settings.legacy_simulated_round2_enabled."""
+    if (
+        scenario.round_number == 2
+        and not (scenario.config_json or {}).get("mode")
+        and not settings.legacy_simulated_round2_enabled
+    ):
+        raise HTTPException(
+            400,
+            "The simulated role-play automation mode is retired - its results are invented by the AI, not "
+            "produced by running code. Use an AI-Assisted Test Automation scenario for round 2 instead.",
+        )
+
+
 @router.post("/scenarios/{scenario_id}/publish", response_model=ScenarioOut)
 def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Moves a draft into the published library for its round+band. This
@@ -535,6 +549,7 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     scenario for it also makes it live, so a scenario doesn't sit
     published-but-invisible with no HR action ever having asked for that."""
     scenario = _get_draft_scenario_or_404(scenario_id, db)
+    _reject_retired_round2_mode(scenario)
     # Round 4 has no scenario-level test-case reference to review upfront
     # (its target is each candidate's own round 1 answer) - but it does
     # have its own generated content that must exist before candidates
@@ -596,6 +611,7 @@ def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User 
         raise HTTPException(400, f"Scenario is {scenario.status.value}, not published - publish it first.")
     if scenario.is_live:
         return scenario
+    _reject_retired_round2_mode(scenario)
 
     db.query(Scenario).filter(
         Scenario.round_number == scenario.round_number,

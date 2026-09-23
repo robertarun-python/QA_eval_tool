@@ -360,7 +360,7 @@ class ScoreOverrideRequest(BaseModel):
     override_note: str = Field(min_length=1, max_length=2000)
 
 
-ASSESSOR_ONLY_CONTENT_KEYS = frozenset({"planted_flaw"})
+ASSESSOR_ONLY_CONTENT_KEYS = frozenset({"planted_flaw", "unrequested_checks"})
 
 
 def _strip_keys(value, keys):

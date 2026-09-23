@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./qa_eval.db"
     claude_model: str = "claude-sonnet-4-5"
 
+    # The original round 2 automation mode (a round-2 scenario with no
+    # config "mode"): the model role-plays running the candidate's test and
+    # invents the results, so no result in it comes from real execution.
+    # Retired Sep 2026 in favour of AI-Assisted Test Automation, which runs
+    # real code - HR can no longer publish or go live with such a scenario.
+    # Existing records stay viewable. Left switchable only because the test
+    # suite still exercises the legacy flow.
+    legacy_simulated_round2_enabled: bool = False
+
     # Seed-default only now, not read anywhere at request time: the
     # migration (migrate_bulk_candidates.py) uses this once to populate
     # the initial models.AppSettings row's per-round/final passing

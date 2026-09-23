@@ -63,6 +63,11 @@ def client(monkeypatch):
     # in test assertions.
     import app.database as database_module
     monkeypatch.setattr(database_module, "SessionLocal", TestingSessionLocal)
+    # Much of the suite still exercises the retired simulated round 2 mode
+    # (see settings.legacy_simulated_round2_enabled); the retirement itself
+    # is tested with it switched back off.
+    from app.config import settings as app_settings
+    monkeypatch.setattr(app_settings, "legacy_simulated_round2_enabled", True)
 
     with TestClient(app) as c:
         # Fix for a bug found in the 2026-09-12 engineering review: httpx's

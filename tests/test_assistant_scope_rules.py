@@ -47,9 +47,16 @@ def test_three_word_goal_must_not_get_a_full_program():
     assert "reading input" in issues and "printing output" in issues
 
 
+def test_choosing_a_set_needs_the_candidate_to_name_it():
+    """R3-113/125/180: "remove the duplicates" doesn't say how - a set is the
+    assistant's choice, and the data structure is part of what's assessed."""
+    assert guard.unrequested_additions("python", "numbers = [3, 1]", "numbers = [3, 1]\nnumbers = list(set(numbers))",
+                                       "now check if there are duplicates and if so remove them") == ["chose a set to remove duplicates"]
+
+
 def test_literal_instructions_pass_untouched():
     assert guard.unrequested_additions("python", "numbers = [3, 1]", "numbers = [3, 1]\nnumbers = list(set(numbers))",
-                                       "now check if there are duplicates and if so remove them") == []
+                                       "now check if there are duplicates and if so remove them using a set") == []
     assert guard.unrequested_additions("python", None, "a = int(input())\nb = int(input())\nprint(a + b)",
                                        "read two integers from the user, one per line, and print their sum") == []
     # typo-tolerant: "unitil" still asks for a loop
@@ -126,7 +133,7 @@ def _edit(code, message="Done."):
 def test_over_reaching_edit_is_regenerated_with_the_reason(monkeypatch):
     over = _edit("numbers = [3, 1]\nvals = [int(x) for x in numbers]\nnumbers = list(set(vals))")
     ok = _edit("numbers = [3, 1]\nnumbers = list(set(numbers))")
-    result, calls = _turn(monkeypatch, [over, ok], "remove the duplicates", current_code="numbers = [3, 1]")
+    result, calls = _turn(monkeypatch, [over, ok], "remove the duplicates using a set", current_code="numbers = [3, 1]")
     assert result["response_kind"] == "code_edit"
     assert result["code_after"] == "numbers = [3, 1]\nnumbers = list(set(numbers))"
     assert len(calls) == 2

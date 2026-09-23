@@ -40,7 +40,7 @@ _CAPABILITIES = {
         r"input|inout|inupt|read|enter|type|user|stdin|scanner|\bget\b|ask|prompt|cli|command line|keyboard",
     ),
     "type conversion": (
-        r"\bint\s*\(|\bfloat\s*\(|parseInt|parseDouble|Integer\.valueOf|Number\s*\(|parseFloat|\.isdigit\s*\(",
+        r"\bint\s*\(|\bfloat\s*\(|\bmap\s*\(\s*(int|float)\b|parseInt|parseDouble|Integer\.valueOf|Number\s*\(|parseFloat|\.isdigit\s*\(",
         r"\bint\b|integer|interger|number|numeric|digit|float|decimal|convert|cast|type|parse",
     ),
     "printing output": (
@@ -71,6 +71,22 @@ _CAPABILITIES = {
         r"(?<![\w.\[])-1\b(?!\s*\])|MIN_VALUE|MAX_VALUE|float\s*\(\s*['\"]-?inf|Infinity",
         r"-1|minus one|none|null|no (second|value|answer|result)|not (found|exist)|if there (is|are) no|fewer|less than|empty|only one|\bmin|\bmax|infinity|sentinel|default",
     ),
+    # Technique choices (Sep 2026 guardrail review): the candidate asked for
+    # the goal ("remove the duplicates", "sort it", "get the numbers") and the
+    # model picked HOW - a set, descending order, a separator. Those choices
+    # are part of what's assessed, so each needs words that name it.
+    "chose a set to remove duplicates": (
+        r"\bset\s*\(|HashSet|TreeSet|new Set\s*\(|dict\.fromkeys|\.distinct\s*\(",
+        r"\bset\b|hash ?set|tree ?set|fromkeys|\bdict|distinct\(",
+    ),
+    "chose descending order": (
+        r"reverse\s*=\s*True|reverseOrder|Collections\.reverse|\.reverse\s*\(",
+        r"descend|decreas|reverse|(large|big|high)(st|r|er|est)?\s+(to|first)",
+    ),
+    "chose how the input values are separated": (
+        r"\.split\s*\(|hasNext\w*\s*\(|\.nextLine\s*\(|\buseDelimiter\b",
+        r"split|space|comma|separat|delimit|whitespace|one line|same line|per line|each line|line by line|one (at a time|by one)|scanner|hasnext",
+    ),
     "a new function": (
         r"^\s*def \w+\s*\(|^\s*(public|private|protected|static)\b[\w\s<>\[\],]*\s\w+\s*\([^)]*\)\s*\{?\s*$|^\s*function \w+\s*\(",
         r"function|method|def\b|helper|procedure|main|routine|wrap",
@@ -82,7 +98,11 @@ _CAPABILITIES = {
 # for) isn't adding a new capability. Deliberately NOT extended to type
 # conversion, loops, collections etc. - those are exactly what got silently
 # expanded in the transcripts this guards against.
-_ALREADY_PRESENT_OK = {"printing output", "reading input"}
+_ALREADY_PRESENT_OK = {
+    "printing output", "reading input",
+    # A technique already in the code was already accepted - reusing it isn't a new choice.
+    "chose a set to remove duplicates", "chose descending order", "chose how the input values are separated",
+}
 
 # Hard-coded data: three or more numeric literals on one added line (a test
 # list, sample inputs) must each appear in the instruction.
@@ -179,3 +199,39 @@ SCOPE_FALLBACK_MESSAGE = (
 )
 
 NOOP_MESSAGE = "The code already does that - nothing needed to change."
+
+
+# Reply-vs-code check. Transcript review found replies describing a sort
+# the code doesn't do - "sorted descending so the largest is at index -1"
+# (R3 submissions 33, 34, 38, 40, 43) and "second largest" for what was the
+# second-smallest (R3-113). Narrow on purpose: only claims about order.
+_DESC_CODE_RE = re.compile(r"reverse\s*=\s*True|reverseOrder|Collections\.reverse")
+_SORT_CODE_RE = re.compile(r"\bsort(ed)?\s*\(|\.sort\s*\(|Collections\.sort|Arrays\.sort")
+_CLAIMS_ASC_RE = re.compile(r"ascending|largest (number )?(is |will be |would be )?at (index )?-1|smallest (number )?(is |will be )?at (index )?0|smallest to (largest|biggest)")
+_CLAIMS_DESC_RE = re.compile(r"descending|largest (number )?(is |will be )?at (index )?0|(largest|biggest) to smallest")
+
+
+def misleading_order_claim(response_message: str | None, current_code: str | None, new_code: str | None) -> bool:
+    """True when the reply claims a sort order (or "second largest") that
+    the code it describes doesn't produce."""
+    msg = (response_message or "").lower()
+    added = "\n".join(added_lines(current_code, new_code))
+    code = new_code or ""
+    if _SORT_CODE_RE.search(added):
+        descending = bool(_DESC_CODE_RE.search(added))
+        if descending and _CLAIMS_ASC_RE.search(msg):
+            return True
+        if not descending and _CLAIMS_DESC_RE.search(msg) and not _CLAIMS_ASC_RE.search(msg):
+            return True
+    # "second largest" for index -2 of a list sorted descending
+    return bool("second largest" in msg and "[-2]" in added and _DESC_CODE_RE.search(code))
+
+
+def diff_summary(current_code: str | None, new_code: str | None) -> str:
+    """A reply built from the actual change, used when the model's own
+    description can't be trusted."""
+    lines = [l.strip() for l in added_lines(current_code, new_code)]
+    if not lines:
+        return "Updated the code - review the changed lines."
+    shown = "; ".join(lines[:3]) + ("; ..." if len(lines) > 3 else "")
+    return f"Updated the code - added: {shown}"

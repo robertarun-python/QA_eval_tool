@@ -309,11 +309,19 @@ def round3_coding_turn(
         candidate_prompt=candidate_prompt, turn_number=turn_number,
         required_constructs=required_constructs, declared_constructs=declared_constructs,
     )
+    def _finish(r: dict) -> dict:
+        r = _ensure_java_main(r, language)
+        if r["response_kind"] == "code_edit" and round3_scope_guard.misleading_order_claim(
+            r["response_message"], current_code, r.get("code_after"),
+        ):
+            r = {**r, "response_message": round3_scope_guard.diff_summary(current_code, r.get("code_after"))}
+        return r
+
     result = _round3_coding_turn_once(**kwargs)
     if result["response_kind"] != "clarify" or not clarify_loop.should_stop_clarifying(
         conversation_so_far, candidate_prompt, result["response_message"], max_streak=R3_MAX_CONSECUTIVE_CLARIFIES,
     ):
-        return _ensure_java_main(result, language)
+        return _finish(result)
 
     if clarify_loop.was_already_asked(conversation_so_far, result["response_message"]):
         reason = ", and your next question repeats one already asked"
@@ -324,7 +332,7 @@ def round3_coding_turn(
     note = _R3_STOP_ASKING_NOTE.format(streak=clarify_loop.clarify_streak(conversation_so_far), reason=reason)
     retry = _round3_coding_turn_once(**kwargs, force_note=note)
     if retry["response_kind"] != "clarify":
-        return _ensure_java_main(retry, language)
+        return _finish(retry)
     if not clarify_loop.was_already_asked(conversation_so_far, R3_FINAL_PROMPT):
         return {**retry, "response_message": R3_FINAL_PROMPT}
     return {
@@ -1065,7 +1073,7 @@ def round4_auto_turn(
     if round4_auto_policy.is_prohibited(candidate_prompt):
         return {"response_kind": "refuse", "response_message": round4_auto_policy.REFUSAL_MESSAGE, "code_after": None}
 
-    prompt = _load_prompt("round4_auto_turn.txt").format(
+    base_prompt = _load_prompt("round4_auto_turn.txt").format(
         language=language,
         selected_design=_as_data(json.dumps(selected_design, indent=2)),
         environment_code=environment_code,
@@ -1074,18 +1082,66 @@ def round4_auto_turn(
         candidate_prompt=_as_data(candidate_prompt),
         flaw_instruction=_FLAW_INJECTION_INSTRUCTION if inject_flaw else "",
     )
-    raw = _call_claude(prompt, max_tokens=4096)
-    result = _parse_json_response(raw)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
-    planted_flaw = result.pop("planted_flaw", None)
-    parsed = Round4PilotTurnResponse.model_validate(result).model_dump()
-    parsed["code_after"] = _repair_escaped_code(parsed.get("code_after"))
+
+    def _generate(note: str = "") -> tuple[dict, str | None]:
+        raw = _call_claude(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=4096)
+        result = _parse_json_response(raw)
+        if not isinstance(result, dict):
+            raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
+        planted = result.pop("planted_flaw", None)
+        out = Round4PilotTurnResponse.model_validate(result).model_dump()
+        out["code_after"] = _repair_escaped_code(out.get("code_after"))
+        return out, planted
+
+    design_args = (selected_design, conversation_so_far, candidate_prompt)
+    parsed, planted_flaw = _generate()
+
+    if parsed["response_kind"] == "code_edit":
+        # Every added assertion must trace to something the candidate wrote
+        # (see round4_auto_policy.unrequested_assertions): regenerate once,
+        # then remove whatever still doesn't; anything that can't be removed
+        # safely is recorded for scoring.
+        flagged = round4_auto_policy.unrequested_assertions(language, current_code, parsed["code_after"], *design_args)
+        if flagged:
+            retry, retry_planted = _generate(_UNREQUESTED_ASSERTIONS_NOTE.format(lines="\n".join(flagged)))
+            if retry["response_kind"] == "code_edit":
+                parsed, planted_flaw = retry, retry_planted
+                flagged = round4_auto_policy.unrequested_assertions(language, current_code, parsed["code_after"], *design_args)
+            if flagged:
+                parsed["code_after"], remaining = round4_auto_policy.drop_single_line_statements(parsed["code_after"], flagged)
+                if remaining:
+                    parsed["unrequested_checks"] = remaining
+    else:
+        # Replies must not reveal values that exist only in the environment
+        # (see round4_auto_policy.leaked_environment_values).
+        leaks = round4_auto_policy.leaked_environment_values(parsed["response_message"], environment_code, *design_args)
+        if leaks:
+            retry, _ = _generate(_ENVIRONMENT_LEAK_NOTE)
+            if retry["response_kind"] != "code_edit":
+                parsed = retry
+            leaks = round4_auto_policy.leaked_environment_values(parsed["response_message"], environment_code, *design_args)
+            if leaks:
+                parsed["response_message"] = round4_auto_policy.redact(parsed["response_message"], leaks)
+
     if inject_flaw and parsed["response_kind"] == "code_edit":
         # Recorded for scoring (did the candidate catch it?) - stripped from
         # everything the candidate is sent, see schemas.SubmissionOut.
         parsed["planted_flaw"] = (planted_flaw or "").strip() or "A flaw was planted in this code but not described."
     return parsed
+
+
+_UNREQUESTED_ASSERTIONS_NOTE = (
+    "IMPORTANT - your previous attempt was rejected before the candidate saw it, because it added "
+    "these checks, which nothing in the candidate's design or messages asks for:\n{lines}\n"
+    "Write the code again WITHOUT them. Encode only checks for the candidate's own expected result "
+    "and instructions."
+)
+
+_ENVIRONMENT_LEAK_NOTE = (
+    "IMPORTANT - your previous reply was rejected before the candidate saw it, because it stated "
+    "values that appear only in the automation environment. Reply again without stating, "
+    "confirming or hinting at any value the candidate hasn't written themselves."
+)
 
 
 def round4_auto_clarify(

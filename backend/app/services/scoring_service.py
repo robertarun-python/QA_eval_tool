@@ -121,6 +121,35 @@ def score_round2_investigation(db: Session, submission: Submission) -> Score:
     return score
 
 
+# A direct_edit adding this many lines at once is recorded as a large paste
+# (Sep 2026 guardrail review): writing code directly is legitimate, but a
+# whole solution pasted in right after leaving the tab is something HR
+# should see. Evidence only - never a penalty on its own.
+LARGE_PASTE_LINES = 10
+_PASTE_TAB_WINDOW_SECONDS = 300
+
+
+def _flag_large_pastes(turns, conversation_payload: list[dict], tab_switch_events: list) -> None:
+    switches = []
+    for raw in tab_switch_events:
+        try:
+            switches.append(datetime.fromisoformat(str(raw).replace("Z", "+00:00")).replace(tzinfo=None))
+        except ValueError:
+            continue
+    previous = set()
+    for turn, payload in zip(turns, conversation_payload):
+        if turn.code_after is None:
+            continue
+        lines = {l.strip() for l in turn.code_after.splitlines() if l.strip()}
+        if turn.response_kind == "direct_edit":
+            added = len(lines - previous)
+            if added >= LARGE_PASTE_LINES:
+                at = turn.created_at
+                nearby = sum(1 for t in switches if at and 0 <= (at - t).total_seconds() <= _PASTE_TAB_WINDOW_SECONDS)
+                payload["large_paste"] = {"lines_added": added, "tab_switches_in_previous_5_minutes": nearby}
+        previous = lines
+
+
 def score_round3_submission(db: Session, submission: Submission) -> Score:
     """Round 3 (AI-prompted coding): re-run the candidate's final code
     against the scenario's HR-approved test suite for an objective pass
@@ -199,6 +228,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
             })
 
     conversation_payload = [t.to_conversation_payload() for t in turns]
+    _flag_large_pastes(turns, conversation_payload, submission.tab_switch_events_json or [])
 
     result = llm_service.score_round3_coding(
         scenario_description=scenario.description,
