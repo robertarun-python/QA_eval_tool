@@ -1857,28 +1857,79 @@ function roundStatusCell(r) {
 // Shared by the live candidate-detail view and the "Past appearances"
 // drill-down (viewAppearance) - same per-round rendering either way, fed
 // either the current cycle's submissions or one specific past cycle's.
-function renderSubmissionsPanels(submissions) {
-  if (submissions.length === 0) return `<p class="muted">No submissions in this cycle.</p>`;
-  return submissions.map((s) => `
-    <div class="panel-inset">
-      <h4>Round ${s.round_number} - ${s.scenario ? escapeHtml(s.scenario.title) : ""} <span class="badge">${s.status}</span>
-        ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDateTime).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
-        ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeAttr(s.auto_closed_reason)}">Auto-closed</span>` : ""}
-      </h4>
-      <p class="muted">${s.started_at ? `Started ${formatDateTime(s.started_at)}` : ""}${s.started_at && s.submitted_at ? " · " : ""}${s.submitted_at ? `Submitted ${formatDateTime(s.submitted_at)}` : ""}</p>
+// opts.allRounds (live report only): a round with no submission yet still
+// gets a card, so R1-R4 always read as a set.
+function renderSubmissionsPanels(submissions, opts = {}) {
+  if (submissions.length === 0 && !opts.allRounds) return `<p class="muted">No submissions in this cycle.</p>`;
+  const byRound = {};
+  submissions.forEach((s) => { byRound[s.round_number] = s; });
+  const order = opts.allRounds ? [1, 2, 3, 4] : submissions.map((s) => s.round_number);
+  return order.map((n) => (byRound[n] ? renderRoundCard(byRound[n]) : renderRoundPlaceholder(n))).join("");
+}
+
+function renderRoundPlaceholder(n) {
+  return `
+    <article class="cdd-rcard is-not_started" aria-labelledby="round-placeholder-${n}-title">
+      <header class="cdd-rcard-head">
+        <div class="cdd-rcard-heading">
+          <span class="cd-round-label">R${n}</span>
+          <h4 class="cdd-rcard-title" id="round-placeholder-${n}-title">${escapeHtml(ROUND_LABELS[n] || `Round ${n}`)}</h4>
+        </div>
+        <span class="cdd-status-pill is-not_started">${CANDIDATE_DETAIL_STATUS_LABELS.not_started}</span>
+      </header>
+      <p class="cdd-card-note muted">No submission for this round yet &middot; pass mark ${passingScoreForRound(n)}</p>
+    </article>
+  `;
+}
+
+// One round: header (round, status), what the candidate saw and did, the
+// score and its audit trail, then the round's own evidence renderer. The
+// renderer mapping below is deliberate (rounds 2 and 4 were renumbered -
+// see selectHRRound) - R1 side-by-side, R2 -> renderRound4Report,
+// R3 -> renderRound3Report, R4 -> renderRound2Report.
+function renderRoundCard(s) {
+  const n = s.round_number;
+  const events = s.tab_switch_events_json || [];
+  const flags = [];
+  if (s.tab_switch_count > 0) {
+    flags.push(`Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}${events.length ? ` (${events.map(formatDateTime).join(", ")})` : ""}`);
+  }
+  if (s.auto_closed_reason) flags.push(`Auto-closed: ${s.auto_closed_reason}`);
+  const times = [
+    s.started_at ? `Started ${formatDateTime(s.started_at)}` : "",
+    s.submitted_at ? `Submitted ${formatDateTime(s.submitted_at)}` : "",
+  ].filter(Boolean).join(" &middot; ");
+  return `
+    <article class="cdd-rcard is-${escapeAttr(s.status)}" aria-labelledby="round-${s.id}-title">
+      <header class="cdd-rcard-head">
+        <div class="cdd-rcard-heading">
+          <span class="cd-round-label">R${n}</span>
+          <h4 class="cdd-rcard-title" id="round-${s.id}-title" tabindex="-1">${escapeHtml(ROUND_LABELS[n] || `Round ${n}`)}</h4>
+        </div>
+        <span class="cdd-status-pill is-${escapeAttr(s.status)}">${escapeHtml(CANDIDATE_DETAIL_STATUS_LABELS[s.status] || s.status)}</span>
+      </header>
+      ${s.scenario ? `<p class="cdd-rcard-scenario">${escapeHtml(s.scenario.title)}</p>` : ""}
+      ${times ? `<p class="cdd-rcard-meta muted">${times}</p>` : ""}
+      ${flags.length ? `<ul class="cdd-rcard-flags">${flags.map((f) => `<li><span aria-hidden="true">&#9888;</span> ${escapeHtml(f)}</li>`).join("")}</ul>` : ""}
+      <section class="cdd-rcard-section">
+        <h5 class="cdd-rcard-label">Result</h5>
+        ${renderScoreBlock(s)}
+      </section>
       ${s.scenario ? `
         <details class="scenario-question" open>
           <summary>Question</summary>
           ${formatScenarioDescription(s.scenario.description)}
         </details>
       ` : ""}
-      ${renderScoreBlock(s)}
-      ${s.round_number === 2 ? renderRound4Report(s)
-        : s.round_number === 3 ? renderRound3Report(s)
-        : s.round_number === 4 ? renderRound2Report(s)
-        : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
-    </div>
-  `).join("");
+      <section class="cdd-rcard-section cdd-evidence">
+        <h5 class="cdd-rcard-label">Evidence</h5>
+        ${n === 2 ? renderRound4Report(s)
+          : n === 3 ? renderRound3Report(s)
+          : n === 4 ? renderRound2Report(s)
+          : renderSideBySide(s.content, s.scenario ? s.scenario.reference_json : null)}
+      </section>
+    </article>
+  `;
 }
 
 // Three states, not two - see models.RoundStatus.scoring_failed and
@@ -1895,59 +1946,122 @@ function conceptCoverageLine(items) {
   return `<p class="muted">Coverage by type: ${parts.join(" · ")}</p>`;
 }
 
+// Audit trail behind a score - collapsed, since it's for the rare "how
+// was this scored?" question, not the everyday read.
+function renderScoreAudit(score) {
+  const rows = [
+    ["Scoring model", score.scoring_model],
+    ["Prompt file", score.scoring_prompt_file],
+    ["Prompt hash", score.scoring_prompt_hash],
+    ["Scored at", score.scored_at ? formatDateTime(score.scored_at) : null],
+    ["Overridden at", score.overridden_at ? formatDateTime(score.overridden_at) : null],
+  ].filter(([, v]) => v);
+  if (!rows.length) return "";
+  return `
+    <details class="cdd-audit">
+      <summary>Audit details</summary>
+      <dl>${rows.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(String(v))}</dd>`).join("")}</dl>
+    </details>
+  `;
+}
+
+// The override form's container carries the current score so the form
+// can show it; the status line below it is where Retry/Save report back.
+function scoreActionsHtml(s, toggleLabel) {
+  return `
+    <div class="cdd-rcard-actions">
+      ${s.status === "scoring_failed" ? `<button id="retry-btn-${s.id}" onclick="retryScoring(${s.id})">Retry scoring</button>` : ""}
+      <button type="button" class="btn-ghost" id="override-toggle-${s.id}" aria-expanded="false" aria-controls="override-form-${s.id}" onclick="toggleScoreOverrideForm(${s.id})">${toggleLabel}</button>
+    </div>
+    <div id="override-form-${s.id}" data-current-score="${s.score && s.score.final_score != null ? s.score.final_score : ""}"></div>
+    <p id="score-status-${s.id}" class="muted cdd-action-status" role="status"></p>
+  `;
+}
+
 function renderScoreBlock(s) {
+  const passing = passingScoreForRound(s.round_number);
   if (s.status === "scoring_failed") {
     return `
       <div class="panel-inset cd-score-failed">
         <p><strong class="score-bad">Scoring failed</strong></p>
         <p class="muted">${escapeHtml(s.scoring_error || "Unknown error.")}</p>
-        <div class="row">
-          <button id="retry-btn-${s.id}" onclick="retryScoring(${s.id})">Retry scoring</button>
-          <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Score manually</button>
-        </div>
-        <p id="score-status-${s.id}" class="muted" role="status"></p>
-        <div id="override-form-${s.id}"></div>
+        ${scoreActionsHtml(s, "Score manually")}
       </div>
     `;
   }
   if (s.score) {
-    const passed = s.score.final_score >= passingScoreForRound(s.round_number);
+    const sc = s.score;
+    const passed = sc.final_score >= passing;
+    const misses = sc.misses_json || [];
     return `
-      <p>Final score: <strong class="${passed ? "score-good" : "score-bad"}">${s.score.final_score}/100</strong>${s.score.coverage_score != null ? ` · Coverage: ${s.score.coverage_score}/100` : ""}
-        ${s.score.overridden_by_hr ? `<span class="badge">Overridden by HR${s.score.original_final_score != null ? ` - LLM originally said ${s.score.original_final_score}/100` : ""}</span>` : ""}
-      </p>
-      <p>${escapeHtml(s.score.feedback_text || "")}</p>
-      <p class="muted">Missed: ${(s.score.misses_json || []).map(escapeHtml).join(", ") || "none noted"}</p>
-      ${conceptCoverageLine(s.score.concept_coverage_json)}
-      ${s.score.overridden_by_hr ? `<p class="muted">Override note: ${escapeHtml(s.score.override_note || "")}</p>` : ""}
-      ${s.score.scoring_model ? `<p class="muted">Scored with ${escapeHtml(s.score.scoring_model)} · prompt ${escapeHtml(s.score.scoring_prompt_hash || "")}</p>` : ""}
-      <div class="row">
-        <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Override score</button>
+      <div class="cdd-result">
+        <div class="cdd-result-score">
+          <span class="cd-overall-score ${passed ? "score-good" : "score-bad"}">${sc.final_score}</span><span class="cd-overall-max muted">/ 100</span>
+          <span class="cd-pass-caption ${passed ? "is-pass" : "is-fail"}"><span aria-hidden="true">${passed ? "&#10003;" : "&#10005;"}</span> ${passed ? "Meets" : "Below"} pass mark ${passing}</span>
+        </div>
+        <div class="readout-bar cdd-round-bar${passed ? "" : " is-bad"}" style="--pct:${Math.min(100, sc.final_score)}%" aria-hidden="true">
+          <i></i><b class="cd-pass-marker" style="left:${Math.min(100, passing)}%"></b>
+        </div>
+        ${sc.coverage_score != null ? `<p class="cdd-result-line">Coverage ${sc.coverage_score} / 100</p>` : ""}
       </div>
-      <p id="score-status-${s.id}" class="muted" role="status"></p>
-      <div id="override-form-${s.id}"></div>
+      ${sc.overridden_by_hr ? `
+        <div class="cdd-override-note">
+          <span class="badge cdd-override-badge">Overridden by HR${sc.original_final_score != null ? ` - LLM originally said ${sc.original_final_score}/100` : ""}</span>
+          ${sc.override_note ? `<p><span class="cdd-mini-label">Reason</span> ${escapeHtml(sc.override_note)}</p>` : ""}
+        </div>
+      ` : ""}
+      ${sc.feedback_text ? `
+        <div class="cdd-result-block">
+          <p class="cdd-mini-label">Evaluation</p>
+          <p>${escapeHtml(sc.feedback_text)}</p>
+        </div>
+      ` : ""}
+      <div class="cdd-result-block">
+        <p class="cdd-mini-label">Missed</p>
+        ${misses.length ? `<ul>${misses.map((m) => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : `<p class="muted">None noted</p>`}
+      </div>
+      ${conceptCoverageLine(sc.concept_coverage_json)}
+      ${renderScoreAudit(sc)}
+      ${scoreActionsHtml(s, "Override score")}
     `;
   }
-  return `<p class="muted">Not scored yet.</p>`;
+  return `<p class="cdd-card-note muted">No score yet &middot; pass mark ${passing}</p>`;
 }
 
 function toggleScoreOverrideForm(submissionId) {
   const el = document.getElementById(`override-form-${submissionId}`);
+  const toggle = document.getElementById(`override-toggle-${submissionId}`);
+  const statusEl = document.getElementById(`score-status-${submissionId}`);
   if (el.innerHTML) {
     el.innerHTML = "";
+    if (toggle) { toggle.setAttribute("aria-expanded", "false"); toggle.focus(); }
+    if (statusEl) { statusEl.textContent = ""; statusEl.classList.remove("is-error"); }
     return;
   }
+  const current = el.dataset.currentScore;
   el.innerHTML = `
-    <div class="panel-inset">
-      <label class="muted">Final score (0-100)</label>
-      <input id="override-score-${submissionId}" type="number" min="0" max="100" step="1" required />
-      <label class="muted">Feedback (optional - leave blank to keep as-is)</label>
-      <textarea id="override-feedback-${submissionId}"></textarea>
-      <label class="muted">Why is this being overridden? (required)</label>
-      <textarea id="override-note-${submissionId}"></textarea>
-      <button id="override-save-${submissionId}" onclick="saveScoreOverride(${submissionId})">Save override</button>
+    <div class="cdd-override-form">
+      ${current !== "" && current != null ? `<p class="cdd-card-note muted">Current score: ${escapeHtml(current)} / 100</p>` : ""}
+      <div class="cdd-field">
+        <label for="override-score-${submissionId}">Final score <span class="muted">(whole number, 0-100, required)</span></label>
+        <input id="override-score-${submissionId}" type="number" min="0" max="100" step="1" inputmode="numeric" required aria-describedby="score-status-${submissionId}" />
+      </div>
+      <div class="cdd-field">
+        <label for="override-feedback-${submissionId}">Feedback <span class="muted">(optional - leave blank to keep the current feedback)</span></label>
+        <textarea id="override-feedback-${submissionId}"></textarea>
+      </div>
+      <div class="cdd-field">
+        <label for="override-note-${submissionId}">Reason for the override <span class="muted">(required)</span></label>
+        <textarea id="override-note-${submissionId}" required aria-describedby="score-status-${submissionId}"></textarea>
+      </div>
+      <div class="cdd-rcard-actions">
+        <button id="override-save-${submissionId}" onclick="saveScoreOverride(${submissionId})">Save override</button>
+        <button type="button" class="btn-ghost" onclick="toggleScoreOverrideForm(${submissionId})">Cancel</button>
+      </div>
     </div>
   `;
+  if (toggle) toggle.setAttribute("aria-expanded", "true");
+  document.getElementById(`override-score-${submissionId}`).focus();
 }
 
 async function retryScoring(submissionId) {
@@ -1957,18 +2071,19 @@ async function retryScoring(submissionId) {
   const btn = document.getElementById(`retry-btn-${submissionId}`);
   candidateDetailPending.add(key);
   if (btn) btn.disabled = true;
+  statusEl.classList.remove("is-error");
   statusEl.textContent = "Retrying - this can take a few seconds...";
   try {
     await api(`/hr/submissions/${submissionId}/retry-scoring`, { method: "POST" });
     candidateDetailPending.delete(key);
     candidatesListStale = true;
-    openCandidateDetail(currentCandidateDetailId, { refresh: true });
+    openCandidateDetail(currentCandidateDetailId, { refresh: true, focusRound: submissionId });
   } catch (e) {
     candidateDetailPending.delete(key);
     // The panel may have been re-rendered (or another candidate opened)
     // while this was in flight - only touch elements that still exist.
     if (btn && btn.isConnected) btn.disabled = false;
-    if (statusEl.isConnected) statusEl.textContent = e.message;
+    if (statusEl.isConnected) { statusEl.textContent = e.message; statusEl.classList.add("is-error"); }
   }
 }
 
@@ -1981,15 +2096,24 @@ async function saveScoreOverride(submissionId) {
   const override_note = document.getElementById(`override-note-${submissionId}`).value.trim();
   // An empty field must not become Number("") === 0 - that would save a
   // real 0/100 the HR user never typed.
+  const scoreInput = document.getElementById(`override-score-${submissionId}`);
+  const noteInput = document.getElementById(`override-note-${submissionId}`);
+  scoreInput.removeAttribute("aria-invalid");
+  noteInput.removeAttribute("aria-invalid");
+  statusEl.classList.remove("is-error");
   if (!/^\d+$/.test(scoreRaw) || Number(scoreRaw) > 100) {
     statusEl.textContent = "Enter a whole-number score from 0 to 100.";
-    document.getElementById(`override-score-${submissionId}`).focus();
+    statusEl.classList.add("is-error");
+    scoreInput.setAttribute("aria-invalid", "true");
+    scoreInput.focus();
     return;
   }
   const final_score = Number(scoreRaw);
   if (!override_note) {
     statusEl.textContent = "Explain why this is being overridden before saving.";
-    document.getElementById(`override-note-${submissionId}`).focus();
+    statusEl.classList.add("is-error");
+    noteInput.setAttribute("aria-invalid", "true");
+    noteInput.focus();
     return;
   }
   const btn = document.getElementById(`override-save-${submissionId}`);
@@ -2003,11 +2127,11 @@ async function saveScoreOverride(submissionId) {
     });
     candidateDetailPending.delete(key);
     candidatesListStale = true;
-    openCandidateDetail(currentCandidateDetailId, { refresh: true });
+    openCandidateDetail(currentCandidateDetailId, { refresh: true, focusRound: submissionId });
   } catch (e) {
     candidateDetailPending.delete(key);
     if (btn && btn.isConnected) btn.disabled = false;
-    if (statusEl.isConnected) statusEl.textContent = e.message;
+    if (statusEl.isConnected) { statusEl.textContent = e.message; statusEl.classList.add("is-error"); }
   }
 }
 
@@ -2227,7 +2351,7 @@ async function openCandidateDetail(id, opts = {}) {
   appearanceDetailSeq++;             // drop any past-appearance drill-down still loading for the previous render
 
   box.innerHTML = `
-    ${renderSubmissionsPanels(submissions)}
+    ${renderSubmissionsPanels(submissions, { allRounds: true })}
     <div class="panel-inset">
       <h4>Summary</h4>
       <p class="muted">A crisp, cross-round synthesis for feedback to the candidate or a briefing for the next round's interviewers.</p>
@@ -2246,6 +2370,10 @@ async function openCandidateDetail(id, opts = {}) {
   loadAppearances(id, seq);
   loadExistingCandidateSummary(id, seq);
   if (opts.refresh) refreshCandidateDetailSummary(id, seq);
+  if (opts.focusRound) {
+    const heading = document.getElementById(`round-${opts.focusRound}-title`);
+    if (heading) heading.focus({ preventScroll: true });
+  }
   // The load-failure banner above is role="alert" and announces itself.
   announceCandidateDetail(opts.refresh ? "Report updated." : "Candidate report loaded.");
 }
@@ -2633,6 +2761,7 @@ function renderRound4Report(s) {
 // glance whether the candidate was steering with enough precision to get
 // real code out of the assistant); runs are shown separately below,
 // newest first, since a run isn't tied to one specific turn server-side.
+const ROUND3_RESPONSE_KIND_LABELS = { clarify: "Asked to clarify", refuse: "Refused", code_edit: "Code edit", direct_edit: "Direct edit", explain: "Explained" };
 const ROUND3_RESPONSE_KIND_BADGE = { clarify: "badge-partial", refuse: "badge-fail", code_edit: "badge-pass", direct_edit: "badge-pass", explain: "badge-neutral" };
 
 // The four sub-scores behind Round 3's final_score (see
@@ -2729,7 +2858,7 @@ function renderRound3Report(s) {
     <div class="panel-inset round3-coding-turn">
       <p class="muted">Turn ${t.turn_number}</p>
       <p><strong>Candidate:</strong> ${escapeHtml(t.candidate_prompt)}</p>
-      <p><strong>Assistant:</strong> <span class="badge ${ROUND3_RESPONSE_KIND_BADGE[t.response_kind] || ""}">${escapeHtml(t.response_kind)}</span> ${escapeHtml(t.response_message)}</p>
+      <p><strong>Assistant:</strong> <span class="badge ${ROUND3_RESPONSE_KIND_BADGE[t.response_kind] || ""}">${escapeHtml(ROUND3_RESPONSE_KIND_LABELS[t.response_kind] || t.response_kind)}</span> ${escapeHtml(t.response_message)}</p>
       ${t.code_after ? `<pre class="code-snippet">${escapeHtml(t.code_after)}</pre>` : ""}
     </div>
   `).join("");
