@@ -360,6 +360,17 @@ class ScoreOverrideRequest(BaseModel):
     override_note: str = Field(min_length=1, max_length=2000)
 
 
+ASSESSOR_ONLY_CONTENT_KEYS = frozenset({"planted_flaw"})
+
+
+def _strip_keys(value, keys):
+    if isinstance(value, dict):
+        return {k: _strip_keys(v, keys) for k, v in value.items() if k not in keys}
+    if isinstance(value, list):
+        return [_strip_keys(v, keys) for v in value]
+    return value
+
+
 class SubmissionOut(BaseModel):
     """Candidate-facing: their own submission only. Never the reference,
     and never the score - HR reviews results, not the candidate (their
@@ -384,6 +395,15 @@ class SubmissionOut(BaseModel):
     class Config:
         from_attributes = True
 
+    @field_validator("content", mode="after")
+    @classmethod
+    def _hide_assessor_only_fields(cls, v):
+        """Content can carry notes meant only for HR and the scorer - e.g.
+        planted_flaw on an automation turn (what the assistant deliberately
+        weakened for the candidate to catch). Stripped from everything a
+        candidate is sent; SubmissionReportOut (HR) keeps them."""
+        return _strip_keys(v, ASSESSOR_ONLY_CONTENT_KEYS)
+
 
 class SubmissionReportOut(SubmissionOut):
     """HR-facing only (candidate report drill-down): adds the scenario
@@ -397,6 +417,13 @@ class SubmissionReportOut(SubmissionOut):
     test_cases: Optional[list["Round4TestCaseOut"]] = None
     conversation_turns: Optional[list["Round4TurnOut"]] = None
     round3_turns: Optional[list["Round3TurnAuditOut"]] = None
+
+    @field_validator("content", mode="after")
+    @classmethod
+    def _hide_assessor_only_fields(cls, v):
+        # Overrides SubmissionOut's: HR sees assessor-only notes such as
+        # planted_flaw.
+        return v
     round3_runs: Optional[list["Round3RunOut"]] = None
     # Set when status == "scoring_failed" (see models.RoundStatus) - the
     # error from the failed background scoring attempt, so HR can see

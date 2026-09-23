@@ -41,6 +41,33 @@ from pathlib import Path
 from ..config import settings
 
 
+_TOOLCHAIN_CACHE: dict[str, bool] = {}
+
+
+def toolchain_available(language: str) -> bool:
+    """Whether code in this language can actually run on this host. Java
+    counts only when `javac -version` succeeds - macOS ships /usr/bin/javac
+    as a placeholder that exists even with no JDK installed (see
+    _MISSING_JAVA_RUNTIME_MARKERS). Cached per process."""
+    if language not in _TOOLCHAIN_CACHE:
+        if language == "python":
+            ok = True
+        elif language == "javascript":
+            ok = shutil.which("node") is not None
+        elif language == "java":
+            javac = shutil.which("javac")
+            try:
+                ok = bool(javac and shutil.which("java")) and subprocess.run(
+                    [javac, "-version"], capture_output=True, text=True, timeout=10,
+                ).returncode == 0
+            except (OSError, subprocess.SubprocessError):
+                ok = False
+        else:
+            ok = False
+        _TOOLCHAIN_CACHE[language] = ok
+    return _TOOLCHAIN_CACHE[language]
+
+
 def _child_env() -> dict:
     """Environment for every candidate process we launch, forcing UTF-8 on
     the CHILD's own stdout/stderr.

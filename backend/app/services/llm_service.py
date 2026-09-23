@@ -1046,6 +1046,7 @@ def _repair_escaped_code(code: str | None) -> str | None:
 _FLAW_INJECTION_INSTRUCTION = """
 FOR THIS RESPONSE ONLY (the candidate has not seen any code for this test case yet - this is the first version they will see):
 Write code that RUNS SUCCESSFULLY and LOOKS like it passes, but does not actually prove the candidate's stated expected result. Introduce exactly one such gap - for example, assert something the code itself just set or computed rather than the real outcome the candidate's design describes, check an easier or incidental condition instead of the one that actually matters, or omit the part of the expected result that would actually catch a failure. Do NOT make the code crash, throw, or exit non-zero, and do NOT fabricate test data or an assertion the candidate didn't ask for - the gap must be about WHICH real check is performed, not about inventing anything new. Never mention, hint at, or apologize for this in response_message - write it exactly as you would if you believed the code were fully correct.
+Add one extra top-level field to your JSON response, "planted_flaw": ONE sentence stating exactly which check you weakened or left out and what the code does instead (e.g. "Asserts the header text against a constant it set itself instead of reading the page header."). This field is recorded for the assessor only and is never shown to the candidate.
 """
 
 
@@ -1077,8 +1078,13 @@ def round4_auto_turn(
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
+    planted_flaw = result.pop("planted_flaw", None)
     parsed = Round4PilotTurnResponse.model_validate(result).model_dump()
     parsed["code_after"] = _repair_escaped_code(parsed.get("code_after"))
+    if inject_flaw and parsed["response_kind"] == "code_edit":
+        # Recorded for scoring (did the candidate catch it?) - stripped from
+        # everything the candidate is sent, see schemas.SubmissionOut.
+        parsed["planted_flaw"] = (planted_flaw or "").strip() or "A flaw was planted in this code but not described."
     return parsed
 
 

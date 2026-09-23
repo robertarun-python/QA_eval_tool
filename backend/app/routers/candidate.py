@@ -1427,7 +1427,9 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
                     current_code=row.get("code", ""),
                     conversation_so_far=conversation_so_far,
                     candidate_prompt=payload.candidate_prompt,
-                    inject_flaw=True,
+                    # No planted flaw when the language can't run here: the
+                    # candidate could only catch it by running the test.
+                    inject_flaw=execution_service.toolchain_available(language),
                 )
         else:
             response = llm_service.round4_auto_turn(
@@ -1448,6 +1450,8 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
         "response_message": response["response_message"],
         "code_after": response.get("code_after"),
     }
+    if response.get("planted_flaw"):
+        turn_record["planted_flaw"] = response["planted_flaw"]
     turns.append(turn_record)
     new_row = dict(row)
     new_row["turns"] = turns
