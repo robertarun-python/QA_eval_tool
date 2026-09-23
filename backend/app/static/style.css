@@ -1836,3 +1836,41 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 .rail-logout-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; }
 .rail-logout-btn svg { flex-shrink: 0; }
 @media (max-width: 68rem) and (min-width: 47.5rem) { .rail-logout-btn { padding-left: 0; padding-right: 0; } }
+
+/* =========================================================================
+   Candidate detail / View report
+   ========================================================================= */
+
+/* Scoring-failed block - was an inline border-color: var(--bad), a token
+   that doesn't exist (so the border silently fell back to the text
+   colour). --error / --error-soft are defined for both themes. */
+.panel-inset.cd-score-failed { border-color: var(--error); background: var(--error-soft); }
+
+/* Round 1's candidate-vs-reference comparison: 1fr tracks can't shrink
+   below their table's min-content width, so a wide table pushed the whole
+   page sideways at tablet/mobile widths. minmax(0, 1fr) lets the columns
+   shrink; each table then scrolls inside its own .table-scroll. */
+#candidate-detail .side-by-side { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+#candidate-detail .side-by-side > * { min-width: 0; }
+@media (max-width: 43.75rem) { #candidate-detail .side-by-side { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- Detail view shell: replaces the list while a report is open ---- */
+#hr-page-candidates.is-detail-open > :not(#candidate-detail-view) { display: none; }
+.cdd-topnav { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-tight) var(--space-compact); margin-bottom: var(--space-compact); }
+.cdd-back { display: inline-flex; align-items: center; gap: 0.4rem; }
+.cdd-breadcrumb { margin: 0; min-width: 0; flex-wrap: wrap; }
+.cdd-breadcrumb .breadcrumb-current { overflow-wrap: anywhere; }
+.cdd-crumb-link { background: none; border: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.cdd-crumb-link:hover { color: var(--text-primary); }
+/* Same identity + result-badge treatment as a candidates-table row. */
+.cdd-identity { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-compact); }
+#hr-page-candidates .cdd-identity .candidate-identity-text { min-width: 0; }
+.cdd-identity .cd-avatar { width: 2.75rem; height: 2.75rem; }
+.cdd-identity-name { font-size: var(--text-lg); margin: 0; overflow-wrap: anywhere; }
+.cdd-identity-name:focus { outline: none; }
+.cdd-identity-name:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The page header is sticky (141px tall above the mobile breakpoint).
+   With the report now starting right under it, keyboard focus moving up
+   the report (Shift+Tab) could land an element behind the header -
+   scroll-padding makes the browser keep focused elements clear of it. */
+.app-main:has(#hr-page-candidates.is-detail-open) { scroll-padding-top: 9.5rem; }

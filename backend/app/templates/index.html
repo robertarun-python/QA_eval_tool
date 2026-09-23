@@ -347,7 +347,27 @@
               <div id="upload-result"></div>
             </details>
 
-            <div id="candidate-detail" class="panel hidden"></div>
+            <!-- Candidate detail / View report: replaces the list above while
+                 open (see openCandidateDetail / closeCandidateDetail - the
+                 list is only hidden, never re-rendered, so its search,
+                 filter and page are exactly as HR left them on Back). -->
+            <div id="candidate-detail-view" class="hidden">
+              <div class="cdd-topnav">
+                <button type="button" class="btn-secondary btn-sm cdd-back" onclick="closeCandidateDetail()"><span aria-hidden="true">&larr;</span> Back to candidates</button>
+                <nav class="breadcrumb cdd-breadcrumb" aria-label="Breadcrumb">
+                  <button type="button" class="cdd-crumb-link" onclick="closeCandidateDetail()">Candidates</button>
+                  <span aria-hidden="true">&rsaquo;</span>
+                  <span class="breadcrumb-current" id="candidate-detail-crumb" aria-current="page"></span>
+                </nav>
+              </div>
+              <div id="candidate-detail-identity" class="panel cdd-identity"></div>
+              <!-- Screen-reader-only announcements for the detail panel (loading,
+                   loaded, summary progress, request errors) - one persistent
+                   live region, since content injected fresh into a region isn't
+                   reliably announced. See announceCandidateDetail in app.js. -->
+              <p id="candidate-detail-status" class="sr-only" role="status" aria-live="polite"></p>
+              <div id="candidate-detail" class="panel"></div>
+            </div>
           </div>
 
           <div id="hr-page-settings" class="hidden">

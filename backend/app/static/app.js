@@ -119,6 +119,11 @@ function restoreHRNavState() {
 let candidateSummaryData = null;        // last-generated { round_comments, final_summary } (see generateCandidateSummary) - reused by the PDF download so it doesn't cost a second LLM call
 let candidateDetailSubmissions = [];    // the currently-open candidate's submissions (see openCandidateDetail) - lets generateCandidateSummary label each round comment with its real title/score
 let currentCandidateDetailId = null;    // which candidate's detail panel is open - lets retryScoring/saveScoreOverride re-render the panel they're inside after a successful action
+let candidateDetailSeq = 0;             // bumped on every openCandidateDetail - a response that comes back after HR has already opened another candidate (or re-opened this one) checks this and drops itself instead of painting stale data into the panel
+let appearanceDetailSeq = 0;            // same idea for the "Past appearances" drill-down
+const candidateDetailPending = new Set(); // in-flight detail actions ("retry-12", "override-12", "summary-3"...) - a double-click can't send the same request twice
+let candidateDetailReturn = null;       // { scrollTop, email } - where Back returns to in the candidates list (scroll position, and whose "View report" button gets focus back)
+let candidatesListStale = false;        // a retry/override changed a score while the detail view was open - Back re-fetches the list (keeping search/filter/page) instead of showing stale numbers
 let timerHandle = null;
 let rowCount = 0;
 let round4State = null;           // last-fetched Round4StateOut, refreshed after every turn/test-case creation
@@ -354,6 +359,9 @@ function onLoggedIn() {
   document.getElementById("candidate-round-nav").innerHTML = "";
   if (role === "hr") {
     document.getElementById("hr-panel").classList.remove("hidden");
+    // A previous HR session on this page (logout without a reload) may
+    // have left a candidate report open - always start on the list.
+    closeCandidateDetail({ silent: true });
     restoreHRNavState();
     renderHRRoundNav();
     loadScenarios();
@@ -453,6 +461,7 @@ function renderHRRoundNav() {
 }
 
 function selectHRRound(n) {
+  closeCandidateDetail({ silent: true });
   currentHRRound = n;
   hrPage = "rounds";
   renderHRRoundNav();
@@ -509,6 +518,9 @@ function resetCreateScenarioForm() {
 }
 
 function selectHRPage(page) {
+  // Leaving the candidate detail view for any HR page - including
+  // Candidates itself, which lands back on the list.
+  closeCandidateDetail({ silent: true });
   hrPage = page;
   renderHRRoundNav();
 }
@@ -1850,7 +1862,7 @@ function renderSubmissionsPanels(submissions) {
   return submissions.map((s) => `
     <div class="panel-inset">
       <h4>Round ${s.round_number} - ${s.scenario ? escapeHtml(s.scenario.title) : ""} <span class="badge">${s.status}</span>
-        ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDate).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
+        ${s.tab_switch_count > 0 ? `<span class="badge badge-fail" title="Timestamps: ${s.tab_switch_events_json.map(formatDateTime).join(", ")}">Left the test ${s.tab_switch_count} time${s.tab_switch_count === 1 ? "" : "s"}</span>` : ""}
         ${s.auto_closed_reason ? `<span class="badge badge-draft" title="${escapeAttr(s.auto_closed_reason)}">Auto-closed</span>` : ""}
       </h4>
       <p class="muted">${s.started_at ? `Started ${formatDateTime(s.started_at)}` : ""}${s.started_at && s.submitted_at ? " · " : ""}${s.submitted_at ? `Submitted ${formatDateTime(s.submitted_at)}` : ""}</p>
@@ -1886,14 +1898,14 @@ function conceptCoverageLine(items) {
 function renderScoreBlock(s) {
   if (s.status === "scoring_failed") {
     return `
-      <div class="panel-inset" style="border-color: var(--bad)">
+      <div class="panel-inset cd-score-failed">
         <p><strong class="score-bad">Scoring failed</strong></p>
         <p class="muted">${escapeHtml(s.scoring_error || "Unknown error.")}</p>
         <div class="row">
-          <button onclick="retryScoring(${s.id})">Retry scoring</button>
+          <button id="retry-btn-${s.id}" onclick="retryScoring(${s.id})">Retry scoring</button>
           <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Score manually</button>
         </div>
-        <p id="score-status-${s.id}" class="muted"></p>
+        <p id="score-status-${s.id}" class="muted" role="status"></p>
         <div id="override-form-${s.id}"></div>
       </div>
     `;
@@ -1901,8 +1913,8 @@ function renderScoreBlock(s) {
   if (s.score) {
     const passed = s.score.final_score >= passingScoreForRound(s.round_number);
     return `
-      <p>Final score: <strong class="${passed ? "score-good" : "score-bad"}">${s.score.final_score}/100</strong> · Coverage: ${s.score.coverage_score}/100
-        ${s.score.overridden_by_hr ? `<span class="badge">Overridden by HR - LLM originally said ${s.score.original_final_score}/100</span>` : ""}
+      <p>Final score: <strong class="${passed ? "score-good" : "score-bad"}">${s.score.final_score}/100</strong>${s.score.coverage_score != null ? ` · Coverage: ${s.score.coverage_score}/100` : ""}
+        ${s.score.overridden_by_hr ? `<span class="badge">Overridden by HR${s.score.original_final_score != null ? ` - LLM originally said ${s.score.original_final_score}/100` : ""}</span>` : ""}
       </p>
       <p>${escapeHtml(s.score.feedback_text || "")}</p>
       <p class="muted">Missed: ${(s.score.misses_json || []).map(escapeHtml).join(", ") || "none noted"}</p>
@@ -1912,7 +1924,7 @@ function renderScoreBlock(s) {
       <div class="row">
         <button class="btn-ghost" onclick="toggleScoreOverrideForm(${s.id})">Override score</button>
       </div>
-      <p id="score-status-${s.id}" class="muted"></p>
+      <p id="score-status-${s.id}" class="muted" role="status"></p>
       <div id="override-form-${s.id}"></div>
     `;
   }
@@ -1928,54 +1940,176 @@ function toggleScoreOverrideForm(submissionId) {
   el.innerHTML = `
     <div class="panel-inset">
       <label class="muted">Final score (0-100)</label>
-      <input id="override-score-${submissionId}" type="number" min="0" max="100" />
+      <input id="override-score-${submissionId}" type="number" min="0" max="100" step="1" required />
       <label class="muted">Feedback (optional - leave blank to keep as-is)</label>
       <textarea id="override-feedback-${submissionId}"></textarea>
       <label class="muted">Why is this being overridden? (required)</label>
       <textarea id="override-note-${submissionId}"></textarea>
-      <button onclick="saveScoreOverride(${submissionId})">Save override</button>
+      <button id="override-save-${submissionId}" onclick="saveScoreOverride(${submissionId})">Save override</button>
     </div>
   `;
 }
 
 async function retryScoring(submissionId) {
+  const key = `retry-${submissionId}`;
+  if (candidateDetailPending.has(key)) return;
   const statusEl = document.getElementById(`score-status-${submissionId}`);
-  statusEl.textContent = "Retrying...";
+  const btn = document.getElementById(`retry-btn-${submissionId}`);
+  candidateDetailPending.add(key);
+  if (btn) btn.disabled = true;
+  statusEl.textContent = "Retrying - this can take a few seconds...";
   try {
     await api(`/hr/submissions/${submissionId}/retry-scoring`, { method: "POST" });
-    openCandidateDetail(currentCandidateDetailId);
+    candidateDetailPending.delete(key);
+    candidatesListStale = true;
+    openCandidateDetail(currentCandidateDetailId, { refresh: true });
   } catch (e) {
-    statusEl.textContent = e.message;
+    candidateDetailPending.delete(key);
+    // The panel may have been re-rendered (or another candidate opened)
+    // while this was in flight - only touch elements that still exist.
+    if (btn && btn.isConnected) btn.disabled = false;
+    if (statusEl.isConnected) statusEl.textContent = e.message;
   }
 }
 
 async function saveScoreOverride(submissionId) {
+  const key = `override-${submissionId}`;
+  if (candidateDetailPending.has(key)) return;
   const statusEl = document.getElementById(`score-status-${submissionId}`);
-  const final_score = Number(document.getElementById(`override-score-${submissionId}`).value);
+  const scoreRaw = document.getElementById(`override-score-${submissionId}`).value.trim();
   const feedback_text = document.getElementById(`override-feedback-${submissionId}`).value.trim() || null;
   const override_note = document.getElementById(`override-note-${submissionId}`).value.trim();
-  if (!override_note) {
-    statusEl.textContent = "Explain why this is being overridden before saving.";
+  // An empty field must not become Number("") === 0 - that would save a
+  // real 0/100 the HR user never typed.
+  if (!/^\d+$/.test(scoreRaw) || Number(scoreRaw) > 100) {
+    statusEl.textContent = "Enter a whole-number score from 0 to 100.";
+    document.getElementById(`override-score-${submissionId}`).focus();
     return;
   }
+  const final_score = Number(scoreRaw);
+  if (!override_note) {
+    statusEl.textContent = "Explain why this is being overridden before saving.";
+    document.getElementById(`override-note-${submissionId}`).focus();
+    return;
+  }
+  const btn = document.getElementById(`override-save-${submissionId}`);
+  candidateDetailPending.add(key);
+  if (btn) btn.disabled = true;
+  statusEl.textContent = "Saving...";
   try {
     await api(`/hr/submissions/${submissionId}/score`, {
       method: "PATCH",
       body: JSON.stringify({ final_score, feedback_text, override_note }),
     });
-    openCandidateDetail(currentCandidateDetailId);
+    candidateDetailPending.delete(key);
+    candidatesListStale = true;
+    openCandidateDetail(currentCandidateDetailId, { refresh: true });
   } catch (e) {
-    statusEl.textContent = e.message;
+    candidateDetailPending.delete(key);
+    if (btn && btn.isConnected) btn.disabled = false;
+    if (statusEl.isConnected) statusEl.textContent = e.message;
   }
 }
 
-async function openCandidateDetail(id) {
-  const submissions = await api(`/hr/candidates/${id}/report`);
+// Screen-reader announcement via the persistent #candidate-detail-status
+// live region. Cleared first and set on the next tick so repeating the
+// same message ("Report updated.") is still announced.
+function announceCandidateDetail(message) {
+  const el = document.getElementById("candidate-detail-status");
+  if (!el) return;
+  el.textContent = "";
+  setTimeout(() => { el.textContent = message; }, 50);
+}
+
+// The detail view's header: identity card, breadcrumb and page title.
+// Everything here comes from the candidates list HR just clicked in
+// (lastLoadedCandidates) - no extra request, so it shows immediately
+// while the report itself is still loading.
+function renderCandidateDetailShell(id) {
+  const c = lastLoadedCandidates.find((x) => x.id === id);
+  const idLabel = `CAND-${String(id).padStart(3, "0")}`;
+  const name = c ? c.email : idLabel;
+  document.getElementById("candidate-detail-crumb").textContent = name;
+  document.getElementById("candidate-detail-identity").innerHTML = `
+    <div class="candidate-identity">
+      <div class="candidate-avatar cd-avatar" aria-hidden="true">${escapeHtml(c ? candidateInitials(c.email) : "?")}</div>
+      <div class="candidate-identity-text">
+        <h2 class="cdd-identity-name" id="candidate-detail-heading" tabindex="-1">${escapeHtml(name)}</h2>
+        <div class="candidate-id muted">
+          ${idLabel}${c && c.exam_date ? ` · Exam ${formatDate(c.exam_date)}` : ""}
+          ${c && c.reapplied_within_window ? '<span class="cd-reapplied">Re-applied</span>' : ""}
+        </div>
+      </div>
+    </div>
+    ${c ? `<div class="status-cell">${resultBadge(c.result)}</div>` : ""}
+  `;
+  setPageHeader("HR Console", "Candidate report", "Scores, evidence and actions for one candidate.");
+}
+
+// Whatever actually scrolls the page: .app-main on wider screens, the
+// document itself below the mobile breakpoint (see style.css, where
+// .app-main becomes overflow-y: visible).
+function pageScroller() {
+  const main = document.querySelector(".app-main");
+  return main && /(auto|scroll)/.test(getComputedStyle(main).overflowY) ? main : document.scrollingElement;
+}
+
+// opts.refresh: re-render the already-open candidate after a retry/
+// override - no loading placeholder and no scroll jump, just swap in the
+// fresh data where HR already is.
+async function openCandidateDetail(id, opts = {}) {
+  const seq = ++candidateDetailSeq;
   const box = document.getElementById("candidate-detail");
-  box.classList.remove("hidden");
+  currentCandidateDetailId = id;
+  if (!opts.refresh) {
+    const view = document.getElementById("candidate-detail-view");
+    const page = document.getElementById("hr-page-candidates");
+    // Only when coming from the list - "Try again" re-opens from inside
+    // the detail view and must keep the original return point.
+    if (view.classList.contains("hidden")) {
+      const c = lastLoadedCandidates.find((x) => x.id === id);
+      candidateDetailReturn = { scrollTop: pageScroller().scrollTop, email: c ? c.email : null };
+    }
+    view.classList.remove("hidden");
+    page.classList.add("is-detail-open");
+    renderCandidateDetailShell(id);   // resets .app-main's scroll (setPageHeader)...
+    // ...which is all it takes on wider screens. On mobile the document
+    // scrolls instead, with the nav stacked above - bring the page title
+    // into view so HR lands at the top of the report, not mid-way down.
+    if (pageScroller() !== document.querySelector(".app-main")) {
+      document.querySelector(".app-topbar").scrollIntoView({ block: "start" });
+    }
+    // The button HR activated is now hidden - move focus to the heading
+    // so keyboard and screen-reader users land at the top of the report.
+    document.getElementById("candidate-detail-heading").focus({ preventScroll: true });
+    announceCandidateDetail("Loading candidate report.");
+    box.innerHTML = `<div aria-busy="true">${loadingHtml("Loading report...")}</div>`;
+  }
+
+  let submissions;
+  try {
+    submissions = await api(`/hr/candidates/${id}/report`);
+  } catch (e) {
+    if (seq !== candidateDetailSeq) return;
+    box.innerHTML = `
+      <div class="banner banner-error" role="alert">
+        <span class="banner-icon" aria-hidden="true">!</span>
+        <div>
+          <strong>Couldn't load this candidate's report</strong>
+          <p class="muted">${escapeHtml(e.message)}</p>
+          <button type="button" class="btn-secondary btn-sm" onclick="openCandidateDetail(${Number(id)})">Try again</button>
+        </div>
+      </div>
+    `;
+    return;
+  }
+  // HR opened another candidate (or this one again) while this request
+  // was in flight - that newer call owns the panel now.
+  if (seq !== candidateDetailSeq) return;
+
   candidateSummaryData = null;       // stale from whatever candidate was open before
   candidateDetailSubmissions = submissions; // so generateCandidateSummary can label each round's comment with its real title/score
-  currentCandidateDetailId = id;
+  appearanceDetailSeq++;             // drop any past-appearance drill-down still loading for the previous render
 
   box.innerHTML = `
     ${renderSubmissionsPanels(submissions)}
@@ -1994,24 +2128,80 @@ async function openCandidateDetail(id) {
       <div id="appearance-detail"></div>
     </div>
   `;
-  loadAppearances(id);
-  loadExistingCandidateSummary(id);
-  // The candidates table above can easily be long enough that this panel
-  // renders off-screen - clicking "View" filled it in, but nothing
-  // visibly happened until the HR user thought to scroll down and find
-  // it. Bring it into view instead of leaving that to chance.
-  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  loadAppearances(id, seq);
+  loadExistingCandidateSummary(id, seq);
+  // The load-failure banner above is role="alert" and announces itself.
+  announceCandidateDetail(opts.refresh ? "Report updated." : "Candidate report loaded.");
 }
 
-async function loadAppearances(candidateId) {
+// Back to the candidates list. The list was only hidden, so its search,
+// status filter and page are untouched; this restores the scroll
+// position and puts focus back on the row's "View report" button.
+// opts.silent: HR is navigating somewhere else (another HR page, a fresh
+// login) - just tear the view down, the caller sets the page header.
+async function closeCandidateDetail(opts = {}) {
+  const view = document.getElementById("candidate-detail-view");
+  if (view.classList.contains("hidden")) return;
+  // Anything still in flight for the report being closed drops itself.
+  candidateDetailSeq++;
+  appearanceDetailSeq++;
+  currentCandidateDetailId = null;
+  candidateSummaryData = null;
+  view.classList.add("hidden");
+  document.getElementById("hr-page-candidates").classList.remove("is-detail-open");
+  document.getElementById("candidate-detail").innerHTML = "";
+  document.getElementById("candidate-detail-identity").innerHTML = "";
+  const ret = candidateDetailReturn || { scrollTop: 0, email: null };
+  candidateDetailReturn = null;
+  if (opts.silent) {
+    if (candidatesListStale) {
+      candidatesListStale = false;
+      api("/hr/candidates").then((data) => { lastLoadedCandidates = data; renderCandidatesKpis(); renderCandidatesTable(); }).catch(() => {});
+    }
+    return;
+  }
+
+  setPageHeader("HR Console", "Candidates", "Every candidate's progress and results, across all rounds.");
+  // Matched by attribute value, not a CSS selector built from the email
+  // (candidate-controlled via bulk upload).
+  const focusRowButton = () => {
+    const btn = ret.email && [...document.querySelectorAll("#candidates-table .cd-view-btn")]
+      .find((b) => b.getAttribute("aria-label") === `View report for ${ret.email}`);
+    (btn || document.getElementById("candidates-search")).focus({ preventScroll: true });
+    pageScroller().scrollTop = ret.scrollTop;
+  };
+  focusRowButton();
+
+  if (!candidatesListStale) return;
+  // A score changed while the report was open - refresh the numbers
+  // without resetting search/filter/page (unlike loadCandidates, which
+  // starts over at page 1).
+  candidatesListStale = false;
+  try {
+    lastLoadedCandidates = await api("/hr/candidates");
+  } catch (e) {
+    return; // the list on screen is still usable, just one refresh behind
+  }
+  if (!document.getElementById("candidate-detail-view").classList.contains("hidden")) return; // reopened meanwhile
+  const hadFocus = document.activeElement && document.activeElement.closest("#candidates-table");
+  renderCandidatesKpis();
+  renderCandidatesTable();
+  if (hadFocus) focusRowButton();
+}
+
+async function loadAppearances(candidateId, seq) {
   const listEl = document.getElementById("appearances-list");
+  listEl.innerHTML = loadingHtml();
   let appearances;
   try {
     appearances = await api(`/hr/candidates/${candidateId}/appearances`);
   } catch (e) {
+    if (seq !== candidateDetailSeq) return;
     listEl.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    announceCandidateDetail(`Couldn't load past appearances: ${e.message}`);
     return;
   }
+  if (seq !== candidateDetailSeq) return;
   if (appearances.length === 0) {
     listEl.innerHTML = `<p class="muted">No upload history - this candidate wasn't created via bulk upload.</p>`;
     return;
@@ -2039,10 +2229,23 @@ async function loadAppearances(candidateId) {
 }
 
 async function viewAppearance(candidateId, appearanceId) {
+  const seq = ++appearanceDetailSeq;
   const detailEl = document.getElementById("appearance-detail");
   detailEl.innerHTML = loadingHtml();
-  const submissions = await api(`/hr/candidates/${candidateId}/appearances/${appearanceId}/report`);
+  let submissions;
+  try {
+    submissions = await api(`/hr/candidates/${candidateId}/appearances/${appearanceId}/report`);
+  } catch (e) {
+    if (seq !== appearanceDetailSeq || !detailEl.isConnected) return;
+    detailEl.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    announceCandidateDetail(`Couldn't load that appearance: ${e.message}`);
+    return;
+  }
+  // A different appearance was clicked, or the whole panel re-rendered,
+  // while this one was loading.
+  if (seq !== appearanceDetailSeq || !detailEl.isConnected) return;
   detailEl.innerHTML = renderSubmissionsPanels(submissions);
+  announceCandidateDetail("Past appearance report loaded.");
 }
 
 // Tries to load a summary saved from an earlier visit (see models.
@@ -2052,24 +2255,51 @@ async function viewAppearance(candidateId, appearanceId) {
 // back something that already exists. A 404 here is the normal "nothing
 // generated yet" case, not an error - the static "Generate Summary"
 // button already in the panel is left exactly as it is.
-async function loadExistingCandidateSummary(id) {
+async function loadExistingCandidateSummary(id, seq) {
+  let result;
   try {
-    const result = await api(`/hr/candidates/${id}/summary`);
-    renderCandidateSummary(id, result);
+    result = await api(`/hr/candidates/${id}/summary`);
   } catch (e) {
     // Leave the initial "Generate Summary" button in place.
+    return;
   }
+  if (seq !== candidateDetailSeq) return;
+  renderCandidateSummary(id, result);
+}
+
+// Disables every summary button (Generate/Regenerate/Download/Delete)
+// while one of them is in flight - they all act on the same saved
+// summary, so none should run alongside another.
+function setCandidateSummaryControlsBusy(busy) {
+  document.querySelectorAll("#candidate-summary-controls button").forEach((b) => { b.disabled = busy; });
 }
 
 async function generateCandidateSummary(id) {
+  const key = `summary-${id}`;
+  if (candidateDetailPending.has(key)) return;
+  const seq = candidateDetailSeq;
   const body = document.getElementById("candidate-summary-body");
+  candidateDetailPending.add(key);
+  setCandidateSummaryControlsBusy(true);
   body.innerHTML = `<p class="muted">Generating (a few seconds)...</p>`;
+  announceCandidateDetail("Generating summary.");
+  let result;
   try {
-    const result = await api(`/hr/candidates/${id}/summary`, { method: "POST" });
-    renderCandidateSummary(id, result);
+    result = await api(`/hr/candidates/${id}/summary`, { method: "POST" });
   } catch (e) {
+    candidateDetailPending.delete(key);
+    if (seq !== candidateDetailSeq) return;
     body.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    setCandidateSummaryControlsBusy(false);
+    announceCandidateDetail(`Couldn't generate the summary: ${e.message}`);
+    return;
   }
+  candidateDetailPending.delete(key);
+  // Saved server-side either way; only paint it if HR is still looking
+  // at this candidate's panel.
+  if (seq !== candidateDetailSeq) return;
+  renderCandidateSummary(id, result);
+  announceCandidateDetail("Summary generated.");
 }
 
 // Shared by both paths above - a freshly-generated summary and one
@@ -2146,6 +2376,13 @@ function renderCandidateSummary(id, result) {
 }
 
 async function downloadCandidateSummaryPdf(id) {
+  const key = `summary-${id}`;
+  if (candidateDetailPending.has(key) || !candidateSummaryData) return;
+  // Captured now - candidateSummaryData is reset if HR opens another
+  // candidate while the PDF is still being rendered.
+  const candidateEmail = candidateSummaryData.candidate_email;
+  candidateDetailPending.add(key);
+  setCandidateSummaryControlsBusy(true);
   // Not api() on purpose - that helper always calls res.json(), which
   // would fail on this endpoint's binary PDF response.
   try {
@@ -2166,11 +2403,14 @@ async function downloadCandidateSummaryPdf(id) {
     // an onclick="..." string (the candidate's own email, attacker-
     // controlled via bulk upload) - see the fix note on
     // renderCandidateSummary's controls above for why that mattered.
-    a.download = `${candidateSummaryData.candidate_email.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
+    a.download = `${candidateEmail.replace("@", "_at_").replace(/\./g, "_")}-summary.pdf`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
     alert("Couldn't reach the server - check your connection and try again.");
+  } finally {
+    candidateDetailPending.delete(key);
+    setCandidateSummaryControlsBusy(false);
   }
 }
 
@@ -2211,17 +2451,29 @@ async function downloadDailySummary() {
 }
 
 async function deleteCandidateSummary(id) {
+  const key = `summary-${id}`;
+  if (candidateDetailPending.has(key)) return;
   if (!confirm("Delete this candidate's saved summary? You can generate a new one anytime, but this exact copy will be gone.")) return;
+  const seq = candidateDetailSeq;
+  candidateDetailPending.add(key);
+  setCandidateSummaryControlsBusy(true);
   try {
     await api(`/hr/candidates/${id}/summary`, { method: "DELETE" });
-    candidateSummaryData = null;
-    document.getElementById("candidate-summary-body").innerHTML = "";
-    document.getElementById("candidate-summary-controls").innerHTML = `
-      <button onclick="generateCandidateSummary(${id})">Generate Summary</button>
-    `;
   } catch (e) {
+    candidateDetailPending.delete(key);
+    if (seq !== candidateDetailSeq) return;
+    setCandidateSummaryControlsBusy(false);
     alert(e.message);
+    return;
   }
+  candidateDetailPending.delete(key);
+  if (seq !== candidateDetailSeq) return;
+  candidateSummaryData = null;
+  document.getElementById("candidate-summary-body").innerHTML = "";
+  document.getElementById("candidate-summary-controls").innerHTML = `
+    <button onclick="generateCandidateSummary(${id})">Generate Summary</button>
+  `;
+  announceCandidateDetail("Summary deleted.");
 }
 
 function renderRound4Report(s) {
@@ -2367,7 +2619,7 @@ function renderRound3Report(s) {
 
   const runsHtml = (s.round3_runs || []).map((r) => `
     <div class="panel-inset round3-coding-run">
-      <p class="muted">Run at ${formatDate(r.created_at)} - ${r.timed_out ? "timed out" : r.infra_error ? "execution service error" : `exit code ${r.exit_code}`}</p>
+      <p class="muted">Run at ${formatDateTime(r.created_at)} -${r.timed_out ? "timed out" : r.infra_error ? "execution service error" : `exit code ${r.exit_code}`}</p>
       ${r.stdin_json && r.stdin_json.length > 0 ? `<p class="muted">Typed: ${escapeHtml(r.stdin_json.join(" / "))}</p>` : ""}
       ${r.stdout ? `<pre class="code-snippet">${escapeHtml(r.stdout)}</pre>` : ""}
       ${r.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(r.stderr)}</pre>` : ""}
