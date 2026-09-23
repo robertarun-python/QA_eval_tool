@@ -5,7 +5,6 @@ routers: (1) one place to change models/retry logic later, (2) prompts
 live in text files under app/prompts/, loaded here, so the actual
 wording is easy to find and edit without touching Python.
 """
-import ast
 import hashlib
 import json
 import re
@@ -20,6 +19,7 @@ from ..schemas import (
     Round4PilotTurnResponse, Round4AutoClarifyLLMResponse,
 )
 from . import clarify_loop
+from . import execution_service
 from . import round3_constructs
 from . import round3_construct_engine
 from . import round3_policy
@@ -579,17 +579,18 @@ def round3_syntax_fix(
         response_message = "Your code has been checked - see the updated version below."
 
     code_after = parsed.code_after
-    if language == "python":
-        # Whether code parses is checked for real, not taken from the
-        # model - transcript review found "No syntax issues found." on
-        # code containing a stray line of prose (R3 submission 116).
-        original_error = _python_syntax_error(code)
+    # Whether code parses is checked for real, not taken from the model -
+    # transcript review found "No syntax issues found." on code containing
+    # a stray line of prose (R3 submission 116). Skipped only when this
+    # host can't run the language's parser at all.
+    checked, original_error = execution_service.syntax_error(language, code)
+    if checked:
         if original_error is None:
             # Already valid: the candidate's code is kept exactly as
             # written, whatever the model returned.
             code_after = code
             response_message = "No syntax issues found."
-        elif _python_syntax_error(code_after) is not None:
+        elif execution_service.syntax_error(language, code_after)[1] is not None:
             # Keep an honest "couldn't identify a fix" reply; replace a
             # false "no issues" or a "fix" that still doesn't parse.
             claimed_ok = code_after != code or "no syntax issue" in (response_message or "").lower()
@@ -605,16 +606,6 @@ def round3_syntax_fix(
         "code_after": code_after,
         "declared_constructs": updated_state,
     }
-
-
-def _python_syntax_error(code: str | None) -> str | None:
-    try:
-        ast.parse(code or "")
-    except SyntaxError as e:
-        return f"{e.msg} (line {e.lineno})"
-    except ValueError as e:  # e.g. a null byte in the source
-        return str(e)
-    return None
 
 
 def score_round3_coding(

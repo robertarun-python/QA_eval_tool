@@ -28,8 +28,10 @@ this tool's deployment model ever changes (e.g. a hosted multi-tenant
 version) - that would need real isolation (containers, a VM, gVisor, ...)
 before running LLM-generated code at all.
 """
+import ast
 import asyncio
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +68,60 @@ def toolchain_available(language: str) -> bool:
             ok = False
         _TOOLCHAIN_CACHE[language] = ok
     return _TOOLCHAIN_CACHE[language]
+
+
+# javac has no syntax-only mode, so only its genuine parse errors count -
+# "cannot find symbol" and similar mean the code parsed fine.
+_JAVA_SYNTAX_ERROR_RE = re.compile(
+    r"error: (.*expected|illegal start of \w+|not a statement|unclosed .*|reached end of file while parsing"
+    r"|'else' without 'if'|orphaned \w+|illegal character.*|class, interface, enum, or record expected)"
+)
+_PUBLIC_CLASS_NAME_RE = re.compile(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+([A-Za-z_]\w*)")
+
+
+def syntax_error(language: str, code: str | None) -> tuple[bool, str | None]:
+    """(checked, error): whether the code could be checked for syntax at
+    all here, and if so its first syntax error (None = parses cleanly).
+    Used to verify the syntax-fix assistant's claims instead of trusting
+    them - see llm_service.round3_syntax_fix."""
+    code = code or ""
+    if language == "python":
+        try:
+            ast.parse(code)
+        except SyntaxError as e:
+            return True, f"{e.msg} (line {e.lineno})"
+        except ValueError as e:  # e.g. a null byte in the source
+            return True, str(e)
+        return True, None
+    if not toolchain_available(language):
+        return False, None
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            if language == "javascript":
+                source = Path(tmp) / "main.js"
+                source.write_text(code, encoding="utf-8")
+                proc = subprocess.run([shutil.which("node"), "--check", str(source)], capture_output=True, text=True, timeout=15)
+                if proc.returncode == 0:
+                    return True, None
+                lines = [l.strip() for l in proc.stderr.splitlines() if l.strip()]
+                where = next((l for l in lines if "main.js:" in l), "")  # path may be shown via /private on macOS
+                message = next((l for l in lines if "Error" in l), lines[-1] if lines else "syntax error")
+                line_no = where.rsplit(":", 1)[-1] if ":" in where else ""
+                return True, message + (f" (line {line_no})" if line_no.isdigit() else "")
+            if language == "java":
+                names = _PUBLIC_CLASS_NAME_RE.findall(code)
+                source = Path(tmp) / f"{names[0] if len(names) == 1 else 'Main'}.java"
+                source.write_text(code, encoding="utf-8")
+                proc = subprocess.run([shutil.which("javac"), "-d", tmp, str(source)], capture_output=True, text=True, timeout=30)
+                for line in proc.stderr.splitlines():
+                    m = _JAVA_SYNTAX_ERROR_RE.search(line)
+                    if m:
+                        line_no = line.split(":")[1] if line.count(":") >= 2 else ""
+                        return True, m.group(1) + (f" (line {line_no})" if line_no.isdigit() else "")
+                return True, None
+        except (OSError, subprocess.SubprocessError):
+            return False, None
+    return False, None
 
 
 def _child_env() -> dict:
