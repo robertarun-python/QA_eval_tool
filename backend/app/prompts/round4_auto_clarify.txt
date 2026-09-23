@@ -47,6 +47,10 @@ The moment the candidate answers that completeness question either way - "that's
 
 For "contradicts_prior", do NOT draft a question yourself - just extract the two conflicting values, each as a short, exact phrase (not a full sentence): prior_value is the value already established above, current_value is what this instruction just said instead. A fixed question gets built from these two automatically.
 
+Two more rules, checked automatically after you answer:
+- Never ask a question the CONVERSATION SO FAR already contains, in the same or different words. If the candidate's answer to it didn't give you what you wanted, that is their decision - classify "sufficient" and let the code encode exactly what they said.
+- If the candidate says they're finished or overrides something earlier ("only this", "that's all", "no more", "ignore that and use only X", "this is final", "give the code"), their latest statement wins over anything earlier, including their own design - classify "sufficient".
+
 Respond with ONLY a JSON object, no other text, in this exact shape:
 {{
   "status": "sufficient" | "insufficient" | "contradicts_prior",

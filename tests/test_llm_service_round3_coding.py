@@ -175,7 +175,7 @@ def test_generate_round3_reference_rejects_unknown_required_construct(monkeypatc
 def test_round3_coding_turn_forces_clarify_when_this_turn_leaves_a_category_vague(monkeypatch):
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
         "response_kind": "code_edit", "response_message": "Added the loop.",
-        "code_after": "for x in salaries: print(x)",
+        "code_after": "for x in salaries:\n    pass",
         "category_status": {
             "iteration": {"status": "declared", "value": "a for loop over salaries"},
             "comparison": {"status": "attempted_but_vague", "neutral_question": "What should determine a match?"},
@@ -208,7 +208,7 @@ def test_round3_coding_turn_produces_code_when_other_categories_are_untouched(mo
     # the way "attempted_but_vague" does.
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
         "response_kind": "code_edit", "response_message": "Added the loop.",
-        "code_after": "for x in salaries: print(x)",
+        "code_after": "for x in salaries:\n    pass",
         "category_status": {
             "iteration": {"status": "declared", "value": "a for loop over salaries"},
             "comparison": {"status": "not_addressed", "neutral_question": "What should determine a match?"},
@@ -223,7 +223,7 @@ def test_round3_coding_turn_produces_code_when_other_categories_are_untouched(mo
         declared_constructs={},
     )
     assert result["response_kind"] == "code_edit"
-    assert result["code_after"] == "for x in salaries: print(x)"
+    assert result["code_after"] == "for x in salaries:\n    pass"
     assert result["declared_constructs"] == {"iteration": "a for loop over salaries"}
     assert "comparison" not in result["declared_constructs"]
 

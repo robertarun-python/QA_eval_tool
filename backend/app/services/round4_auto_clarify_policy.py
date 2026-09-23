@@ -182,3 +182,56 @@ def build_clarify_response(
     if contains_forbidden_vocab(question):
         question = FALLBACK_QUESTION
     return {"response_kind": "clarify", "response_message": question}
+
+
+# ---- Clarification loop breaker -------------------------------------------
+# Transcript review (Sep 2026) found candidates stuck for up to 16
+# consecutive clarifying questions - 9 of them word-for-word identical,
+# the fixed FALLBACK_QUESTION among them - including after "this is enough,
+# give the code" and "ignore that, use only X". contradicts_prior_count
+# already breaks the contradiction loop; nothing broke the "insufficient"
+# one. These rules end any clarification streak, whichever branch produced
+# it. Ending it means proceeding to generation, which still encodes ONLY
+# the candidate's own design and messages (round4_auto_turn.txt) - it
+# never fills gaps for them - and scoring judges whether what they gave
+# was enough. Asking more never helps a candidate who has said they're done.
+
+MAX_CONSECUTIVE_CLARIFIES = 3
+
+_DONE_SIGNAL_RE = re.compile(
+    r"\b(that'?s (it|all|enough|everything|final|the only)|this is (it|enough|final|all)|enough\b|nothing (more|else)|no more|"
+    r"all done|i'?m done|only (this|that|these|those)|just (this|that)|this is final|final one|"
+    r"go ahead|proceed|give (me )?the code|write the code|generate the code|complete the test ?case|"
+    r"ignore (this|that|the earlier|earlier|what i said)|use only|covered every ?thing|no,? (that'?s )?(all|it))\b"
+)
+
+
+def _normalize_question(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
+
+
+def clarify_streak(conversation_so_far: list[dict]) -> int:
+    """How many of the most recent turns in a row were clarifying questions."""
+    streak = 0
+    for turn in reversed(conversation_so_far or []):
+        if turn.get("response_kind") != "clarify":
+            break
+        streak += 1
+    return streak
+
+
+def should_stop_clarifying(conversation_so_far: list[dict], candidate_prompt: str, next_question: str | None) -> bool:
+    """True when asking `next_question` would continue a loop rather than
+    help: it repeats a question already asked in this conversation, the
+    candidate has said they're done after being asked at least once, or
+    MAX_CONSECUTIVE_CLARIFIES questions in a row have already gone
+    unresolved. Only applies once at least one question has been asked, so
+    a first, genuinely insufficient instruction still gets its question."""
+    if clarify_streak(conversation_so_far) == 0:
+        return False
+    asked = {_normalize_question(t.get("response_message")) for t in conversation_so_far or [] if t.get("response_kind") == "clarify"}
+    if next_question and _normalize_question(next_question) in asked:
+        return True
+    if _DONE_SIGNAL_RE.search((candidate_prompt or "").lower()):
+        return True
+    return clarify_streak(conversation_so_far) >= MAX_CONSECUTIVE_CLARIFIES

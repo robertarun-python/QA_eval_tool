@@ -81,6 +81,12 @@ For every category classified "attempted_but_vague" (never for "not_addressed" -
 
 If a category is "declared" or "not_addressed", omit "neutral_question" (or leave it null).
 
+Self-check before answering "code_edit" - your code is checked automatically, and an edit that fails is rejected before the candidate sees it:
+- Every line you ADD must be something the instruction names (the new message, plus - when it answers your clarifying question - the instruction that question was about). Do not add reading input, type conversion, loops, printing, error handling, new lists/sets/maps, sorting, de-duplication, fallback values such as -1, new functions, or literal data unless the instruction asks for that specific thing.
+- An instruction that states a GOAL or a CONSTRAINT rather than steps - "do it in place", "make it faster", "handle the edge cases", "try various combinations", "test it" - does not name the steps or values; ask for them ("clarify") instead of choosing them.
+- Never change a rule the candidate stated while implementing it - "until the user enters 2 inputs" is not "until there are 2 distinct values".
+- If the current code already does exactly what was asked, respond "explain" and say so - never claim a change you didn't make.
+
 Respond with ONLY JSON, no other text, in one of these exact shapes:
 {{"response_kind": "clarify", "response_message": "...", "code_after": null, "category_status": {{"category_key": {{"status": "attempted_but_vague", "neutral_question": "..."}}}}}}
 {{"response_kind": "refuse", "response_message": "...", "code_after": null, "category_status": {{}}}}

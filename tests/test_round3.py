@@ -457,7 +457,7 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
         # declared, so the engine allows code_edit.
         {
             "response_kind": "code_edit", "response_message": "Added the loop and the comparison.",
-            "code_after": "highest = None\nfor s in salaries:\n    if highest is None or s > highest:\n        highest = s\nprint(highest)",
+            "code_after": "highest = None\nfor s in salaries:\n    if highest is None or s > highest:\n        highest = s",
             "category_status": {
                 "iteration": {"status": "declared", "value": "a for loop over salaries"},
                 "comparison": {"status": "declared", "value": "greater than the current highest"},
@@ -805,12 +805,22 @@ def test_guardrail_request_for_edge_cases_is_refused_not_answered(monkeypatch):
 
 
 def test_guardrail_request_for_complete_main_program_is_refused(monkeypatch):
-    result, prompt = _round3_turn(
-        monkeypatch, "write a full program including a main function that solves and demonstrates this",
-        '{"response_kind": "refuse", "response_message": "I can\'t write this for you - tell me what you want built, and I\'ll write exactly that.", "code_after": null, "category_status": {}}',
+    """Now refused deterministically BEFORE generation
+    (round3_policy.is_continuation_of_whole_task) rather than relying on
+    the model's own refuse (c) - the model is never called at all."""
+    from app.services import llm_service
+
+    def _must_not_call(prompt, max_tokens=2048):
+        raise AssertionError("a whole-program request must be refused before any model call")
+
+    monkeypatch.setattr(llm_service, "_call_claude", _must_not_call)
+    result = llm_service.round3_coding_turn(
+        scenario_description="Find the second-largest distinct value in a list.", language="python",
+        conversation_so_far=[], current_code=None,
+        candidate_prompt="write a full program including a main function that solves and demonstrates this", turn_number=1,
     )
-    assert "Solve-it-for-me request" in prompt
     assert result["response_kind"] == "refuse"
+    assert result["response_message"] == "I can't write this for you - tell me what you want built, and I'll write exactly that."
     assert result["code_after"] is None
 
 

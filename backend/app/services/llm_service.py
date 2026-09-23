@@ -20,6 +20,7 @@ from ..schemas import (
 from . import round3_constructs
 from . import round3_construct_engine
 from . import round3_policy
+from . import round3_scope_guard
 from . import round4_pilot_policy
 from . import round4_auto_policy
 from . import round4_auto_clarify_policy
@@ -243,6 +244,16 @@ def round3_coding_turn(
             "code_after": None,
             "declared_constructs": dict(declared_constructs),
         }
+    # A "build the whole thing" request - including a one-word answer to a
+    # clarifying question that was ABOUT such a request - is refused here,
+    # not left to the model (see round3_policy.is_continuation_of_whole_task).
+    if round3_policy.is_continuation_of_whole_task(conversation_so_far, candidate_prompt):
+        return {
+            "response_kind": "refuse",
+            "response_message": round3_policy.WHOLE_TASK_REFUSAL_MESSAGE,
+            "code_after": None,
+            "declared_constructs": dict(declared_constructs),
+        }
 
     def _raw_turn(regeneration_note: str = "") -> Round3CodingTurnResponse:
         prompt = _load_prompt("round3_coding_turn.txt").format(
@@ -270,6 +281,39 @@ def round3_coding_turn(
             raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
 
     parsed = _raw_turn()
+
+    # Post-generation scope check (see round3_scope_guard): the model's code
+    # is checked against what the instruction actually asked for BEFORE the
+    # candidate sees it. One corrective regeneration, then fall back to
+    # asking the candidate - never let an over-reaching edit through.
+    if parsed.response_kind == "code_edit":
+        instruction = round3_scope_guard.instruction_text(conversation_so_far, candidate_prompt)
+
+        def _scope_problem(p: Round3CodingTurnResponse):
+            if p.response_kind != "code_edit":
+                return None
+            if round3_scope_guard.is_noop_edit(current_code, p.code_after):
+                return "noop"
+            return round3_scope_guard.unrequested_additions(language, current_code, p.code_after, instruction) or None
+
+        problem = _scope_problem(parsed)
+        if problem and problem != "noop":
+            parsed = _raw_turn(regeneration_note=round3_scope_guard.REGENERATION_NOTE.format(items=", ".join(problem)))
+            problem = _scope_problem(parsed)
+            if problem and problem != "noop":
+                return {
+                    "response_kind": "clarify",
+                    "response_message": round3_scope_guard.SCOPE_FALLBACK_MESSAGE,
+                    "code_after": None,
+                    "declared_constructs": dict(declared_constructs),
+                }
+        if problem == "noop":
+            return {
+                "response_kind": "explain",
+                "response_message": round3_scope_guard.NOOP_MESSAGE,
+                "code_after": None,
+                "declared_constructs": dict(declared_constructs),
+            }
 
     # "explain" never touches code or declares anything either, same as
     # "refuse" - both skip the construct-checklist engine below.
@@ -951,6 +995,15 @@ def round4_auto_clarify(
             status=status, question=parsed.question,
             prior_value=parsed.prior_value, current_value=parsed.current_value,
         )
+
+    # Loop breaker, applied to every clarifying reply whichever branch made
+    # it (LLM question, FALLBACK_QUESTION, contradiction template): a repeat
+    # of an earlier question, a candidate who has said they're done, or too
+    # many unresolved questions in a row all proceed to generation instead.
+    if response["response_kind"] == "clarify" and round4_auto_clarify_policy.should_stop_clarifying(
+        conversation_so_far, candidate_prompt, response.get("response_message"),
+    ):
+        response = round4_auto_clarify_policy.build_clarify_response(status="sufficient")
 
     response["code_after"] = None
     return response

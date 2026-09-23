@@ -1391,7 +1391,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
 
     turns = list(row.get("turns") or [])
     conversation_so_far = [
-        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"]} for t in turns
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind")} for t in turns
     ]
     language = content.get("language", "python")
     environment_code = _auto_environment_code(scenario, language)
@@ -1485,7 +1485,7 @@ def round4_auto_clarify(payload: Round4AutoClarifyCreate, db: Session = Depends(
 
     turns = list(row.get("turns") or [])
     conversation_so_far = [
-        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"]} for t in turns
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind")} for t in turns
     ]
     language = content.get("language", "python")
 
