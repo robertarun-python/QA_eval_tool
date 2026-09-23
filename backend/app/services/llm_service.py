@@ -5,6 +5,7 @@ routers: (1) one place to change models/retry logic later, (2) prompts
 live in text files under app/prompts/, loaded here, so the actual
 wording is easy to find and edit without touching Python.
 """
+import ast
 import hashlib
 import json
 import re
@@ -18,6 +19,7 @@ from ..schemas import (
     Round4TurnResponse, Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding,
     Round4PilotTurnResponse, Round4AutoClarifyLLMResponse,
 )
+from . import clarify_loop
 from . import round3_constructs
 from . import round3_construct_engine
 from . import round3_policy
@@ -269,6 +271,24 @@ def generate_round3_reference(scenario_description: str, experience_band: str) -
     return result
 
 
+# R3 loop breaker (see clarify_loop). Two questions in a row is the limit:
+# the third reply writes what the candidate has stated so far instead.
+R3_MAX_CONSECUTIVE_CLARIFIES = 2
+
+_R3_STOP_ASKING_NOTE = (
+    "IMPORTANT - do NOT ask the candidate anything this turn: they have already been asked "
+    "{streak} question(s) in a row{reason}. Respond with \"code_edit\" and write EXACTLY and "
+    "ONLY what the candidate has explicitly stated across this conversation - leave out anything "
+    "they haven't stated rather than choosing it for them. If nothing they've said can be written "
+    "as code yet, respond with \"explain\" and say in one sentence which step you need next, "
+    "without asking a question."
+)
+
+# Shown at most once per conversation, when even the no-questions retry
+# still comes back as a question.
+R3_FINAL_PROMPT = "Tell me the exact next step or line you want, and I'll write exactly that."
+
+
 def round3_coding_turn(
     scenario_description: str,
     language: str,
@@ -278,6 +298,61 @@ def round3_coding_turn(
     turn_number: int,
     required_constructs: list[str] | None = None,
     declared_constructs: dict | None = None,
+) -> dict:
+    """One R3 assistant turn, plus the clarification loop breaker: a reply
+    that would repeat an earlier question, follow the candidate saying
+    they're done, or be a third question in a row is replaced by one retry
+    that isn't allowed to ask anything."""
+    kwargs = dict(
+        scenario_description=scenario_description, language=language,
+        conversation_so_far=conversation_so_far, current_code=current_code,
+        candidate_prompt=candidate_prompt, turn_number=turn_number,
+        required_constructs=required_constructs, declared_constructs=declared_constructs,
+    )
+    result = _round3_coding_turn_once(**kwargs)
+    if result["response_kind"] != "clarify" or not clarify_loop.should_stop_clarifying(
+        conversation_so_far, candidate_prompt, result["response_message"], max_streak=R3_MAX_CONSECUTIVE_CLARIFIES,
+    ):
+        return _ensure_java_main(result, language)
+
+    if clarify_loop.was_already_asked(conversation_so_far, result["response_message"]):
+        reason = ", and your next question repeats one already asked"
+    elif clarify_loop.is_done_signal(candidate_prompt):
+        reason = ", and they have said they're done"
+    else:
+        reason = ""
+    note = _R3_STOP_ASKING_NOTE.format(streak=clarify_loop.clarify_streak(conversation_so_far), reason=reason)
+    retry = _round3_coding_turn_once(**kwargs, force_note=note)
+    if retry["response_kind"] != "clarify":
+        return _ensure_java_main(retry, language)
+    if not clarify_loop.was_already_asked(conversation_so_far, R3_FINAL_PROMPT):
+        return {**retry, "response_message": R3_FINAL_PROMPT}
+    return {
+        **retry,
+        "response_kind": "explain",
+        "response_message": "I'll write exactly what you tell me next - one specific step or line at a time.",
+    }
+
+
+def _ensure_java_main(result: dict, language: str) -> dict:
+    code = result.get("code_after")
+    if language == "java" and code:
+        fixed = round3_policy.ensure_java_main_class(code)
+        if fixed != code:
+            return {**result, "code_after": fixed}
+    return result
+
+
+def _round3_coding_turn_once(
+    scenario_description: str,
+    language: str,
+    conversation_so_far: list[dict],
+    current_code: str | None,
+    candidate_prompt: str,
+    turn_number: int,
+    required_constructs: list[str] | None = None,
+    declared_constructs: dict | None = None,
+    force_note: str = "",
 ) -> dict:
     required_constructs = required_constructs or []
     declared_constructs = declared_constructs or {}
@@ -315,7 +390,7 @@ def round3_coding_turn(
             is_first_turn="true" if turn_number == 1 else "false",
             open_categories=json.dumps(open_categories),
             declared_constructs=json.dumps(declared_constructs, indent=2),
-            regeneration_note=regeneration_note,
+            regeneration_note="\n\n".join(n for n in (force_note, regeneration_note) if n),
         )
         # 4096, not the 2048 used before this feature - the response now
         # carries a full code snapshot AND a category_status block (one
@@ -495,11 +570,43 @@ def round3_syntax_fix(
     if any(round3_constructs.contains_forbidden_vocab(response_message, c, language) for c in required_constructs):
         response_message = "Your code has been checked - see the updated version below."
 
+    code_after = parsed.code_after
+    if language == "python":
+        # Whether code parses is checked for real, not taken from the
+        # model - transcript review found "No syntax issues found." on
+        # code containing a stray line of prose (R3 submission 116).
+        original_error = _python_syntax_error(code)
+        if original_error is None:
+            # Already valid: the candidate's code is kept exactly as
+            # written, whatever the model returned.
+            code_after = code
+            response_message = "No syntax issues found."
+        elif _python_syntax_error(code_after) is not None:
+            # Keep an honest "couldn't identify a fix" reply; replace a
+            # false "no issues" or a "fix" that still doesn't parse.
+            claimed_ok = code_after != code or "no syntax issue" in (response_message or "").lower()
+            code_after = code
+            if claimed_ok:
+                response_message = (
+                    f"Your code doesn't parse yet: {original_error}. Fix that line, or run it "
+                    "to see the full error - your code was saved unchanged."
+                )
+
     return {
         "response_message": response_message,
-        "code_after": parsed.code_after,
+        "code_after": code_after,
         "declared_constructs": updated_state,
     }
+
+
+def _python_syntax_error(code: str | None) -> str | None:
+    try:
+        ast.parse(code or "")
+    except SyntaxError as e:
+        return f"{e.msg} (line {e.lineno})"
+    except ValueError as e:  # e.g. a null byte in the source
+        return str(e)
+    return None
 
 
 def score_round3_coding(

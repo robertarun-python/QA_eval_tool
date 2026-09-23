@@ -41,16 +41,19 @@ _PROHIBITED_PATTERNS = (
     "what am i missing", "improve my coverage", "add coverage", "more coverage",
     "what edge cases", "suggest edge cases", "add edge cases",
     # Inventing data
-    "make up test data", "invent test data", "invent sample data", "sample data",
+    "make up test data", "invent test data", "invent sample data", "make up sample data",
     "choose the test data", "decide the test data", "pick the test data",
     "what data should i use", "what values should i use", "give me test data",
     "some test values", "generate test data",
     # Inventing assertions / expected results
     "what should i assert", "what assertions should", "decide the assertions",
     "add assertions for me", "write the assertions for me", "what should the expected result",
-    "decide the expected result", "what should it return",
+    "decide the expected result",
     # Wholesale handoff
-    "write the whole test", "write the complete test", "do this for me",
+    "write the whole test", "write the complete test", "do this whole thing for me", "do it all for me",
+    # Delegating the decision itself (Sep 2026 guardrail review)
+    "you decide", "decide for me", "whatever makes sense", "come up with",
+    "inputs yourself", "data yourself", "values yourself", "cases yourself", "checks yourself", "assertions yourself",
     "solve this for me", "design the test for me", "figure out what to test",
 )
 

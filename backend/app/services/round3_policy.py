@@ -59,8 +59,36 @@ _WHOLE_TASK_RE = re.compile(
 )
 
 
+# "Finish it for me" shapes - asking the assistant to complete the rest of
+# the solution rather than naming the next step. None of these were caught
+# before the Sep 2026 guardrail review; all relied on the model refusing.
+_FINISH_IT_RE = re.compile(
+    r"\b(do|finish|complete|write|fill in)\s+(the\s+)?(rest|remaining(\s+\w+)?|missing\s+(part|parts|logic|code|bits?|pieces?))\b"
+    r"|\bfinish\s+(the|this|my)\s+(program|code|task|solution|logic)\b"
+    r"|\bmake\s+it\s+work\s+for\s+(all|every|any)\b"
+    r"|\bhandle\s+(all\s+)?(the\s+)?(edge|corner)\s+cases\b(?!\s*(where|when|by|like|such|:))"
+    r"|\boptimi[sz]e\s+(it|this|the\s+(code|program|solution))\b(?!\s+(by|using|with))"
+    r"|\b(write|give|implement)\s+(me\s+)?the\s+logic\s+(to|for)\b"
+    r"|\bimplement\s+(the|a)\s+(solution|program)\b"
+    r"|\b(do|write|build)\s+the\s+whole\s+thing\b"
+)
+
+# Signs the candidate is directing a concrete technique rather than handing
+# over the task - "write a program that reads two integers from stdin" or
+# "solve it using a for loop over nums" name what to do and are not refused
+# here (the model and the scope guard still judge them).
+_CONCRETE_STEP_RE = re.compile(
+    r"\bstdin\b|\binput\s*\(|\bsplit\b|\bcomma|\bspace[- ]separated\b|\bone per line\b"
+    r"|\b(variable|list|array|set|dict|map|function)\s+(called|named)\b|\b[a-z_]\w*\s*=\s*\S"
+    r"|\b(for|while)\s+loop\b|\bappend\b|\bscanner\b|\bparseint\b|%|\bmodulo\b"
+)
+
+
 def is_whole_task_request(text: str) -> bool:
-    return bool(_WHOLE_TASK_RE.search((text or "").lower()))
+    lowered = (text or "").lower()
+    if _FINISH_IT_RE.search(lowered):
+        return True
+    return bool(_WHOLE_TASK_RE.search(lowered)) and not _CONCRETE_STEP_RE.search(lowered)
 
 
 def is_continuation_of_whole_task(conversation_so_far: list[dict], candidate_prompt: str) -> bool:
@@ -80,3 +108,18 @@ def is_continuation_of_whole_task(conversation_so_far: list[dict], candidate_pro
         if is_whole_task_request(turn.get("candidate_prompt")):
             return True
     return False
+
+
+_PUBLIC_CLASS_RE = re.compile(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+([A-Za-z_]\w*)")
+
+
+def ensure_java_main_class(code: str) -> str:
+    """The Java runner compiles Main.java, so the public class must be named
+    Main - the prompt says so, but transcript review found the model still
+    naming it Solution (R3 submissions 19 and 22, which then failed to
+    compile). When there's exactly one public class under another name,
+    rename it (and its other references); otherwise leave the code alone."""
+    names = _PUBLIC_CLASS_RE.findall(code or "")
+    if len(names) != 1 or names[0] == "Main":
+        return code
+    return re.sub(r"\b" + re.escape(names[0]) + r"\b", "Main", code)

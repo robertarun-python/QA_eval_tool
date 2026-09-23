@@ -29,6 +29,8 @@ by language.
 """
 import re
 
+from . import clarify_loop
+
 # Word-boundary-matched phrases (multi-word entries are matched as a
 # whole phrase) plus a couple of dotted-name substrings (matched as plain
 # containment, same reasoning as round3_constructs.contains_forbidden_vocab
@@ -198,26 +200,10 @@ def build_clarify_response(
 
 MAX_CONSECUTIVE_CLARIFIES = 3
 
-_DONE_SIGNAL_RE = re.compile(
-    r"\b(that'?s (it|all|enough|everything|final|the only)|this is (it|enough|final|all)|enough\b|nothing (more|else)|no more|"
-    r"all done|i'?m done|only (this|that|these|those)|just (this|that)|this is final|final one|"
-    r"go ahead|proceed|give (me )?the code|write the code|generate the code|complete the test ?case|"
-    r"ignore (this|that|the earlier|earlier|what i said)|use only|covered every ?thing|no,? (that'?s )?(all|it))\b"
-)
-
-
-def _normalize_question(text: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
-
 
 def clarify_streak(conversation_so_far: list[dict]) -> int:
     """How many of the most recent turns in a row were clarifying questions."""
-    streak = 0
-    for turn in reversed(conversation_so_far or []):
-        if turn.get("response_kind") != "clarify":
-            break
-        streak += 1
-    return streak
+    return clarify_loop.clarify_streak(conversation_so_far)
 
 
 def should_stop_clarifying(conversation_so_far: list[dict], candidate_prompt: str, next_question: str | None) -> bool:
@@ -225,13 +211,7 @@ def should_stop_clarifying(conversation_so_far: list[dict], candidate_prompt: st
     help: it repeats a question already asked in this conversation, the
     candidate has said they're done after being asked at least once, or
     MAX_CONSECUTIVE_CLARIFIES questions in a row have already gone
-    unresolved. Only applies once at least one question has been asked, so
-    a first, genuinely insufficient instruction still gets its question."""
-    if clarify_streak(conversation_so_far) == 0:
-        return False
-    asked = {_normalize_question(t.get("response_message")) for t in conversation_so_far or [] if t.get("response_kind") == "clarify"}
-    if next_question and _normalize_question(next_question) in asked:
-        return True
-    if _DONE_SIGNAL_RE.search((candidate_prompt or "").lower()):
-        return True
-    return clarify_streak(conversation_so_far) >= MAX_CONSECUTIVE_CLARIFIES
+    unresolved. Shared with the R3 assistant - see clarify_loop."""
+    return clarify_loop.should_stop_clarifying(
+        conversation_so_far, candidate_prompt, next_question, max_streak=MAX_CONSECUTIVE_CLARIFIES,
+    )
