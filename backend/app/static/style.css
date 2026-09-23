@@ -1874,3 +1874,48 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
    the report (Shift+Tab) could land an element behind the header -
    scroll-padding makes the browser keep focused elements clear of it. */
 .app-main:has(#hr-page-candidates.is-detail-open) { scroll-padding-top: 9.5rem; }
+
+/* ---- Assessment summary + R1-R4 overview (same card language and
+   breakpoints as the dashboard KPI row) ---- */
+.cdd-summary:empty { display: none; }
+.cdd-summary { margin-bottom: var(--space-default); }
+.cdd-section + .cdd-section { margin-top: var(--space-default); }
+.cdd-section-title, .cdd-card-label { font-family: var(--font-body); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); margin: 0 0 var(--space-tight); }
+.cdd-card-label { margin: 0; }
+/* Section titles sit on the page canvas, not a card - --text-muted is
+   under 4.5:1 there, --text-secondary isn't. */
+.cdd-section-title { color: var(--text-secondary); }
+.cdd-summary-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-compact); }
+.cdd-card, .cdd-round {
+  display: flex; flex-direction: column; gap: 0.5rem; min-width: 0;
+  background: var(--surface-elevated); border-radius: var(--radius-lg); box-shadow: var(--shadow-card);
+  padding: 1rem 1.25rem 1.1rem;
+}
+.cdd-card-value { font-size: var(--text-lg); font-weight: 700; color: var(--text-primary); }
+.cdd-card-note { font-size: var(--text-xs); line-height: 1.5; margin: 0; }
+.cdd-ok-mark { color: var(--success); }
+.cdd-integrity-flagged { color: var(--warning); }
+.cdd-flag-list { margin: 0; padding-left: 1.1rem; font-size: var(--text-sm); line-height: 1.5; color: var(--text-secondary); }
+/* The dashboard helpers size these for a table cell - let them fill a card. */
+.cdd-card .aggregate-bar, .cdd-card .cd-steps { max-width: none; }
+.cdd-card .cd-progress, #hr-page-candidates .cdd-card .aggregate-cell { min-width: 0; }
+.cdd-card .cd-pass-caption, .cdd-round .cd-pass-caption { white-space: normal; }
+
+.cdd-rounds { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-compact); }
+.cdd-round { gap: 0.35rem; border: 1px solid transparent; }
+.cdd-round.is-in_progress { border-color: var(--accent); }
+.cdd-round.is-scoring_failed { border-color: var(--error); }
+.cdd-round.is-not_started { border: 1px dashed var(--border-strong); box-shadow: none; background: none; }
+.cdd-round-head { display: flex; align-items: baseline; gap: 0.4rem; min-width: 0; }
+.cdd-round-name { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.cdd-round-status { font-size: var(--text-xs); font-weight: 600; color: var(--text-secondary); }
+.cdd-round.is-in_progress .cdd-round-status { color: var(--accent); }
+.cdd-round.is-scoring_failed .cdd-round-status { color: var(--error); }
+.cdd-round-score { display: flex; align-items: baseline; gap: 0.3rem; }
+.cdd-round-bar { width: 100%; height: 6px; border-radius: 999px; margin-top: 0; overflow: visible; }
+.cdd-round-bar > i { border-radius: inherit; }
+
+@media (max-width: 62.5rem) { .cdd-summary-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 60rem) { .cdd-rounds { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 34rem) { .cdd-summary-cards { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 40rem) { .cdd-rounds { grid-template-columns: minmax(0, 1fr); } }

@@ -2041,9 +2041,124 @@ function renderCandidateDetailShell(id) {
         </div>
       </div>
     </div>
-    ${c ? `<div class="status-cell">${resultBadge(c.result)}</div>` : ""}
+    ${c ? `<div class="status-cell" id="candidate-detail-result">${resultBadge(c.result)}</div>` : ""}
   `;
+  renderCandidateAssessmentSummary(c);
   setPageHeader("HR Console", "Candidate report", "Scores, evidence and actions for one candidate.");
+}
+
+// The dashboard's round-status wording, except "submitted" - in the
+// report it reads as waiting on the score rather than as an activity.
+const CANDIDATE_DETAIL_STATUS_LABELS = { ...CANDIDATE_ROUND_STATUS_LABELS, submitted: "Awaiting score" };
+
+// Why the result is what it is - the rule itself lives server-side
+// (hr.py's _build_candidate_summary): a verdict only once all four
+// rounds are scored, aggregate vs the final pass mark.
+function candidateResultExplanation(c) {
+  const passing = appSettings ? appSettings.final_passing_score : 280;
+  if (c.result === "selected") return `Overall score meets the final pass mark of ${passing}.`;
+  if (c.result === "not_selected") return `Overall score is below the final pass mark of ${passing}.`;
+  return "Final result is decided once all four rounds are scored.";
+}
+
+// Assessment summary (Overall / Progress / Result / Integrity) and the
+// R1-R4 overview - all from the candidates-list row (CandidateSummaryOut),
+// the same data and helpers the dashboard row uses, so the two can't
+// disagree.
+function renderCandidateAssessmentSummary(c) {
+  const box = document.getElementById("candidate-detail-summary");
+  if (!c) { box.innerHTML = ""; return; }
+
+  const autoClosed = c.rounds.filter((r) => r.auto_closed_reason);
+  const switched = c.rounds.filter((r) => r.tab_switch_count > 0);
+  const flagLines = [
+    ...switched.map((r) => `R${r.round_number} · Left the test ${r.tab_switch_count} time${r.tab_switch_count === 1 ? "" : "s"}`),
+    ...autoClosed.map((r) => `R${r.round_number} · Auto-closed`),
+  ];
+  const flagCount = flagLines.length;
+  const integrity = flagCount
+    ? `<div class="cdd-card-value cdd-integrity-flagged"><span aria-hidden="true">&#9888;</span> ${flagCount} flag${flagCount === 1 ? "" : "s"}</div>
+       <ul class="cdd-flag-list">${flagLines.map((l) => `<li>${escapeHtml(l)}</li>`).join("")}</ul>`
+    : `<div class="cdd-card-value"><span class="cdd-ok-mark" aria-hidden="true">&#10003;</span> No flags</div>
+       <p class="cdd-card-note muted">No tab switches or auto-closed rounds.</p>`;
+
+  const rounds = c.rounds.map((r) => {
+    const label = CANDIDATE_DETAIL_STATUS_LABELS[r.status] || r.status;
+    const passing = passingScoreForRound(r.round_number);
+    let body;
+    if (r.final_score != null) {
+      const passed = r.final_score >= passing;
+      body = `
+        <div class="cdd-round-score">
+          <span class="cd-overall-score ${passed ? "score-good" : "score-bad"}">${r.final_score}</span><span class="cd-overall-max muted">/ 100</span>
+        </div>
+        <div class="readout-bar cdd-round-bar${passed ? "" : " is-bad"}" style="--pct:${Math.min(100, r.final_score)}%" aria-hidden="true">
+          <i></i><b class="cd-pass-marker" style="left:${Math.min(100, passing)}%"></b>
+        </div>
+        <div class="cd-pass-caption ${passed ? "is-pass" : "is-fail"}"><span aria-hidden="true">${passed ? "&#10003;" : "&#10005;"}</span> ${passed ? "Meets" : "Below"} pass mark ${passing}</div>`;
+    } else {
+      body = `<div class="cdd-card-note muted">No score yet &middot; pass mark ${passing}</div>`;
+    }
+    return `
+      <li class="cdd-round is-${escapeAttr(r.status)}">
+        <div class="cdd-round-head">
+          <span class="cd-round-label">R${r.round_number}</span>
+          <span class="cdd-round-name">${escapeHtml(ROUND_LABELS[r.round_number] || `Round ${r.round_number}`)}</span>
+        </div>
+        <div class="cdd-round-status">${escapeHtml(label)}</div>
+        ${body}
+        ${r.submitted_at ? `<div class="cdd-card-note muted">Submitted ${formatDateTime(r.submitted_at)}</div>` : ""}
+      </li>
+    `;
+  }).join("");
+
+  box.innerHTML = `
+    <section class="cdd-section" aria-labelledby="cdd-summary-title">
+      <h3 class="cdd-section-title" id="cdd-summary-title">Assessment summary</h3>
+      <div class="cdd-summary-cards">
+        <div class="cdd-card">
+          <h4 class="cdd-card-label">Overall</h4>
+          ${aggregateCell(c)}
+        </div>
+        <div class="cdd-card">
+          <h4 class="cdd-card-label">Progress</h4>
+          ${candidateProgressCell(c)}
+        </div>
+        <div class="cdd-card">
+          <h4 class="cdd-card-label">Result</h4>
+          <div class="status-cell">${resultBadge(c.result)}</div>
+          <p class="cdd-card-note muted">${escapeHtml(candidateResultExplanation(c))}</p>
+        </div>
+        <div class="cdd-card">
+          <h4 class="cdd-card-label">Integrity</h4>
+          ${integrity}
+        </div>
+      </div>
+    </section>
+    <section class="cdd-section" aria-labelledby="cdd-rounds-title">
+      <h3 class="cdd-section-title" id="cdd-rounds-title">Rounds</h3>
+      <ol class="cdd-rounds">${rounds}</ol>
+    </section>
+  `;
+}
+
+// After a retry/override the report re-renders in place; the summary and
+// the identity badge come from the candidates list, so re-fetch that (the
+// existing GET /hr/candidates) and repaint just those two.
+async function refreshCandidateDetailSummary(id, seq) {
+  let list;
+  try {
+    list = await api("/hr/candidates");
+  } catch (e) {
+    return; // the report itself is already up to date; the cards stay one step behind
+  }
+  if (seq !== candidateDetailSeq) return;
+  lastLoadedCandidates = list;
+  const c = list.find((x) => x.id === id);
+  if (!c) return;
+  const badge = document.getElementById("candidate-detail-result");
+  if (badge) badge.innerHTML = resultBadge(c.result);
+  renderCandidateAssessmentSummary(c);
 }
 
 // Whatever actually scrolls the page: .app-main on wider screens, the
@@ -2130,6 +2245,7 @@ async function openCandidateDetail(id, opts = {}) {
   `;
   loadAppearances(id, seq);
   loadExistingCandidateSummary(id, seq);
+  if (opts.refresh) refreshCandidateDetailSummary(id, seq);
   // The load-failure banner above is role="alert" and announces itself.
   announceCandidateDetail(opts.refresh ? "Report updated." : "Candidate report loaded.");
 }
@@ -2151,6 +2267,7 @@ async function closeCandidateDetail(opts = {}) {
   document.getElementById("hr-page-candidates").classList.remove("is-detail-open");
   document.getElementById("candidate-detail").innerHTML = "";
   document.getElementById("candidate-detail-identity").innerHTML = "";
+  document.getElementById("candidate-detail-summary").innerHTML = "";
   const ret = candidateDetailReturn || { scrollTop: 0, email: null };
   candidateDetailReturn = null;
   if (opts.silent) {
