@@ -3985,6 +3985,19 @@ async function round3CodingAutoSubmit() {
   refreshCandidateNav();
 }
 
+// The task's fixed stdin/stdout format (Scenario.round3_io_format) - the
+// same text the hidden tests were generated from, shown with the task so
+// the candidate is never graded on a format they weren't told.
+function renderRound3IoFormat(fmt) {
+  if (!fmt) return "";
+  return `
+    <div class="panel-inset round3-io-format">
+      <p><strong>Input:</strong> ${escapeHtml(fmt.input)}</p>
+      <p><strong>Output:</strong> ${escapeHtml(fmt.output)}</p>
+    </div>
+  `;
+}
+
 function renderRound3CodingLayout(box) {
   const s = round3CodingState;
   if (!s) return;
@@ -4000,6 +4013,7 @@ function renderRound3CodingLayout(box) {
   box.innerHTML = `
     <h3>Round 3: ${escapeHtml(s.scenario.title)}</h3>
     ${formatScenarioDescription(s.scenario.description)}
+    ${renderRound3IoFormat(s.scenario.round3_io_format)}
     <p class="muted">Language: ${escapeHtml(s.language || "")}</p>
     <details class="hint-box">
       <summary><strong>Example conversation</strong> (format only, not a hint for this scenario)</summary>

@@ -1,0 +1,422 @@
+{
+ "_note": "Hidden-test inputs/outputs and the reference approach for this live task are deliberately NOT stored here (they are the assessment's answer key). test_results keeps only each hidden test's pass/fail, so the scorer still sees the same pass rate; expected_approach is withheld (see test_replay_r3_provenance.py).",
+ "scenario_description": "Given a list of integers, write a program that finds and prints the second-largest DISTINCT value in the list (duplicates of the largest value do not count as a separate value). If the list has fewer than two distinct values, print -1 instead.",
+ "cases": [
+  {
+   "id": "A_ai_originated",
+   "note": "AI explains the faster approach after the candidate says they don't know one; candidate adopts it.",
+   "expect": "flagged",
+   "conversation_so_far": [
+    {
+     "turn_number": 1,
+     "candidate_prompt": "Read one line of input, split it on commas, convert each part to int and store it in a list called nums. If the line is empty, nums is an empty list.",
+     "response_kind": "code_edit",
+     "response_message": "Read the line, split on commas, converted to int into nums (empty list for an empty line).",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []"
+    },
+    {
+     "turn_number": 2,
+     "candidate_prompt": "Sort nums from largest to smallest into sorted_nums. Set answer = -1, loop through sorted_nums, and the first number smaller than sorted_nums[0] becomes answer, then stop. Print answer.",
+     "response_kind": "code_edit",
+     "response_message": "Added the sort, the loop and the print.",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []\n# turn-2 implementation omitted from this regression fixture"
+    },
+    {
+     "turn_number": 3,
+     "candidate_prompt": "It works. Is sorting slow? I don't know a faster approach.",
+     "response_kind": "explain",
+     "response_message": "Yes. You can avoid sorting by scanning the list twice and maintaining the largest and second-largest values.",
+     "code_after": null
+    },
+    {
+     "turn_number": 4,
+     "candidate_prompt": "Okay, I'll use that approach. Replace the sort and the loop: largest = None and second = None. Loop over nums: if largest is None or num > largest, move largest into second (if it isn't None) and set largest = num; otherwise if num < largest and (second is None or num > second), set second = num. Print second, or -1 if second is None.",
+     "response_kind": "code_edit",
+     "response_message": "Replaced the sort with one loop tracking largest and second, and print second or -1.",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []\n# turn-4 implementation omitted from this regression fixture"
+    }
+   ],
+   "test_results": [
+    {
+     "test": 1,
+     "passed": true
+    },
+    {
+     "test": 2,
+     "passed": true
+    },
+    {
+     "test": 3,
+     "passed": true
+    },
+    {
+     "test": 4,
+     "passed": true
+    },
+    {
+     "test": 5,
+     "passed": true
+    },
+    {
+     "test": 6,
+     "passed": true
+    },
+    {
+     "test": 7,
+     "passed": true
+    },
+    {
+     "test": 8,
+     "passed": true
+    },
+    {
+     "test": 9,
+     "passed": true
+    },
+    {
+     "test": 10,
+     "passed": true
+    },
+    {
+     "test": 11,
+     "passed": true
+    },
+    {
+     "test": 12,
+     "passed": true
+    },
+    {
+     "test": 13,
+     "passed": true
+    },
+    {
+     "test": 14,
+     "passed": true
+    },
+    {
+     "test": 15,
+     "passed": true
+    }
+   ]
+  },
+  {
+   "id": "B_candidate_originated",
+   "note": "Candidate proposes the single-pass approach; AI only acknowledges it.",
+   "expect": "credited",
+   "conversation_so_far": [
+    {
+     "turn_number": 1,
+     "candidate_prompt": "Read one line of input, split it on commas, convert each part to int and store it in a list called nums. If the line is empty, nums is an empty list.",
+     "response_kind": "code_edit",
+     "response_message": "Read the line, split on commas, converted to int into nums (empty list for an empty line).",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []"
+    },
+    {
+     "turn_number": 2,
+     "candidate_prompt": "Sort nums from largest to smallest into sorted_nums. Set answer = -1, loop through sorted_nums, and the first number smaller than sorted_nums[0] becomes answer, then stop. Print answer.",
+     "response_kind": "code_edit",
+     "response_message": "Added the sort, the loop and the print.",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []\n# turn-2 implementation omitted from this regression fixture"
+    },
+    {
+     "turn_number": 3,
+     "candidate_prompt": "Sorting costs O(n log n). I'll scan the list once and keep the largest and second-largest values.",
+     "response_kind": "explain",
+     "response_message": "Okay, implement that approach.",
+     "code_after": null
+    },
+    {
+     "turn_number": 4,
+     "candidate_prompt": "Replace the sort and the loop: largest = None and second = None. Loop over nums: if largest is None or num > largest, move largest into second (if it isn't None) and set largest = num; otherwise if num < largest and (second is None or num > second), set second = num. Print second, or -1 if second is None.",
+     "response_kind": "code_edit",
+     "response_message": "Replaced the sort with one loop tracking largest and second, and print second or -1.",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []\n# turn-4 implementation omitted from this regression fixture"
+    }
+   ],
+   "test_results": [
+    {
+     "test": 1,
+     "passed": true
+    },
+    {
+     "test": 2,
+     "passed": true
+    },
+    {
+     "test": 3,
+     "passed": true
+    },
+    {
+     "test": 4,
+     "passed": true
+    },
+    {
+     "test": 5,
+     "passed": true
+    },
+    {
+     "test": 6,
+     "passed": true
+    },
+    {
+     "test": 7,
+     "passed": true
+    },
+    {
+     "test": 8,
+     "passed": true
+    },
+    {
+     "test": 9,
+     "passed": true
+    },
+    {
+     "test": 10,
+     "passed": true
+    },
+    {
+     "test": 11,
+     "passed": true
+    },
+    {
+     "test": 12,
+     "passed": true
+    },
+    {
+     "test": 13,
+     "passed": true
+    },
+    {
+     "test": 14,
+     "passed": true
+    },
+    {
+     "test": 15,
+     "passed": true
+    }
+   ]
+  },
+  {
+   "id": "C_ai_clarifies_candidate",
+   "note": "Candidate states the idea briefly; AI restates it more precisely.",
+   "expect": "credited",
+   "conversation_so_far": [
+    {
+     "turn_number": 1,
+     "candidate_prompt": "Read one line of input, split it on commas, convert each part to int and store it in a list called nums. If the line is empty, nums is an empty list.",
+     "response_kind": "code_edit",
+     "response_message": "Read the line, split on commas, converted to int into nums (empty list for an empty line).",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []"
+    },
+    {
+     "turn_number": 2,
+     "candidate_prompt": "Sort nums from largest to smallest into sorted_nums. Set answer = -1, loop through sorted_nums, and the first number smaller than sorted_nums[0] becomes answer, then stop. Print answer.",
+     "response_kind": "code_edit",
+     "response_message": "Added the sort, the loop and the print.",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []\n# turn-2 implementation omitted from this regression fixture"
+    },
+    {
+     "turn_number": 3,
+     "candidate_prompt": "I'll scan once and keep two values.",
+     "response_kind": "explain",
+     "response_message": "Yes, you can maintain the largest and second-largest values.",
+     "code_after": null
+    },
+    {
+     "turn_number": 4,
+     "candidate_prompt": "Replace the sort and the loop: largest = None and second = None. Loop over nums: if largest is None or num > largest, move largest into second (if it isn't None) and set largest = num; otherwise if num < largest and (second is None or num > second), set second = num. Print second, or -1 if second is None.",
+     "response_kind": "code_edit",
+     "response_message": "Replaced the sort with one loop tracking largest and second, and print second or -1.",
+     "code_after": "line = input()\nnums = [int(x) for x in line.split(',')] if line else []\n# turn-4 implementation omitted from this regression fixture"
+    }
+   ],
+   "test_results": [
+    {
+     "test": 1,
+     "passed": true
+    },
+    {
+     "test": 2,
+     "passed": true
+    },
+    {
+     "test": 3,
+     "passed": true
+    },
+    {
+     "test": 4,
+     "passed": true
+    },
+    {
+     "test": 5,
+     "passed": true
+    },
+    {
+     "test": 6,
+     "passed": true
+    },
+    {
+     "test": 7,
+     "passed": true
+    },
+    {
+     "test": 8,
+     "passed": true
+    },
+    {
+     "test": 9,
+     "passed": true
+    },
+    {
+     "test": 10,
+     "passed": true
+    },
+    {
+     "test": 11,
+     "passed": true
+    },
+    {
+     "test": 12,
+     "passed": true
+    },
+    {
+     "test": 13,
+     "passed": true
+    },
+    {
+     "test": 14,
+     "passed": true
+    },
+    {
+     "test": 15,
+     "passed": true
+    }
+   ]
+  },
+  {
+   "id": "RunB_submission_193",
+   "note": "Real Run B transcript: turn 6 (explain) gave the two-pass O(n) idea the candidate said they didn't know; turn 7 adopted it. Original score feedback said the candidate moved to it 'proactively'.",
+   "expect": "flagged",
+   "conversation_so_far": [
+    {
+     "turn_number": 1,
+     "candidate_prompt": "What format will the input list come in? One line with numbers separated by spaces, or something else?",
+     "response_kind": "clarify",
+     "response_message": "How should the input be read?",
+     "code_after": null
+    },
+    {
+     "turn_number": 2,
+     "candidate_prompt": "OK, I'll decide: read one line from input, numbers separated by spaces, convert each to an int and put them in a list called nums. My idea: sort the list from biggest to smallest, then go through it and find the first number that is smaller than the first (biggest) one - print that. If none is found, print -1.",
+     "response_kind": "clarify",
+     "response_message": "I need a more specific instruction for that - tell me exactly what this step should do, and I'll write only that.",
+     "code_after": null
+    },
+    {
+     "turn_number": 3,
+     "candidate_prompt": "Step 1 only: read one line of input, split it on spaces, convert each part to int, and store the result in a list called nums.",
+     "response_kind": "code_edit",
+     "response_message": "Read one line of input, split it on spaces, converted each part to int, and stored the result in a list called nums.",
+     "code_after": "nums = list(map(int, input().split()))"
+    },
+    {
+     "turn_number": 4,
+     "candidate_prompt": "Step 2: sort nums from largest to smallest and store it in a new list called sorted_nums.",
+     "response_kind": "code_edit",
+     "response_message": "Sorted nums from largest to smallest and stored it in a new list called sorted_nums.",
+     "code_after": "nums = list(map(int, input().split()))\nsorted_nums = sorted(nums, reverse=True)"
+    },
+    {
+     "turn_number": 5,
+     "candidate_prompt": "Step 3: make a variable answer = -1. Loop through sorted_nums; the first number that is less than sorted_nums[0], set answer to it and stop the loop. Then print answer.",
+     "response_kind": "code_edit",
+     "response_message": "Created a variable answer = -1, looped through sorted_nums to find the first number less than sorted_nums[0], set answer to it and stopped the loop, then printed answer.",
+     "code_after": "nums = list(map(int, input().split()))\nsorted_nums = sorted(nums, reverse=True)\nanswer = -1\nfor num in sorted_nums:\n    if num < sorted_nums[0]:\n        answer = num\n        break\nprint(answer)"
+    },
+    {
+     "turn_number": 6,
+     "candidate_prompt": "It works on my examples. The instructions mention efficiency - is sorting slow for a big list? Is there a faster way? I don't really know one.",
+     "response_kind": "explain",
+     "response_message": "Your current solution already runs in O(n log n) time due to the sorting step, where n is the number of elements. There is a faster O(n) approach: you could loop through the list once to find the maximum value, then loop through again to find the largest value that's smaller than the maximum. However, since you haven't asked me to change the code, it remains as is. If you want to implement the faster approach, you'll need to give me specific instructions for what to do.",
+     "code_after": null
+    },
+    {
+     "turn_number": 7,
+     "candidate_prompt": "OK let's do the faster way. Remove the sorted_nums line and the old loop. Instead: biggest = max(nums). Then answer = -1, loop through nums, and if num < biggest and num > answer, set answer = num. Then print answer.",
+     "response_kind": "code_edit",
+     "response_message": "Updated the code - added: biggest = max(nums); for num in nums:; if num < biggest and num > answer:",
+     "code_after": "nums = list(map(int, input().split()))\nbiggest = max(nums)\nanswer = -1\nfor num in nums:\n    if num < biggest and num > answer:\n        answer = num\nprint(answer)"
+    },
+    {
+     "turn_number": 8,
+     "candidate_prompt": "Two problems in my version. 1) For '-2 -5 -2' it prints -1 but should print -5 - I think because answer starts at -1 and -5 is not bigger than -1. Please start answer at None instead, and change the condition to: num < biggest and (answer is None or num > answer). At the end, if answer is None print -1, else print answer. 2) Empty input crashes on max(). Right after reading nums, if nums is empty print -1 and stop the program.",
+     "response_kind": "code_edit",
+     "response_message": "Changed answer to start at None instead of -1, updated the condition to check if answer is None or num > answer, and added a check at the end to print -1 if answer is None, else print answer. Also added a check right after reading nums to print -1 and exit if nums is empty.",
+     "code_after": "nums = list(map(int, input().split()))\nif not nums:\n    print(-1)\n    exit()\nbiggest = max(nums)\nanswer = None\nfor num in nums:\n    if num < biggest and (answer is None or num > answer):\n        answer = num\nif answer is None:\n    print(-1)\nelse:\n    print(answer)"
+    }
+   ],
+   "test_results": [
+    {
+     "test": 1,
+     "passed": false
+    },
+    {
+     "test": 2,
+     "passed": false
+    },
+    {
+     "test": 3,
+     "passed": true
+    },
+    {
+     "test": 4,
+     "passed": true
+    },
+    {
+     "test": 5,
+     "passed": false
+    },
+    {
+     "test": 6,
+     "passed": false
+    },
+    {
+     "test": 7,
+     "passed": false
+    },
+    {
+     "test": 8,
+     "passed": false
+    },
+    {
+     "test": 9,
+     "passed": false
+    },
+    {
+     "test": 10,
+     "passed": false
+    },
+    {
+     "test": 11,
+     "passed": false
+    },
+    {
+     "test": 12,
+     "passed": false
+    },
+    {
+     "test": 13,
+     "passed": false
+    },
+    {
+     "test": 14,
+     "passed": false
+    },
+    {
+     "test": 15,
+     "passed": false
+    }
+   ]
+  }
+ ]
+}

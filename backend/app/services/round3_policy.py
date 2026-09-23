@@ -81,7 +81,22 @@ _CONCRETE_STEP_RE = re.compile(
     r"\bstdin\b|\binput\s*\(|\bsplit\b|\bcomma|\bspace[- ]separated\b|\bone per line\b"
     r"|\b(variable|list|array|set|dict|map|function)\s+(called|named)\b|\b[a-z_]\w*\s*=\s*\S"
     r"|\b(for|while)\s+loop\b|\bappend\b|\bscanner\b|\bparseint\b|%|\bmodulo\b"
+    # "Use my nested-loop approach and write the code" - the candidate names
+    # the approach as theirs, with its technique. Only in that possessive
+    # form: "write the code using a nested loop" names a technique word, not
+    # an approach, and stays a whole-task request.
+    r"|\bmy\s+(own\s+)?nested[- ]loops?\s+(approach|method|solution|logic|plan|idea)\b"
 )
+
+# "Write the code for my approach" - refers to an approach instead of
+# naming it, so the text alone can't show one exists. Allowed only once the
+# candidate has already directed something earlier in the conversation
+# (see is_continuation_of_whole_task) - never with "complete/full/whole",
+# and never on an opening message.
+_STATED_APPROACH_REF_RE = re.compile(
+    r"\bcode\s+(for|of)\s+my\s+(own\s+)?([\w-]+\s+){0,2}?(approach|method|plan|idea|logic|algorithm)\b"
+)
+_WHOLE_WORDS_RE = re.compile(r"\b(complete|full|entire|whole|working)\b")
 
 
 def is_whole_task_request(text: str) -> bool:
@@ -101,13 +116,28 @@ def is_continuation_of_whole_task(conversation_so_far: list[dict], candidate_pro
     that was about a whole-task request, the answer is refused the same
     way the original request would have been."""
     if is_whole_task_request(candidate_prompt):
-        return True
+        return not _implements_stated_approach(conversation_so_far, candidate_prompt)
     for turn in reversed(conversation_so_far or []):
         if turn.get("response_kind") != "clarify":
             return False
         if is_whole_task_request(turn.get("candidate_prompt")):
             return True
     return False
+
+
+def _implements_stated_approach(conversation_so_far: list[dict], candidate_prompt: str) -> bool:
+    """"Write the code for my approach", after the candidate has already
+    directed at least one step the assistant didn't refuse - the approach
+    it points to is theirs. The model's own (c)/"Not (c)" rules still judge
+    whether an approach was really stated; this only stops the pattern above
+    refusing it before the model sees it."""
+    lowered = (candidate_prompt or "").lower()
+    if not _STATED_APPROACH_REF_RE.search(lowered) or _WHOLE_WORDS_RE.search(lowered) or _FINISH_IT_RE.search(lowered):
+        return False
+    return any(
+        t.get("response_kind") != "refuse" and not is_whole_task_request(t.get("candidate_prompt"))
+        for t in conversation_so_far or []
+    )
 
 
 _PUBLIC_CLASS_RE = re.compile(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+([A-Za-z_]\w*)")

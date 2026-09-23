@@ -171,6 +171,7 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
         scenario.reference_json = llm_service.generate_round3_reference(
             scenario_description=scenario.description,
             experience_band=scenario.experience_band.value,
+            io_format=scenario.round3_io_format,
         )
     elif scenario.round_number == 2:
         # Round 4 has no scenario-level test-case reference (its target

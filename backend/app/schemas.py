@@ -203,6 +203,9 @@ class ScenarioPublicOut(BaseModel):
     # automates their own round 1 design) - see models.Scenario.is_auto.
     # False for every round 1-3 scenario and every other round 4 mode.
     is_auto: bool = False
+    # Round 3 only: {"input", "output", "value_type"} - the task's fixed
+    # stdin/stdout format, shown with the task (see models.Scenario.round3_io_format).
+    round3_io_format: Optional[dict] = None
 
     class Config:
         from_attributes = True

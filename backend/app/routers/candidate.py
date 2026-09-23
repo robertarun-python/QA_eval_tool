@@ -328,6 +328,7 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
             turn_number=turn_number,
             required_constructs=required_constructs,
             declared_constructs=declared_constructs,
+            io_format=scenario.round3_io_format,
         )
     except Exception:
         traceback.print_exc()

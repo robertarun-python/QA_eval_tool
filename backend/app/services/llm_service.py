@@ -21,6 +21,7 @@ from ..schemas import (
 from . import clarify_loop
 from . import execution_service
 from . import round3_constructs
+from . import round3_io_format
 from . import round3_construct_engine
 from . import round3_policy
 from . import round3_scope_guard
@@ -247,10 +248,16 @@ def score_round2_submission(
 # actual source. See
 # docs/superpowers/specs/2026-08-23-round3-ai-coding-design.md.) ----
 
-def generate_round3_reference(scenario_description: str, experience_band: str) -> dict:
+def generate_round3_reference(scenario_description: str, experience_band: str, io_format: dict | None = None) -> dict:
+    # io_format is the same round3_io_format dict the candidate's screen
+    # shows - the hidden tests are generated from it, never from a format
+    # restated here (see round3_io_format's module docstring).
+    io_format = io_format or round3_io_format.for_config(None)
     prompt = _load_prompt("round3_reference_generation.txt").format(
         scenario_description=scenario_description,
         experience_band=experience_band,
+        input_format=io_format["input"],
+        output_format=io_format["output"],
     )
     raw = _call_claude(prompt)
     result = _parse_json_response(raw)
@@ -268,6 +275,9 @@ def generate_round3_reference(scenario_description: str, experience_band: str) -
     unknown = set(result.get("required_constructs", [])) - set(round3_constructs.CONSTRUCT_CATEGORIES)
     if unknown:
         raise ValueError(f"required_constructs contains unknown categories: {sorted(unknown)}")
+    off_format = [tc.get("input") for tc in result["test_cases"] if not round3_io_format.input_conforms(tc.get("input"), io_format)]
+    if off_format:
+        raise ValueError(f"test inputs don't match the task's stated input format: {off_format!r}")
     return result
 
 
@@ -298,6 +308,7 @@ def round3_coding_turn(
     turn_number: int,
     required_constructs: list[str] | None = None,
     declared_constructs: dict | None = None,
+    io_format: dict | None = None,
 ) -> dict:
     """One R3 assistant turn, plus the clarification loop breaker: a reply
     that would repeat an earlier question, follow the candidate saying
@@ -308,6 +319,7 @@ def round3_coding_turn(
         conversation_so_far=conversation_so_far, current_code=current_code,
         candidate_prompt=candidate_prompt, turn_number=turn_number,
         required_constructs=required_constructs, declared_constructs=declared_constructs,
+        io_format=io_format,
     )
     def _finish(r: dict) -> dict:
         r = _ensure_java_main(r, language)
@@ -360,9 +372,11 @@ def _round3_coding_turn_once(
     turn_number: int,
     required_constructs: list[str] | None = None,
     declared_constructs: dict | None = None,
+    io_format: dict | None = None,
     force_note: str = "",
 ) -> dict:
     required_constructs = required_constructs or []
+    io_format = io_format or round3_io_format.for_config(None)
     declared_constructs = declared_constructs or {}
     open_categories = [c for c in required_constructs if c not in declared_constructs]
 
@@ -386,10 +400,22 @@ def _round3_coding_turn_once(
             "code_after": None,
             "declared_constructs": dict(declared_constructs),
         }
+    # "What format will the input come in?" - the format is a fixed fact of
+    # the task (the same round3_io_format the task screen and hidden tests
+    # use), so it's repeated verbatim rather than asked back or left to the
+    # model. Never how to handle it in code - see round3_io_format.
+    if round3_io_format.is_format_question(candidate_prompt):
+        return {
+            "response_kind": "explain",
+            "response_message": round3_io_format.format_answer(io_format),
+            "code_after": None,
+            "declared_constructs": dict(declared_constructs),
+        }
 
     def _raw_turn(regeneration_note: str = "") -> Round3CodingTurnResponse:
         prompt = _load_prompt("round3_coding_turn.txt").format(
             scenario_description=scenario_description,
+            io_format=round3_io_format.as_text(io_format),
             language=language,
             conversation_so_far=_as_data(json.dumps(conversation_so_far, indent=2)),
             current_code=_as_data(current_code or "(no code written yet)"),

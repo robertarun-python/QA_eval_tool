@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .database import Base
+from .services import round3_io_format
 
 
 class Role(str, enum.Enum):
@@ -126,6 +127,17 @@ class Scenario(Base):
         config_json["mode"] == "ai_test_automation". Same computed-property
         pattern and same reason as is_pilot above."""
         return (self.config_json or {}).get("mode") == "ai_test_automation"
+
+    @property
+    def round3_io_format(self) -> dict | None:
+        """Round 3 only: the task's stdin/stdout format - the one dict the
+        candidate's screen shows, the hidden-test generator is given, and
+        the assistant may repeat (see services/round3_io_format.py). Same
+        computed-property pattern as is_pilot, so schemas.ScenarioPublicOut
+        exposes it via from_attributes. None for every other round."""
+        if self.round_number != 3:
+            return None
+        return round3_io_format.for_config(self.config_json)
 
     # Draft -> published lifecycle: HR reviews the generated reference
     # before candidates can see the scenario. Any number of scenarios

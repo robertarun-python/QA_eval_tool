@@ -104,6 +104,37 @@ _ALREADY_PRESENT_OK = {
     "chose a set to remove duplicates", "chose descending order", "chose how the input values are separated",
 }
 
+# Rewriting a line re-adds whatever it already did: the model restyling
+# "nums = list(map(int, input().split()))" is not new type conversion.
+# For this capability only, a changed line is a rewrite when the program
+# doesn't end up with MORE conversions and every converted value still goes
+# where it went before - the same variable, or nowhere (a bare validity
+# check). Converting in order to check, then starting to STORE the
+# converted values, is still new (tests/test_assistant_scope_rules.py,
+# remove-duplicates case).
+_COUNTED_AGAINST_OLD = {"type conversion"}
+_ASSIGN_TARGET_RE = re.compile(r"^\s*(?:[\w<>\[\]]+\s+)?([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*=(?!=)")
+_STORE_TARGET_RE = re.compile(r"([A-Za-z_]\w*)\s*\.\s*(?:append|add|push|extend|insert)\s*\(")
+
+
+def _conversion_targets(lines, code_re: str) -> set:
+    """Where each line's converted value goes: the variable it's appended
+    to or assigned to, or None for a bare conversion (a validity check)."""
+    targets = set()
+    for line in lines:
+        if not re.search(code_re, line):
+            continue
+        stored = _STORE_TARGET_RE.search(line)
+        assigned = _ASSIGN_TARGET_RE.match(line)
+        targets.add(stored.group(1) if stored else re.sub(r"\s+", "", assigned.group(1)) if assigned else None)
+    return targets
+
+
+def _is_rewrite(code_re: str, old: str, new: str, added: list) -> bool:
+    if len(re.findall(code_re, new or "", re.M)) > len(re.findall(code_re, old, re.M)):
+        return False
+    return _conversion_targets(added, code_re) <= _conversion_targets(old.splitlines(), code_re)
+
 # Hard-coded data: three or more numeric literals on one added line (a test
 # list, sample inputs) must each appear in the instruction.
 _NUMBER_RE = re.compile(r"(?<![\w.])-?\d+(?:\.\d+)?(?![\w.])")
@@ -165,6 +196,8 @@ def unrequested_additions(language: str, current_code: str | None, new_code: str
             continue
         if name in _ALREADY_PRESENT_OK and re.search(code_re, old, re.M):
             continue
+        if name in _COUNTED_AGAINST_OLD and _is_rewrite(code_re, old, new_code, lines):
+            continue
         if name == "a new function" and _function_names(text) <= _function_names(old):
             continue  # a changed signature on a function that already exists
         found.append(name)
@@ -184,13 +217,25 @@ def is_noop_edit(current_code: str | None, new_code: str | None) -> bool:
     return squash(current_code) == squash(new_code)
 
 
+# Sent to the model only, never shown to the candidate. The old note ended
+# "...respond with clarify and ask for it", and live traces showed the retry
+# dropping the candidate's whole approach for a vague question ("What
+# information needs to be tracked?") when only an extra -1 had been flagged.
 REGENERATION_NOTE = (
     "IMPORTANT - your previous attempt at this turn was rejected before the candidate saw it, "
     "because the code you added went beyond the candidate's instruction: it added {items}, "
-    "which the instruction did not ask for. Rule 3 is absolute - write EXACTLY and ONLY what "
-    "the instruction names. If doing that genuinely requires something the candidate hasn't "
-    "specified (a technique, a name, a value), respond with \"clarify\" and ask for it instead "
-    "of writing it."
+    "which the instruction did not ask for. Write the edit again: "
+    "(1) keep everything the candidate explicitly stated - their approach and every concept they "
+    "named, such as what to track (the largest value, the second-largest value), going through "
+    "the data once, a nested loop, or any tracking they specified - and implement it; "
+    "(2) leave out ONLY the additions listed above; "
+    "(3) add nothing else the candidate didn't state - no other logic, value, output or edge-case "
+    "handling, and never a different algorithm or approach than theirs. "
+    "Respond with \"clarify\" only if their approach genuinely cannot be written at all without one "
+    "of the listed additions - then ask one plain question about that missing step, never about "
+    "something they already told you and never about an edge case or error condition. "
+    "Never mention this check, the rejected attempt or the names of the additions above in your "
+    "response_message."
 )
 
 SCOPE_FALLBACK_MESSAGE = (
