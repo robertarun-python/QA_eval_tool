@@ -227,3 +227,30 @@ def redact(message: str, values: list[str]) -> str:
     for v in values:
         message = re.sub(re.escape(v), "[withheld]", message, flags=re.IGNORECASE)
     return message
+
+
+# 5. FABRICATED OBSERVATIONS: a test must READ what it checks from the
+#    application through the environment's helpers. A variable named like
+#    something observed (currentPage, dropdownText, actual_header, status)
+#    being handed a fixed value instead fakes the observation. R2-186's first
+#    code faked two (dropdownText = "Cardiology", currentPage = "appointment")
+#    and never performed the search at all - far past a planted flaw's brief
+#    of ONE subtle gap. Names containing "expected" are how a test states
+#    what it's looking for, so they never count.
+_OBSERVED_NAME_RE = re.compile(
+    r"(current|actual|observed|displayed|shown|visible|page|header|heading|text|label|title|status|message|dropdown|result|url)",
+    re.IGNORECASE,
+)
+_LITERAL_ASSIGNMENT_RE = re.compile(
+    r"""^\s*(?:(?:final\s+)?(?:String|var|let|const|int|boolean)\s+)?([A-Za-z_]\w*)\s*=\s*(?:f?["'][^"'\n]*["']|\d+|True|False|true|false)\s*;?\s*$"""
+)
+
+
+def fabricated_observations(before: str | None, after: str | None) -> list[str]:
+    """Added lines that hand an observed-looking variable a fixed value."""
+    flagged = []
+    for line in _added_lines(before, after):
+        m = _LITERAL_ASSIGNMENT_RE.match(line)
+        if m and _OBSERVED_NAME_RE.search(m.group(1)) and "expect" not in m.group(1).lower():
+            flagged.append(line.strip())
+    return flagged

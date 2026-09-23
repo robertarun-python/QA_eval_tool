@@ -103,10 +103,11 @@ def test_run_code_reports_infra_error_when_java_toolchain_is_missing(monkeypatch
 def test_run_code_surfaces_java_compile_failure_as_compile_stderr(monkeypatch):
     monkeypatch.setattr(execution_service.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_compile_run(cmd, cwd, capture_output, text, timeout):
+    def fake_compile_run(cmd, cwd=None, capture_output=True, text=True, timeout=None):
         class FakeProc:
-            returncode = 1
-            stderr = "Main.java:3: error: ';' expected"
+            # A working javac: reports its version, then fails on the code.
+            returncode = 0 if "-version" in cmd else 1
+            stderr = "" if "-version" in cmd else "Main.java:3: error: ';' expected"
             stdout = ""
         return FakeProc()
 
@@ -124,7 +125,7 @@ def test_run_code_treats_macos_java_placeholder_as_infra_error(monkeypatch):
     as the candidate's compile error."""
     monkeypatch.setattr(execution_service.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_compile_run(cmd, cwd, capture_output, text, timeout):
+    def fake_compile_run(cmd, cwd=None, capture_output=True, text=True, timeout=None):
         class FakeProc:
             returncode = 1
             stderr = (
@@ -146,10 +147,10 @@ def test_run_code_does_not_reach_run_stage_on_compile_failure(monkeypatch):
     `run` stage) is ever called - there's no binary to run."""
     monkeypatch.setattr(execution_service.shutil, "which", lambda name: f"/usr/bin/{name}")
 
-    def fake_compile_run(cmd, cwd, capture_output, text, timeout):
+    def fake_compile_run(cmd, cwd=None, capture_output=True, text=True, timeout=None):
         class FakeProc:
-            returncode = 1
-            stderr = "error"
+            returncode = 0 if "-version" in cmd else 1
+            stderr = "" if "-version" in cmd else "error"
             stdout = ""
         return FakeProc()
 
@@ -330,3 +331,20 @@ def test_child_env_sets_utf8_without_dropping_the_real_environment():
     assert len(env) >= len(os.environ)
     for key in os.environ:
         assert key in env
+
+
+def test_run_code_treats_a_javac_that_cannot_report_its_version_as_infra_error(monkeypatch):
+    """Doesn't depend on macOS's exact placeholder wording: a javac that
+    fails even `javac -version` is a missing toolchain, whatever it prints."""
+    monkeypatch.setattr(execution_service.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run(cmd, cwd=None, capture_output=True, text=True, timeout=None):
+        class FakeProc:
+            returncode = 1
+            stderr = "Some future wording: no Java here."
+            stdout = ""
+        return FakeProc()
+
+    monkeypatch.setattr(execution_service.subprocess, "run", fake_run)
+    result = execution_service.run_code(language="java", code="public class Main {}", stdin=[])
+    assert result.infra_error is True

@@ -179,6 +179,13 @@ class _PreparedRun:
         self.compile_exit_code = compile_exit_code
 
 
+def _javac_works(javac: str) -> bool:
+    try:
+        return subprocess.run([javac, "-version"], capture_output=True, text=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: int, *, unbuffered_python: bool) -> _PreparedRun:
     """Resolves `language` to a runnable command, compiling first for
     Java. Shared by run_code (batch) and start_interactive (the
@@ -215,7 +222,10 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
             # toolchain on the host (same as which() finding nothing), not
             # the candidate's code - left as a compile failure it was
             # scored as every test case failing.
-            if any(marker in compile_stderr for marker in _MISSING_JAVA_RUNTIME_MARKERS):
+            # The marker text is only macOS's current wording; a compiler
+            # that can't even report its own version is missing whatever
+            # it prints, so that is checked too.
+            if any(marker in compile_stderr for marker in _MISSING_JAVA_RUNTIME_MARKERS) or not _javac_works(javac):
                 return _PreparedRun(infra_error=True)
             # Same "[compile]" prefix convention the old Piston
             # integration used, so HR/candidates keep seeing a compile

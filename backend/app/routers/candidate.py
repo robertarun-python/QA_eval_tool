@@ -1450,7 +1450,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
         "response_message": response["response_message"],
         "code_after": response.get("code_after"),
     }
-    for key in ("planted_flaw", "unrequested_checks"):  # assessor-only - see schemas.SubmissionOut
+    for key in ("planted_flaw", "unrequested_checks", "fabricated_observations"):  # assessor-only - see schemas.SubmissionOut
         if response.get(key):
             turn_record[key] = response[key]
     turns.append(turn_record)

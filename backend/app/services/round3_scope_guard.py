@@ -227,6 +227,35 @@ def misleading_order_claim(response_message: str | None, current_code: str | Non
     return bool("second largest" in msg and "[-2]" in added and _DESC_CODE_RE.search(code))
 
 
+# Claims a reply commonly makes about its own edit, and the code each claim
+# needs to see among the ADDED lines. A claim with no matching added line
+# describes a change that wasn't made (R3-187: "Converted the ArrayList to a
+# Set" when nothing changed; R3-113: "second largest" for the second-smallest).
+_ACTION_CLAIMS = (
+    (re.compile(r"\bsort(ed|s|ing)?\b"), _SORT_CODE_RE),
+    (re.compile(r"\b(converted|removed|removing) (\w+ )*(to a |into a |using a )?set\b|\bremoved (the )?duplicates\b"),
+     re.compile(r"\bset\s*\(|HashSet|TreeSet|new Set\s*\(|dict\.fromkeys|\.distinct\s*\(|\.remove\s*\(|\.pop\s*\(|del\s")),
+    (re.compile(r"\b(added|wrote|created) (a |an )?(\w+ )?loop\b"), re.compile(r"^\s*(for|while)\b|\bfor\s*\(|\bwhile\s*\(|\.forEach\s*\(", re.M)),
+    (re.compile(r"\b(converted|converts|converting) (\w+ ){0,4}(to|into) (an? )?(int|integer|float|number)s?\b"),
+     re.compile(r"\bint\s*\(|\bfloat\s*\(|\bmap\s*\(\s*(int|float)\b|parseInt|parseDouble|Integer\.valueOf|Number\s*\(|parseFloat|nextInt")),
+    (re.compile(r"\b(printed|prints|printing|added (a |the )?print)\b"), re.compile(r"\bprint\s*\(|System\.out\.|console\.log")),
+    (re.compile(r"\b(added|wrapped in) (a |an )?(try|except|catch|error handling|validation)\b"),
+     re.compile(r"^\s*(try|except|catch)\b|\bcatch\s*\(|\bexcept\b|\braise\b|\bthrow\b", re.M)),
+)
+
+
+def misleading_claim(response_message: str | None, current_code: str | None, new_code: str | None) -> bool:
+    """True when the reply describes a change the code doesn't contain -
+    a wrong sort order (see misleading_order_claim), or a claimed action
+    (sorted, converted to a set, added a loop, ...) with no added line
+    doing it."""
+    if misleading_order_claim(response_message, current_code, new_code):
+        return True
+    msg = (response_message or "").lower()
+    added = "\n".join(added_lines(current_code, new_code))
+    return any(claim.search(msg) and not code.search(added) for claim, code in _ACTION_CLAIMS)
+
+
 def diff_summary(current_code: str | None, new_code: str | None) -> str:
     """A reply built from the actual change, used when the model's own
     description can't be trusted."""

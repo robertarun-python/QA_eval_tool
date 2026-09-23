@@ -311,7 +311,7 @@ def round3_coding_turn(
     )
     def _finish(r: dict) -> dict:
         r = _ensure_java_main(r, language)
-        if r["response_kind"] == "code_edit" and round3_scope_guard.misleading_order_claim(
+        if r["response_kind"] == "code_edit" and round3_scope_guard.misleading_claim(
             r["response_message"], current_code, r.get("code_after"),
         ):
             r = {**r, "response_message": round3_scope_guard.diff_summary(current_code, r.get("code_after"))}
@@ -1092,16 +1092,34 @@ def round4_auto_turn(
         # (see round4_auto_policy.unrequested_assertions): regenerate once,
         # then remove whatever still doesn't; anything that can't be removed
         # safely is recorded for scoring.
-        flagged = round4_auto_policy.unrequested_assertions(language, current_code, parsed["code_after"], *design_args)
-        if flagged:
-            retry, retry_planted = _generate(_UNREQUESTED_ASSERTIONS_NOTE.format(lines="\n".join(flagged)))
+        # A planted flaw may itself be one faked observation - never more
+        # (see round4_auto_policy.fabricated_observations).
+        allowed_fakes = 1 if inject_flaw else 0
+
+        def _problems(code: str) -> tuple[list[str], list[str]]:
+            fakes = round4_auto_policy.fabricated_observations(current_code, code)
+            return (
+                round4_auto_policy.unrequested_assertions(language, current_code, code, *design_args),
+                fakes if len(fakes) > allowed_fakes else [],
+            )
+
+        flagged, fakes = _problems(parsed["code_after"])
+        if flagged or fakes:
+            notes = []
+            if flagged:
+                notes.append(_UNREQUESTED_ASSERTIONS_NOTE.format(lines="\n".join(flagged)))
+            if fakes:
+                notes.append(_FABRICATED_OBSERVATIONS_NOTE.format(lines="\n".join(fakes)))
+            retry, retry_planted = _generate("\n\n".join(notes))
             if retry["response_kind"] == "code_edit":
                 parsed, planted_flaw = retry, retry_planted
-                flagged = round4_auto_policy.unrequested_assertions(language, current_code, parsed["code_after"], *design_args)
+                flagged, fakes = _problems(parsed["code_after"])
             if flagged:
                 parsed["code_after"], remaining = round4_auto_policy.drop_single_line_statements(parsed["code_after"], flagged)
                 if remaining:
                     parsed["unrequested_checks"] = remaining
+            if fakes:
+                parsed["fabricated_observations"] = fakes
     else:
         # Replies must not reveal values that exist only in the environment
         # (see round4_auto_policy.leaked_environment_values).
@@ -1126,6 +1144,14 @@ _UNREQUESTED_ASSERTIONS_NOTE = (
     "these checks, which nothing in the candidate's design or messages asks for:\n{lines}\n"
     "Write the code again WITHOUT them. Encode only checks for the candidate's own expected result "
     "and instructions."
+)
+
+_FABRICATED_OBSERVATIONS_NOTE = (
+    "IMPORTANT - your previous attempt was rejected before the candidate saw it, because it gave "
+    "fixed values to things the test is supposed to read from the application:\n{lines}\n"
+    "Write the code again so every step the candidate described is actually performed and every "
+    "observed value is read through the environment's helpers. If a step can't be done with the "
+    "helpers provided, respond with \"explain\" and say which step, instead of faking it."
 )
 
 _ENVIRONMENT_LEAK_NOTE = (
