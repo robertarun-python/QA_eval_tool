@@ -118,6 +118,29 @@ def test_run_code_surfaces_java_compile_failure_as_compile_stderr(monkeypatch):
     assert result.exit_code == 1
 
 
+def test_run_code_treats_macos_java_placeholder_as_infra_error(monkeypatch):
+    """macOS's /usr/bin/javac placeholder (no JDK installed) is found by
+    shutil.which but only prints this - a host problem, never reported
+    as the candidate's compile error."""
+    monkeypatch.setattr(execution_service.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def fake_compile_run(cmd, cwd, capture_output, text, timeout):
+        class FakeProc:
+            returncode = 1
+            stderr = (
+                "The operation couldn’t be completed. Unable to locate a Java Runtime.\n"
+                "Please visit http://www.java.com for information on installing Java.\n"
+            )
+            stdout = ""
+        return FakeProc()
+
+    monkeypatch.setattr(execution_service.subprocess, "run", fake_compile_run)
+    result = execution_service.run_code(language="java", code="public class Main {}", stdin=[])
+    assert result.infra_error is True
+    assert result.stderr == ""
+    assert result.exit_code is None
+
+
 def test_run_code_does_not_reach_run_stage_on_compile_failure(monkeypatch):
     """A compile failure must short-circuit before _run_subprocess (the
     `run` stage) is ever called - there's no binary to run."""

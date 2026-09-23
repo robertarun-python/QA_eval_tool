@@ -57,6 +57,10 @@ def _child_env() -> dict:
     one environment is safe for all three languages."""
     return {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
+# What macOS's /usr/bin/javac placeholder prints when no JDK is installed
+# (see the java branch of _prepare_run).
+_MISSING_JAVA_RUNTIME_MARKERS = ("Unable to locate a Java Runtime",)
+
 # javac requires the public class name to match the filename exactly -
 # this fixes the class name the round 3 turn-generation prompt should
 # have the assistant use for Java (see round3_coding_turn.txt), matching
@@ -121,11 +125,19 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
             timeout=timeout_seconds,
         )
         if compile_proc.returncode != 0:
+            compile_stderr = compile_proc.stderr.strip()
+            # macOS ships /usr/bin/javac and /usr/bin/java as placeholders
+            # even with no JDK installed - shutil.which finds them, and
+            # "compiling" just prints this and exits 1. That's a missing
+            # toolchain on the host (same as which() finding nothing), not
+            # the candidate's code - left as a compile failure it was
+            # scored as every test case failing.
+            if any(marker in compile_stderr for marker in _MISSING_JAVA_RUNTIME_MARKERS):
+                return _PreparedRun(infra_error=True)
             # Same "[compile]" prefix convention the old Piston
             # integration used, so HR/candidates keep seeing a compile
             # failure clearly distinguished from a runtime one - a real
             # candidate-code fault, not infra_error.
-            compile_stderr = compile_proc.stderr.strip()
             stderr = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
             return _PreparedRun(compile_stderr=stderr, compile_exit_code=compile_proc.returncode)
         return _PreparedRun(run_cmd=[java, "-cp", str(tmp_path), "Main"])
