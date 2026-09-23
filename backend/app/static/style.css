@@ -2025,3 +2025,15 @@ span.cdd-mini-label { margin-right: 0.35rem; }
    header) is position: absolute - without a positioned ancestor it escapes
    the scroll box and widens the page on narrow screens. */
 #candidate-detail .table-scroll { position: relative; }
+
+/* ---- Phase 5 polish ---- */
+/* Screen-reader-only text (position: absolute) anywhere in the detail
+   view stays inside it - otherwise it escapes the .app-main scroll area
+   and makes the whole document scroll as well (e.g. the AI summary's
+   ", below pass mark" chip text). */
+#candidate-detail-view { position: relative; }
+/* Row headers in the appearances table read and align like data cells
+   (the global th style is for column headers). */
+.cdd-appearances-table tbody th[scope="row"] { padding: 0.75rem 0; border-bottom: 1px solid var(--border); font-size: inherit; letter-spacing: normal; }
+.cdd-appearances-table tbody tr:last-child th[scope="row"] { border-bottom: none; }
+.cdd-appearances-table tbody th + td { padding-left: var(--space-compact); }
