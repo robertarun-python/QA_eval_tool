@@ -132,3 +132,21 @@ def test_candidate_summary_prompt_has_an_injection_guardrail(monkeypatch):
         candidate_email="x@example.com", experience_band="0-7", rounds=[],
     )
     assert _GUARDRAIL_PHRASE in captured["prompt"]
+
+
+def test_round4_auto_scoring_prompt_has_an_injection_guardrail(monkeypatch):
+    """The AI-Assisted Test Automation scorer - added after the other
+    scoring prompts got their guardrail, and missed until the Sep 2026
+    guardrail review."""
+    captured = {}
+
+    def _fake_call(prompt, max_tokens=4096):
+        captured["prompt"] = prompt
+        return '{"scores": {}, "final_score": 0, "findings": [], "feedback_text": ""}'
+
+    monkeypatch.setattr(llm_service, "_call_claude", _fake_call)
+    llm_service.score_round4_auto_conversation(
+        language="python", tc_evidence=[], ground_truth="", validation_notes="",
+    )
+    assert _GUARDRAIL_PHRASE in captured["prompt"]
+    assert "<candidate_submission>" in captured["prompt"]

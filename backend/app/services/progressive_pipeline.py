@@ -80,7 +80,7 @@ _SAFE_FALLBACK_MESSAGE = (
 _POLICY_REFUSAL_MESSAGES = {
     progressive_policy.REFUSE_COMPLETE_SOLUTION: "I can't build this for you - tell me what you want built, and I'll do exactly that.",
     progressive_policy.REFUSE_TEST_GENERATION: "That's for you to decide - tell me the specific test values you want to try.",
-    progressive_policy.REFUSE_EDGE_CASE_GENERATION: "That's for you to identify - think about cases like duplicates, empty input, and boundary values, then decide how to test for them.",
+    progressive_policy.REFUSE_EDGE_CASE_GENERATION: "That's for you to identify - decide which cases matter, then tell me what to write.",
     progressive_policy.REFUSE_FUTURE_REQUIREMENT: "I can only help with the current stage's requirement - I don't have information about anything beyond it.",
     progressive_policy.REFUSE_HIDDEN_TEST_REFERENCE_LEAK: "I can't share that - hidden tests and reference solutions aren't available to disclose.",
     progressive_policy.REFUSE_CANDIDATE_REASONING: "Deciding on your approach or algorithm is your job, not mine - tell me the specific step you've already decided on, and I'll help you execute it.",

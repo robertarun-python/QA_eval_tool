@@ -797,7 +797,7 @@ def test_guardrail_request_for_test_cases_requires_asking_first(monkeypatch):
 def test_guardrail_request_for_edge_cases_is_refused_not_answered(monkeypatch):
     result, prompt = _round3_turn(
         monkeypatch, "what are the edge cases I need to worry about here?",
-        '{"response_kind": "refuse", "response_message": "That\'s for you to identify - think about cases like duplicates, empty input, and boundary values, then decide how to test for them.", "code_after": null, "category_status": {}}',
+        '{"response_kind": "refuse", "response_message": "That\'s for you to identify - decide which cases matter, then tell me what to write.", "code_after": null, "category_status": {}}',
     )
     assert "Asking you to identify edge cases" in prompt
     assert result["response_kind"] == "refuse"

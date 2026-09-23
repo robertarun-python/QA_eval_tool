@@ -169,7 +169,11 @@ def test_edge_case_request_is_refused_without_calling_the_generator(db, attempt,
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: call_count.update(n=call_count["n"] + 1) or json.dumps({}))
     result = handle_candidate_turn(db, attempt, "give me edge cases")
     assert result.accepted is False
-    assert "duplicates, empty input" in result.response_message
+    assert "That's for you to identify" in result.response_message
+    # The refusal must not itself name the kinds of cases - for many
+    # problems those ARE the edge cases being assessed.
+    for leak in ("duplicate", "empty", "boundary", "invalid"):
+        assert leak not in result.response_message.lower()
     assert call_count["n"] == 0
 
 
