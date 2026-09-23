@@ -123,7 +123,10 @@ let candidateDetailSeq = 0;             // bumped on every openCandidateDetail -
 let appearanceDetailSeq = 0;            // same idea for the "Past appearances" drill-down
 const candidateDetailPending = new Set(); // in-flight detail actions ("retry-12", "override-12", "summary-3"...) - a double-click can't send the same request twice
 let candidateDetailReturn = null;       // { scrollTop, email } - where Back returns to in the candidates list (scroll position, and whose "View report" button gets focus back)
-let candidatesListStale = false;        // a retry/override changed a score while the detail view was open - Back re-fetches the list (keeping search/filter/page) instead of showing stale numbers
+let candidatesListStale = false;
+let candidateDetailArchived = null;     // { appearanceId, exam_date, created_at, aggregate_score } while an archived appearance is open in the detail view - null for the current report
+const archivedSubmissionIds = new Set(); // submissions of the archived appearance on screen - Retry/Override refuse these even if called directly
+let candidateAppearances = [];          // last GET /hr/candidates/{id}/appearances for the open candidate        // a retry/override changed a score while the detail view was open - Back re-fetches the list (keeping search/filter/page) instead of showing stale numbers
 let timerHandle = null;
 let rowCount = 0;
 let round4State = null;           // last-fetched Round4StateOut, refreshed after every turn/test-case creation
@@ -1864,7 +1867,7 @@ function renderSubmissionsPanels(submissions, opts = {}) {
   const byRound = {};
   submissions.forEach((s) => { byRound[s.round_number] = s; });
   const order = opts.allRounds ? [1, 2, 3, 4] : submissions.map((s) => s.round_number);
-  return order.map((n) => (byRound[n] ? renderRoundCard(byRound[n]) : renderRoundPlaceholder(n))).join("");
+  return order.map((n) => (byRound[n] ? renderRoundCard(byRound[n], opts) : renderRoundPlaceholder(n))).join("");
 }
 
 function renderRoundPlaceholder(n) {
@@ -1887,7 +1890,7 @@ function renderRoundPlaceholder(n) {
 // renderer mapping below is deliberate (rounds 2 and 4 were renumbered -
 // see selectHRRound) - R1 side-by-side, R2 -> renderRound4Report,
 // R3 -> renderRound3Report, R4 -> renderRound2Report.
-function renderRoundCard(s) {
+function renderRoundCard(s, opts = {}) {
   const n = s.round_number;
   const events = s.tab_switch_events_json || [];
   const flags = [];
@@ -1913,7 +1916,7 @@ function renderRoundCard(s) {
       ${flags.length ? `<ul class="cdd-rcard-flags">${flags.map((f) => `<li><span aria-hidden="true">&#9888;</span> ${escapeHtml(f)}</li>`).join("")}</ul>` : ""}
       <section class="cdd-rcard-section">
         <h5 class="cdd-rcard-label">Result</h5>
-        ${renderScoreBlock(s)}
+        ${renderScoreBlock(s, opts)}
       </section>
       ${s.scenario ? `
         <details class="scenario-question" open>
@@ -1978,14 +1981,17 @@ function scoreActionsHtml(s, toggleLabel) {
   `;
 }
 
-function renderScoreBlock(s) {
+// opts.readOnly (archived appearances): the same score, evidence and audit
+// trail, but no Retry / Override controls at all.
+function renderScoreBlock(s, opts = {}) {
   const passing = passingScoreForRound(s.round_number);
+  const actions = (label) => (opts.readOnly ? "" : scoreActionsHtml(s, label));
   if (s.status === "scoring_failed") {
     return `
       <div class="panel-inset cd-score-failed">
         <p><strong class="score-bad">Scoring failed</strong></p>
         <p class="muted">${escapeHtml(s.scoring_error || "Unknown error.")}</p>
-        ${scoreActionsHtml(s, "Score manually")}
+        ${actions("Score manually")}
       </div>
     `;
   }
@@ -2022,13 +2028,14 @@ function renderScoreBlock(s) {
       </div>
       ${conceptCoverageLine(sc.concept_coverage_json)}
       ${renderScoreAudit(sc)}
-      ${scoreActionsHtml(s, "Override score")}
+      ${actions("Override score")}
     `;
   }
   return `<p class="cdd-card-note muted">No score yet &middot; pass mark ${passing}</p>`;
 }
 
 function toggleScoreOverrideForm(submissionId) {
+  if (archivedSubmissionIds.has(submissionId)) return;
   const el = document.getElementById(`override-form-${submissionId}`);
   const toggle = document.getElementById(`override-toggle-${submissionId}`);
   const statusEl = document.getElementById(`score-status-${submissionId}`);
@@ -2065,6 +2072,7 @@ function toggleScoreOverrideForm(submissionId) {
 }
 
 async function retryScoring(submissionId) {
+  if (archivedSubmissionIds.has(submissionId)) return;
   const key = `retry-${submissionId}`;
   if (candidateDetailPending.has(key)) return;
   const statusEl = document.getElementById(`score-status-${submissionId}`);
@@ -2088,6 +2096,7 @@ async function retryScoring(submissionId) {
 }
 
 async function saveScoreOverride(submissionId) {
+  if (archivedSubmissionIds.has(submissionId)) return;
   const key = `override-${submissionId}`;
   if (candidateDetailPending.has(key)) return;
   const statusEl = document.getElementById(`score-status-${submissionId}`);
@@ -2311,6 +2320,7 @@ async function openCandidateDetail(id, opts = {}) {
     }
     view.classList.remove("hidden");
     page.classList.add("is-detail-open");
+    candidateAppearances = [];
     renderCandidateDetailShell(id);   // resets .app-main's scroll (setPageHeader)...
     // ...which is all it takes on wider screens. On mobile the document
     // scrolls instead, with the nav stacked above - bring the page title
@@ -2350,22 +2360,12 @@ async function openCandidateDetail(id, opts = {}) {
   candidateDetailSubmissions = submissions; // so generateCandidateSummary can label each round's comment with its real title/score
   appearanceDetailSeq++;             // drop any past-appearance drill-down still loading for the previous render
 
+  setCandidateDetailArchived(null);
   box.innerHTML = `
+    ${candidateSummaryPanelHtml(id, false)}
+    <h3 class="cdd-section-title cdd-report-section">Round details</h3>
     ${renderSubmissionsPanels(submissions, { allRounds: true })}
-    <div class="panel-inset">
-      <h4>Summary</h4>
-      <p class="muted">A crisp, cross-round synthesis for feedback to the candidate or a briefing for the next round's interviewers.</p>
-      <div id="candidate-summary-controls" class="row">
-        <button onclick="generateCandidateSummary(${id})">Generate Summary</button>
-      </div>
-      <div id="candidate-summary-body"></div>
-    </div>
-    <div class="panel-inset">
-      <h4>Past appearances</h4>
-      <p class="muted">Every previous upload cycle for this candidate - re-applying resets their current attempt but keeps the old one here.</p>
-      <div id="appearances-list"></div>
-      <div id="appearance-detail"></div>
-    </div>
+    ${pastAppearancesPanelHtml()}
   `;
   loadAppearances(id, seq);
   loadExistingCandidateSummary(id, seq);
@@ -2374,8 +2374,69 @@ async function openCandidateDetail(id, opts = {}) {
     const heading = document.getElementById(`round-${opts.focusRound}-title`);
     if (heading) heading.focus({ preventScroll: true });
   }
+  if (opts.fromArchive) document.getElementById("candidate-detail-heading").focus({ preventScroll: true });
   // The load-failure banner above is role="alert" and announces itself.
-  announceCandidateDetail(opts.refresh ? "Report updated." : "Candidate report loaded.");
+  announceCandidateDetail(opts.fromArchive ? "Current report loaded." : opts.refresh ? "Report updated." : "Candidate report loaded.");
+}
+
+// Same two sections in the current and the archived report. The AI
+// summary is saved per candidate and built from the CURRENT cycle only
+// (hr.py's _gather_candidate_rounds) - on an archived appearance it's
+// shown for reference with PDF only, since Generate/Regenerate/Delete
+// would overwrite or remove the candidate's one saved summary.
+function candidateSummaryPanelHtml(id, readOnly) {
+  return `
+    <section class="panel-inset cdd-ai-summary" aria-labelledby="cdd-ai-summary-title">
+      <div class="cdd-panel-head">
+        <h3 class="cdd-panel-title" id="cdd-ai-summary-title">AI summary</h3>
+        <div id="candidate-summary-controls" class="cdd-rcard-actions">
+          ${readOnly ? "" : `<button onclick="generateCandidateSummary(${Number(id)})">Generate Summary</button>`}
+        </div>
+      </div>
+      <p class="cdd-card-note muted">${readOnly
+        ? "Covers the candidate's current cycle, not this archived appearance. Read-only here - generate, regenerate and delete from the current report."
+        : "A crisp, cross-round synthesis for feedback to the candidate or a briefing for the next round's interviewers."}</p>
+      <div id="candidate-summary-body"></div>
+    </section>
+  `;
+}
+
+function pastAppearancesPanelHtml() {
+  return `
+    <section class="panel-inset cdd-appearances" aria-labelledby="cdd-appearances-title">
+      <h3 class="cdd-panel-title" id="cdd-appearances-title">Past appearances</h3>
+      <p class="cdd-card-note muted">Every upload cycle for this candidate - re-applying resets the current attempt but keeps the old one here, read-only.</p>
+      <div id="appearances-list"></div>
+    </section>
+  `;
+}
+
+// Enter / leave archived mode: the header cards (Phase 2 summary) describe
+// the current cycle, so they're hidden while an archived appearance is on
+// screen, and the breadcrumb says which cycle this is.
+function setCandidateDetailArchived(a) {
+  candidateDetailArchived = a;
+  if (!a) archivedSubmissionIds.clear();
+  document.getElementById("candidate-detail-view").classList.toggle("is-archived", !!a);
+  const heading = document.getElementById("candidate-detail-heading");
+  const name = heading ? heading.textContent : "";
+  document.getElementById("candidate-detail-crumb").textContent = a ? `${name} - archived appearance (exam ${formatDate(a.exam_date)})` : name;
+}
+
+function scrollCandidateDetailToTop() {
+  const main = document.querySelector(".app-main");
+  if (pageScroller() === main) main.scrollTop = 0;
+  else document.querySelector(".app-topbar").scrollIntoView({ block: "start" });
+}
+
+// Back from an archived appearance to the candidate's current report,
+// in the same detail view (identity, breadcrumb and Back stay as they are).
+function showCurrentCandidateReport() {
+  if (currentCandidateDetailId == null) return;
+  setCandidateDetailArchived(null);
+  scrollCandidateDetailToTop();
+  document.getElementById("candidate-detail").innerHTML = `<div aria-busy="true">${loadingHtml("Loading report...")}</div>`;
+  openCandidateDetail(currentCandidateDetailId, { refresh: true, fromArchive: true });
 }
 
 // Back to the candidates list. The list was only hidden, so its search,
@@ -2396,6 +2457,10 @@ async function closeCandidateDetail(opts = {}) {
   document.getElementById("candidate-detail").innerHTML = "";
   document.getElementById("candidate-detail-identity").innerHTML = "";
   document.getElementById("candidate-detail-summary").innerHTML = "";
+  candidateDetailArchived = null;
+  archivedSubmissionIds.clear();
+  candidateAppearances = [];
+  view.classList.remove("is-archived");
   const ret = candidateDetailReturn || { scrollTop: 0, email: null };
   candidateDetailReturn = null;
   if (opts.silent) {
@@ -2447,24 +2512,35 @@ async function loadAppearances(candidateId, seq) {
     return;
   }
   if (seq !== candidateDetailSeq) return;
+  candidateAppearances = appearances;
   if (appearances.length === 0) {
     listEl.innerHTML = `<p class="muted">No upload history - this candidate wasn't created via bulk upload.</p>`;
     return;
   }
+  const current = appearances.find((a) => a.is_current);
+  const viewing = candidateDetailArchived ? candidateDetailArchived.appearanceId : current && current.id;
   listEl.innerHTML = `
     <div class="table-scroll">
-      <table>
-        <thead><tr><th>Exam date</th><th>Status</th><th>Aggregate</th><th></th></tr></thead>
+      <table class="cdd-appearances-table">
+        <caption class="sr-only">Upload cycles for this candidate</caption>
+        <thead>
+          <tr><th scope="col">Exam date</th><th scope="col">Uploaded</th><th scope="col">Status</th><th scope="col">Overall</th><th scope="col"><span class="sr-only">Actions</span></th></tr>
+        </thead>
         <tbody>
           ${appearances.map((a) => `
-            <tr>
-              <td>${formatDate(a.exam_date)}</td>
+            <tr class="${a.id === viewing ? "is-viewing" : ""}" ${a.id === viewing ? 'aria-current="true"' : ""}>
+              <th scope="row">${formatDate(a.exam_date)}</th>
+              <td>${formatDateTime(a.created_at)}</td>
               <td>
-                ${a.is_current ? '<span class="badge badge-published">Current</span>' : '<span class="badge">Archived</span>'}
-                ${a.reapplied_within_window ? '<span class="badge badge-draft">Re-applied</span>' : ""}
+                <span class="cdd-status-pill ${a.is_current ? "is-current" : "is-archived"}">${a.is_current ? "Current" : "Archived"}</span>
+                ${a.reapplied_within_window ? '<span class="cd-reapplied">Re-applied</span>' : ""}
               </td>
-              <td>${a.aggregate_score != null ? `${a.aggregate_score}/400` : `<span class="muted">-</span>`}</td>
-              <td><button onclick="viewAppearance(${candidateId}, ${a.id})">View</button></td>
+              <td>${a.aggregate_score != null ? `<span class="cdd-appearance-score">${a.aggregate_score}</span><span class="muted"> / 400</span>` : `<span class="muted">Not scored</span>`}</td>
+              <td class="cdd-appearance-action">
+                ${a.id === viewing ? `<span class="muted">Viewing</span>`
+                  : a.is_current ? `<button type="button" class="cd-view-btn" onclick="showCurrentCandidateReport()">View current report <span aria-hidden="true">&rsaquo;</span></button>`
+                  : `<button type="button" class="cd-view-btn" onclick="viewAppearance(${Number(candidateId)}, ${Number(a.id)})" aria-label="View archived report, exam ${formatDate(a.exam_date)}">View report <span aria-hidden="true">&rsaquo;</span></button>`}
+              </td>
             </tr>
           `).join("")}
         </tbody>
@@ -2473,24 +2549,59 @@ async function loadAppearances(candidateId, seq) {
   `;
 }
 
+// An archived appearance opens in the same detail view, read-only: its
+// rounds and evidence, the (current-cycle) AI summary for reference, and
+// the appearances list to move between cycles. Archived vs current comes
+// from the appearances API's own is_current flag.
 async function viewAppearance(candidateId, appearanceId) {
-  const seq = ++appearanceDetailSeq;
-  const detailEl = document.getElementById("appearance-detail");
-  detailEl.innerHTML = loadingHtml();
+  const meta = candidateAppearances.find((a) => a.id === appearanceId);
+  if (!meta) return;
+  if (meta.is_current) { showCurrentCandidateReport(); return; }
+  const seq = ++candidateDetailSeq;
+  appearanceDetailSeq++;
+  const box = document.getElementById("candidate-detail");
+  setCandidateDetailArchived({ appearanceId, exam_date: meta.exam_date, created_at: meta.created_at, aggregate_score: meta.aggregate_score });
+  scrollCandidateDetailToTop();
+  box.innerHTML = `<div aria-busy="true">${loadingHtml("Loading archived report...")}</div>`;
+  announceCandidateDetail("Loading archived report.");
   let submissions;
   try {
     submissions = await api(`/hr/candidates/${candidateId}/appearances/${appearanceId}/report`);
   } catch (e) {
-    if (seq !== appearanceDetailSeq || !detailEl.isConnected) return;
-    detailEl.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
-    announceCandidateDetail(`Couldn't load that appearance: ${e.message}`);
+    if (seq !== candidateDetailSeq) return;
+    box.innerHTML = `
+      <div class="banner banner-error" role="alert">
+        <span class="banner-icon" aria-hidden="true">!</span>
+        <div>
+          <strong>Couldn't load this archived report</strong>
+          <p class="muted">${escapeHtml(e.message)}</p>
+          <div class="cdd-rcard-actions">
+            <button type="button" class="btn-secondary btn-sm" onclick="viewAppearance(${Number(candidateId)}, ${Number(appearanceId)})">Try again</button>
+            <button type="button" class="btn-ghost btn-sm" onclick="showCurrentCandidateReport()">Back to current report</button>
+          </div>
+        </div>
+      </div>
+    `;
     return;
   }
-  // A different appearance was clicked, or the whole panel re-rendered,
-  // while this one was loading.
-  if (seq !== appearanceDetailSeq || !detailEl.isConnected) return;
-  detailEl.innerHTML = renderSubmissionsPanels(submissions);
-  announceCandidateDetail("Past appearance report loaded.");
+  if (seq !== candidateDetailSeq) return;
+  archivedSubmissionIds.clear();
+  submissions.forEach((sub) => archivedSubmissionIds.add(sub.id));
+  box.innerHTML = `
+    <div class="cdd-readonly-banner">
+      <h3 class="cdd-readonly-title" id="cdd-readonly-title" tabindex="-1">Read-only &mdash; archived appearance</h3>
+      <p>Exam ${formatDate(meta.exam_date)} &middot; uploaded ${formatDateTime(meta.created_at)}${meta.aggregate_score != null ? ` &middot; overall ${meta.aggregate_score} / 400` : ""}. Scores, evidence and audit details can be viewed; Retry scoring and Override are not available for archived appearances.</p>
+      <div class="cdd-rcard-actions"><button type="button" class="btn-secondary btn-sm" onclick="showCurrentCandidateReport()">Back to current report</button></div>
+    </div>
+    ${candidateSummaryPanelHtml(candidateId, true)}
+    <h3 class="cdd-section-title cdd-report-section">Round details</h3>
+    ${renderSubmissionsPanels(submissions, { readOnly: true })}
+    ${pastAppearancesPanelHtml()}
+  `;
+  loadAppearances(candidateId, seq);
+  loadExistingCandidateSummary(candidateId, seq, { readOnly: true });
+  document.getElementById("cdd-readonly-title").focus({ preventScroll: true });
+  announceCandidateDetail("Archived appearance loaded. Read-only.");
 }
 
 // Tries to load a summary saved from an earlier visit (see models.
@@ -2500,16 +2611,19 @@ async function viewAppearance(candidateId, appearanceId) {
 // back something that already exists. A 404 here is the normal "nothing
 // generated yet" case, not an error - the static "Generate Summary"
 // button already in the panel is left exactly as it is.
-async function loadExistingCandidateSummary(id, seq) {
+async function loadExistingCandidateSummary(id, seq, opts = {}) {
   let result;
   try {
     result = await api(`/hr/candidates/${id}/summary`);
   } catch (e) {
-    // Leave the initial "Generate Summary" button in place.
+    // Current report: leave the initial "Generate Summary" button in place.
+    if (opts.readOnly && seq === candidateDetailSeq) {
+      document.getElementById("candidate-summary-body").innerHTML = `<p class="muted">No summary has been generated for this candidate yet.</p>`;
+    }
     return;
   }
   if (seq !== candidateDetailSeq) return;
-  renderCandidateSummary(id, result);
+  renderCandidateSummary(id, result, opts);
 }
 
 // Disables every summary button (Generate/Regenerate/Download/Delete)
@@ -2520,6 +2634,7 @@ function setCandidateSummaryControlsBusy(busy) {
 }
 
 async function generateCandidateSummary(id) {
+  if (candidateDetailArchived) return;
   const key = `summary-${id}`;
   if (candidateDetailPending.has(key)) return;
   const seq = candidateDetailSeq;
@@ -2550,7 +2665,7 @@ async function generateCandidateSummary(id) {
 // Shared by both paths above - a freshly-generated summary and one
 // loaded back from an earlier visit render identically, since both are
 // now just "whatever's currently saved" (see models.CandidateSummary).
-function renderCandidateSummary(id, result) {
+function renderCandidateSummary(id, result, opts = {}) {
   candidateSummaryData = result;
 
   const bulletList = (items, variant) => items.length
@@ -2566,7 +2681,7 @@ function renderCandidateSummary(id, result) {
     const label = ROUND_LABELS[rc.round_number] || `Round ${rc.round_number}`;
     const passed = submission && submission.score && submission.score.final_score >= passingScoreForRound(rc.round_number);
     const scoreChip = submission && submission.score
-      ? `<span class="badge badge-score ${passed ? "badge-pass" : "badge-fail"}">${submission.score.final_score}/100</span>`
+      ? `<span class="badge badge-score ${passed ? "badge-pass" : "badge-fail"}"><span aria-hidden="true">${passed ? "&#10003;" : "&#10005;"}</span> ${submission.score.final_score}/100<span class="sr-only">, ${passed ? "meets" : "below"} pass mark</span></span>`
       : submission && submission.status === "scoring_failed"
         ? `<span class="badge badge-score badge-fail">Scoring failed</span>`
         : `<span class="badge badge-score">Not scored yet</span>`;
@@ -2574,7 +2689,7 @@ function renderCandidateSummary(id, result) {
     return `
       <div class="panel-inset summary-round ${accentClass}">
         <div class="summary-round-head">
-          <h5><span class="summary-round-number">${String(rc.round_number).padStart(2, "0")}</span>${escapeHtml(label)}</h5>
+          <h4><span class="summary-round-number">${String(rc.round_number).padStart(2, "0")}</span>${escapeHtml(label)}</h4>
           ${scoreChip}
         </div>
         <div class="summary-cols">
@@ -2600,7 +2715,7 @@ function renderCandidateSummary(id, result) {
       <p class="summary-verdict-text">${escapeHtml(result.verdict)}</p>
     </div>
     <div class="panel-inset summary-observations-panel">
-      <h5>Key Observations</h5>
+      <h4>Key Observations</h4>
       <ul class="summary-observations">${result.key_observations.map((o) => `<li>${escapeHtml(o)}</li>`).join("")}</ul>
     </div>
     ${roundBlocks}
@@ -2613,7 +2728,9 @@ function renderCandidateSummary(id, result) {
   // button - see lastLoadedScenarios above). downloadCandidateSummaryPdf/
   // deleteCandidateSummary read the email straight from
   // candidateSummaryData instead - already fetched, right above.
-  document.getElementById("candidate-summary-controls").innerHTML = `
+  document.getElementById("candidate-summary-controls").innerHTML = opts.readOnly
+    ? `<button onclick="downloadCandidateSummaryPdf(${id})">Download as PDF</button>`
+    : `
     <button onclick="generateCandidateSummary(${id})">Regenerate</button>
     <button onclick="downloadCandidateSummaryPdf(${id})">Download as PDF</button>
     <button class="btn-danger" onclick="deleteCandidateSummary(${id})">Delete</button>
@@ -2696,6 +2813,7 @@ async function downloadDailySummary() {
 }
 
 async function deleteCandidateSummary(id) {
+  if (candidateDetailArchived) return;
   const key = `summary-${id}`;
   if (candidateDetailPending.has(key)) return;
   if (!confirm("Delete this candidate's saved summary? You can generate a new one anytime, but this exact copy will be gone.")) return;

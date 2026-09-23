@@ -950,7 +950,7 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
 .summary-verdict-text { margin: 0; color: var(--text-primary); font-size: var(--text-lg); font-weight: 600; line-height: 1.5; }
 
 .summary-observations-panel { background: var(--surface-elevated); }
-.summary-observations-panel h5 { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 var(--space-tight); }
+.summary-observations-panel h4 { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 0 0 var(--space-tight); }
 .summary-observations { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
 .summary-observations li { padding-left: 1.4rem; position: relative; font-size: var(--text-md); font-weight: 500; line-height: 1.55; }
 .summary-observations li::before { content: "\2022"; position: absolute; left: 0.25rem; color: var(--accent); font-weight: 700; font-size: 1.2em; }
@@ -959,7 +959,7 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
 .summary-round.round-pass { border-left-color: var(--success); }
 .summary-round.round-fail { border-left-color: var(--error); }
 .summary-round-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-tight); margin-bottom: var(--space-tight); }
-.summary-round-head h5 { margin: 0; display: flex; align-items: baseline; gap: 0.5rem; }
+.summary-round-head h4 { margin: 0; display: flex; align-items: baseline; gap: 0.5rem; }
 .summary-round-number { font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); letter-spacing: 0.04em; }
 .badge-score { font-size: var(--text-sm); font-weight: 700; padding: 0.3rem 0.7rem; font-variant-numeric: tabular-nums; }
 
@@ -1992,3 +1992,36 @@ span.cdd-mini-label { margin-right: 0.35rem; }
   #candidate-detail > .panel-inset, .cdd-rcard { padding: 1rem; }
   .cdd-rcard-actions > button { flex: 1 1 auto; }
 }
+
+/* ---- AI summary, past appearances, archived read-only (Phase 4) ---- */
+.cdd-report-section { margin-top: var(--space-default); }
+.cdd-panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-tight) var(--space-compact); margin-bottom: var(--space-tight); }
+.cdd-panel-title { margin: 0 0 var(--space-tight); font-size: var(--text-lg); }
+.cdd-panel-head .cdd-panel-title { margin: 0; }
+.cdd-ai-summary > .cdd-card-note, .cdd-appearances > .cdd-card-note { margin-bottom: var(--space-compact); }
+
+/* Archived appearance: the header cards describe the current cycle, so
+   they're hidden; the banner says plainly what this view is. */
+#candidate-detail-view.is-archived #candidate-detail-summary { display: none; }
+.cdd-readonly-banner {
+  display: flex; flex-direction: column; gap: var(--space-tight);
+  border: 1px solid var(--border-strong); border-left: 4px solid var(--warning); border-radius: var(--radius-lg);
+  background: var(--warning-soft); padding: 1rem 1.25rem; margin-bottom: var(--space-default);
+}
+.cdd-readonly-title { margin: 0; font-size: var(--text-lg); color: var(--text-primary); }
+.cdd-readonly-title:focus { outline: none; }
+.cdd-readonly-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cdd-readonly-banner p { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+
+.cdd-appearances-table { width: 100%; }
+.cdd-appearances-table th[scope="row"] { font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.cdd-appearances-table td, .cdd-appearances-table th { vertical-align: middle; }
+.cdd-appearances-table tr.is-viewing { background: var(--accent-soft); }
+.cdd-appearance-score { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.cdd-appearance-action { text-align: right; white-space: nowrap; }
+.cdd-status-pill.is-current { background: var(--accent-soft); color: var(--accent); }
+.cdd-appearances-table .cd-reapplied { margin-left: 0.35rem; }
+/* A scrolling table's screen-reader-only text (e.g. the "Actions" column
+   header) is position: absolute - without a positioned ancestor it escapes
+   the scroll box and widens the page on narrow screens. */
+#candidate-detail .table-scroll { position: relative; }
