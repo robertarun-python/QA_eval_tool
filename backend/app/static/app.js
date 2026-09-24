@@ -4069,17 +4069,14 @@ function renderRound3CodingLayout(box) {
       <div class="panel-inset round3-coding-pane">
         <p class="muted round3-pane-label">Code</p>
         ${round3CodingEditingCode ? `
-          <div class="code-editor-wrap">
-            <div class="code-editor-gutter" id="round3-coding-code-edit-gutter"><span>1</span></div>
-            <textarea id="round3-coding-code-edit" oninput="round3CodeEditorUpdateGutter(this)" onscroll="round3CodeEditorSyncScroll(this)">${escapeHtml(latestCode)}</textarea>
-          </div>
-          <div class="row">
+          ${codeEditorHtml("round3-coding-code-edit", latestCode)}
+          <div class="row code-actions-sticky">
             <button id="round3-coding-save-btn" onclick="round3CodingSaveDirectEdit()">Save</button>
             <button onclick="round3CodingCancelDirectEdit()">Cancel</button>
           </div>
         ` : `
           <div class="code-snippet code-with-lines" id="round3-coding-code">${latestCode ? codeWithLineNumbersHtml(latestCode) : '<div class="code-line-content">(no code yet)</div>'}</div>
-          <div class="row">
+          <div class="row code-actions-sticky">
             <button onclick="round3CodingStartDirectEdit()">Edit code</button>
             <button id="round3-coding-run-btn" onclick="round3CodingRun()" ${latestCode ? "" : "disabled"}>Run</button>
             <button class="btn-block" onclick="round3CodingSubmit()" ${s.turns.length > 0 ? "" : "disabled"}>Submit Round 3</button>
@@ -4112,8 +4109,7 @@ function renderRound3CodingLayout(box) {
   // its own markup above - existing multi-line code (resuming an edit, or
   // code already pasted in) needs its real line count immediately, not
   // just after the candidate's next keystroke.
-  const editTextarea = document.getElementById("round3-coding-code-edit");
-  if (editTextarea) round3CodeEditorUpdateGutter(editTextarea);
+  initCodeEditors(box);
   autoGrowTextarea(document.getElementById("round3-coding-message"));  // a restored draft
 }
 
@@ -4135,21 +4131,40 @@ function codeWithLineNumbersHtml(code) {
   `;
 }
 
-// Keeps the direct-edit textarea's gutter in sync with its actual line
-// count as the candidate types/pastes - only rewrites the gutter when the
-// count genuinely changed, so a normal keystroke inside a line (not
-// adding/removing a newline) doesn't thrash the DOM on every input event.
-function round3CodeEditorUpdateGutter(textarea) {
-  const gutter = document.getElementById("round3-coding-code-edit-gutter");
-  if (!gutter) return;
-  const lineCount = textarea.value.split("\n").length;
-  if (gutter.children.length === lineCount) return;
-  gutter.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${i + 1}</span>`).join("");
+// One code editor for Round 2 (automation) and Round 3 (coding): a textarea
+// with a line-number gutter, so "line 118" in a stack trace can be found.
+// The gutter is always "<textarea id>-gutter".
+function codeEditorHtml(id, code, extraClass = "", attrs = "") {
+  return `
+    <div class="code-editor-wrap">
+      <div class="code-editor-gutter" id="${id}-gutter" aria-hidden="true"><span>1</span></div>
+      <textarea id="${id}" class="code-editor-input ${extraClass}" spellcheck="false" wrap="off"
+        oninput="codeEditorUpdateGutter(this)" onscroll="codeEditorSyncScroll(this)" ${attrs}>${escapeHtml(code || "")}</textarea>
+    </div>`;
 }
-
-function round3CodeEditorSyncScroll(textarea) {
-  const gutter = document.getElementById("round3-coding-code-edit-gutter");
+// Only rewrites the numbers when the line count actually changed, so a
+// keystroke inside a line doesn't rebuild the gutter on every input event.
+function codeEditorUpdateGutter(textarea) {
+  const gutter = document.getElementById(`${textarea.id}-gutter`);
+  if (!gutter) return;
+  // Numbers only line up if the gutter uses the textarea's exact type
+  // metrics - the Round 2 (dark panel) and Round 3 boxes differ in padding.
+  const cs = getComputedStyle(textarea);
+  for (const prop of ["fontSize", "lineHeight", "paddingTop", "paddingBottom"]) gutter.style[prop] = cs[prop];
+  const lineCount = textarea.value.split("\n").length;
+  if (gutter.children.length !== lineCount) {
+    gutter.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${i + 1}</span>`).join("");
+  }
+  codeEditorSyncScroll(textarea);
+}
+function codeEditorSyncScroll(textarea) {
+  const gutter = document.getElementById(`${textarea.id}-gutter`);
   if (gutter) gutter.scrollTop = textarea.scrollTop;
+}
+// Existing code (resuming an edit, a re-render, code from the assistant)
+// needs its real line numbers straight away, not after the next keystroke.
+function initCodeEditors(root = document) {
+  root.querySelectorAll("textarea.code-editor-input").forEach(codeEditorUpdateGutter);
 }
 
 function round3CodingOnComposerInput(value) {
@@ -5904,11 +5919,11 @@ function round4AutoTcSectionHtml(row) {
       <div class="code-panel r4a-code-panel">
         <div class="code-panel-head"><span>Automation code</span><span>Editable - review before you trust a PASS</span></div>
         <div class="code-panel-body">
-          <textarea id="r4a-code-${row.index}" class="round4-pilot-code r4a-code-editor" spellcheck="false">${escapeHtml(tc.code || "")}</textarea>
+          ${codeEditorHtml(`r4a-code-${row.index}`, tc.code, "round4-pilot-code r4a-code-editor")}
         </div>
       </div>
       ${round4AutoTestDataHtml(row)}
-      <div class="action-bar" style="border-top:none; margin-top:0; padding-top:0">
+      <div class="action-bar code-actions-sticky" style="border-top:none; margin-top:0">
         <span class="muted">Run uses exactly what's in the code box above. Your own edits are recorded separately from the assistant's.</span>
         <div class="action-bar-buttons">
           <button class="btn-secondary r4a-save-btn" onclick="round4AutoSaveCodeClicked(${row.index})">Save my edit</button>
@@ -6025,6 +6040,7 @@ const r4aEditorView = {};
 const R4A_OWN_CODE_RE = /^[ \t]*(async def test_|def test_|function test|(public |private |static |async )*void test|@Test\b|(#|\/\/) *TODO: write your automated)/m;
 
 function round4AutoAfterRender() {
+  initCodeEditors(document.getElementById("round-view"));
   document.querySelectorAll("textarea.r4a-code-editor").forEach((el) => {
     const prev = r4aEditorView[el.id];
     if (prev && prev.code === el.value) {
@@ -6037,6 +6053,7 @@ function round4AutoAfterRender() {
         el.scrollTop = Math.max(0, (line - 2) * lineHeight);  // two lines of context above
       }
     }
+    codeEditorSyncScroll(el);
     const remember = () => { r4aEditorView[el.id] = { code: el.value, scrollTop: el.scrollTop }; };
     remember();
     el.addEventListener("scroll", remember);

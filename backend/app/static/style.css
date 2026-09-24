@@ -1006,7 +1006,6 @@ tr.example-row td { border-bottom: 1px dashed var(--border); }
   background: var(--canvas); border: 1px solid var(--border); padding: 0.9rem 1rem; margin-top: var(--space-tight);
   font-family: var(--font-mono); font-size: var(--text-md); color: var(--text-secondary); white-space: pre-wrap; overflow-wrap: break-word; overflow-x: auto;
 }
-#round3-coding-code-edit { font-family: var(--font-mono); }
 details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--space-tight); font-size: var(--text-md); font-weight: 500; }
 
 /* The scenario question shown above a candidate's submission in HR's
@@ -1100,8 +1099,7 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 #round3-coding-code { min-height: 8rem; }
 /* Code view and editor size to the screen and scroll inside, so Run /
    Submit stay in view instead of sliding down with every added line. */
-#round3-coding-code { max-height: clamp(20rem, 60vh, 44rem); overflow: auto; }
-#round3-coding-code-edit { height: clamp(20rem, 60vh, 44rem); }
+#round3-coding-code { max-height: var(--code-editor-height); overflow: auto; font-size: var(--text-sm); line-height: 1.6; }
 /* Line numbers only stay meaningful against real source lines, not
    visually-wrapped ones - long lines scroll horizontally instead of
    wrapping, same convention as a real code editor/IDE. */
@@ -1112,13 +1110,23 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 }
 .code-line-numbers span { display: block; }
 .code-line-content { white-space: pre; overflow-x: auto; flex: 1; min-width: 0; }
+/* The shared code editor (codeEditorHtml in app.js) - Round 2 and Round 3
+   use the same font, size and height; the gutter copies the textarea's
+   exact metrics at runtime so the numbers stay aligned in either panel. */
+:root { --code-editor-height: clamp(24rem, 65vh, 48rem); }
 .code-editor-wrap { display: flex; }
 .code-editor-gutter {
-  flex-shrink: 0; padding: 0.55rem 0.6rem 0.55rem 0; text-align: right; color: var(--text-muted);
-  font-family: var(--font-mono); font-size: var(--text-base); line-height: 1.55; user-select: none; overflow: hidden; white-space: pre;
+  flex-shrink: 0; padding: 0 0.6rem 0 0; text-align: right; color: var(--text-muted);
+  font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; user-select: none; overflow: hidden; white-space: pre;
 }
 .code-editor-gutter span { display: block; }
-#round3-coding-code-edit { flex: 1; min-width: 0; white-space: pre; overflow: auto; }
+textarea.code-editor-input {
+  flex: 1; min-width: 0; white-space: pre; overflow: auto; tab-size: 4;
+  font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; height: var(--code-editor-height);
+}
+.code-panel-body .code-editor-gutter { color: #6B7394; border-right: 1px solid rgba(228, 232, 245, 0.12); margin-right: 0.75rem; }
+/* Save / Run stay on screen while scrolling through long code. */
+.code-actions-sticky { position: sticky; bottom: 0; z-index: 2; background: inherit; padding-top: var(--space-tight); padding-bottom: var(--space-tight); }
 @media (max-width: 56.25rem) { .round3-coding-grid { grid-template-columns: 1fr; } }
 
 /* Deliberately theme-independent - a real terminal, same as a code
@@ -1346,7 +1354,7 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
    screen instead of a fixed ~15 lines, and only the textarea scrolls (the
    panel around it no longer adds a second scrollbar). */
 .r4a-code-panel .code-panel-body { overflow: hidden; }
-.r4a-code-panel textarea.r4a-code-editor { height: clamp(24rem, 65vh, 48rem); min-height: 12rem; overflow: auto; }
+.r4a-code-panel textarea.r4a-code-editor { min-height: 12rem; }
 /* The conversation above the code no longer pushes it down the page. */
 .r4a-chat-log { max-height: 18rem; overflow-y: auto; }
 
