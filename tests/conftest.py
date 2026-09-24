@@ -13,6 +13,14 @@ from pathlib import Path
 # and write the real qa_eval.db. With this it gets an empty database and
 # fails loudly instead. tests/test_db_isolation.py keeps it that way.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+# Same idea for the AI: tests fake it, so they must never reach the paid API.
+# With no key a stray real call fails loudly instead of spending; only the
+# live replay tests (RUN_LLM_REPLAY=1, a person's decision) keep the key.
+# Tool-use output stays at its code default (off) whatever .env says - the
+# tests pin the behaviour they check.
+os.environ["LLM_TOOL_OUTPUT"] = "false"
+if os.environ.get("RUN_LLM_REPLAY") != "1":
+    os.environ["ANTHROPIC_API_KEY"] = ""
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 

@@ -133,7 +133,7 @@ def _accepts_temperature(model: str) -> bool:
 # only: never the prompt or the reply. The history resets on a server
 # restart; the log lines don't.
 _CALL_LOG: deque = deque(maxlen=500)
-_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_record_call"}
+_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_call_claude_tool", "_record_call"}
 
 
 def _calling_function() -> str:

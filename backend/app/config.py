@@ -65,9 +65,10 @@ class Settings(BaseSettings):
     claude_model: str = "claude-sonnet-4-5"
     # Code-writing AI calls answer through a tool call (llm_service._call_claude_tool)
     # instead of JSON text, so whole code files never need JSON escaping - the
-    # cause of live "Expecting ',' delimiter" failures. Off until validated
-    # once against the real API; if the API rejects it, calls fall back to
-    # the JSON-text path automatically.
+    # cause of live "Expecting ',' delimiter" failures. Validated against the
+    # real API on 2026-09-24 (every code-writing call type); turn on with
+    # LLM_TOOL_OUTPUT=true. If the API rejects it, calls fall back to the
+    # JSON-text path automatically.
     llm_tool_output: bool = False
     # Every AI call returns a scripted reply (services/fake_llm.py) - for manual
     # walkthroughs and browser tests without API credit. Never for real
