@@ -20,7 +20,7 @@ from pydantic import ValidationError
 from ..config import settings
 from ..schemas import (
     Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding,
-    Round4PilotTurnResponse, Round4AutoClarifyLLMResponse,
+    Round4PilotTurnResponse, Round2AutomationClarifyLLMResponse,
 )
 from . import clarify_loop
 from . import fake_llm
@@ -30,8 +30,8 @@ from . import round3_io_format
 from . import round3_construct_engine
 from . import round3_policy
 from . import round3_scope_guard
-from . import round4_auto_policy
-from . import round4_auto_clarify_policy
+from . import round2_automation_policy
+from . import round2_automation_clarify_policy
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -142,8 +142,8 @@ def _calling_function() -> str:
         frame = frame.f_back
     if frame is None:
         return "?"
-    # A nested helper (round4_auto_turn's _generate, R3's _raw_turn) reports
-    # the call site it belongs to: "round4_auto_turn.<locals>._generate" -> "round4_auto_turn".
+    # A nested helper (round2_automation_turn's _generate, R3's _raw_turn) reports
+    # the call site it belongs to: "round2_automation_turn.<locals>._generate" -> "round2_automation_turn".
     return frame.f_code.co_qualname.split(".<locals>.")[0]
 
 
@@ -1005,7 +1005,7 @@ def _repair_escaped_code(code: str | None) -> str | None:
 
 
 # Only ever passed for a test case's first generated code (see
-# routers/candidate.py's round4_auto_turn gate) - deliberately plants one
+# routers/candidate.py's round2_automation_turn gate) - deliberately plants one
 # misleading-pass gap so the round exercises ai_output_review/
 # execution_and_validation for real instead of handing the candidate
 # correct code to rubber-stamp. Every later generation for the same test
@@ -1018,7 +1018,7 @@ Add one extra top-level field to your JSON response, "planted_flaw": ONE sentenc
 """
 
 
-def round4_auto_turn(
+def round2_automation_turn(
     language: str,
     selected_design: list[dict],
     environment_code: str,
@@ -1028,12 +1028,12 @@ def round4_auto_turn(
     inject_flaw: bool = False,
 ) -> dict:
     """One AI turn. The deterministic pre-generation control runs FIRST -
-    round4_auto_policy.is_prohibited - so a request to invent test cases,
+    round2_automation_policy.is_prohibited - so a request to invent test cases,
     data, assertions or coverage never reaches the API at all."""
-    if round4_auto_policy.is_prohibited(candidate_prompt):
-        return {"response_kind": "refuse", "response_message": round4_auto_policy.REFUSAL_MESSAGE, "code_after": None}
+    if round2_automation_policy.is_prohibited(candidate_prompt):
+        return {"response_kind": "refuse", "response_message": round2_automation_policy.REFUSAL_MESSAGE, "code_after": None}
 
-    base_prompt = _load_prompt("round4_auto_turn.txt").format(
+    base_prompt = _load_prompt("round2_automation_turn.txt").format(
         language=language,
         selected_design=_as_data(json.dumps(selected_design, indent=2)),
         environment_code=environment_code,
@@ -1057,17 +1057,17 @@ def round4_auto_turn(
 
     if parsed["response_kind"] == "code_edit":
         # Every added assertion must trace to something the candidate wrote
-        # (see round4_auto_policy.unrequested_assertions): regenerate once,
+        # (see round2_automation_policy.unrequested_assertions): regenerate once,
         # then remove whatever still doesn't; anything that can't be removed
         # safely is recorded for scoring.
         # A planted flaw may itself be one faked observation - never more
-        # (see round4_auto_policy.fabricated_observations).
+        # (see round2_automation_policy.fabricated_observations).
         allowed_fakes = 1 if inject_flaw else 0
 
         def _problems(code: str) -> tuple[list[str], list[str]]:
-            fakes = round4_auto_policy.fabricated_observations(current_code, code)
+            fakes = round2_automation_policy.fabricated_observations(current_code, code)
             return (
-                round4_auto_policy.unrequested_assertions(language, current_code, code, *design_args),
+                round2_automation_policy.unrequested_assertions(language, current_code, code, *design_args),
                 fakes if len(fakes) > allowed_fakes else [],
             )
 
@@ -1083,22 +1083,22 @@ def round4_auto_turn(
                 parsed, planted_flaw = retry, retry_planted
                 flagged, fakes = _problems(parsed["code_after"])
             if flagged:
-                parsed["code_after"], remaining = round4_auto_policy.drop_single_line_statements(parsed["code_after"], flagged)
+                parsed["code_after"], remaining = round2_automation_policy.drop_single_line_statements(parsed["code_after"], flagged)
                 if remaining:
                     parsed["unrequested_checks"] = remaining
             if fakes:
                 parsed["fabricated_observations"] = fakes
     else:
         # Replies must not reveal values that exist only in the environment
-        # (see round4_auto_policy.leaked_environment_values).
-        leaks = round4_auto_policy.leaked_environment_values(parsed["response_message"], environment_code, *design_args)
+        # (see round2_automation_policy.leaked_environment_values).
+        leaks = round2_automation_policy.leaked_environment_values(parsed["response_message"], environment_code, *design_args)
         if leaks:
             retry, _ = _generate(_ENVIRONMENT_LEAK_NOTE)
             if retry["response_kind"] != "code_edit":
                 parsed = retry
-            leaks = round4_auto_policy.leaked_environment_values(parsed["response_message"], environment_code, *design_args)
+            leaks = round2_automation_policy.leaked_environment_values(parsed["response_message"], environment_code, *design_args)
             if leaks:
-                parsed["response_message"] = round4_auto_policy.redact(parsed["response_message"], leaks)
+                parsed["response_message"] = round2_automation_policy.redact(parsed["response_message"], leaks)
 
     if inject_flaw and parsed["response_kind"] == "code_edit":
         # Recorded for scoring (did the candidate catch it?) - stripped from
@@ -1129,7 +1129,7 @@ _ENVIRONMENT_LEAK_NOTE = (
 )
 
 
-def round4_auto_clarify(
+def round2_automation_clarify(
     language: str,
     selected_design: list[dict],
     environment_code: str,
@@ -1138,15 +1138,15 @@ def round4_auto_clarify(
     candidate_prompt: str,
 ) -> dict:
     """The specification-sufficiency gate (see routers/candidate.py's
-    round4_auto_clarify) - never generates code, regardless of how
-    complete the instruction turns out to be; that stays round4_auto_turn's
-    job. Same deterministic prohibited-request control as round4_auto_turn,
+    round2_automation_clarify) - never generates code, regardless of how
+    complete the instruction turns out to be; that stays round2_automation_turn's
+    job. Same deterministic prohibited-request control as round2_automation_turn,
     reused unmodified so the existing policy isn't duplicated or drifted.
 
     Three layers, same split as R3's neutral-question design
     (round3_construct_engine/round3_constructs) without its per-category
     state machinery, which has nothing to track here:
-    1. A cheap deterministic pre-filter (round4_auto_clarify_policy.
+    1. A cheap deterministic pre-filter (round2_automation_clarify_policy.
        is_placeholder_instruction) catches an instruction with no content
        at all before any LLM call is made.
     2. The LLM classifies - sufficient / insufficient / contradicts a
@@ -1154,18 +1154,18 @@ def round4_auto_clarify(
        raw material (a drafted question, or the two conflicting values) a
        deterministic rule needs. It is never given authority over the
        actual outcome.
-    3. round4_auto_clarify_policy.build_clarify_response deterministically
+    3. round2_automation_clarify_policy.build_clarify_response deterministically
        turns that classification into what the candidate sees, including
        the anti-leakage check on any LLM-drafted question - the model can
        be instructed not to reveal the environment layer (UI/API/DB), but
        only a deterministic check after the fact is an actual guarantee."""
-    if round4_auto_policy.is_prohibited(candidate_prompt):
-        return {"response_kind": "refuse", "response_message": round4_auto_policy.REFUSAL_MESSAGE, "code_after": None}
+    if round2_automation_policy.is_prohibited(candidate_prompt):
+        return {"response_kind": "refuse", "response_message": round2_automation_policy.REFUSAL_MESSAGE, "code_after": None}
 
-    if round4_auto_clarify_policy.is_placeholder_instruction(candidate_prompt):
-        response = {"response_kind": "clarify", "response_message": round4_auto_clarify_policy.FALLBACK_QUESTION}
+    if round2_automation_clarify_policy.is_placeholder_instruction(candidate_prompt):
+        response = {"response_kind": "clarify", "response_message": round2_automation_clarify_policy.FALLBACK_QUESTION}
     else:
-        prompt = _load_prompt("round4_auto_clarify.txt").format(
+        prompt = _load_prompt("round2_automation_clarify.txt").format(
             language=language,
             selected_design=_as_data(json.dumps(selected_design, indent=2)),
             environment_code=environment_code,
@@ -1176,24 +1176,24 @@ def round4_auto_clarify(
         result = _call_claude_json(prompt, max_tokens=1024)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the clarification check, got: {type(result)}")
-        parsed = Round4AutoClarifyLLMResponse.model_validate(result)
+        parsed = Round2AutomationClarifyLLMResponse.model_validate(result)
         status = parsed.status
         # Two deterministic overrides on the LLM's own contradicts_prior
         # call - verified live that prompt wording alone does not
         # reliably prevent either failure mode:
         if status == "contradicts_prior":
-            if not round4_auto_clarify_policy.value_traces_to_candidate(parsed.prior_value, selected_design, conversation_so_far):
+            if not round2_automation_clarify_policy.value_traces_to_candidate(parsed.prior_value, selected_design, conversation_so_far):
                 # The claimed "prior" value never came from the candidate
                 # (e.g. it's actually the environment's own base_url) -
                 # there is no real contradiction to report.
                 status = "sufficient"
-            elif round4_auto_clarify_policy.contradicts_prior_count(conversation_so_far) >= 1:
+            elif round2_automation_clarify_policy.contradicts_prior_count(conversation_so_far) >= 1:
                 # Already flagged once this conversation - a second flag
                 # on the same axis just loops forever once the candidate
                 # has restated their answer. Accept it; scoring judges
                 # whether it was the right call, not this gate.
                 status = "sufficient"
-        response = round4_auto_clarify_policy.build_clarify_response(
+        response = round2_automation_clarify_policy.build_clarify_response(
             status=status, question=parsed.question,
             prior_value=parsed.prior_value, current_value=parsed.current_value,
         )
@@ -1202,29 +1202,29 @@ def round4_auto_clarify(
     # it (LLM question, FALLBACK_QUESTION, contradiction template): a repeat
     # of an earlier question, a candidate who has said they're done, or too
     # many unresolved questions in a row all proceed to generation instead.
-    if response["response_kind"] == "clarify" and round4_auto_clarify_policy.should_stop_clarifying(
+    if response["response_kind"] == "clarify" and round2_automation_clarify_policy.should_stop_clarifying(
         conversation_so_far, candidate_prompt, response.get("response_message"),
     ):
-        response = round4_auto_clarify_policy.build_clarify_response(status="sufficient")
+        response = round2_automation_clarify_policy.build_clarify_response(status="sufficient")
 
     response["code_after"] = None
     return response
 
 
-def score_round4_auto_conversation(
+def score_round2_automation_conversation(
     language: str, tc_evidence: list[dict], ground_truth: str, validation_notes: str,
 ) -> dict:
     """Scores one automation submission against the 5-area rubric (20 each
-    = 100 - see prompts/round4_auto_scoring.txt). tc_evidence is a list of
+    = 100 - see prompts/round2_automation_scoring.txt). tc_evidence is a list of
     self-contained per-test-case evidence blocks (see
     scoring_service._auto_tc_evidence_blocks) - each one's own design,
     final code, turns, code edits, execution result and validation, with
     no cross-TC concatenation. Findings go through the SAME
     round4_evidence_audit backstop as every other round 4 flow (see
-    scoring_service.score_round4_auto_submission). ground_truth/
+    scoring_service.score_round2_automation_submission). ground_truth/
     validation_notes are REFERENCE ONLY and never reach the candidate or
     the generator."""
-    prompt_text = _load_prompt("round4_auto_scoring.txt")
+    prompt_text = _load_prompt("round2_automation_scoring.txt")
     prompt = prompt_text.format(
         language=language,
         tc_evidence_json=_as_data(json.dumps(tc_evidence, indent=2)),
@@ -1243,7 +1243,7 @@ def score_round4_auto_conversation(
         except ValidationError:
             continue
     result["findings"] = validated
-    result["_provenance"] = _scoring_provenance("round4_auto_scoring.txt", prompt_text)
+    result["_provenance"] = _scoring_provenance("round2_automation_scoring.txt", prompt_text)
     return result
 
 

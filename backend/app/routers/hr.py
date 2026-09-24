@@ -553,7 +553,7 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
         # candidate automates their own round 1 design, so there's no
         # scenario-level test-case reference. What must exist is the
         # HR/system-only ground truth the scorer judges the candidate's
-        # execution interpretation against (see seed_round4_auto.py) and
+        # execution interpretation against (see seed_round2_automation.py) and
         # the automation environment code.
         if not (scenario.reference_json or {}).get("ground_truth"):
             raise HTTPException(400, "Can't publish an automation scenario with no ground truth for execution interpretation yet.")

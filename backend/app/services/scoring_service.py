@@ -322,13 +322,13 @@ _TC_DESIGN_FIELDS = ("index", "title", "preconditions", "steps", "test_data", "e
 def _auto_tc_design_only(row: dict) -> dict:
     """Strips a selected row down to its immutable design fields only -
     the shape every selected row had before round 2 gained independent
-    per-TC automation state (see routers/candidate.py's round4_auto_select).
+    per-TC automation state (see routers/candidate.py's round2_automation_select).
     Used wherever "the candidate's design" is shown, so mutable state
     (code/turns/code_edits/last_run/validation) never leaks into what's
     supposed to be the immutable-design section of the scoring prompt.
 
     test_data reflects the candidate's own correction if they made one
-    (see routers/candidate.py's round4_auto_update_test_data) - that's
+    (see routers/candidate.py's round2_automation_update_test_data) - that's
     what the AI actually automated against and what the scorer should
     judge against, not a value the candidate has since flagged as wrong.
     The original is kept alongside as original_test_data whenever a
@@ -357,7 +357,7 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
     """One self-contained evidence block per selected test case - no
     concatenation, no cross-TC label-parsing, replacing the old
     _aggregate_auto_tc_state flattening. Each block carries exactly what
-    routers/candidate.py's round4_auto_turn/clarify/code/run/submit
+    routers/candidate.py's round2_automation_turn/clarify/code/run/submit
     persist for that ONE test case: its own design (title/steps/
     test_data/expected_result AND its own append-only refinement notes -
     see _auto_tc_design_only, which already scopes "refinements" to this
@@ -366,7 +366,7 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
     nothing extra needed here), its own code_edits, its own last
     execution result. No candidate-written interpretation field - whether
     a run genuinely proves the expected result is judged from final_code
-    and execution_result alone (see prompts/round4_auto_scoring.txt).
+    and execution_result alone (see prompts/round2_automation_scoring.txt).
     This round's scoring MODEL is not being redesigned - only the shape
     of the data feeding it, since it used to live in one shared buffer
     (then one flattened string) and now lives, and is shown, per selected
@@ -401,7 +401,7 @@ def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
     built for - proven already by round4_scoring.txt's legacy debugging
     flow, which uses the identical convention - so round4_evidence_audit.py
     itself needs no change for turn citations. The SAME label
-    (_auto_tc_label) is also the key scoring_service.score_round4_auto_submission
+    (_auto_tc_label) is also the key scoring_service.score_round2_automation_submission
     builds its TC-scoped supporting_texts dict with, so a quote-only
     citation tagged with this exact label gets checked against only that
     test case's own evidence too - see round4_evidence_audit._check_evidence.
@@ -419,9 +419,9 @@ def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
     return payload
 
 
-def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
-    """AI-Assisted Test Automation - see llm_service.score_round4_auto_conversation
-    and prompts/round4_auto_scoring.txt's 5-area rubric. Every piece of
+def score_round2_automation_submission(db: Session, submission: Submission) -> Score:
+    """AI-Assisted Test Automation - see llm_service.score_round2_automation_conversation
+    and prompts/round2_automation_scoring.txt's 5-area rubric. Every piece of
     PRIMARY EVIDENCE comes from this submission's own content JSON (see
     routers/candidate.py's /round/4/auto/* endpoints, its only writers);
     ground truth and validation notes come from the scenario's
@@ -438,7 +438,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     exactly ONE scoring call per submission, same as before; only how
     its inputs are gathered and shaped changed, not the scoring model
     itself."""
-    from . import round4_auto_policy
+    from . import round2_automation_policy
 
     scenario = submission.scenario
     reference = scenario.reference_json or {}
@@ -454,7 +454,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
     environment_code = environments.get(language, "")
     for block in tc_evidence:
-        block["untraceable_literals"] = round4_auto_policy.untraceable_literals(
+        block["untraceable_literals"] = round2_automation_policy.untraceable_literals(
             block["final_code"], [block["design"]], environment_code=environment_code,
         )
 
@@ -464,7 +464,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     # another's.
     audit_payload = _auto_tc_audit_payload(selected)
 
-    result = llm_service.score_round4_auto_conversation(
+    result = llm_service.score_round2_automation_conversation(
         language=language,
         tc_evidence=tc_evidence,
         ground_truth=reference.get("ground_truth", ""),
@@ -517,7 +517,7 @@ def _score_round4(db: Session, submission: Submission) -> Score:
     scoring_failed rather than running a scorer that no longer exists."""
     mode = (submission.scenario.config_json or {}).get("mode")
     if mode == "ai_test_automation":
-        return score_round4_auto_submission(db, submission)
+        return score_round2_automation_submission(db, submission)
     raise ValueError("This Round 2 format has been retired and can no longer be scored")
 
 

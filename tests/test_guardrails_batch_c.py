@@ -106,7 +106,7 @@ def _auto_turn(monkeypatch, replies):
         return queue.pop(0)
 
     monkeypatch.setattr(llm_service, "_call_claude", _fake)
-    result = llm_service.round4_auto_turn(
+    result = llm_service.round2_automation_turn(
         language="python", selected_design=_DESIGN, environment_code=_ENV, current_code="",
         conversation_so_far=[], candidate_prompt="log in and check the header",
     )

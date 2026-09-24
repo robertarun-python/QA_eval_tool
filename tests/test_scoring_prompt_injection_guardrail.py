@@ -1,6 +1,6 @@
 """
 All four scoring prompts (round1_scoring.txt, round2_debug_scoring.txt,
-round3_coding_scoring.txt, round4_auto_scoring.txt) interpolate raw
+round3_coding_scoring.txt, round2_automation_scoring.txt) interpolate raw
 candidate-authored text directly into the prompt sent to Claude -
 free-text steps/expected_result (round 1), free-text investigation
 notes/root cause (round 2), full turn-by-turn transcripts including the
@@ -90,7 +90,7 @@ def test_candidate_summary_prompt_has_an_injection_guardrail(monkeypatch):
     assert _GUARDRAIL_PHRASE in captured["prompt"]
 
 
-def test_round4_auto_scoring_prompt_has_an_injection_guardrail(monkeypatch):
+def test_round2_automation_scoring_prompt_has_an_injection_guardrail(monkeypatch):
     """The AI-Assisted Test Automation scorer - added after the other
     scoring prompts got their guardrail, and missed until the Sep 2026
     guardrail review."""
@@ -101,7 +101,7 @@ def test_round4_auto_scoring_prompt_has_an_injection_guardrail(monkeypatch):
         return '{"scores": {}, "final_score": 0, "findings": [], "feedback_text": ""}'
 
     monkeypatch.setattr(llm_service, "_call_claude", _fake_call)
-    llm_service.score_round4_auto_conversation(
+    llm_service.score_round2_automation_conversation(
         language="python", tc_evidence=[], ground_truth="", validation_notes="",
     )
     assert _GUARDRAIL_PHRASE in captured["prompt"]

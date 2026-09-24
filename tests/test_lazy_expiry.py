@@ -85,7 +85,7 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # No longer blocked - the abandoned round is lazily closed out as
     # part of this same request.
     from app.services import llm_service
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **kwargs: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **kwargs: {
         "scores": {}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
     })
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))

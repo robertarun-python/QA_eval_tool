@@ -115,7 +115,7 @@ def test_round2_automation_turn_prompt_marks_candidate_text_as_data(monkeypatch)
     captured = _capture(monkeypatch, json.dumps({
         "response_kind": "clarify", "response_message": "What should prove it worked?", "code_after": None,
     }))
-    llm_service.round4_auto_turn(
+    llm_service.round2_automation_turn(
         language="python", selected_design=[{"title": "t"}], environment_code="# env",
         current_code="# code", conversation_so_far=[], candidate_prompt=_INJECTION,
     )
@@ -128,7 +128,7 @@ def test_round2_automation_clarify_prompt_marks_candidate_text_as_data(monkeypat
         "status": "insufficient", "question": "What should prove it worked?",
         "prior_value": None, "current_value": None,
     }))
-    llm_service.round4_auto_clarify(
+    llm_service.round2_automation_clarify(
         language="python", selected_design=[{"title": "t"}], environment_code="# env",
         current_code="# code", conversation_so_far=[],
         candidate_prompt="log in and check the header " + _INJECTION,

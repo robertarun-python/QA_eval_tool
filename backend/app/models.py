@@ -124,7 +124,7 @@ class Scenario(Base):
     def is_auto(self) -> bool:
         """Round 4 only: whether this is the AI-Assisted Test Automation
         round (the candidate automates the test cases they designed in
-        round 1) - see seed_round4_auto.py, the only writer of
+        round 1) - see seed_round2_automation.py, the only writer of
         config_json["mode"] == "ai_test_automation". Same computed-property
         pattern and same reason as is_pilot above."""
         return (self.config_json or {}).get("mode") == "ai_test_automation"

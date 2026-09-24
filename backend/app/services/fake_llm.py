@@ -75,7 +75,7 @@ def _reply(caller: str, prompt: str):
     if caller == "score_round3_coding":
         return {"correctness_score": 70, "precision_score": 70, "efficiency_score": 70, "independent_judgment_score": 70,
                 "final_score": 70, "misses": [], "guardrail_violations": [], "feedback_text": _SCORE_FEEDBACK}
-    if caller == "score_round4_auto_conversation":
+    if caller == "score_round2_automation_conversation":
         return {"scores": {"automation_design": 14, "test_data_and_assertions": 14, "ai_usage": 14, "ai_output_review": 14,
                            "execution_and_validation": 14}, "final_score": 70, "findings": [], "feedback_text": _SCORE_FEEDBACK}
     if caller == "generate_candidate_summary":
@@ -86,9 +86,9 @@ def _reply(caller: str, prompt: str):
     if caller == "generate_round4_ui_mockup":
         return {"screens": [{"name": "Login", "elements": [{"type": "label", "text": "Email"}, {"type": "input", "text": "Email"},
                                                            {"type": "button", "text": "Login"}]}]}
-    if caller == "round4_auto_clarify":
+    if caller == "round2_automation_clarify":
         return {"status": "sufficient", "question": None, "prior_value": None, "current_value": None}
-    if caller in ("round4_auto_turn", "_round3_coding_turn_once"):
+    if caller in ("round2_automation_turn", "_round3_coding_turn_once"):
         code = _current_code(prompt)
         if code is None:
             raise ValueError("Fake AI mode: no current code found in the prompt - refusing to write empty code.")

@@ -1,8 +1,8 @@
 """
 AI-Assisted Test Automation round - deterministic half of the
-specification-sufficiency gate (see llm_service.round4_auto_clarify for
+specification-sufficiency gate (see llm_service.round2_automation_clarify for
 the LLM half). NO LLM CALL ANYWHERE IN THIS MODULE, same discipline as
-round4_auto_policy.py. Three jobs: a pre-filter that short-circuits an
+round2_automation_policy.py. Three jobs: a pre-filter that short-circuits an
 obviously-empty instruction before any LLM call is made
 (is_placeholder_instruction); the decision rule turning the LLM's bounded
 classification into an actual response (build_clarify_response); and the
@@ -21,7 +21,7 @@ without R3's per-category state-tracking machinery, which has nothing to
 track here.
 
 Grounded directly in the provided environment's own class names (see
-prompts/round4_auto_helpers_{python,java,javascript}.txt, all three of
+prompts/round2_automation_helpers_{python,java,javascript}.txt, all three of
 which expose UI/API/Database as the actual class names candidates code
 against) - language-INDEPENDENT, unlike R3's vocabulary: the risk here is
 the ENGLISH clarifying question naming a layer, not code syntax varying
@@ -84,7 +84,7 @@ def is_placeholder_instruction(text: str) -> bool:
     """True only when NO content word survives stripping generic filler -
     an instruction this empty cannot possibly be complete regardless of
     what it's about, so it's safe to short-circuit before ever calling
-    the LLM (see llm_service.round4_auto_clarify)."""
+    the LLM (see llm_service.round2_automation_clarify)."""
     words = re.findall(r"[a-zA-Z']+", (text or "").lower())
     return all(w in _PLACEHOLDER_WORDS for w in words) if words else True
 
@@ -107,7 +107,7 @@ _CONTRADICTS_PRIOR_MARKER = "for the same thing - which one should the automatio
 
 def contradicts_prior_count(conversation_so_far: list[dict]) -> int:
     """How many prior turns in this conversation were already classified
-    contradicts_prior. Used by llm_service.round4_auto_clarify as a
+    contradicts_prior. Used by llm_service.round2_automation_clarify as a
     deterministic circuit breaker: verified live that the LLM classifier
     can get stuck re-flagging a candidate's own already-stated, already-
     settled scope choice as an unresolved contradiction indefinitely,
@@ -131,7 +131,7 @@ def value_traces_to_candidate(value: str | None, selected_design: list[dict], co
     live that the LLM classifier sometimes cites a value baked into the
     environment's own configuration (e.g. a base_url constant) as
     something "the candidate said earlier", which they never did -
-    round4_auto_clarify uses this to deterministically refuse to treat
+    round2_automation_clarify uses this to deterministically refuse to treat
     that as a real contradiction, the same defense-in-depth pattern
     contains_forbidden_vocab already uses for a different failure mode."""
     needle = _normalize_value(value)
@@ -154,7 +154,7 @@ def build_clarify_response(
     prior_value: str | None = None, current_value: str | None = None,
 ) -> dict:
     """The deterministic decision rule: turns the LLM's bounded
-    classification (see schemas.Round4AutoClarifyLLMResponse) into what
+    classification (see schemas.Round2AutomationClarifyLLMResponse) into what
     the candidate actually sees. The LLM classifies; this function - not
     raw LLM say-so - decides the response, same split as
     round3_construct_engine.decide() deciding clarify/proceed from the
@@ -194,7 +194,7 @@ def build_clarify_response(
 # already breaks the contradiction loop; nothing broke the "insufficient"
 # one. These rules end any clarification streak, whichever branch produced
 # it. Ending it means proceeding to generation, which still encodes ONLY
-# the candidate's own design and messages (round4_auto_turn.txt) - it
+# the candidate's own design and messages (round2_automation_turn.txt) - it
 # never fills gaps for them - and scoring judges whether what they gave
 # was enough. Asking more never helps a candidate who has said they're done.
 

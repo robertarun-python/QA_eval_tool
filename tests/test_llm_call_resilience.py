@@ -21,7 +21,7 @@ import pytest
 
 from app.services import llm_service
 
-from .test_round4_auto import _reach_automation_round, _select
+from .test_round2_automation import _reach_automation_round, _select
 from .conftest import HR_EMAIL, HR_PASSWORD, _login, _auth
 
 
@@ -91,7 +91,7 @@ def test_each_call_gets_a_timeout_sized_to_its_reply(monkeypatch):
 
 
 def test_code_writing_calls_ask_for_the_larger_limit():
-    for fn in (llm_service.round4_auto_turn, llm_service._round3_coding_turn_once,
+    for fn in (llm_service.round2_automation_turn, llm_service._round3_coding_turn_once,
                llm_service.round3_syntax_fix, llm_service.generate_round3_reference):
         assert "max_tokens=_CODE_REPLY_TOKENS" in inspect.getsource(fn), fn.__name__
     assert llm_service._CODE_REPLY_TOKENS >= 8192
@@ -144,7 +144,7 @@ def test_round2_ask_ai_failure_is_logged_and_reported(client, monkeypatch, capsy
     def boom(**kwargs):
         raise llm_service.LLMReplyTruncated("The model's reply was cut off at its 8192-token limit.")
 
-    monkeypatch.setattr(llm_service, "round4_auto_clarify", boom)
+    monkeypatch.setattr(llm_service, "round2_automation_clarify", boom)
     res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode step 1", "row_index": 0}, cookies=_auth(cand_token))
     assert res.status_code == 502
     assert "had trouble responding" in res.json()["detail"]
@@ -201,7 +201,7 @@ def test_every_json_call_site_goes_through_the_retry():
 def test_round2_ask_ai_recovers_from_a_broken_reply(client, monkeypatch):
     """Today's failure end to end: the first code-writing reply is broken
     JSON (as candidate4 got twice); the retry's reply is fine - Ask AI works."""
-    from .test_round4_auto import _sequential_call_claude, _SUFFICIENT
+    from .test_round2_automation import _sequential_call_claude, _SUFFICIENT
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)
     _select(client, cand_token)
@@ -322,7 +322,7 @@ def test_tool_output_falls_back_to_json_text_if_the_api_rejects_it(monkeypatch):
 
 
 def test_code_writing_calls_pass_their_schema():
-    for fn, schema in ((llm_service.round4_auto_turn, "SCHEMA_CODE_TURN"), (llm_service._round3_coding_turn_once, "SCHEMA_CODE_TURN"),
+    for fn, schema in ((llm_service.round2_automation_turn, "SCHEMA_CODE_TURN"), (llm_service._round3_coding_turn_once, "SCHEMA_CODE_TURN"),
                        (llm_service.round3_syntax_fix, "SCHEMA_SYNTAX_FIX"),
                        (llm_service.generate_round3_reference, "SCHEMA_R3_REFERENCE")):
         assert f"schema={schema}" in inspect.getsource(fn), fn.__name__

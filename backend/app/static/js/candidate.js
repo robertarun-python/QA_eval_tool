@@ -143,7 +143,7 @@ function renderRoundView(box, n, state) {
     }
     if (n === 2) {
       // No Start button here - the briefing modal is the only way in, and
-      // its "Got it - Start Round 2" (confirmStartRound4Auto) starts the
+      // its "Got it - Start Round 2" (confirmStartRound2Automation) starts the
       // timer. Round 2's earlier formats (simulated conversation, pilot)
       // are retired - HR can still read their results; a candidate can't start them.
       if (!scenario.is_auto) {
@@ -155,7 +155,7 @@ function renderRoundView(box, n, state) {
         ${formatScenarioDescription(scenario.description)}
         <p class="muted">Time limit: ${scenarioTimeLimit(scenario)} minutes, starting once you confirm below.</p>
       `;
-      showRound4AutoIntro(scenarioTimeLimit(scenario));
+      showRound2AutomationIntro(scenarioTimeLimit(scenario));
       return;
     }
     // Same pattern as round 4: no separate Start button - the briefing
@@ -309,17 +309,17 @@ async function startRound(n) {
 // AI-Assisted Test Automation's own briefing (see models.Scenario.is_auto) -
 // the candidate automates test cases THEY designed in round 1, not the
 // legacy conversational flow above. Unlike the other round 2 briefings,
-// this one picks and locks the language ITSELF (see confirmStartRound4Auto)
+// this one picks and locks the language ITSELF (see confirmStartRound2Automation)
 // before startRound(2) ever fires, so the timer never burns on a
 // language screen and the round's own first view is test case
-// selection - renderRound4AutomationLayout's own language-lock branch is
+// selection - renderRound2AutomationLayout's own language-lock branch is
 // now only a defensive fallback for a round already in progress from
 // before this. Locked here is inherited by round 3 too (see
 // routers/candidate.py's _round3_language_for) - round 3 never asks.
 // Deliberately generic process steps only - no scoring weights, no
 // ground truth, no policy internals, no hint at what a strong answer
 // looks like.
-function showRound4AutoIntro(timeLimitMinutes) {
+function showRound2AutomationIntro(timeLimitMinutes) {
   const overlay = document.createElement("div");
   overlay.id = "round4-intro-overlay";
   overlay.className = "modal-overlay";
@@ -339,7 +339,7 @@ function showRound4AutoIntro(timeLimitMinutes) {
       <p class="muted">AI-generated code may not always be clean, complete, correct, or reliable. You are responsible for reviewing and validating it.</p>
       <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately, after you pick a language.</p>
       <div class="field-row" style="align-items:center">
-        <select id="r4a-intro-language-select" onchange="round4AutoIntroLanguageChanged()">
+        <select id="r4a-intro-language-select" onchange="round2AutomationIntroLanguageChanged()">
           <option value="" selected>Select a language...</option>
           <option value="python">Python</option>
           <option value="java">Java</option>
@@ -347,26 +347,26 @@ function showRound4AutoIntro(timeLimitMinutes) {
         </select>
       </div>
       <div class="row">
-        <button id="r4a-intro-start-btn" onclick="confirmStartRound4Auto()" disabled>Got it - Start Round 2</button>
+        <button id="r4a-intro-start-btn" onclick="confirmStartRound2Automation()" disabled>Got it - Start Round 2</button>
       </div>
     </div>
   `;
   openModalOverlay(overlay);
 }
 
-function round4AutoIntroLanguageChanged() {
+function round2AutomationIntroLanguageChanged() {
   const language = document.getElementById("r4a-intro-language-select").value;
   document.getElementById("r4a-intro-start-btn").disabled = !language;
 }
 
-async function confirmStartRound4Auto() {
+async function confirmStartRound2Automation() {
   const language = document.getElementById("r4a-intro-language-select").value;
   if (!language) return;
   closeModalOverlay("round4-intro-overlay");
   // Locked here, before the round's own view ever renders, so the
   // candidate never sees an in-round language screen and the timer
   // (started by /start below) never burns on picking one - see
-  // renderRound4AutomationLayout's now-defensive-only language_locked
+  // renderRound2AutomationLayout's now-defensive-only language_locked
   // branch, kept for any round already in progress from before this.
   await api("/candidate/round/2/start", { method: "POST" });
   await api("/candidate/round/2/auto/language", { method: "POST", body: JSON.stringify({ language }) });
@@ -433,7 +433,7 @@ function round1DraftPayload() {
 // generates/owns (see RoundStateOut.environment) - a specific example to
 // anchor "Test data" around instead of writing something vague, but
 // never the only allowed values (see the pre-start note in
-// showRoundIntro). Same markup as round4AutoReferenceHtml's env block,
+// showRoundIntro). Same markup as round2AutomationReferenceHtml's env block,
 // just without the edit controls - this view is read-only.
 function round1EnvironmentReferenceHtml(environment, uiMockup) {
   const mockupHtml = uiMockup ? `
@@ -999,7 +999,7 @@ function stopTimer() {
   }
   // Deliberately does NOT hide/clear the topbar timer element here - a
   // couple of call sites (the onExpire callbacks in renderEntryForm/
-  // renderInvestigationForm/round4AutoSubmit) call this and THEN set the
+  // renderInvestigationForm/round2AutomationSubmit) call this and THEN set the
   // timer's text to "Time's up - submitting automatically..." while the
   // auto-submit request is in flight; hiding it here would make that
   // message invisible. See resetTopbarTimer, called instead at the
@@ -1016,7 +1016,7 @@ function resetTopbarTimer() {
 
 // Shared by all three rounds' auto-submit-on-expiry paths (see
 // doSubmitRound1/doSubmitRound2Investigation's force=true, and
-// round4AutoSubmit's catch above) - the guaranteed way a round closes
+// round2AutomationSubmit's catch above) - the guaranteed way a round closes
 // once its timer hits zero and a real submit wasn't possible (empty/
 // incomplete content, or losing a race against the server's own deadline
 // check). Whatever draft content the candidate had (round is passed in

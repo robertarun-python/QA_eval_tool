@@ -6,36 +6,36 @@
 // three modes apart. Backend stays authoritative throughout: no scoring,
 // policy or selection rule is duplicated here.
 
-let round4AutoState = null;
-let round4AutoBusy = false;
+let round2AutomationState = null;
+let round2AutomationBusy = false;
 
-function round4AutoSetBusy(busy) {
-  round4AutoBusy = busy;
+function round2AutomationSetBusy(busy) {
+  round2AutomationBusy = busy;
   ["r4a-lock-language-btn", "r4a-automate-btn", "r4a-submit-btn"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.disabled = busy;
   });
-  // ask/save/run buttons are one-per-selected-TC (see round4AutoTcSectionHtml),
+  // ask/save/run buttons are one-per-selected-TC (see round2AutomationTcSectionHtml),
   // so they're classes, not unique ids.
   document.querySelectorAll(".r4a-ask-btn, .r4a-save-btn, .r4a-run-btn, .r4a-test-data-btn").forEach((el) => { el.disabled = busy; });
 }
 
-async function loadRound4Automation(box) {
+async function loadRound2Automation(box) {
   try {
-    round4AutoState = await api("/candidate/round/2/auto/state");
+    round2AutomationState = await api("/candidate/round/2/auto/state");
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
   }
-  renderRound4AutomationLayout(box);
+  renderRound2AutomationLayout(box);
 }
 
 // Read-only reference table of every Round 1 test case, mirroring
 // Round 1's own entry table exactly (see renderEntryForm) - SI.No/Title/
 // Preconditions/Steps/Test data/Expected result, no checkboxes or picks
-// here at all. Selection itself happens via round4AutoNextPickHtml's
+// here at all. Selection itself happens via round2AutomationNextPickHtml's
 // dropdown, one test case at a time.
-function round4AutoTcTableHtml(rows, selectedIndexes) {
+function round2AutomationTcTableHtml(rows, selectedIndexes) {
   if (rows.length === 0) return `<p class="muted">No Round 1 test cases found.</p>`;
   const selectedSet = new Set(selectedIndexes || []);
   return rows.map((r) => `
@@ -69,12 +69,12 @@ function round4AutoTcTableHtml(rows, selectedIndexes) {
 }
 
 // The dropdown that starts automating one more test case (see
-// round4AutoAutomateClicked) - only ever offers rows not already in
-// round4AutoState.selected. Shown by renderRound4AutomationLayout: once
+// round2AutomationAutomateClicked) - only ever offers rows not already in
+// round2AutomationState.selected. Shown by renderRound2AutomationLayout: once
 // with every test case when nothing's picked yet, and again after the
 // most recently added test case has a run result, as long as the
 // two-test-case cap hasn't been reached and something's left to offer.
-function round4AutoNextPickHtml(remaining) {
+function round2AutomationNextPickHtml(remaining) {
   return `
     <div class="surface" style="margin:var(--space-default) 0; border-style:dashed">
       <div class="field-label" style="margin-bottom:0.4rem">Automate a test case</div>
@@ -85,22 +85,22 @@ function round4AutoNextPickHtml(remaining) {
             ${remaining.map((r) => `<option value="${r.index}">${escapeHtml(r.title || `Test case ${r.index}`)}</option>`).join("")}
           </select>
         </div>
-        <button class="btn-primary" id="r4a-automate-btn" onclick="round4AutoAutomateClicked()">Automate this test case</button>
+        <button class="btn-primary" id="r4a-automate-btn" onclick="round2AutomationAutomateClicked()">Automate this test case</button>
       </div>
     </div>`;
 }
 
-function round4AutoAutomateClicked() {
+function round2AutomationAutomateClicked() {
   const val = document.getElementById("r4a-next-pick-select").value;
   const statusEl = document.getElementById("r4a-status");
   if (!val) {
     if (statusEl) statusEl.textContent = "Select a test case first.";
     return;
   }
-  round4AutoAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: [Number(val)] }) }));
+  round2AutomationAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: [Number(val)] }) }));
 }
 
-function round4AutoRunResultHtml(rowIndex, run) {
+function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
   const passed = run.exit_code === 0 && !run.timed_out && !run.infra_error;
   const meta = [
@@ -126,7 +126,7 @@ function round4AutoRunResultHtml(rowIndex, run) {
     </div>`;
 }
 
-function round4AutoTurnsHtml(turns) {
+function round2AutomationTurnsHtml(turns) {
   if (!turns || turns.length === 0) return `<p class="muted">No messages yet.</p>`;
   return `<div class="ai-thread">${turns.map((t) => `
     <div class="ai-turn ai-turn-candidate">
@@ -140,20 +140,20 @@ function round4AutoTurnsHtml(turns) {
 }
 
 // Each selected test case (1-2) has its own independent automation state
-// (see Round4AutoTCStateOut) - code, AI conversation, run result and
+// (see Round2AutomationTCStateOut) - code, AI conversation, run result and
 // interpretation, none of it shared with the other selected test case.
 // Every selected test case's own section stacks permanently in the DOM,
 // always visible (no tabs, nothing hidden) - the candidate can return to
 // an earlier one at any time to keep fixing/rerunning it (see
-// renderRound4AutomationLayout, which decides when a NEW section for a
+// renderRound2AutomationLayout, which decides when a NEW section for a
 // not-yet-automated test case should appear below the rest).
 
-function round4AutoTcState(rowIndex) {
-  return (round4AutoState.tc_state || []).find((t) => t.row_index === rowIndex)
+function round2AutomationTcState(rowIndex) {
+  return (round2AutomationState.tc_state || []).find((t) => t.row_index === rowIndex)
     || { code: "", turns: [], code_edits_count: 0, last_run: null, validation: "" };
 }
 
-function round4AutoTcIsUnlocked(tc) {
+function round2AutomationTcIsUnlocked(tc) {
   // Permanent once true - matches the backend's own derivation (see
   // routers/candidate.py's _tc_is_unlocked): the assistant has produced
   // its first code_edit for this test case, via a prompt it already
@@ -165,9 +165,9 @@ function round4AutoTcIsUnlocked(tc) {
 // lets the candidate correct their OWN mistake (a typo, a stale value)
 // for automation purposes without touching the Round 1 record or the
 // original design snapshot (see routers/candidate.py's
-// round4_auto_update_test_data / scoring_service._auto_tc_design_only,
+// round2_automation_update_test_data / scoring_service._auto_tc_design_only,
 // which keeps the original alongside for transparency once corrected).
-function round4AutoTestDataHtml(row) {
+function round2AutomationTestDataHtml(row) {
   return `
     <div class="surface" style="margin:0.85rem 0">
       <div class="field-label" style="margin-bottom:0.3rem">Test data</div>
@@ -176,34 +176,34 @@ function round4AutoTestDataHtml(row) {
         <div class="field" style="flex:1 1 20rem">
           <textarea id="r4a-test-data-${row.index}" class="ta-medium ta-grow" rows="2">${escapeHtml(row.test_data || "")}</textarea>
         </div>
-        <button class="btn-secondary r4a-test-data-btn" onclick="round4AutoSaveTestDataClicked(${row.index})">Save test data</button>
+        <button class="btn-secondary r4a-test-data-btn" onclick="round2AutomationSaveTestDataClicked(${row.index})">Save test data</button>
       </div>
     </div>`;
 }
 
-function round4AutoSaveTestDataClicked(rowIndex) {
+function round2AutomationSaveTestDataClicked(rowIndex) {
   const testData = document.getElementById(`r4a-test-data-${rowIndex}`).value.trim();
   if (!testData) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/test-data", { method: "POST", body: JSON.stringify({ row_index: rowIndex, test_data: testData }) }), rowIndex, "Saving test data...");
+  round2AutomationAction(() => api("/candidate/round/2/auto/test-data", { method: "POST", body: JSON.stringify({ row_index: rowIndex, test_data: testData }) }), rowIndex, "Saving test data...");
 }
 
 // Reference material - the app's own screens and test-environment facts,
 // reused unmodified from whatever the scenario already generated (see
-// Round4AutoStateOut.ui_mockup/environment) - never code, never the
+// Round2AutomationStateOut.ui_mockup/environment) - never code, never the
 // solution. Shown ONCE at the page level, right alongside the Round 1
-// table (see renderRound4AutomationLayout) - it's the same reference
+// table (see renderRound2AutomationLayout) - it's the same reference
 // regardless of which selected test case is being worked on, so
 // repeating it inside every test case's own section was just noise, not
 // scoped information. Never hidden either way - visible before any test
 // case is even picked, and permanently after.
 // Segmented into tabs (one pane visible at a time) rather than two
-// stacked <details> blocks - same underlying data (Round4AutoStateOut.
+// stacked <details> blocks - same underlying data (Round2AutomationStateOut.
 // ui_mockup/environment), just presented so only the section the
 // candidate actually needs right now is on screen. Switching is pure
-// client-side visibility (round4AutoReferenceTabClicked below) - never
+// client-side visibility (round2AutomationReferenceTabClicked below) - never
 // re-fetches or re-derives anything.
-function round4AutoReferenceHtml() {
-  const s = round4AutoState;
+function round2AutomationReferenceHtml() {
+  const s = round2AutomationState;
   const hasMockup = !!s.ui_mockup;
   const hasEnv = !!(s.environment && Object.keys(s.environment.fields || {}).length > 0);
   if (!hasMockup && !hasEnv) return "";
@@ -212,8 +212,8 @@ function round4AutoReferenceHtml() {
     <div class="surface">
       <div class="section-header"><h3>Reference material</h3></div>
       <div class="tabs" role="tablist">
-        ${hasMockup ? `<button class="tab active" data-r4a-ref-tab="screens" onclick="round4AutoReferenceTabClicked('screens')">Reference Screens</button>` : ""}
-        ${hasEnv ? `<button class="tab${hasMockup ? "" : " active"}" data-r4a-ref-tab="environment" onclick="round4AutoReferenceTabClicked('environment')">Test Environment</button>` : ""}
+        ${hasMockup ? `<button class="tab active" data-r4a-ref-tab="screens" onclick="round2AutomationReferenceTabClicked('screens')">Reference Screens</button>` : ""}
+        ${hasEnv ? `<button class="tab${hasMockup ? "" : " active"}" data-r4a-ref-tab="environment" onclick="round2AutomationReferenceTabClicked('environment')">Test Environment</button>` : ""}
       </div>
       ${hasMockup ? `
         <div class="tab-panel active" data-r4a-ref-panel="screens">
@@ -230,7 +230,7 @@ function round4AutoReferenceHtml() {
 }
 
 // Pure display toggle - no state fetch, no re-render of anything else.
-function round4AutoReferenceTabClicked(name) {
+function round2AutomationReferenceTabClicked(name) {
   document.querySelectorAll("[data-r4a-ref-tab]").forEach((btn) => btn.classList.toggle("active", btn.dataset.r4aRefTab === name));
   document.querySelectorAll("[data-r4a-ref-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.r4aRefPanel === name));
 }
@@ -239,32 +239,32 @@ function round4AutoReferenceTabClicked(name) {
 // candidate's part is editable (UI review item 8). It splits ONLY while the
 // file still starts with the environment exactly as provided - if the
 // assistant or anyone changed it, the whole file stays editable and nothing
-// is hidden. Save/Run/Submit always send fixed part + box (round4AutoCode),
+// is hidden. Save/Run/Submit always send fixed part + box (round2AutomationCode),
 // byte-identical to the file.
 const r4aFixedPrefix = {};  // code box id -> the read-only text in front of it
 
-function round4AutoFixedPrefix(environmentCode) {
+function round2AutomationFixedPrefix(environmentCode) {
   const env = environmentCode || "";
   const m = /^[ \t]*(#|\/\/) *TODO: write your automated/m.exec(env);
   return m ? env.slice(0, m.index) : "";
 }
-function round4AutoSplitCode(code, environmentCode) {
-  const prefix = round4AutoFixedPrefix(environmentCode);
+function round2AutomationSplitCode(code, environmentCode) {
+  const prefix = round2AutomationFixedPrefix(environmentCode);
   const text = code || "";
   if (prefix && text.startsWith(prefix)) return { fixed: prefix, editable: text.slice(prefix.length) };
   return { fixed: "", editable: text };
 }
-function round4AutoCode(rowIndex) {
+function round2AutomationCode(rowIndex) {
   const id = `r4a-code-${rowIndex}`;
   const el = document.getElementById(id);
   return el ? (r4aFixedPrefix[id] || "") + el.value : "";
 }
 
-function round4AutoTcSectionHtml(row) {
-  const tc = round4AutoTcState(row.index);
-  const unlocked = round4AutoTcIsUnlocked(tc);
+function round2AutomationTcSectionHtml(row) {
+  const tc = round2AutomationTcState(row.index);
+  const unlocked = round2AutomationTcIsUnlocked(tc);
   const codeId = `r4a-code-${row.index}`;
-  const split = round4AutoSplitCode(tc.code, round4AutoState && round4AutoState.environment_code);
+  const split = round2AutomationSplitCode(tc.code, round2AutomationState && round2AutomationState.environment_code);
   r4aFixedPrefix[codeId] = split.fixed;
   const fixedLines = split.fixed ? split.fixed.split("\n").length - 1 : 0;
   const envHtml = split.fixed ? `
@@ -288,16 +288,16 @@ function round4AutoTcSectionHtml(row) {
           ${codeEditorHtml(codeId, split.editable, "round4-pilot-code r4a-code-editor", `data-first-line="${fixedLines + 1}"`)}
         </div>
       </div>
-      ${round4AutoTestDataHtml(row)}
+      ${round2AutomationTestDataHtml(row)}
       <div class="action-bar code-actions-sticky" style="border-top:none; margin-top:0">
         <span class="muted">Run uses exactly this file - the practice environment plus your code box. Your own edits are recorded separately from the assistant's.</span>
         <div class="action-bar-buttons">
-          <button class="btn-secondary r4a-save-btn" onclick="round4AutoSaveCodeClicked(${row.index})">Save my edit</button>
-          <button class="btn-primary r4a-run-btn" onclick="round4AutoRunClicked(${row.index})">Run</button>
+          <button class="btn-secondary r4a-save-btn" onclick="round2AutomationSaveCodeClicked(${row.index})">Save my edit</button>
+          <button class="btn-primary r4a-run-btn" onclick="round2AutomationRunClicked(${row.index})">Run</button>
         </div>
       </div>
       <div class="section-header" style="margin-top:var(--space-default)"><h3>Execution result</h3></div>
-      <div id="r4a-run-result-${row.index}">${round4AutoRunResultHtml(row.index, tc.last_run)}</div>` : `
+      <div id="r4a-run-result-${row.index}">${round2AutomationRunResultHtml(row.index, tc.last_run)}</div>` : `
       <p class="muted" style="margin-top:1.25rem">No code yet - describe what you want automated above. Once the assistant has enough detail to encode it without guessing, it'll write the first version here.</p>`;
 
   return `
@@ -309,12 +309,12 @@ function round4AutoTcSectionHtml(row) {
       <p class="muted" style="margin:0 0 var(--space-compact) 0">AI-generated code may be buggy, incomplete, or subtly wrong even when it runs cleanly - review it before trusting a PASS.</p>
 
       <div class="section-header"><h3>Your instruction &middot; AI conversation</h3></div>
-      <div class="r4a-chat-log">${round4AutoTurnsHtml(tc.turns)}</div>
+      <div class="r4a-chat-log">${round2AutomationTurnsHtml(tc.turns)}</div>
       <div class="field-row" style="margin-top:0.5rem; align-items:flex-start">
         <div class="field" style="flex:1 1 20rem">
           <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
         </div>
-        <button class="btn-primary r4a-ask-btn" onclick="round4AutoAskClicked(${row.index})">Ask AI</button>
+        <button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button>
       </div>
       <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
 
@@ -322,9 +322,9 @@ function round4AutoTcSectionHtml(row) {
     </div>`;
 }
 
-function renderRound4AutomationLayout(box) {
+function renderRound2AutomationLayout(box) {
   setWideLayout(true);
-  const s = round4AutoState;
+  const s = round2AutomationState;
   const scenario = round4State.scenario;
 
   if (!s.language_locked) {
@@ -344,7 +344,7 @@ function renderRound4AutomationLayout(box) {
             <option value="java">Java</option>
             <option value="javascript">JavaScript</option>
           </select>
-          <button class="btn-primary" id="r4a-lock-language-btn" onclick="round4AutoLockLanguageClicked()">Lock language</button>
+          <button class="btn-primary" id="r4a-lock-language-btn" onclick="round2AutomationLockLanguageClicked()">Lock language</button>
         </div>
         <p id="r4a-status" class="muted"></p>
       </div>`;
@@ -352,14 +352,14 @@ function renderRound4AutomationLayout(box) {
   }
 
   // No more "pick both, then confirm" screen - test cases are selected
-  // one at a time via round4AutoNextPickHtml's dropdown, immutably per
-  // pick (see routers/candidate.py's round4_auto_select), so the whole
+  // one at a time via round2AutomationNextPickHtml's dropdown, immutably per
+  // pick (see routers/candidate.py's round2_automation_select), so the whole
   // rest of the page renders unconditionally once the language is
   // locked, whether zero, one or two test cases have been picked so far.
   const selected = s.selected || [];
   const remaining = (s.available_rows || []).filter((r) => !selected.some((sel) => sel.index === r.index));
   const lastSelected = selected.length > 0 ? selected[selected.length - 1] : null;
-  const lastHasResult = lastSelected ? !!round4AutoTcState(lastSelected.index).last_run : false;
+  const lastHasResult = lastSelected ? !!round2AutomationTcState(lastSelected.index).last_run : false;
   // The picker shows for the very first test case unconditionally, and
   // again after the most recently added one has a result (pass or fail
   // - "has a result" is the trigger, not whether it's correct yet) - as
@@ -380,22 +380,22 @@ function renderRound4AutomationLayout(box) {
     </div>
 
     <div class="section-header"><h2>Your Round 1 test cases</h2></div>
-    ${round4AutoTcTableHtml(s.available_rows || [], selected.map((r) => r.index))}
-    ${round4AutoReferenceHtml()}
+    ${round2AutomationTcTableHtml(s.available_rows || [], selected.map((r) => r.index))}
+    ${round2AutomationReferenceHtml()}
 
-    ${selected.map((r) => round4AutoTcSectionHtml(r)).join("")}
+    ${selected.map((r) => round2AutomationTcSectionHtml(r)).join("")}
 
-    ${showPicker ? round4AutoNextPickHtml(remaining) : ""}
+    ${showPicker ? round2AutomationNextPickHtml(remaining) : ""}
 
     ${selected.length > 0 ? `
     <div class="action-bar">
       <span class="muted">Submitting ends Round 2 and moves you on - you can't return to it afterward.</span>
       <div class="action-bar-buttons">
-        <button id="r4a-submit-btn" class="btn-primary" onclick="round4AutoSubmitClicked()">Submit Round 2</button>
+        <button id="r4a-submit-btn" class="btn-primary" onclick="round2AutomationSubmitClicked()">Submit Round 2</button>
       </div>
     </div>` : ""}
     <p id="r4a-status" class="muted"></p>`;
-  round4AutoAfterRender();
+  round2AutomationAfterRender();
 }
 
 // Where each code box was left, keyed by its id - every action re-renders
@@ -406,7 +406,7 @@ const r4aEditorView = {};
 // test, or the "write your tests below" marker before any exists.
 const R4A_OWN_CODE_RE = /^[ \t]*(async def test_|def test_|function test|(public |private |static |async )*void test|@Test\b|(#|\/\/) *TODO: write your automated)/m;
 
-function round4AutoAfterRender() {
+function round2AutomationAfterRender() {
   initCodeEditors(document.getElementById("round-view"));
   document.querySelectorAll("textarea.r4a-code-editor").forEach((el) => {
     const prev = r4aEditorView[el.id];
@@ -438,68 +438,68 @@ function round4AutoAfterRender() {
 // progress and any error show beside that test case's buttons, not in the
 // page-bottom status line (a failed Ask AI used to look like "nothing
 // happened" because the error appeared below Submit).
-async function round4AutoAction(actionFn, rowIndex = null, workingText = "") {
-  if (round4AutoBusy) return;
-  round4AutoBusy = true;
-  round4AutoSetBusy(true);
+async function round2AutomationAction(actionFn, rowIndex = null, workingText = "") {
+  if (round2AutomationBusy) return;
+  round2AutomationBusy = true;
+  round2AutomationSetBusy(true);
   const statusEl = (rowIndex !== null && document.getElementById(`r4a-tc-status-${rowIndex}`)) || document.getElementById("r4a-status");
   if (statusEl) { statusEl.className = "muted"; statusEl.textContent = workingText; }
   try {
     await actionFn();
-    round4AutoState = await api("/candidate/round/2/auto/state");
-    renderRound4AutomationLayout(document.getElementById("round-view"));
+    round2AutomationState = await api("/candidate/round/2/auto/state");
+    renderRound2AutomationLayout(document.getElementById("round-view"));
   } catch (e) {
     if (statusEl) { statusEl.className = "error-text"; statusEl.textContent = e.message; }
   } finally {
-    round4AutoBusy = false;
-    round4AutoSetBusy(false);
+    round2AutomationBusy = false;
+    round2AutomationSetBusy(false);
   }
 }
 
-function round4AutoLockLanguageClicked() {
+function round2AutomationLockLanguageClicked() {
   const language = document.getElementById("r4a-language-select").value;
   const statusEl = document.getElementById("r4a-status");
   if (!language) {
     if (statusEl) statusEl.textContent = "Pick a language first.";
     return;
   }
-  round4AutoAction(() => api("/candidate/round/2/auto/language", { method: "POST", body: JSON.stringify({ language }) }));
+  round2AutomationAction(() => api("/candidate/round/2/auto/language", { method: "POST", body: JSON.stringify({ language }) }));
 }
 
-function round4AutoAskClicked(rowIndex) {
+function round2AutomationAskClicked(rowIndex) {
   const promptEl = document.getElementById(`r4a-prompt-${rowIndex}`);
   const prompt = promptEl.value.trim();
   if (!prompt) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) }),
+  round2AutomationAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) }),
     rowIndex, "Asking the assistant - writing code can take up to a minute or two...");
 }
 
-function round4AutoSaveCodeClicked(rowIndex) {
-  const code = round4AutoCode(rowIndex);
+function round2AutomationSaveCodeClicked(rowIndex) {
+  const code = round2AutomationCode(rowIndex);
   if (!code) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Saving...");
+  round2AutomationAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Saving...");
 }
 
-function round4AutoRunClicked(rowIndex) {
-  const code = round4AutoCode(rowIndex);
-  round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Running...");
+function round2AutomationRunClicked(rowIndex) {
+  const code = round2AutomationCode(rowIndex);
+  round2AutomationAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Running...");
 }
 
-async function round4AutoSubmitClicked() {
-  if (round4AutoBusy) return;
-  const selected = round4AutoState.selected || [];
+async function round2AutomationSubmitClicked() {
+  if (round2AutomationBusy) return;
+  const selected = round2AutomationState.selected || [];
   const statusEl = document.getElementById("r4a-status");
 
   // Every selected test case needs its own generated code and its own
   // run - gathered independently per TC, not one shared check for the
-  // whole round (see Round4AutoSubmitCreate.entries). No candidate-
+  // whole round (see Round2AutomationSubmitCreate.entries). No candidate-
   // written interpretation required: whether the run genuinely proves
   // the expected result is scored from the code and result alone.
   const entries = [];
   for (const r of selected) {
     const sectionEl = document.querySelector(`.r4a-tc-panel[data-row-index="${r.index}"]`);
-    const tc = round4AutoTcState(r.index);
-    if (!round4AutoTcIsUnlocked(tc)) {
+    const tc = round2AutomationTcState(r.index);
+    if (!round2AutomationTcIsUnlocked(tc)) {
       if (sectionEl) sectionEl.scrollIntoView({ behavior: "smooth", block: "center" });
       if (statusEl) statusEl.textContent = `Ask the assistant to generate code for "${r.title || `test case ${r.index}`}" before submitting.`;
       return;
@@ -509,11 +509,11 @@ async function round4AutoSubmitClicked() {
       if (statusEl) statusEl.textContent = `Run "${r.title || `test case ${r.index}`}" at least once before submitting.`;
       return;
     }
-    entries.push({ row_index: r.index, code: round4AutoCode(r.index) });
+    entries.push({ row_index: r.index, code: round2AutomationCode(r.index) });
   }
 
-  round4AutoBusy = true;
-  round4AutoSetBusy(true);
+  round2AutomationBusy = true;
+  round2AutomationSetBusy(true);
   if (statusEl) statusEl.textContent = "";
   try {
     await api("/candidate/round/2/auto/submit", { method: "POST", body: JSON.stringify({ entries }) });
@@ -522,8 +522,8 @@ async function round4AutoSubmitClicked() {
     refreshCandidateNav();
   } catch (e) {
     if (statusEl) statusEl.textContent = e.message;
-    round4AutoBusy = false;
-    round4AutoSetBusy(false);
+    round2AutomationBusy = false;
+    round2AutomationSetBusy(false);
   }
 }
 
@@ -544,12 +544,12 @@ async function renderRound4View(box) {
     box.innerHTML = `<h3>Round 2</h3><p class="muted">This Round 2 format has been retired - please contact HR.</p>`;
     return;
   }
-  await loadRound4Automation(box);
+  await loadRound2Automation(box);
 
   if (!timerHandle) {
     const submission = round4State.submission;
     const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, round4State.scenario) * 60 * 1000;
-    startTimer(deadline, round4AutoSubmit, 2);
+    startTimer(deadline, round2AutomationSubmit, 2);
   }
 }
 
@@ -559,11 +559,11 @@ async function renderRound4View(box) {
 // scored. Before this, time-up sent a field the endpoint doesn't have
 // ("validation", silently dropped) and then expired ROUND 4 - a leftover
 // from the Round 2<->4 swap - leaving Round 2 open and the timer firing again.
-async function round4AutoSubmit() {
+async function round2AutomationSubmit() {
   const timerEl = document.getElementById("timer");
   if (timerEl) timerEl.textContent = "Time's up - submitting automatically...";
-  const selected = (round4AutoState && round4AutoState.selected) || [];
-  const entries = selected.map((r) => ({ row_index: r.index, code: round4AutoCode(r.index) || null }));
+  const selected = (round2AutomationState && round2AutomationState.selected) || [];
+  const entries = selected.map((r) => ({ row_index: r.index, code: round2AutomationCode(r.index) || null }));
   try {
     await api("/candidate/round/2/auto/submit", { method: "POST", body: JSON.stringify({ entries }) });
     stopTimer();

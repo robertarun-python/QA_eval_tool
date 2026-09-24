@@ -196,7 +196,7 @@ def _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7", title="A
               "config_json": {"mode": "ai_test_automation", "environment_code_by_language": {"python": "# env\n"}}},
         cookies=_auth(hr_token),
     ).json()
-    # The automation reference is system-authored (seed_round4_auto.py),
+    # The automation reference is system-authored (seed_round2_automation.py),
     # not generated - set it directly, as that seed does.
     import app.database as database_module
     from app.models import Scenario
@@ -218,7 +218,7 @@ def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band
     round 2 (AI-assisted automation), round 3 (coding). Round 2 is seeded
     rather than driven end-to-end - its real flow needs a test selection,
     AI turns and an execution, none of which any caller of this helper is
-    actually testing (see test_round4_auto.py for that round's own
+    actually testing (see test_round2_automation.py for that round's own
     coverage)."""
     from app.services import llm_service, execution_service
 

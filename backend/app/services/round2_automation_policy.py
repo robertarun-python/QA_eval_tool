@@ -9,7 +9,7 @@ the model not to" is not by itself an enforceable boundary:
 1. PRE-GENERATION (is_prohibited): refuses a request whose SHAPE is
    asking the assistant to supply the candidate's own design work -
    inventing test cases, test data, assertions, expected results, or
-   extra coverage. Runs before llm_service.round4_auto_turn ever calls
+   extra coverage. Runs before llm_service.round2_automation_turn ever calls
    the API, so a matched request costs zero tokens and can't be talked
    past.
 

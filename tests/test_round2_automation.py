@@ -21,10 +21,10 @@ from .conftest import (
     _login, _auth, _publish_scenario,
 )
 
-from app.services import llm_service, round4_auto_policy, execution_service
+from app.services import llm_service, round2_automation_policy, execution_service
 
 HELPERS_DIR = Path(__file__).parent.parent / "backend" / "app" / "prompts"
-PYTHON_ENV = (HELPERS_DIR / "round4_auto_helpers_python.txt").read_text(encoding="utf-8")
+PYTHON_ENV = (HELPERS_DIR / "round2_automation_helpers_python.txt").read_text(encoding="utf-8")
 
 # The candidate's own round 1 design - the immutable source of truth this
 # whole round hangs off.
@@ -57,7 +57,7 @@ GROUND_TRUTH = "create_record rejects amount <= 0 and writes nothing; Database.f
 def _publish_auto_scenario(client, hr_token, monkeypatch, band="0-7"):
     """Creates + publishes the automation scenario directly (its config/
     reference are HR/system-authored, not LLM-generated - see
-    seed_round4_auto.py, which this mirrors without touching the real DB).
+    seed_round2_automation.py, which this mirrors without touching the real DB).
 
     create_scenario (hr.py) unconditionally calls _generate_reference for
     every round_number==2 scenario regardless of config_json["mode"] - it
@@ -96,7 +96,7 @@ def _publish_auto_scenario(client, hr_token, monkeypatch, band="0-7"):
 def _reach_automation_round(client, hr_token, monkeypatch, r1_rows=None, language="python"):
     """Drives round 1, starts round 2, and locks `language` - the
     precondition for every other round 2 auto endpoint (see
-    round4_auto_select's guard). The round 3/4 calls below don't actually
+    round2_automation_select's guard). The round 3/4 calls below don't actually
     unlock (round 2 isn't complete yet at that point) and are effectively
     no-ops; harmless, left as-is."""
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)
@@ -140,7 +140,7 @@ def _sequential_call_claude(monkeypatch, *bodies):
     """A _call_claude replacement returning each JSON string in order,
     repeating the last one for any call beyond the given sequence. A test
     case's FIRST /turn call now goes through the clarify-then-generate
-    gate (see routers/candidate.py's round4_auto_turn) - two underlying
+    gate (see routers/candidate.py's round2_automation_turn) - two underlying
     _call_claude invocations, not one - so most /turn mocks need two
     canned replies, not one."""
     calls = {"n": 0}
@@ -475,7 +475,7 @@ def test_legitimate_request_reaches_the_generator_and_updates_the_code(client, m
 
     def _fake_call(prompt, max_tokens=4096):
         # First call is this test case's gating sufficiency check (see
-        # round4_auto_turn's clarify-then-generate gate) - only the
+        # round2_automation_turn's clarify-then-generate gate) - only the
         # second is the actual generation call whose prompt matters here.
         calls["n"] += 1
         if calls["n"] == 1:
@@ -568,7 +568,7 @@ def test_clarify_substitutes_the_fallback_when_the_drafted_question_leaks_the_la
     assert body["response_kind"] == "clarify"
     # The leaking draft never reaches the candidate - a fixed, pre-approved,
     # category-neutral question is substituted instead.
-    from app.services.round4_auto_clarify_policy import FALLBACK_QUESTION
+    from app.services.round2_automation_clarify_policy import FALLBACK_QUESTION
     assert body["response_message"] == FALLBACK_QUESTION
     for leaked_word in ("ui", "api", "database", "backend", "front end", "layer"):
         assert leaked_word not in body["response_message"].lower()
@@ -632,9 +632,9 @@ def test_clarify_and_turn_share_one_conversation_log_per_tc(client, monkeypatch)
 
 
 def test_untraceable_literal_detection_flags_invented_values_only():
-    """Deterministic post-generation control - see round4_auto_policy."""
+    """Deterministic post-generation control - see round2_automation_policy."""
     selected = [{"test_data": "amount = 0.00", "expected_result": "rejected", "steps": "submit", "title": "t"}]
-    flagged = round4_auto_policy.untraceable_literals(
+    flagged = round2_automation_policy.untraceable_literals(
         "a = 0.00\nb = 77.77\nUI.login('nobody@example.com')", selected, environment_code="def login(): pass",
     )
     assert "77.77" in flagged                      # value the candidate never specified
@@ -643,10 +643,10 @@ def test_untraceable_literal_detection_flags_invented_values_only():
 
 
 def test_clarify_policy_flags_layer_vocabulary_but_not_ordinary_english():
-    """Deterministic post-generation control - see round4_auto_clarify_policy.
+    """Deterministic post-generation control - see round2_automation_clarify_policy.
     Isolated from round3_constructs on purpose (see that module's own
     docstring) - this is its own, much smaller vocabulary."""
-    from app.services import round4_auto_clarify_policy as policy
+    from app.services import round2_automation_clarify_policy as policy
 
     for leaking in [
         "Should this go through the UI or the API?",
@@ -666,11 +666,11 @@ def test_clarify_policy_flags_layer_vocabulary_but_not_ordinary_english():
 
 def test_placeholder_prefilter_catches_empty_instructions_but_not_short_real_ones():
     """Deterministic pre-filter - see
-    round4_auto_clarify_policy.is_placeholder_instruction. Conservative on
+    round2_automation_clarify_policy.is_placeholder_instruction. Conservative on
     purpose: a short instruction that still says something real ("confirm
     login fails") must NOT be caught here - only genuinely empty ones,
     the false-positive risk this design explicitly called out."""
-    from app.services import round4_auto_clarify_policy as policy
+    from app.services import round2_automation_clarify_policy as policy
 
     for placeholder in [
         "test it", "go", "do it", "please automate this", "check it now", "   ",
@@ -678,7 +678,7 @@ def test_placeholder_prefilter_catches_empty_instructions_but_not_short_real_one
         # filler words around "just do it" that a narrower word list let
         # it through to the LLM, which then filled the gap with the
         # candidate's own design specifics instead of asking a genuinely
-        # open question - see round4_auto_clarify.txt.
+        # open question - see round2_automation_clarify.txt.
         "I want to automate the given test case. please do",
     ]:
         assert policy.is_placeholder_instruction(placeholder), placeholder
@@ -690,7 +690,7 @@ def test_placeholder_prefilter_catches_empty_instructions_but_not_short_real_one
 def test_build_clarify_response_decision_rule():
     """Pure function, no LLM/HTTP - the deterministic rule that turns the
     LLM's bounded classification into what the candidate sees."""
-    from app.services import round4_auto_clarify_policy as policy
+    from app.services import round2_automation_clarify_policy as policy
 
     sufficient = policy.build_clarify_response(status="sufficient")
     assert sufficient["response_kind"] == "explain"
@@ -718,11 +718,11 @@ def test_build_clarify_response_decision_rule():
 # scope choice as an unresolved contradiction indefinitely. ----
 
 def test_value_traces_to_candidate_rejects_environment_only_values():
-    """Pure function, no LLM/HTTP - see round4_auto_clarify_policy.
+    """Pure function, no LLM/HTTP - see round2_automation_clarify_policy.
     value_traces_to_candidate. A value that only appears in the provided
     environment code (never in the candidate's own design or messages)
     must never be treated as something the candidate said."""
-    from app.services import round4_auto_clarify_policy as policy
+    from app.services import round2_automation_clarify_policy as policy
 
     design = [{"title": "t", "steps": "log in", "test_data": "amount = 0.00", "expected_result": "rejected"}]
     conversation = [{"candidate_prompt": "submit the amount and confirm it worked"}]
@@ -739,10 +739,10 @@ def test_value_traces_to_candidate_rejects_environment_only_values():
 
 
 def test_contradicts_prior_count_reads_the_fixed_template_marker():
-    """Pure function, no LLM/HTTP - see round4_auto_clarify_policy.
+    """Pure function, no LLM/HTTP - see round2_automation_clarify_policy.
     contradicts_prior_count. Counts by matching build_clarify_response's
     own fixed template, the only place this exact wording is generated."""
-    from app.services import round4_auto_clarify_policy as policy
+    from app.services import round2_automation_clarify_policy as policy
 
     assert policy.contradicts_prior_count([]) == 0
     assert policy.contradicts_prior_count([
@@ -1034,7 +1034,7 @@ def test_submit_validates_each_selected_tc_independently(client, monkeypatch):
 
     _unlock(client, monkeypatch, cand_token, row_index=1)
     client.post("/candidate/round/2/auto/run", json={"code": "y = 2", "row_index": 1}, cookies=_auth(cand_token))
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {
         "scores": {"automation_design": 20, "test_data_and_assertions": 20, "ai_usage": 20,
                    "ai_output_review": 20, "execution_and_validation": 20},
         "final_score": 100, "findings": [], "feedback_text": "ok",
@@ -1101,7 +1101,7 @@ def test_challenge_ground_truth_never_reaches_any_candidate_facing_response(clie
 
     bodies.append(client.post("/candidate/round/2/auto/run", json={"code": "print('x')"}, cookies=_auth(cand_token)).json())
 
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {
         "scores": {"automation_design": 20, "test_data_and_assertions": 20, "ai_usage": 20,
                    "ai_output_review": 20, "execution_and_validation": 20},
         "final_score": 100, "findings": [], "feedback_text": "ok",
@@ -1144,7 +1144,7 @@ def test_full_submission_scores_and_audits_via_the_existing_patterns(client, mon
             "feedback_text": "Solid, but verify what the assertion proves.",
         }
 
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", _fake_scoring)
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", _fake_scoring)
 
     res = client.post("/candidate/round/2/auto/submit", json=_submit_payload(), cookies=_auth(cand_token))
     assert res.status_code == 201
@@ -1254,7 +1254,7 @@ def test_evidence_audit_never_attributes_one_tcs_turn_to_the_other(client, monke
     client.post("/candidate/round/2/auto/run", json={"code": "print('tc1')", "row_index": 1}, cookies=_auth(cand_token))
 
     # Flattened order is TC0's turn (position 1) then TC1's turn (position 2).
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {
         "scores": {"automation_design": 18, "test_data_and_assertions": 18, "ai_usage": 18,
                    "ai_output_review": 18, "execution_and_validation": 18},
         "final_score": 90,
@@ -1297,7 +1297,7 @@ def test_unsupported_finding_is_dropped_by_the_shared_evidence_audit(client, mon
     _unlock(client, monkeypatch, cand_token)
     client.post("/candidate/round/2/auto/run", json={"code": "print(1)"}, cookies=_auth(cand_token))
 
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {
         "scores": {"automation_design": 10, "test_data_and_assertions": 10, "ai_usage": 10,
                    "ai_output_review": 10, "execution_and_validation": 10},
         "final_score": 50,
@@ -1391,21 +1391,21 @@ def test_well_formed_code_is_never_touched():
 
 
 def test_auto_turn_repairs_escaped_code_end_to_end(monkeypatch):
-    """Through the real round4_auto_turn, not just the helper."""
+    """Through the real round2_automation_turn, not just the helper."""
     import json as _json
     from app.services import llm_service
     bs = chr(92)
     payload = {"response_kind": "code_edit", "response_message": "done",
                "code_after": "def t():" + bs + "n    x = 1" + bs + "n    y = 2" + bs + "n    return x + y"}
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: _json.dumps(payload))
-    out = llm_service.round4_auto_turn(
+    out = llm_service.round2_automation_turn(
         language="python", selected_design=[{"title": "t"}], environment_code="",
         current_code="", conversation_so_far=[], candidate_prompt="encode my step 1",
     )
     assert out["code_after"] == "def t():\n    x = 1\n    y = 2\n    return x + y"
 
 
-# ---- Deliberately-imperfect first generation (see round4_auto_turn's
+# ---- Deliberately-imperfect first generation (see round2_automation_turn's
 # inject_flaw and the router's clarify-then-generate gate) ----
 
 def test_inject_flaw_adds_the_flaw_instruction_only_when_requested(monkeypatch):
@@ -1420,14 +1420,14 @@ def test_inject_flaw_adds_the_flaw_instruction_only_when_requested(monkeypatch):
 
     monkeypatch.setattr(_llm, "_call_claude", _capture)
 
-    _llm.round4_auto_turn(
+    _llm.round2_automation_turn(
         language="python", selected_design=[{"title": "t"}], environment_code="",
         current_code="", conversation_so_far=[], candidate_prompt="encode step 1", inject_flaw=True,
     )
     assert "FOR THIS RESPONSE ONLY" in captured["prompt"]
     assert "does not actually prove the candidate's stated expected result" in captured["prompt"]
 
-    _llm.round4_auto_turn(
+    _llm.round2_automation_turn(
         language="python", selected_design=[{"title": "t"}], environment_code="",
         current_code="", conversation_so_far=[], candidate_prompt="encode step 1",
     )
@@ -1463,7 +1463,7 @@ def test_only_the_first_generation_for_a_tc_gets_the_flaw_instruction(client, mo
 # ---- Scoring fidelity: a supported finding must survive to the Score ----
 # End-to-end counterpart to test_round4_evidence_audit.py's unit coverage:
 # proves the persisted evidence actually reaches the auditor through
-# score_round4_auto_submission, not just that the auditor can use it.
+# score_round2_automation_submission, not just that the auditor can use it.
 
 def _score_with_finding(client, monkeypatch, hr_token, cand_token, finding, final_score=98):
     from app.services import llm_service as _llm
@@ -1471,7 +1471,7 @@ def _score_with_finding(client, monkeypatch, hr_token, cand_token, finding, fina
     _unlock(client, monkeypatch, cand_token)
     client.post("/candidate/round/2/auto/code", json={"code": "print('x')\nassert 1 == 1\n"}, cookies=_auth(cand_token))
     client.post("/candidate/round/2/auto/run", json={"code": "print('x')\nassert 1 == 1\n"}, cookies=_auth(cand_token))
-    monkeypatch.setattr(_llm, "score_round4_auto_conversation", lambda **k: {
+    monkeypatch.setattr(_llm, "score_round2_automation_conversation", lambda **k: {
         "scores": {"automation_design": 20, "test_data_and_assertions": 20, "ai_usage": 20,
                    "ai_output_review": 20, "execution_and_validation": 18},
         "final_score": final_score, "findings": [finding], "feedback_text": "ok",
@@ -1574,7 +1574,7 @@ def test_two_tc_evidence_blocks_are_fully_isolated(client, monkeypatch):
             "final_score": 80, "findings": [], "feedback_text": "ok",
         }
 
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", _fake_scoring)
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", _fake_scoring)
 
     entries = [{"row_index": 0}, {"row_index": 1}]
     res = client.post("/candidate/round/2/auto/submit", json={"entries": entries}, cookies=_auth(cand_token))
@@ -1623,7 +1623,7 @@ def test_quote_evidence_tagged_with_wrong_test_case_is_rejected_end_to_end(clien
     client.post("/candidate/round/2/auto/run", json={"code": "print('tc0')", "row_index": 0}, cookies=_auth(cand_token))
     client.post("/candidate/round/2/auto/run", json={"code": "print('tc1 uniquely worded')", "row_index": 1}, cookies=_auth(cand_token))
 
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **k: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {
         "scores": {"automation_design": 18, "test_data_and_assertions": 18, "ai_usage": 18,
                    "ai_output_review": 18, "execution_and_validation": 18},
         "final_score": 90,

@@ -43,10 +43,10 @@ def _r2(case, generate):
     kwargs = dict(language=case["language"], selected_design=case["selected_design"],
                   environment_code=case["environment_code"], current_code=case["current_code"],
                   conversation_so_far=case["conversation_so_far"], candidate_prompt=case["candidate_prompt"])
-    gate = llm_service.round4_auto_clarify(**kwargs)
+    gate = llm_service.round2_automation_clarify(**kwargs)
     if gate["response_kind"] != "explain" or not generate:
         return gate
-    return llm_service.round4_auto_turn(**kwargs, inject_flaw=True)
+    return llm_service.round2_automation_turn(**kwargs, inject_flaw=True)
 
 
 def _added(before, after):

@@ -24,10 +24,10 @@ from ..schemas import (
     Round4UiMockupOut, Round2SubmissionCreate, ExpireRoundPayload, TabSwitchOut,
     Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut, Round3DirectEditCreate,
     Round3RunInputCreate, Round3RunPollOut, Round3StateOut,
-    Round4AutoStateOut, Round4AutoDesignRowOut, Round4AutoLanguageCreate, Round4AutoSelectCreate, Round4AutoRefineCreate,
-    Round4AutoTestDataUpdate,
-    Round4AutoTurnCreate, Round4AutoTurnOut, Round4AutoClarifyCreate, Round4AutoCodeUpdate, Round4AutoRunCreate,
-    Round4AutoSubmitCreate, Round4AutoTCSubmitEntry, Round4AutoRunOut, Round4AutoTCStateOut,
+    Round2AutomationStateOut, Round2AutomationDesignRowOut, Round2AutomationLanguageCreate, Round2AutomationSelectCreate, Round2AutomationRefineCreate,
+    Round2AutomationTestDataUpdate,
+    Round2AutomationTurnCreate, Round2AutomationTurnOut, Round2AutomationClarifyCreate, Round2AutomationCodeUpdate, Round2AutomationRunCreate,
+    Round2AutomationSubmitCreate, Round2AutomationTCSubmitEntry, Round2AutomationRunOut, Round2AutomationTCStateOut,
 )
 from ..dependencies import require_candidate
 from ..services import llm_service, execution_service
@@ -659,9 +659,9 @@ _PERSISTENCE_CLARIFICATION_PATTERNS = (
 # same as the pilot. ----
 
 _AUTO_LANGUAGE_HELPER_FILES = {
-    "python": "round4_auto_helpers_python.txt",
-    "javascript": "round4_auto_helpers_javascript.txt",
-    "java": "round4_auto_helpers_java.txt",
+    "python": "round2_automation_helpers_python.txt",
+    "javascript": "round2_automation_helpers_javascript.txt",
+    "java": "round2_automation_helpers_java.txt",
 }
 
 
@@ -672,7 +672,7 @@ def _is_auto_scenario(scenario: Scenario) -> bool:
 def _round3_language_for(candidate: User, db: Session) -> str:
     """Round 3's language. Round 3 no longer asks - it inherits whatever
     the candidate locked in round 2's automation round (see
-    round4_auto_lock_language), so a candidate is never asked to pick a
+    round2_automation_lock_language), so a candidate is never asked to pick a
     language twice.
 
     Preference order:
@@ -705,7 +705,7 @@ def _round3_language_for(candidate: User, db: Session) -> str:
 def _auto_environment_code(scenario: Scenario, language: str) -> str:
     """The provided automation environment for this language. Prefers the
     scenario's own configured environment (HR-authored, see
-    seed_round4_auto.py); falls back to the packaged helper file."""
+    seed_round2_automation.py); falls back to the packaged helper file."""
     configured = (scenario.config_json or {}).get("environment_code_by_language") or {}
     if configured.get(language):
         return configured[language]
@@ -716,14 +716,14 @@ def _ensure_auto_content(scenario: Scenario, submission: Submission, candidate: 
     """Seeds this submission's automation state on first access - /round/2/start
     is shared with the other round 2 flows and knows nothing about this mode.
     language starts unset - the candidate locks it explicitly via
-    round4_auto_lock_language before anything else in this round is
-    reachable (see round4_auto_select's guard)."""
+    round2_automation_lock_language before anything else in this round is
+    reachable (see round2_automation_select's guard)."""
     content = submission.content
     if not content or content.get("mode") != "ai_test_automation":
         content = {
             "mode": "ai_test_automation",
             "language": None,
-            # Each row added to "selected" (see round4_auto_select) carries
+            # Each row added to "selected" (see round2_automation_select) carries
             # its own state - code/turns/code_edits/last_run/validation -
             # independent of every other selected row. Nothing to seed here
             # until a test case is actually selected.
@@ -747,14 +747,14 @@ def _round1_rows_for(candidate: User, db: Session) -> list[dict]:
     return list(round1.content or [])
 
 
-def _auto_row_out(row: dict) -> Round4AutoDesignRowOut:
-    return Round4AutoDesignRowOut(
+def _auto_row_out(row: dict) -> Round2AutomationDesignRowOut:
+    return Round2AutomationDesignRowOut(
         index=row.get("index", 0),
         title=row.get("title", "") or "",
         preconditions=row.get("preconditions", "") or "",
         steps=row.get("steps", "") or "",
         # The candidate's own correction, if they made one (see
-        # round4_auto_update_test_data), else the original - `or ""`
+        # round2_automation_update_test_data), else the original - `or ""`
         # also covers a round 1 submission written before test_data
         # existed. available_rows entries never have an override key, so
         # this is a no-op there; only a selected row can carry one.
@@ -764,26 +764,26 @@ def _auto_row_out(row: dict) -> Round4AutoDesignRowOut:
     )
 
 
-def _auto_tc_state_out(row: dict) -> Round4AutoTCStateOut:
+def _auto_tc_state_out(row: dict) -> Round2AutomationTCStateOut:
     row_index = row.get("index", 0)
-    return Round4AutoTCStateOut(
+    return Round2AutomationTCStateOut(
         row_index=row_index,
         code=row.get("code", ""),
-        turns=[Round4AutoTurnOut(row_index=row_index, **t) for t in (row.get("turns") or [])],
+        turns=[Round2AutomationTurnOut(row_index=row_index, **t) for t in (row.get("turns") or [])],
         code_edits_count=len(row.get("code_edits") or []),
         last_run=row.get("last_run"),
         validation=row.get("validation", ""),
     )
 
 
-def _build_auto_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round4AutoStateOut:
+def _build_auto_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round2AutomationStateOut:
     content = _ensure_auto_content(scenario, submission, candidate, db)
     language = content.get("language")
     available = [
         {**row, "index": i} for i, row in enumerate(_round1_rows_for(candidate, db))
     ]
     selected = content.get("selected") or []
-    return Round4AutoStateOut(
+    return Round2AutomationStateOut(
         language=language,
         language_locked=bool(language),
         available_rows=[_auto_row_out(r) for r in available],
@@ -796,7 +796,7 @@ def _build_auto_state(scenario: Scenario, submission: Submission, candidate: Use
     )
 
 
-def _round4_auto_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+def _round2_automation_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
     scenario, submission = _round4_scenario_and_submission(candidate, db)
     if not _is_auto_scenario(scenario):
         raise HTTPException(400, "This round 2 scenario is not an AI-assisted automation scenario.")
@@ -804,7 +804,7 @@ def _round4_auto_scenario_and_submission(candidate: User, db: Session) -> tuple[
 
 
 def _auto_in_progress(candidate: User, db: Session) -> tuple[Scenario, Submission]:
-    scenario, submission = _round4_auto_scenario_and_submission(candidate, db)
+    scenario, submission = _round2_automation_scenario_and_submission(candidate, db)
     if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
     return scenario, submission
@@ -835,7 +835,7 @@ def _resolve_tc_row(selected: list[dict], row_index: int | None) -> dict:
 def _tc_is_unlocked(row: dict) -> bool:
     """Whether this test case's code panel (hand-editing and running) has
     ever been unlocked - permanently, once the assistant has produced its
-    first code_edit for it (see round4_auto_turn's clarify-then-generate
+    first code_edit for it (see round2_automation_turn's clarify-then-generate
     gate). Derived from existing turn history, not a stored flag - a
     code_edit turn can only exist once that gate has already been passed."""
     return any(t.get("response_kind") == "code_edit" for t in row.get("turns") or [])
@@ -851,7 +851,7 @@ def _apply_tc_code_edit(submission: Submission, content: dict, db: Session, row_
     test case, if sent, so Run and Submit act on exactly what's on
     screen for that TC. Same pattern as the pilot's
     _apply_pilot_code_edit; a None is a no-op. Does NOT log a code_edits
-    audit entry - unlike round4_auto_save_code, this is "whatever's on
+    audit entry - unlike round2_automation_save_code, this is "whatever's on
     screen right now" being used, not a distinguishable edit event."""
     if code is None:
         return content
@@ -868,17 +868,17 @@ def _apply_tc_code_edit(submission: Submission, content: dict, db: Session, row_
     return submission.content
 
 
-@router.get("/round/2/auto/state", response_model=Round4AutoStateOut)
-def round4_auto_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.get("/round/2/auto/state", response_model=Round2AutomationStateOut)
+def round2_automation_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     _require_round_unlocked(2, db, candidate)
-    scenario, submission = _round4_auto_scenario_and_submission(candidate, db)
+    scenario, submission = _round2_automation_scenario_and_submission(candidate, db)
     return _build_auto_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/2/auto/language", response_model=Round4AutoStateOut, status_code=201)
-def round4_auto_lock_language(payload: Round4AutoLanguageCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/language", response_model=Round2AutomationStateOut, status_code=201)
+def round2_automation_lock_language(payload: Round2AutomationLanguageCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Locks this round's language. Allowed exactly once, and must happen
-    before any test case can be selected (see round4_auto_select's guard
+    before any test case can be selected (see round2_automation_select's guard
     below) - round 3 inherits whatever is locked here (see
     _round3_language_for) rather than asking again."""
     _require_round_unlocked(2, db, candidate)
@@ -895,8 +895,8 @@ def round4_auto_lock_language(payload: Round4AutoLanguageCreate, db: Session = D
     return _build_auto_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/2/auto/select", response_model=Round4AutoStateOut, status_code=201)
-def round4_auto_select(payload: Round4AutoSelectCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/select", response_model=Round2AutomationStateOut, status_code=201)
+def round2_automation_select(payload: Round2AutomationSelectCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Adds one (normally) or two Round 1 rows to the IMMUTABLE snapshot
     of test cases the candidate is automating. Callable again later, up
     to a total of two, so the candidate can automate one test case at a
@@ -941,7 +941,7 @@ def round4_auto_select(payload: Round4AutoSelectCreate, db: Session = Depends(ge
             "expected_result": row.get("expected_result", "") or "",
             "refinements": [],
             # Independent per-TC automation state (see
-            # Round4AutoTCStateOut) - starts from the provided environment,
+            # Round2AutomationTCStateOut) - starts from the provided environment,
             # same as the old single-buffer design used to, just seeded
             # once per selected test case now instead of once per round.
             "code": _auto_environment_code(scenario, language),
@@ -959,8 +959,8 @@ def round4_auto_select(payload: Round4AutoSelectCreate, db: Session = Depends(ge
     return _build_auto_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/2/auto/refine", response_model=Round4AutoStateOut, status_code=201)
-def round4_auto_refine(payload: Round4AutoRefineCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/refine", response_model=Round2AutomationStateOut, status_code=201)
+def round2_automation_refine(payload: Round2AutomationRefineCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """APPEND-ONLY. A refinement note is added alongside the original row;
     nothing in the snapshot (or in round 1) is ever overwritten, so the
     original design stays auditable next to whatever the candidate
@@ -991,8 +991,8 @@ def round4_auto_refine(payload: Round4AutoRefineCreate, db: Session = Depends(ge
     return _build_auto_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/2/auto/test-data", response_model=Round4AutoStateOut, status_code=201)
-def round4_auto_update_test_data(payload: Round4AutoTestDataUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/test-data", response_model=Round2AutomationStateOut, status_code=201)
+def round2_automation_update_test_data(payload: Round2AutomationTestDataUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Corrects ONE selected test case's own test data for automation
     purposes - e.g. the candidate notices a typo in their own Round 1
     answer. Recorded as an override alongside the row, never overwriting
@@ -1019,16 +1019,16 @@ def round4_auto_update_test_data(payload: Round4AutoTestDataUpdate, db: Session 
     return _build_auto_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/2/auto/turn", response_model=Round4AutoTurnOut, status_code=201)
-def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/turn", response_model=Round2AutomationTurnOut, status_code=201)
+def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """Before this test case's first ever code_edit, every instruction
     goes through the specification-sufficiency check (llm_service.
-    round4_auto_clarify) first - insufficient/contradicts_prior comes
+    round2_automation_clarify) first - insufficient/contradicts_prior comes
     back as a clarify turn with no code, same as the standalone /clarify
     endpoint always has; only once that check comes back sufficient does
     this call proceed to generation, and that one first generation is
     the only one asked to plant a misleading-pass gap (see llm_service.
-    round4_auto_turn's inject_flaw) rather than fully correct code -
+    round2_automation_turn's inject_flaw) rather than fully correct code -
     every later turn for this same test case skips the check and
     generates normally, same as before this gate existed."""
     _require_round_unlocked(2, db, candidate)
@@ -1053,7 +1053,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
     # a combined design spanning every selected row.
     try:
         if is_first_generation:
-            clarify_response = llm_service.round4_auto_clarify(
+            clarify_response = llm_service.round2_automation_clarify(
                 language=language,
                 selected_design=[row],
                 environment_code=environment_code,
@@ -1061,7 +1061,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
                 conversation_so_far=conversation_so_far,
                 candidate_prompt=payload.candidate_prompt,
             )
-            # round4_auto_clarify_policy.build_clarify_response only ever
+            # round2_automation_clarify_policy.build_clarify_response only ever
             # returns "explain" for a "sufficient" classification - every
             # other outcome (insufficient/contradicts_prior/a prohibited
             # request) comes back as "clarify"/"refuse" instead, so that's
@@ -1069,7 +1069,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
             if clarify_response["response_kind"] != "explain":
                 response = clarify_response
             else:
-                response = llm_service.round4_auto_turn(
+                response = llm_service.round2_automation_turn(
                     language=language,
                     selected_design=[row],
                     environment_code=environment_code,
@@ -1081,7 +1081,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
                     inject_flaw=execution_service.toolchain_available(language),
                 )
         else:
-            response = llm_service.round4_auto_turn(
+            response = llm_service.round2_automation_turn(
                 language=language,
                 selected_design=[row],
                 environment_code=environment_code,
@@ -1113,17 +1113,17 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
     updated["selected"] = updated_selected
     submission.content = updated
     db.commit()
-    return Round4AutoTurnOut(row_index=row_index, **turn_record)
+    return Round2AutomationTurnOut(row_index=row_index, **turn_record)
 
 
-@router.post("/round/2/auto/clarify", response_model=Round4AutoTurnOut, status_code=201)
-def round4_auto_clarify(payload: Round4AutoClarifyCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/clarify", response_model=Round2AutomationTurnOut, status_code=201)
+def round2_automation_clarify(payload: Round2AutomationClarifyCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """The clarification-only flow for ONE selected test case: checks
     whether the candidate's instruction leaves a decision open, and if
     so asks a neutral question that never names the environment layer
-    (UI/API/DB) it would take to encode - see llm_service.round4_auto_clarify
-    and round4_auto_clarify_policy for the two-layer guard. Distinct from
-    round4_auto_turn: this endpoint NEVER writes code, regardless of
+    (UI/API/DB) it would take to encode - see llm_service.round2_automation_clarify
+    and round2_automation_clarify_policy for the two-layer guard. Distinct from
+    round2_automation_turn: this endpoint NEVER writes code, regardless of
     whether the instruction turns out to be complete or not - code
     generation stays exclusively /turn's job, unmodified. Same
     prohibited-request policy as /turn, reused unmodified, so a request
@@ -1145,7 +1145,7 @@ def round4_auto_clarify(payload: Round4AutoClarifyCreate, db: Session = Depends(
     language = content.get("language", "python")
 
     try:
-        response = llm_service.round4_auto_clarify(
+        response = llm_service.round2_automation_clarify(
             language=language,
             selected_design=[row],
             environment_code=_auto_environment_code(scenario, language),
@@ -1172,15 +1172,15 @@ def round4_auto_clarify(payload: Round4AutoClarifyCreate, db: Session = Depends(
     updated["selected"] = updated_selected
     submission.content = updated
     db.commit()
-    return Round4AutoTurnOut(row_index=row_index, **turn_record)
+    return Round2AutomationTurnOut(row_index=row_index, **turn_record)
 
 
-@router.post("/round/2/auto/code", response_model=Round4AutoStateOut, status_code=201)
-def round4_auto_save_code(payload: Round4AutoCodeUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.post("/round/2/auto/code", response_model=Round2AutomationStateOut, status_code=201)
+def round2_automation_save_code(payload: Round2AutomationCodeUpdate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     """The candidate's own direct edit to ONE selected test case's own
     code, recorded as its own audit entry so "what the assistant wrote"
     and "what the candidate changed themselves" stay separable at scoring
-    time (see prompts/round4_auto_scoring.txt's ai_output_review area)."""
+    time (see prompts/round2_automation_scoring.txt's ai_output_review area)."""
     _require_round_unlocked(2, db, candidate)
     scenario, submission = _auto_in_progress(candidate, db)
     content = _ensure_auto_content(scenario, submission, candidate, db)
@@ -1203,9 +1203,9 @@ def round4_auto_save_code(payload: Round4AutoCodeUpdate, db: Session = Depends(g
     return _build_auto_state(scenario, submission, candidate, db)
 
 
-@router.post("/round/2/auto/run", response_model=Round4AutoRunOut, status_code=201)
-def round4_auto_run(
-    payload: Round4AutoRunCreate | None = None,
+@router.post("/round/2/auto/run", response_model=Round2AutomationRunOut, status_code=201)
+def round2_automation_run(
+    payload: Round2AutomationRunCreate | None = None,
     db: Session = Depends(get_db), candidate: User = Depends(require_candidate),
 ):
     """Batch execution through the EXISTING execution_service.run_code,
@@ -1213,7 +1213,7 @@ def round4_auto_run(
     selected test case's own code), which is exactly what that engine
     already supports. Each selected test case is run independently and
     starts from its own code buffer, which itself started from the
-    provided environment at selection time (see round4_auto_select) -
+    provided environment at selection time (see round2_automation_select) -
     running one test case never touches another's code or last_run."""
     _require_round_unlocked(2, db, candidate)
     scenario, submission = _auto_in_progress(candidate, db)
@@ -1242,12 +1242,12 @@ def round4_auto_run(
     updated["selected"] = updated_selected
     submission.content = updated
     db.commit()
-    return Round4AutoRunOut(**last_run)
+    return Round2AutomationRunOut(**last_run)
 
 
 @router.post("/round/2/auto/submit", response_model=SubmissionOut, status_code=201)
-def round4_auto_submit(
-    payload: Round4AutoSubmitCreate,
+def round2_automation_submit(
+    payload: Round2AutomationSubmitCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db), candidate: User = Depends(require_candidate),
 ):
@@ -1266,7 +1266,7 @@ def round4_auto_submit(
     if not entries:
         if len(selected) != 1:
             raise HTTPException(400, "Each selected test case needs its own run - submit with entries.")
-        entries = [Round4AutoTCSubmitEntry(row_index=selected[0]["index"], code=payload.code)]
+        entries = [Round2AutomationTCSubmitEntry(row_index=selected[0]["index"], code=payload.code)]
 
     entry_by_index = {e.row_index: e for e in entries}
     if set(entry_by_index) != {row["index"] for row in selected}:
@@ -1519,7 +1519,7 @@ def expire_round(
 ):
     """The frontend's guaranteed fallback once a round's timer hits zero:
     it always tries a real submit first (see app.js's doSubmitRound1/
-    doSubmitRound2Investigation/round4AutoSubmit with force=true), and
+    doSubmitRound2Investigation/round2AutomationSubmit with force=true), and
     only calls this if that attempt failed - empty/incomplete content
     that a normal submit would correctly reject, or the rare case of
     losing a race against _require_within_time_limit. Either way the

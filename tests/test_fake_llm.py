@@ -74,7 +74,7 @@ def test_all_four_rounds_in_fake_mode_with_nothing_else_mocked(client, fake_mode
     the candidate goes through R1 -> R2 automation -> R3 -> R4, and every
     round ends up scored. Only execution of Round 2's automation is local
     Python, as in real use."""
-    from .test_round4_auto import PYTHON_ENV, GROUND_TRUTH
+    from .test_round2_automation import PYTHON_ENV, GROUND_TRUTH
     hr = _login(client, HR_EMAIL, HR_PASSWORD)
 
     def publish(round_number, title, config=None):

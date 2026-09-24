@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 from .conftest import HR_EMAIL, HR_PASSWORD, _auth, _login, _publish_scenario
 from .page_js import page_js
-from .test_round4_auto import _publish_auto_scenario, _reach_automation_round
+from .test_round2_automation import _publish_auto_scenario, _reach_automation_round
 
 
 def _function(js: str, name: str) -> str:
@@ -22,7 +22,7 @@ def _function(js: str, name: str) -> str:
 
 
 def test_time_up_submits_round2_and_falls_back_to_expiring_round2():
-    body = _function(page_js(), "round4AutoSubmit")
+    body = _function(page_js(), "round2AutomationSubmit")
     assert '"/candidate/round/2/auto/submit"' in body
     assert "JSON.stringify({ entries })" in body
     assert "validation" not in body  # the dropped field
@@ -32,12 +32,12 @@ def test_time_up_submits_round2_and_falls_back_to_expiring_round2():
 
 def test_round2_timer_is_wired_to_the_round2_auto_submit():
     body = _function(page_js(), "renderRound4View")
-    assert "startTimer(deadline, round4AutoSubmit, 2)" in body
+    assert "startTimer(deadline, round2AutomationSubmit, 2)" in body
 
 
 def test_expire_closes_an_overdue_round2_attempt(client, monkeypatch):
     from app.services import llm_service
-    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **kwargs: {
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **kwargs: {
         "scores": {}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
     })
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)

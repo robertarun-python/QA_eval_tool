@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-from app.services import llm_service, round3_scope_guard as guard, round4_auto_policy
+from app.services import llm_service, round3_scope_guard as guard, round2_automation_policy
 
 # ---- R3: replies must match the code ----------------------------------------
 
@@ -63,7 +63,7 @@ _R2_186_FAKE = (
 
 
 def test_r2_186_style_fake_test_is_detected():
-    assert round4_auto_policy.fabricated_observations("", _R2_186_FAKE) == [
+    assert round2_automation_policy.fabricated_observations("", _R2_186_FAKE) == [
         'String dropdownText = "Cardiology";', 'String currentPage = "appointment";',
     ]
 
@@ -74,7 +74,7 @@ def test_r2_186_style_fake_test_is_detected():
     'header = UI.header()',  # actually read from the app
 ])
 def test_legitimate_assignments_are_not_flagged(line):
-    assert round4_auto_policy.fabricated_observations("", line) == []
+    assert round2_automation_policy.fabricated_observations("", line) == []
 
 
 _DESIGN = [{"title": "Book appointment", "steps": "Log in, search by Cardiology, open the appointment page.",
@@ -90,7 +90,7 @@ def _auto(monkeypatch, replies, inject_flaw=False):
         return queue.pop(0)
 
     monkeypatch.setattr(llm_service, "_call_claude", _fake)
-    result = llm_service.round4_auto_turn(
+    result = llm_service.round2_automation_turn(
         language="java", selected_design=_DESIGN, environment_code="// env", current_code="",
         conversation_so_far=[], candidate_prompt="log in, search by Cardiology and check the appointment page",
         inject_flaw=inject_flaw,

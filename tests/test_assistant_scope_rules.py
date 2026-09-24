@@ -1,7 +1,7 @@
 """
 Rules added after the Sep 2026 transcript review of the Round 2 / Round 3
 AI assistants (see services/round3_scope_guard.py, round3_policy.
-is_continuation_of_whole_task and round4_auto_clarify_policy.
+is_continuation_of_whole_task and round2_automation_clarify_policy.
 should_stop_clarifying). Each case below is a real transcript pattern,
 reduced to a small fixture, so the loophole it exposed stays closed.
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from app.services import llm_service, round3_policy, round3_scope_guard as guard, round4_auto_clarify_policy as clarify
+from app.services import llm_service, round3_policy, round3_scope_guard as guard, round2_automation_clarify_policy as clarify
 
 
 # ---- Round 3: scope check on what the model wrote ---------------------------
@@ -198,8 +198,8 @@ def test_clarify_gate_proceeds_instead_of_repeating_itself(monkeypatch):
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=1024: json.dumps(
         {"status": "insufficient", "question": Q, "prior_value": None, "current_value": None}))
     kwargs = dict(language="python", selected_design=[{"title": "Login"}], environment_code="", current_code="")
-    first = llm_service.round4_auto_clarify(conversation_so_far=[], candidate_prompt="automate the login", **kwargs)
+    first = llm_service.round2_automation_clarify(conversation_so_far=[], candidate_prompt="automate the login", **kwargs)
     assert first["response_kind"] == "clarify"
     history = [{"candidate_prompt": "automate the login", "response_message": first["response_message"], "response_kind": "clarify"}]
-    second = llm_service.round4_auto_clarify(conversation_so_far=history, candidate_prompt="log in with the given user", **kwargs)
+    second = llm_service.round2_automation_clarify(conversation_so_far=history, candidate_prompt="log in with the given user", **kwargs)
     assert second["response_kind"] == "explain"  # "sufficient" -> the router proceeds to generation
