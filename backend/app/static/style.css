@@ -930,6 +930,7 @@ tr.example-row { background: var(--surface-interactive); font-style: italic; col
 tr.example-row td { border-bottom: 1px dashed var(--border); }
 .panel-inset.example-row { background: var(--surface-interactive); border-style: dashed; }
 .example-note { font-style: italic; }
+.settings-subheading { margin: var(--space-default) 0 var(--space-tight); }
 
 .hint-box {
   background: var(--accent-soft); border: 1px solid var(--border); border-left: 3px solid var(--accent);

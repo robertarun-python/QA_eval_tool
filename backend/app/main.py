@@ -71,11 +71,16 @@ def index(request: Request):
     # refresh forces a re-fetch.
     app_js_version = int((BASE_DIR / "static" / "app.js").stat().st_mtime)
     style_css_version = int((BASE_DIR / "static" / "style.css").stat().st_mtime)
-    return templates.TemplateResponse("index.html", {
+    response = templates.TemplateResponse("index.html", {
         "request": request,
         "app_js_version": app_js_version,
         "style_css_version": style_css_version,
     })
+    # The page itself must never be reused from the browser's cache - it
+    # carries the ?v= versions above, so a stale copy keeps loading the old
+    # app.js (seen: an old tab still showing a 7-minute limit after HR set 20).
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/health")

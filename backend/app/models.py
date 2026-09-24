@@ -12,7 +12,7 @@ from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, JSON, Enum, Boolean
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import object_session, relationship
 
 from .database import Base
 from .services import round3_io_format
@@ -129,6 +129,19 @@ class Scenario(Base):
         return (self.config_json or {}).get("mode") == "ai_test_automation"
 
     @property
+    def round_time_limit_minutes(self) -> int:
+        """The time limit a candidate starting this scenario now gets: HR
+        Settings' limit for this round when one is set (it applies to every
+        scenario in the round, live ones included), else the scenario's own
+        time_limit_minutes. Each attempt records it when it starts (see
+        Submission.time_limit_minutes_at_start), so changing the setting
+        never moves an in-progress candidate's deadline."""
+        db = object_session(self)
+        app_settings = db.get(AppSettings, 1) if db is not None else None
+        override = getattr(app_settings, f"round{self.round_number}_time_limit_minutes", None) if app_settings is not None else None
+        return override or self.time_limit_minutes
+
+    @property
     def round3_io_format(self) -> dict | None:
         """Round 3 only: the task's stdin/stdout format - the one dict the
         candidate's screen shows, the hidden-test generator is given, and
@@ -197,6 +210,20 @@ class Submission(Base):
     # row-creation time - this is the timer's zero point, kept
     # server-side so a page refresh can't reset the candidate's clock.
     started_at = Column(DateTime, nullable=True)
+    # The time limit this attempt started with (Scenario.round_time_limit_minutes
+    # at that moment) - HR changing the round's limit later never moves an
+    # in-progress deadline. Null only for attempts started before this
+    # existed; those keep their scenario's own limit (time_limit_minutes below).
+    time_limit_minutes_at_start = Column(Integer, nullable=True)
+
+    @property
+    def time_limit_minutes(self) -> int | None:
+        """This attempt's time limit - the one it recorded when it started,
+        or its scenario's own limit for an attempt from before that was
+        recorded. Every deadline check and the candidate's timer use this."""
+        if self.time_limit_minutes_at_start:
+            return self.time_limit_minutes_at_start
+        return self.scenario.time_limit_minutes if self.scenario is not None else None
     # Set the moment status actually transitions to "submitted" - a real
     # submit (routers/candidate.py's 4 submit endpoints), a candidate-
     # triggered timeout (expire_round), or a lazy server-side timeout
@@ -599,4 +626,11 @@ class AppSettings(Base):
     # completion once started, by design - HR can widen this if candidates
     # are meant to spread the four rounds across more than one sitting.
     assessment_window_days = Column(Integer, nullable=False, default=1)
+    # Per-round time limit set in HR Settings, applied to every scenario in
+    # that round (see Scenario.round_time_limit_minutes). Null = each
+    # scenario's own time_limit_minutes, as before this setting existed.
+    round1_time_limit_minutes = Column(Integer, nullable=True)
+    round2_time_limit_minutes = Column(Integer, nullable=True)
+    round3_time_limit_minutes = Column(Integer, nullable=True)
+    round4_time_limit_minutes = Column(Integer, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

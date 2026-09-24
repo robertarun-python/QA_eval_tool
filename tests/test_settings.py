@@ -8,6 +8,10 @@ from .conftest import (
 )
 
 
+# Per-round time limits (see test_round_time_limits.py) - unset unless a test sets them.
+_NO_ROUND_LIMITS = {f"round{n}_time_limit_minutes": None for n in (1, 2, 3, 4)}
+
+
 def test_default_settings_row_exists(client):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     res = client.get("/hr/settings", cookies=_auth(hr_token))
@@ -21,6 +25,10 @@ def test_default_settings_row_exists(client):
         "final_passing_score": 280,
         "reapplication_window_months": 6,
         "assessment_window_days": 1,
+        "round1_time_limit_minutes": None,
+        "round2_time_limit_minutes": None,
+        "round3_time_limit_minutes": None,
+        "round4_time_limit_minutes": None,
         "round4_default_assistance_pct": 50,
     }
 
@@ -55,10 +63,10 @@ def test_settings_round_trip(client):
     }
     res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
     assert res.status_code == 200
-    assert res.json() == {**payload, "round4_default_assistance_pct": 50}
+    assert res.json() == {**payload, **_NO_ROUND_LIMITS, "round4_default_assistance_pct": 50}
 
     res = client.get("/hr/settings", cookies=_auth(hr_token))
-    assert res.json() == {**payload, "round4_default_assistance_pct": 50}
+    assert res.json() == {**payload, **_NO_ROUND_LIMITS, "round4_default_assistance_pct": 50}
 
 
 def test_settings_reject_out_of_range_values(client):

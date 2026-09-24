@@ -70,6 +70,11 @@ class AppSettingsOut(BaseModel):
     final_passing_score: int
     reapplication_window_months: int
     assessment_window_days: int
+    # Per-round time limits (minutes) - null = each scenario's own limit.
+    round1_time_limit_minutes: Optional[int] = None
+    round2_time_limit_minutes: Optional[int] = None
+    round3_time_limit_minutes: Optional[int] = None
+    round4_time_limit_minutes: Optional[int] = None
     # Read-only here - see config.py's round4_default_assistance_pct.
     # Not part of AppSettingsUpdate below: it's an env-sourced,
     # deployment-level fallback, not something HR edits through this
@@ -89,6 +94,12 @@ class AppSettingsUpdate(BaseModel):
     final_passing_score: int = Field(ge=0, le=400)
     reapplication_window_months: int = Field(ge=1)
     assessment_window_days: int = Field(ge=1)
+    # Applies to every scenario in the round, live ones included, for
+    # attempts started after saving (Scenario.round_time_limit_minutes).
+    round1_time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    round2_time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    round3_time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=480)
+    round4_time_limit_minutes: Optional[int] = Field(default=None, ge=1, le=480)
 
 
 # ---- Test case rows. Round 1's candidate submissions AND both round
@@ -193,6 +204,9 @@ class ScenarioPublicOut(BaseModel):
     status: str
     is_live: bool
     time_limit_minutes: int
+    # What a candidate starting now gets - HR Settings' round limit when set,
+    # else time_limit_minutes (see models.Scenario.round_time_limit_minutes).
+    round_time_limit_minutes: Optional[int] = None
     published_at: Optional[datetime] = None
     # Round 4 only: lets the pre-start briefing (before any submission
     # exists) distinguish the Focused Automation Pilot from the legacy
@@ -389,6 +403,9 @@ class SubmissionOut(BaseModel):
     # Round4TestCaseOut/Round4TurnOut) are the round 4 submission.
     content: Optional[Any] = None
     started_at: Optional[datetime] = None
+    # This attempt's own time limit (recorded when it started - see
+    # models.Submission.time_limit_minutes); the candidate's timer uses it.
+    time_limit_minutes: Optional[int] = None
     # See models.Submission.submitted_at - when this round actually
     # finished (real submit, candidate timeout, or lazy server-side
     # timeout close). None while still in_progress.

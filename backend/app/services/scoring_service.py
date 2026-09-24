@@ -807,7 +807,7 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
         if submission.status != RoundStatus.in_progress or submission.started_at is None:
             continue
         scenario = submission.scenario
-        deadline = submission.started_at + timedelta(minutes=scenario.time_limit_minutes)
+        deadline = submission.started_at + timedelta(minutes=submission.time_limit_minutes)
         if now < deadline:
             continue
 

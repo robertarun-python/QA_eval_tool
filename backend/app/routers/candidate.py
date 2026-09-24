@@ -190,7 +190,7 @@ def _require_within_time_limit(submission: Submission, scenario: Scenario) -> No
     if submission.started_at is None:
         return  # defensive only - every real submission has a server-set started_at
     deadline = submission.started_at + timedelta(
-        minutes=scenario.time_limit_minutes, seconds=settings.submission_grace_seconds,
+        minutes=submission.time_limit_minutes, seconds=settings.submission_grace_seconds,
     )
     if datetime.utcnow() > deadline:
         raise HTTPException(400, "Time limit for this round has passed - it can no longer be submitted.")
@@ -224,7 +224,7 @@ def submit_round2(
         # tests, or a client that just posts straight through).
         submission = Submission(
             user_id=candidate.id, scenario_id=scenario.id, round_number=4,
-            started_at=datetime.utcnow(),
+            started_at=datetime.utcnow(), time_limit_minutes_at_start=scenario.round_time_limit_minutes,
             appearance_id=_current_appearance_id(db, candidate),
         )
         db.add(submission)
@@ -275,7 +275,7 @@ def start_round3(payload: Round3StartRequest, db: Session = Depends(get_db), can
 
     submission = Submission(
         user_id=candidate.id, scenario_id=scenario.id, round_number=3,
-        status=RoundStatus.in_progress, started_at=datetime.utcnow(),
+        status=RoundStatus.in_progress, started_at=datetime.utcnow(), time_limit_minutes_at_start=scenario.round_time_limit_minutes,
         # payload.language is accepted but ignored - the language is
         # inherited from round 2 (see _round3_language_for), not chosen
         # here.
@@ -1706,7 +1706,7 @@ def start_round(round_number: int, db: Session = Depends(get_db), candidate: Use
         scenario_id=scenario.id,
         round_number=round_number,
         status=RoundStatus.in_progress,
-        started_at=datetime.utcnow(),
+        started_at=datetime.utcnow(), time_limit_minutes_at_start=scenario.round_time_limit_minutes,
         appearance_id=_current_appearance_id(db, candidate),
     )
     db.add(submission)
@@ -1737,7 +1737,7 @@ def submit_round(
         # tests, or a client that just posts straight through).
         submission = Submission(
             user_id=candidate.id, scenario_id=scenario.id, round_number=round_number,
-            started_at=datetime.utcnow(),
+            started_at=datetime.utcnow(), time_limit_minutes_at_start=scenario.round_time_limit_minutes,
             appearance_id=_current_appearance_id(db, candidate),
         )
         db.add(submission)
@@ -1891,7 +1891,7 @@ def expire_round(
     if submission is None or submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round isn't in progress - nothing to expire.")
     if submission.started_at is not None:
-        deadline = submission.started_at + timedelta(minutes=scenario.time_limit_minutes)
+        deadline = submission.started_at + timedelta(minutes=submission.time_limit_minutes)
         if datetime.utcnow() < deadline:
             raise HTTPException(400, "This round's time limit hasn't passed yet.")
 

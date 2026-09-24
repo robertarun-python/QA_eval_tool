@@ -538,6 +538,14 @@ function focusCreateScenarioForm() {
   title.focus();
 }
 
+// HR Settings' time limit for a round, or null when each scenario uses its own.
+function roundTimeLimitSetting(roundNumber) {
+  return (appSettings && appSettings[`round${roundNumber}_time_limit_minutes`]) || null;
+}
+function roundTimeLimitNote(roundNumber) {
+  return `Time limit: ${roundTimeLimitSetting(roundNumber)} minutes - set for every Round ${roundNumber} scenario in HR Settings. Candidates already mid-round keep the limit they started with.`;
+}
+
 // ---- Settings (runtime-editable pass criteria - see GET/PUT /hr/settings) ----
 
 async function loadAppSettings() {
@@ -549,6 +557,8 @@ async function loadAppSettings() {
   document.getElementById("set-final").value = appSettings.final_passing_score;
   document.getElementById("set-window").value = appSettings.reapplication_window_months;
   document.getElementById("set-assessment-window").value = appSettings.assessment_window_days;
+  for (const n of [1, 2, 3, 4]) document.getElementById(`set-time-r${n}`).value = appSettings[`round${n}_time_limit_minutes`] ?? "";
+  loadScenarios();  // the list's time column shows the round limit - loads in parallel at login
 }
 
 // Purely a form reset - no API call, no new backend capability. Fills
@@ -565,6 +575,7 @@ function resetSettingsToDefaults() {
   document.getElementById("set-final").value = 280;
   document.getElementById("set-window").value = 6;
   document.getElementById("set-assessment-window").value = 1;
+  for (const n of [1, 2, 3, 4]) document.getElementById(`set-time-r${n}`).value = "";  // default: each scenario's own
   document.getElementById("settings-status").textContent = "Defaults filled in - click \"Save changes\" to apply.";
 }
 
@@ -579,9 +590,15 @@ async function saveAppSettings() {
     reapplication_window_months: Number(document.getElementById("set-window").value),
     assessment_window_days: Number(document.getElementById("set-assessment-window").value),
   };
+  // Blank = no round limit (each scenario's own time_limit_minutes).
+  for (const n of [1, 2, 3, 4]) {
+    const raw = document.getElementById(`set-time-r${n}`).value.trim();
+    payload[`round${n}_time_limit_minutes`] = raw === "" ? null : Number(raw);
+  }
   try {
     appSettings = await api("/hr/settings", { method: "PUT", body: JSON.stringify(payload) });
     statusEl.textContent = "Saved.";
+    loadScenarios();  // time limits shown per scenario may have changed
     // Score-good/score-bad styling elsewhere (Candidates table, detail
     // panel) reads appSettings live on next render, but anything already
     // on screen right now was rendered against the old thresholds -
@@ -792,7 +809,7 @@ function renderScenarioRow(s, rank) {
   const liveCell = s.status === "published"
     ? `<input type="radio" class="scenario-live-radio" name="live-r${s.round_number}-${s.experience_band}"
         ${s.is_live ? "checked" : ""} onchange="moveToScreening(${s.id})" title="Publish for screening" />`
-    : `<span class="muted">-</span>`;
+    : `<button class="btn-secondary btn-sm" onclick="publishAndMakeLive(${s.id})" title="Publish this draft and make it the one candidates see">Publish &amp; make live</button>`;
   const deleteBtn = s.is_live
     ? `<button class="btn-ghost btn-sm" disabled title="Can't delete the live scenario - make a different one live first.">Delete</button>`
     : `<button class="btn-danger btn-sm" onclick="deleteScenarioFromList(${s.id})">Delete</button>`;
@@ -802,7 +819,7 @@ function renderScenarioRow(s, rank) {
       <td class="scenario-title-cell">${escapeHtml(s.title)}${s.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</td>
       <td>${statusBadge}</td>
       <td>${liveCell}</td>
-      <td class="tabular">${s.time_limit_minutes}</td>
+      <td class="tabular" ${roundTimeLimitSetting(s.round_number) ? `title="Set for all Round ${s.round_number} scenarios in HR Settings"` : ""}>${s.round_time_limit_minutes || s.time_limit_minutes}${roundTimeLimitSetting(s.round_number) ? "*" : ""}</td>
       <td class="muted">${lastUsed}</td>
       <td>
         <div class="row-actions">
@@ -896,11 +913,16 @@ async function openScenarioDetail(id) {
   box.innerHTML = `
     <div class="row" style="align-items:center; justify-content:space-between">
       <h3 style="margin:0">#${scenario.id} - ${escapeHtml(scenario.title)} <span class="badge badge-${scenario.status}">${statusLabel(scenario.status)}</span>${scenario.is_live ? ' <span class="badge badge-published">LIVE</span>' : ""}</h3>
-      <button class="btn-ghost" onclick="closeScenarioDetail()">Close</button>
+      <div class="row" style="margin:0">
+        ${isDraft ? `<button class="btn-primary btn-sm" onclick="publishAndMakeLive(${scenario.id})">Publish and make live</button>` : ""}
+        <button class="btn-ghost" onclick="closeScenarioDetail()">Close</button>
+      </div>
     </div>
     ${scenario.is_live ? `<p class="muted">This is the one scenario Round ${scenario.round_number} candidates currently see.</p>` : ""}
     <p class="muted">Round ${scenario.round_number}</p>
-    ${isDraft ? `
+    ${roundTimeLimitSetting(scenario.round_number) ? `
+      <p class="muted">${roundTimeLimitNote(scenario.round_number)}</p>
+    ` : isDraft ? `
       <div class="row" style="align-items:center">
         <div class="field-inline">
           <span class="muted">min limit</span>
@@ -1023,13 +1045,14 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
       </div>
 
       <h4>Time limit</h4>
+      ${roundTimeLimitSetting(scenario.round_number) ? `<p class="muted">${roundTimeLimitNote(scenario.round_number)}</p>` : `
       <div class="row" style="align-items:center">
         <div class="field-inline">
           <span class="muted">min limit</span>
           <input id="r4-time-limit-${scenario.id}" type="number" min="1" value="${scenario.time_limit_minutes}" />
         </div>
         <button onclick="saveRound4TimeLimit(${scenario.id})">Save</button>
-      </div>
+      </div>`}
 
       <h4>Assistant accuracy</h4>
       <p class="muted">How often the simulated assistant gets things right per turn - the rest of the time it confidently reports a flawed result, on purpose, for the candidate to catch. Lower means more planted issues; higher means fewer.</p>
@@ -1250,6 +1273,24 @@ function statusLabel(status) {
   if (status === "published") return "published";
   if (status === "draft") return "draft";
   return status;
+}
+
+// Draft -> live in one step: publish (which makes it live by itself when
+// nothing is live yet), then move it to screening if something else was.
+async function publishAndMakeLive(id) {
+  const statusEl = document.getElementById("scenario-detail-status");
+  const scenario = await api(`/hr/scenarios/${id}`);
+  const limit = scenario.round_time_limit_minutes || scenario.time_limit_minutes;
+  if (!confirm(`Publish "${scenario.title}" and make it live? Round ${scenario.round_number} candidates will see it immediately (${limit}-minute limit), replacing whichever scenario is live now.`)) return;
+  try {
+    const published = await api(`/hr/scenarios/${id}/publish`, { method: "POST" });
+    if (!published.is_live) await api(`/hr/scenarios/${id}/move-to-screening`, { method: "POST" });
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message; else alert(e.message);
+  }
+  loadScenarios();
+  loadHistory();
+  if (document.getElementById("scenario-detail") && !document.getElementById("scenario-detail").classList.contains("hidden")) openScenarioDetail(id);
 }
 
 async function publishScenario(id) {
@@ -3211,6 +3252,17 @@ function setWideLayout(on) {
   if (main) main.classList.toggle("is-wide", Boolean(on));
 }
 
+// The time limit a candidate starting now gets - HR Settings' round limit
+// when one is set, else the scenario's own (Scenario.round_time_limit_minutes).
+function scenarioTimeLimit(scenario) {
+  return scenario.round_time_limit_minutes || scenario.time_limit_minutes;
+}
+// A started attempt's own limit, recorded when it began - an HR change
+// mid-round never moves it (Submission.time_limit_minutes).
+function attemptTimeLimit(submission, scenario) {
+  return submission.time_limit_minutes || scenarioTimeLimit(scenario);
+}
+
 async function loadRound(n) {
   currentRound = n;
   setWideLayout(false);
@@ -3265,7 +3317,7 @@ function renderRoundView(box, n, state) {
       box.innerHTML = `
         <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
         ${formatScenarioDescription(scenario.description)}
-        <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
+        <p class="muted">Time limit: ${scenarioTimeLimit(scenario)} minutes, starting once you confirm below.</p>
       `;
       showRound3CodingIntro();
       return;
@@ -3285,12 +3337,12 @@ function renderRoundView(box, n, state) {
       box.innerHTML = `
         <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
         ${formatScenarioDescription(scenario.description)}
-        <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
+        <p class="muted">Time limit: ${scenarioTimeLimit(scenario)} minutes, starting once you confirm below.</p>
       `;
       if (scenario.is_pilot) {
-        showRound4PilotIntro(scenario.time_limit_minutes);
+        showRound4PilotIntro(scenarioTimeLimit(scenario));
       } else if (scenario.is_auto) {
-        showRound4AutoIntro(scenario.time_limit_minutes);
+        showRound4AutoIntro(scenarioTimeLimit(scenario));
       } else {
         showRound4Intro();
       }
@@ -3302,9 +3354,9 @@ function renderRoundView(box, n, state) {
     box.innerHTML = `
       <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
       ${formatScenarioDescription(scenario.description)}
-      <p class="muted">Time limit: ${scenario.time_limit_minutes} minutes, starting once you confirm below.</p>
+      <p class="muted">Time limit: ${scenarioTimeLimit(scenario)} minutes, starting once you confirm below.</p>
     `;
-    showRoundIntro(n, scenario.time_limit_minutes, environment);
+    showRoundIntro(n, scenarioTimeLimit(scenario), environment);
     return;
   }
 
@@ -3738,7 +3790,7 @@ function renderEntryForm(box, scenario, submission, environment, uiMockup) {
     addRow();
   }
   round1UpdateSubmitState();
-  const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
+  const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, scenario) * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
     doSubmitRound1(true);
@@ -3816,7 +3868,7 @@ function renderInvestigationForm(box, scenario, submission) {
   }
   autoGrowTextarea(document.getElementById("inv-root-cause"));
   round2UpdateSubmitState();
-  const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
+  const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, scenario) * 60 * 1000;
   startTimer(deadline, () => {
     document.getElementById("timer").textContent = "Time's up - submitting automatically...";
     doSubmitRound2Investigation(true);
@@ -4002,7 +4054,7 @@ async function renderRound3CodingView(box) {
   const submission = round3CodingState.submission;
   if (submission.status === "in_progress" && submission.started_at) {
     const deadline = new Date(submission.started_at + "Z").getTime()
-      + round3CodingState.scenario.time_limit_minutes * 60 * 1000;
+      + attemptTimeLimit(submission, round3CodingState.scenario) * 60 * 1000;
     startTimer(deadline, round3CodingAutoSubmit, 3);
   }
 }
@@ -4622,7 +4674,7 @@ async function renderRound4View(box) {
 
   if (!timerHandle) {
     const submission = round4State.submission;
-    const deadline = new Date(submission.started_at + "Z").getTime() + round4State.scenario.time_limit_minutes * 60 * 1000;
+    const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, round4State.scenario) * 60 * 1000;
     startTimer(deadline, round4AutoSubmit, 2);
   }
 }

@@ -85,6 +85,10 @@ def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
         final_passing_score=app_settings.final_passing_score,
         reapplication_window_months=app_settings.reapplication_window_months,
         assessment_window_days=app_settings.assessment_window_days,
+        round1_time_limit_minutes=app_settings.round1_time_limit_minutes,
+        round2_time_limit_minutes=app_settings.round2_time_limit_minutes,
+        round3_time_limit_minutes=app_settings.round3_time_limit_minutes,
+        round4_time_limit_minutes=app_settings.round4_time_limit_minutes,
         round4_default_assistance_pct=settings.round4_default_assistance_pct,
     )
 
@@ -159,13 +163,13 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
         scenario.reference_json = llm_service.generate_round1_reference(
             scenario_description=scenario.description,
             experience_band=scenario.experience_band.value,
-            time_limit_minutes=scenario.time_limit_minutes,
+            time_limit_minutes=scenario.round_time_limit_minutes,
         )
     elif scenario.round_number == 4:
         scenario.reference_json = llm_service.generate_round2_reference(
             scenario_description=scenario.description,
             experience_band=scenario.experience_band.value,
-            time_limit_minutes=scenario.time_limit_minutes,
+            time_limit_minutes=scenario.round_time_limit_minutes,
         )
     elif scenario.round_number == 3:
         scenario.reference_json = llm_service.generate_round3_reference(
