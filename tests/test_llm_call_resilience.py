@@ -295,6 +295,8 @@ def test_tool_output_returns_code_without_json_escaping(monkeypatch):
     assert result["code_after"] == CODE_WITH_QUOTES and result["planted_flaw"] == "x"
     assert client.calls[0]["tool_choice"] == {"type": "tool", "name": "submit_reply"}
     assert client.calls[0]["tools"][0]["input_schema"] is llm_service.SCHEMA_CODE_TURN
+    # AI health names the function that asked, not the tool-call helper (found in the live run).
+    assert llm_service.recent_calls()[0]["caller"] == "test_tool_output_returns_code_without_json_escaping"
 
 
 def test_tool_output_is_off_by_default(monkeypatch):

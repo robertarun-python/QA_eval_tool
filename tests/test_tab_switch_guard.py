@@ -47,6 +47,10 @@ def test_tab_switch_is_logged_on_the_in_progress_submission(client, monkeypatch)
 
 
 def test_third_fullscreen_exit_force_ends_the_round_and_scores_what_was_written(client, monkeypatch):
+    # Faked: this test used to score through the real, paid API on every run.
+    from app.services import llm_service
+    monkeypatch.setattr(llm_service, "score_round1_submission",
+                        lambda **kwargs: {"coverage_score": 60, "misses": [], "final_score": 60, "feedback_text": "ok"})
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, title="Checkout flow")
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
