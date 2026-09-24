@@ -1563,49 +1563,43 @@ textarea.ta-grow   { resize: none; overflow-y: auto; max-height: 60vh; }
    below) govern every row without needing matching classes on every
    td. Subtle row separation (a hairline, not a heavy grid) per the
    brief - vertical cell borders are intentionally omitted. ---- */
-.tc-table { table-layout: fixed; min-width: 62rem; }
-.tc-table th, .tc-table td { padding: 0.9rem 0.75rem; vertical-align: top; border-bottom: 1px solid var(--border); }
-.tc-table th:first-child, .tc-table td:first-child { padding-left: 0.25rem; }
-.tc-table .tc-col-no { width: 2.75rem; }
-.tc-table .tc-col-title { width: 14%; }
-.tc-table .tc-col-pre { width: 13%; }
-.tc-table .tc-col-steps { width: 22%; }
-.tc-table .tc-col-data { width: 18%; }
-.tc-table .tc-col-expected { width: 22%; }
-.tc-table .tc-col-actions { width: 5.5rem; }
-.tc-table td .tc-no { font-weight: 700; color: var(--text-muted); font-size: var(--text-sm); padding-top: 0.6rem; display: block; }
-.tc-table input, .tc-table textarea { margin-bottom: 0; font-size: var(--text-sm); line-height: 1.55; }
-.tc-table textarea { min-height: 5.5rem; }
-.tc-table textarea.tc-steps, .tc-table textarea.tc-expected { min-height: 6.5rem; }
-.tc-table tbody tr:last-child td { border-bottom: 1px solid var(--border); }
-.tc-table tbody tr:hover { background: none; }
-/* Below 1280px the six-column table no longer fits beside the nav rail
-   (it needed 62rem and scrolled sideways inside a form) - each row becomes
-   a card instead. Same markup, so autosave/submit/draft-restore still read
-   the same fields; labels come from each cell's data-label. */
-@media (max-width: 80rem) {
-  .tc-table { min-width: 0; table-layout: auto; }
-  .tc-table, .tc-table tbody { display: block; width: 100%; }
-  .tc-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .tc-table tr {
-    display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--space-compact);
-    border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-elevated);
-    padding: var(--space-compact); margin-bottom: var(--space-compact);
-  }
-  .tc-table tr.example-row { border-style: dashed; background: var(--surface-interactive); }
-  .tc-table th, .tc-table td, .tc-table tbody tr:last-child td { display: block; border: 0; padding: 0.35rem 0; }
-  .tc-table th:first-child, .tc-table td:first-child { padding-left: 0; }
-  .tc-table td.tc-no { grid-row: 1; grid-column: 1; align-self: center; }
-  .tc-table td.tc-no::before { content: "Test case "; }
-  .tc-table tr.example-row td.tc-no { font-size: 0; }
-  .tc-table tr.example-row td.tc-no::before { content: "Example (format only)"; font-size: var(--text-sm); }
-  .tc-table td.tc-actions { grid-row: 1; grid-column: 2; text-align: right; }
-  .tc-table td[data-label="Steps"] { grid-column: 1 / -1; }
-  .tc-table td[data-label]::before {
-    content: attr(data-label); display: block; margin-bottom: 0.25rem;
-    font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;
-  }
+/* Round 1 "Your test cases": one card per test case at every width -
+   scenario full width, preconditions + test data side by side, steps +
+   expected result side by side (DOM order is title, pre, steps, data,
+   expected, so `order` places them). Same table markup, so autosave,
+   validation, submit and draft-restore read the same fields; each field's
+   label comes from its cell's data-label (the header row is kept only for
+   screen readers). */
+.tc-table, .tc-table tbody { display: block; width: 100%; }
+.tc-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tc-table tr {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0.6rem var(--space-compact);
+  border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-elevated);
+  padding: 0.75rem var(--space-compact) var(--space-compact); margin-bottom: var(--space-compact);
 }
+.tc-table tbody tr:hover { background: var(--surface-elevated); }
+.tc-table tr.example-row, .tc-table tr.example-row:hover { border-style: dashed; background: var(--surface-interactive); }
+.tc-table td, .tc-table tbody tr:last-child td { display: block; min-width: 0; border: 0; padding: 0; overflow-wrap: anywhere; }
+.tc-table td.tc-no { order: 0; align-self: center; font-weight: 700; color: var(--text-muted); font-size: var(--text-sm); }
+.tc-table td.tc-no::before { content: "Test case "; }
+.tc-table tr.example-row td.tc-no { font-size: 0; }
+.tc-table tr.example-row td.tc-no::before { content: "Example (format only)"; font-size: var(--text-sm); }
+.tc-table td.tc-actions { order: 0; text-align: right; }
+.tc-table td[data-label="Test Case / Scenario"] { order: 1; grid-column: 1 / -1; }
+.tc-table td[data-label="Preconditions"] { order: 2; }
+.tc-table td[data-label="Test Data"] { order: 3; }
+.tc-table td[data-label="Steps"] { order: 4; }
+.tc-table td[data-label="Expected Result / Assertions"] { order: 5; }
+.tc-table td[data-label]::before {
+  content: attr(data-label); display: block; margin-bottom: 0.3rem;
+  font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;
+}
+.tc-table input, .tc-table textarea {
+  width: 100%; margin-bottom: 0; font-size: var(--text-sm); line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word;
+}
+/* Room for full sentences - they still grow with the text (ta-grow). */
+.tc-table textarea { min-height: 6rem; }
+.tc-table textarea.tc-steps, .tc-table textarea.tc-expected { min-height: 9rem; }
 @media (max-width: 40rem) {
   .tc-table td[data-label] { grid-column: 1 / -1; }
 }
