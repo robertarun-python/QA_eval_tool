@@ -397,6 +397,8 @@ function renderRoundEntry(n, box, scenario, submission, environment, uiMockup) {
 const ROUND_DRAFT_DEBOUNCE_MS = 2000;
 let roundDraftTimer = null;
 
+let roundSubmitInFlight = false;  // one Round 1/4 submit at a time - see doSubmitRound1
+
 function scheduleRoundDraftSave(roundNumber, buildPayload) {
   clearTimeout(roundDraftTimer);
   roundDraftTimer = setTimeout(() => flushRoundDraft(roundNumber, buildPayload), ROUND_DRAFT_DEBOUNCE_MS);
@@ -642,7 +644,9 @@ async function doSubmitRound2Investigation(force = false) {
   // progress and must keep counting down with the guard still armed.
   const statusEl = document.getElementById("submit-status");
   const submitBtn = document.getElementById("round2-submit-btn");
-  if (submitBtn && submitBtn.disabled) return; // guards against a double-click firing two concurrent submits
+  // Not the button's disabled state - that also means "incomplete", which is
+  // exactly when a time-up submit has to go through anyway.
+  if (roundSubmitInFlight || (!force && submitBtn && submitBtn.disabled)) return; // no double submits
   const investigation = collectInvestigationRows();
   const root_cause = document.getElementById("inv-root-cause").value.trim();
   // force (the timer just hit zero) skips these - they exist to help a
@@ -660,6 +664,7 @@ async function doSubmitRound2Investigation(force = false) {
   }
   if (submitBtn) submitBtn.disabled = true;
   cancelRoundDraftSave();  // no autosave may land after (or race) the submit
+  roundSubmitInFlight = true;
   try {
     await api("/candidate/round/4/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
     stopTimer();
@@ -675,6 +680,8 @@ async function doSubmitRound2Investigation(force = false) {
     }
     if (submitBtn) submitBtn.disabled = false;
     statusEl.textContent = e.message;
+  } finally {
+    roundSubmitInFlight = false;
   }
 }
 
@@ -895,8 +902,11 @@ async function doSubmitRound1(force = false) {
   const submitBtn = document.getElementById("round1-submit-btn");
   // Guards against a double-click firing two concurrent submits (the
   // second would just 400 on the server, but this avoids the confusing
-  // in-between state and a wasted round trip).
-  if (submitBtn && submitBtn.disabled) return;
+  // in-between state and a wasted round trip). Not the button's disabled
+  // state alone: that also means "incomplete", and a time-up (force)
+  // submit must go through exactly then - it used to stop here silently,
+  // leaving "Time's up - submitting automatically..." with nothing sent.
+  if (roundSubmitInFlight || (!force && submitBtn && submitBtn.disabled)) return;
   const content = collectRows();
   // force (the timer just hit zero) skips these checks entirely - they
   // exist to help a candidate who still has time avoid wasting their one
@@ -930,6 +940,7 @@ async function doSubmitRound1(force = false) {
   }
   if (submitBtn) submitBtn.disabled = true;
   cancelRoundDraftSave();  // no autosave may land after (or race) the submit
+  roundSubmitInFlight = true;
   try {
     await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
     stopTimer();
@@ -948,6 +959,8 @@ async function doSubmitRound1(force = false) {
     }
     if (submitBtn) submitBtn.disabled = false;
     statusEl.textContent = e.message;
+  } finally {
+    roundSubmitInFlight = false;
   }
 }
 
