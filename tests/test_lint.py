@@ -22,6 +22,8 @@ def test_page_scripts_parse():
     node = shutil.which("node")
     if not node:
         pytest.skip("node not installed")
-    for script in sorted((ROOT / "backend" / "app" / "static").glob("*.js")):
+    scripts = sorted((ROOT / "backend" / "app" / "static" / "js").glob("*.js"))
+    assert scripts, "no page scripts found"
+    for script in scripts:
         result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
         assert result.returncode == 0, f"{script.name}: {result.stderr[-1500:]}"

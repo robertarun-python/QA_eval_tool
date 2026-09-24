@@ -152,7 +152,8 @@ def test_round2_ask_ai_failure_is_logged_and_reported(client, monkeypatch, capsy
 
 
 def test_round2_shows_ai_errors_beside_the_test_case():
-    js = (Path(__file__).parent.parent / "backend" / "app" / "static" / "app.js").read_text()
+    from .page_js import page_js
+    js = page_js()
     assert 'id="r4a-tc-status-${row.index}"' in js
     assert re.search(r'auto/turn".*?\),\s*rowIndex, "Asking the assistant', js, re.S)
 
