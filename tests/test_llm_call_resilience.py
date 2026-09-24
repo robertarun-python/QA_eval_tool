@@ -155,3 +155,59 @@ def test_round2_shows_ai_errors_beside_the_test_case():
     js = (Path(__file__).parent.parent / "backend" / "app" / "static" / "app.js").read_text()
     assert 'id="r4a-tc-status-${row.index}"' in js
     assert re.search(r'auto/turn".*?\),\s*rowIndex, "Asking the assistant', js, re.S)
+
+
+# ---- replies that aren't valid JSON: one corrective retry ----
+
+def test_valid_json_is_one_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: (calls.append(prompt), '{"a": 1}')[1])
+    assert llm_service._call_claude_json("p") == {"a": 1}
+    assert len(calls) == 1
+
+
+def test_invalid_json_gets_one_retry_with_a_correction_note(monkeypatch, capsys):
+    replies = ['{"code_after": "def t():\n    """doc"""\n"}', '{"code_after": "ok"}']
+    calls = []
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: (calls.append((prompt, max_tokens)), replies[len(calls) - 1])[1])
+    assert llm_service._call_claude_json("THE PROMPT", max_tokens=8192) == {"code_after": "ok"}
+    assert len(calls) == 2
+    assert calls[1][0].startswith("THE PROMPT") and "could not be read as JSON" in calls[1][0]
+    assert "each double quote as" in calls[1][0] and calls[1][1] == 8192  # same limit on the retry
+    assert "[llm] unparseable reply" in capsys.readouterr().err  # what the model sent is logged
+
+
+def test_invalid_json_twice_still_fails_after_one_retry(monkeypatch):
+    calls = []
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: (calls.append(1), '{"a": "x" "b": 1}')[1])
+    with pytest.raises(json.JSONDecodeError):
+        llm_service._call_claude_json("p")
+    assert len(calls) == 2
+
+
+def test_every_json_call_site_goes_through_the_retry():
+    """Guard: a new call that parses a reply directly would skip the retry."""
+    services = Path(__file__).parent.parent / "backend" / "app" / "services"
+    offenders = []
+    for path in services.glob("*.py"):
+        for i, line in enumerate(path.read_text().splitlines(), 1):
+            if "_parse_json_response(" in line and "def _parse_json_response" not in line:
+                offenders.append(f"{path.name}:{i}")
+    # the only direct uses are inside _call_claude_json itself
+    assert all(o.startswith("llm_service.py:") for o in offenders) and len(offenders) == 2, offenders
+
+
+def test_round2_ask_ai_recovers_from_a_broken_reply(client, monkeypatch):
+    """Today's failure end to end: the first code-writing reply is broken
+    JSON (as candidate4 got twice); the retry's reply is fine - Ask AI works."""
+    from .test_round4_auto import _sequential_call_claude, _SUFFICIENT
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token)
+    broken = '{\n  "response_kind": "code_edit",\n  "response_message": "Wrote it",\n  "code_after": "def test():\n    """x"""\n"\n  "planted_flaw": "y"\n}'
+    good = json.dumps({"response_kind": "code_edit", "response_message": "Wrote it", "code_after": "def test():\n    pass\n"})
+    calls = _sequential_call_claude(monkeypatch, _SUFFICIENT, broken, good)
+    res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode step 1", "row_index": 0}, cookies=_auth(cand_token))
+    assert res.status_code == 201, res.text
+    assert res.json()["response_kind"] == "code_edit"
+    assert calls["n"] >= 3  # gate, broken reply, corrected reply

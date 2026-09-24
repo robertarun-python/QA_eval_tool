@@ -176,8 +176,7 @@ def judge_ai_response(judge_input: JudgeInput) -> JudgeResult:
     callable in isolation for offline/replay validation only (Phase 2)."""
     prompt = _render_prompt(judge_input)
     try:
-        raw = llm_service._call_claude(prompt, max_tokens=1024)
-        parsed = llm_service._parse_json_response(raw)
+        parsed = llm_service._call_claude_json(prompt, max_tokens=1024)
     except Exception as e:
         return _safe_fallback(f"Judge call failed or returned unparseable output ({type(e).__name__}).")
 

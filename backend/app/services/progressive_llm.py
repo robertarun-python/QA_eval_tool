@@ -119,8 +119,7 @@ def generate_response(db: Session, attempt: ProgressiveAttempt, candidate_reques
     yet (that's Phase 4), and not called from any route yet."""
     context = build_generator_context(db, attempt)
     prompt = render_prompt(context, candidate_request)
-    raw = llm_service._call_claude(prompt, max_tokens=4096)
-    parsed = llm_service._parse_json_response(raw)
+    parsed = llm_service._call_claude_json(prompt, max_tokens=4096)
     if not isinstance(parsed, dict):
         raise ValueError(f"Expected a JSON object for the generator's response, got: {type(parsed)}")
     response_kind = parsed.get("response_kind")

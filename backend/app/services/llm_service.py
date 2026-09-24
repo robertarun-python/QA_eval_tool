@@ -216,6 +216,44 @@ def _parse_json_response(raw_text: str) -> dict | list:
         raise
 
 
+# A reply that isn't valid JSON used to fail the whole request - and at
+# temperature 0 the same prompt returns the same broken reply every time, so
+# the candidate clicking again never helped (live R2: "Expecting ',' delimiter"
+# at char 4819, twice - a whole code file inside a JSON string, with a quote
+# or comma out of place). One retry WITH this note changes the prompt, and so
+# the reply.
+_JSON_RETRY_NOTE = (
+    "IMPORTANT - your previous reply could not be read as JSON ({error}). Reply again with ONLY the "
+    "JSON the instructions above ask for - nothing before or after it. Inside every string value, write "
+    "each double quote as \\\" and each line break as \\n (this includes all code: docstrings, string "
+    "literals, comments), and put a comma between every field."
+)
+
+
+def _log_unparseable(raw: str, error: json.JSONDecodeError) -> None:
+    """What the model actually sent, around where parsing failed - the
+    request itself only ever reports a generic error."""
+    at = getattr(error, "pos", 0) or 0
+    snippet = (raw or "")[max(0, at - 200):at + 200]
+    print(f"[llm] unparseable reply ({error}); {len(raw or '')} chars; around the error: {snippet!r}", file=sys.stderr)
+
+
+def _call_claude_json(prompt: str, max_tokens: int = 4096):
+    """_call_claude + _parse_json_response for every call that expects JSON,
+    with one corrective retry when the reply isn't valid JSON."""
+    raw = _call_claude(prompt, max_tokens=max_tokens)
+    try:
+        return _parse_json_response(raw)
+    except json.JSONDecodeError as error:
+        _log_unparseable(raw, error)
+        retry_raw = _call_claude(prompt + "\n\n" + _JSON_RETRY_NOTE.format(error=error), max_tokens=max_tokens)
+        try:
+            return _parse_json_response(retry_raw)
+        except json.JSONDecodeError as retry_error:
+            _log_unparseable(retry_raw, retry_error)
+            raise
+
+
 # ---- Round 1 ----
 
 def generate_round1_reference(scenario_description: str, experience_band: str, time_limit_minutes: int) -> list[dict]:
@@ -224,8 +262,7 @@ def generate_round1_reference(scenario_description: str, experience_band: str, t
         experience_band=experience_band,
         time_limit_minutes=time_limit_minutes,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, list):
         raise ValueError(f"Expected a JSON array of test cases, got: {type(result)}")
     return result
@@ -244,8 +281,7 @@ def score_round1_submission(
         reference_cases=json.dumps(reference_cases, indent=2),
         candidate_submission=candidate_submission,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     result["_provenance"] = _scoring_provenance("round1_scoring.txt", prompt_text)
@@ -270,8 +306,7 @@ def generate_round2_reference(scenario_description: str, experience_band: str, t
         experience_band=experience_band,
         time_limit_minutes=time_limit_minutes,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, list):
         raise ValueError(f"Expected a JSON array of debugging steps, got: {type(result)}")
     return result
@@ -292,8 +327,7 @@ def score_round2_submission(
         candidate_investigation=json.dumps(candidate_investigation, indent=2),
         candidate_root_cause=candidate_root_cause,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     result["_provenance"] = _scoring_provenance("round2_debug_scoring.txt", prompt_text)
@@ -316,8 +350,7 @@ def generate_round3_reference(scenario_description: str, experience_band: str, i
         input_format=io_format["input"],
         output_format=io_format["output"],
     )
-    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
     if (
         not isinstance(result, dict)
         or "test_cases" not in result
@@ -486,8 +519,7 @@ def _round3_coding_turn_once(
         # 4096, not the 2048 used before this feature - the response now
         # carries a full code snapshot AND a category_status block (one
         # neutral_question per open category) in the same JSON object.
-        raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
-        result = _parse_json_response(raw)
+        result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
         try:
@@ -634,8 +666,7 @@ def round3_syntax_fix(
         language=language,
         required_constructs=json.dumps(required_constructs),
     )
-    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the syntax-fix response, got: {type(result)}")
     try:
@@ -708,8 +739,7 @@ def score_round3_coding(
         conversation_so_far=json.dumps(conversation_so_far, indent=2),
         test_results=json.dumps(test_results, indent=2),
     )
-    raw = _call_claude(prompt, max_tokens=2048)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=2048)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     result["_provenance"] = _scoring_provenance("round3_coding_scoring.txt", prompt_text)
@@ -767,8 +797,7 @@ def generate_round4_environment(app_description: str) -> dict:
     prompt = _load_prompt("round4_environment_generation.txt").format(
         app_description=app_description,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the test environment, got: {type(result)}")
     # Validated (not just "has a fields key") - Round4EnvironmentOut is
@@ -796,8 +825,7 @@ def generate_round4_ui_mockup(app_description: str) -> dict:
     prompt = _load_prompt("round4_ui_mockup_generation.txt").format(
         app_description=app_description,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the UI mockup, got: {type(result)}")
     try:
@@ -828,8 +856,7 @@ def _round4_force_flaw(environment: dict | None, candidate_prompt: str, response
         candidate_prompt=candidate_prompt,
         original_response_json=json.dumps(response, indent=2),
     )
-    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the forced-flaw revision, got: {type(result)}")
     return Round4TurnResponse.model_validate(result).model_dump()
@@ -857,8 +884,7 @@ def round4_respond(
         assistance_pct=assistance_pct,
         turn_number=turn_number,
     )
-    raw = _call_claude(prompt)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
     # Validated against Round4TurnResponse's exact shape (status must be
@@ -969,8 +995,7 @@ def score_round4_conversation(round4_evidence: dict, round1_reference_context: d
         assistance_pct=assistance_pct,
         test_cases_json=json.dumps(round4_evidence["test_cases"], indent=2),
     )
-    raw = _call_claude(prompt, max_tokens=8192)  # covers every test case's transcript + feedback
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=8192)  # covers every test case's transcript + feedback
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     if "findings" not in result:
@@ -1035,8 +1060,7 @@ def round4_pilot_turn(
         conversation_so_far=json.dumps(conversation_so_far, indent=2),
         candidate_prompt=candidate_prompt,
     )
-    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the pilot turn, got: {type(result)}")
     return Round4PilotTurnResponse.model_validate(result).model_dump()
@@ -1065,8 +1089,7 @@ def score_round4_pilot_conversation(
         reference_solution=reference_solution,
         validation_notes=validation_notes,
     )
-    raw = _call_claude(prompt, max_tokens=8192)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=8192)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     if "findings" not in result:
@@ -1162,8 +1185,7 @@ def round4_auto_turn(
     )
 
     def _generate(note: str = "") -> tuple[dict, str | None]:
-        raw = _call_claude(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=_CODE_REPLY_TOKENS)
-        result = _parse_json_response(raw)
+        result = _call_claude_json(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=_CODE_REPLY_TOKENS)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
         planted = result.pop("planted_flaw", None)
@@ -1292,8 +1314,7 @@ def round4_auto_clarify(
             conversation_so_far=_as_data(json.dumps(conversation_so_far, indent=2)),
             candidate_prompt=_as_data(candidate_prompt),
         )
-        raw = _call_claude(prompt, max_tokens=1024)
-        result = _parse_json_response(raw)
+        result = _call_claude_json(prompt, max_tokens=1024)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the clarification check, got: {type(result)}")
         parsed = Round4AutoClarifyLLMResponse.model_validate(result)
@@ -1351,8 +1372,7 @@ def score_round4_auto_conversation(
         ground_truth=ground_truth,
         validation_notes=validation_notes,
     )
-    raw = _call_claude(prompt, max_tokens=8192)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=8192)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
     if "findings" not in result:
@@ -1383,8 +1403,7 @@ def generate_candidate_summary(candidate_email: str, experience_band: str, round
         experience_band=experience_band,
         rounds_json=json.dumps(rounds, indent=2),
     )
-    raw = _call_claude(prompt, max_tokens=2048)
-    result = _parse_json_response(raw)
+    result = _call_claude_json(prompt, max_tokens=2048)
     if (
         not isinstance(result, dict)
         or "rounds" not in result or "key_observations" not in result or "verdict" not in result
