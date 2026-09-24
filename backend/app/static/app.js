@@ -3765,6 +3765,16 @@ function autoGrowTextarea(el) {
   el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 }
 
+// Every text box with .ta-grow (style.css - sized by purpose) grows as the
+// candidate types; one listener covers them all. Boxes filled from a saved
+// draft are sized by an explicit autoGrowTextarea/autoGrowAll after render.
+document.addEventListener("input", (e) => {
+  if (e.target instanceof HTMLTextAreaElement && e.target.classList.contains("ta-grow")) autoGrowTextarea(e.target);
+});
+function autoGrowAll(root = document) {
+  root.querySelectorAll("textarea.ta-grow").forEach(autoGrowTextarea);
+}
+
 function renderInvestigationForm(box, scenario, submission) {
   rowCount = 0;
   box.innerHTML = `
@@ -3783,7 +3793,7 @@ function renderInvestigationForm(box, scenario, submission) {
     <h4>Possible Root Cause</h4>
     <p class="muted">What you investigated, which areas you eliminated, and your conclusion.</p>
     <p class="muted example-note">Example format: "The [component] shows [incorrect behavior] when [condition]. Ruled out [alternative cause] because [reason]. Root cause is [cause], confirmed by [evidence]."</p>
-    <textarea id="inv-root-cause" oninput="scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea>
+    <textarea id="inv-root-cause" class="ta-long ta-grow" oninput="scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea>
     <div class="row">
       <button id="round2-submit-btn" onclick="doSubmitRound2Investigation()">Submit</button>
     </div>
@@ -3804,6 +3814,7 @@ function renderInvestigationForm(box, scenario, submission) {
   if (saved && saved.root_cause) {
     document.getElementById("inv-root-cause").value = saved.root_cause;
   }
+  autoGrowTextarea(document.getElementById("inv-root-cause"));
   round2UpdateSubmitState();
   const deadline = new Date(submission.started_at + "Z").getTime() + scenario.time_limit_minutes * 60 * 1000;
   startTimer(deadline, () => {
@@ -3819,7 +3830,7 @@ function addInvestigationRow(initial = null) {
   tr.id = `inv-row-${id}`;
   tr.innerHTML = `
     <td class="inv-no"></td>
-    <td><textarea class="inv-area" rows="2" placeholder="One area you investigated and what you found" oninput="autoGrowTextarea(this); scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
+    <td><textarea class="inv-area ta-short ta-grow" rows="2" placeholder="One area you investigated and what you found" oninput="scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
     <td><button class="btn-ghost btn-sm inv-remove" onclick="removeInvestigationRow('inv-row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
@@ -4050,7 +4061,7 @@ function renderRound3CodingLayout(box) {
       <div class="panel-inset round3-coding-pane">
         <p class="muted round3-pane-label">Conversation</p>
         <div class="round3-pane-body" id="round3-coding-turns">${turnsHtml || '<p class="muted">Nothing yet - tell the assistant what you need.</p>'}</div>
-        <textarea id="round3-coding-message" placeholder="What do you want the assistant to do next?" oninput="round3CodingOnComposerInput(this.value)">${escapeHtml((s.submission.content && s.submission.content.draft_prompt) || "")}</textarea>
+        <textarea id="round3-coding-message" class="ta-short ta-grow" placeholder="What do you want the assistant to do next?" oninput="round3CodingOnComposerInput(this.value)">${escapeHtml((s.submission.content && s.submission.content.draft_prompt) || "")}</textarea>
         <div class="row">
           <button id="round3-coding-send-btn" onclick="round3CodingSendMessage()">Send</button>
         </div>
@@ -4103,6 +4114,7 @@ function renderRound3CodingLayout(box) {
   // just after the candidate's next keystroke.
   const editTextarea = document.getElementById("round3-coding-code-edit");
   if (editTextarea) round3CodeEditorUpdateGutter(editTextarea);
+  autoGrowTextarea(document.getElementById("round3-coding-message"));  // a restored draft
 }
 
 // Line numbers make it possible to match a runtime error or a candidate's
@@ -4866,7 +4878,7 @@ function renderRound4TestCaseBody() {
   const composerHtml = `
     <div class="panel-inset round4-composer">
       <p class="muted round4-pane-label">Your message</p>
-      <textarea id="round4-message" placeholder="What do you want the assistant to do or check next?" oninput="round4OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
+      <textarea id="round4-message" class="ta-short ta-grow" placeholder="What do you want the assistant to do or check next?" oninput="round4OnComposerInput(${tcId}, this.value)">${escapeHtml(draftText)}</textarea>
       <div class="row">
         <button id="round4-send-btn" onclick="round4SendMessage()">Send</button>
       </div>
@@ -5064,9 +5076,9 @@ function addRow(initial = null) {
     <td class="tc-no"></td>
     <td><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()" /></td>
     <td><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
-    <td><textarea class="tc-steps" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
-    <td><textarea class="tc-data" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
-    <td><textarea class="tc-expected" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td><textarea class="tc-steps ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td><textarea class="tc-data ta-grow" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
+    <td><textarea class="tc-expected ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
     <td><button class="btn-danger btn-sm" onclick="removeRow('row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
@@ -5078,6 +5090,7 @@ function addRow(initial = null) {
     tr.querySelector(".tc-data").value = initial.test_data || "";
     tr.querySelector(".tc-expected").value = initial.expected_result || "";
   }
+  autoGrowAll(tr);
   renumberRows();
 }
 
@@ -5546,7 +5559,7 @@ function renderRound4PilotLayout(box) {
     <h4 style="margin-top:1.25rem">Ask the assistant</h4>
     <div class="field-row">
       <div class="field">
-        <textarea id="round4-pilot-prompt" rows="2" placeholder="e.g. Explain what ApiHelper.submit_transaction does, or: add a test that automates the transaction flow for a valid customer, reusing the existing helpers."></textarea>
+        <textarea id="round4-pilot-prompt" class="ta-short ta-grow" rows="2" placeholder="e.g. Explain what ApiHelper.submit_transaction does, or: add a test that automates the transaction flow for a valid customer, reusing the existing helpers."></textarea>
       </div>
       <button id="round4-pilot-ask-btn" onclick="round4PilotAskAIClicked()">Ask AI</button>
     </div>
@@ -5815,7 +5828,7 @@ function round4AutoTestDataHtml(row) {
       <p class="text-muted" style="margin:0 0 0.6rem 0">What your automation runs against. Made a mistake in Round 1? Correct it here - your original Round 1 answer is never changed.</p>
       <div class="field-row">
         <div class="field" style="flex:1 1 20rem">
-          <textarea id="r4a-test-data-${row.index}" rows="2">${escapeHtml(row.test_data || "")}</textarea>
+          <textarea id="r4a-test-data-${row.index}" class="ta-medium ta-grow" rows="2">${escapeHtml(row.test_data || "")}</textarea>
         </div>
         <button class="btn-secondary r4a-test-data-btn" onclick="round4AutoSaveTestDataClicked(${row.index})">Save test data</button>
       </div>
@@ -5918,7 +5931,7 @@ function round4AutoTcSectionHtml(row) {
       <div class="r4a-chat-log">${round4AutoTurnsHtml(tc.turns)}</div>
       <div class="field-row" style="margin-top:0.5rem; align-items:flex-start">
         <div class="field" style="flex:1 1 20rem">
-          <textarea id="r4a-prompt-${row.index}" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
+          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
         </div>
         <button class="btn-primary r4a-ask-btn" onclick="round4AutoAskClicked(${row.index})">Ask AI</button>
       </div>
@@ -6029,6 +6042,7 @@ function round4AutoAfterRender() {
     el.addEventListener("scroll", remember);
     el.addEventListener("input", remember);
   });
+  autoGrowAll(document.getElementById("round-view"));  // prompts / test data restored from state
   // The conversation is capped in height (style.css) - keep the newest message in view.
   document.querySelectorAll(".r4a-chat-log").forEach((log) => { log.scrollTop = log.scrollHeight; });
 }

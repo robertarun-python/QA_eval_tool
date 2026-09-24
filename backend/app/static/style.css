@@ -1097,7 +1097,6 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
 .round3-coding-stderr { color: var(--error); }
 .round3-coding-run { margin-bottom: var(--space-compact); }
 .no-copy { user-select: none; -webkit-user-select: none; }
-#round3-coding-message { min-height: 4rem; }
 #round3-coding-code { min-height: 8rem; }
 /* Code view and editor size to the screen and scroll inside, so Run /
    Submit stay in view instead of sliding down with every added line. */
@@ -1355,7 +1354,17 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
    two lines and grow with the text (autoGrowTextarea), not the global 8rem. */
 .inv-table .inv-col-no { width: 4rem; }
 .inv-table .inv-col-action { width: 6rem; }
-.inv-table textarea.inv-area { min-height: 3.25rem; margin-bottom: 0; overflow: hidden; resize: none; }
+.inv-table textarea.inv-area { margin-bottom: 0; }
+
+/* Text boxes sized by purpose (UI review item 12). The plain textarea
+   default (8rem, above) stays for anything unclassified - HR forms, code
+   boxes, the experimental screens. */
+textarea.ta-short  { min-height: 3.25rem; }  /* ~2 lines: one entry, a chat message */
+textarea.ta-medium { min-height: 6rem; }     /* ~4 lines: test data, notes */
+textarea.ta-long   { min-height: 10rem; }    /* ~8 lines: root cause, write-ups */
+/* Grows with its text (autoGrowTextarea in app.js) up to 60% of the
+   screen, then scrolls. */
+textarea.ta-grow   { resize: none; overflow-y: auto; max-height: 60vh; }
 
 /* ============================================================
    20. SETTINGS PAGE (HR Settings - redesigned to match the reference
