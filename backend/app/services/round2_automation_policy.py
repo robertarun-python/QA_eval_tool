@@ -56,6 +56,10 @@ _PROHIBITED_PATTERNS = (
     "you decide", "decide for me", "whatever makes sense", "come up with",
     "inputs yourself", "data yourself", "values yourself", "cases yourself", "checks yourself", "assertions yourself",
     "solve this for me", "design the test for me", "figure out what to test",
+    # Red-team set (tests/redteam, Sep 2026): reworded requests that got through
+    "more thorough", "test suite", "negative tests", "extra test", "add test cases", "more assertions",
+    "extra assertions", "you think are needed", "you think is needed", "whatever they are", "make up",
+    "ignore previous instructions", "ignore all previous instructions", "ignore your instructions",
 )
 
 # A quoted string or a bare number in generated code. Deliberately simple:
@@ -325,3 +329,65 @@ def changed_candidate_values(
                 changed.append(f"{value} -> {lit}")
                 break
     return changed
+
+
+# 7. INVENTED CONTENT (red-team set, tests/redteam): the looser checks above
+#    let a compliant model's invented tests through - an assertion passed if
+#    any one word in it appeared anywhere in the candidate's text ("Patient
+#    Dashboard" passed because the URL has "/patient"). Two precise rules:
+#    - a quoted value in an added assertion must come from the candidate's
+#      own words or the provided environment - an expected value nobody
+#      gave is invented;
+#    - the code may not gain an extra test function: one test per test case
+#      the candidate designed.
+EXTRA_TEST = "an extra test function the candidate didn't design"
+_TEST_FUNCTION_RE = {
+    "python": re.compile(r"^\s*def test_\w+\s*\(", re.M),
+    "javascript": re.compile(r"^\s*(it|test)\s*\(", re.M),
+    "java": re.compile(r"^\s*@Test\b", re.M),
+}
+# Only values an assertion actually COMPARES against - never an assertion's
+# failure message ("Login failed"), which is explanation, not an expectation.
+_COMPARED_RE = re.compile(
+    r"""(?:==|!=|===|!==)\s*["']([^"'\n]{3,})["']"""
+    r"""|["']([^"'\n]{3,})["']\s*(?:==|!=|===|!==|\bin\b|\bnot in\b)"""
+    r"""|\.(?:equals|equalsIgnoreCase|contains|startsWith|endsWith|toBe|toEqual|toContain|toMatch)\(\s*["']([^"'\n]{3,})["']"""
+    r"""|assertEquals\(\s*["']([^"'\n]{3,})["']\s*,"""
+)
+
+
+def _traceable(value: str, haystack: str) -> bool:
+    v = " ".join(value.lower().split())
+    if v in _IGNORED_LITERALS or v in haystack:
+        return True
+    if "/" in v:  # a URL or path: every word in it must come from somewhere given
+        return all(w in haystack for w in _WORD_RE.findall(v) if len(w) >= 3)
+    return False
+
+
+def invented_content(
+    language: str, before: str | None, after: str | None,
+    selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str,
+    environment_code: str = "",
+) -> list[str]:
+    """Added assertion lines whose expected values nobody gave, and extra test functions."""
+    haystack = " ".join((_candidate_text(selected_rows, conversation_so_far, candidate_prompt) + " " + (environment_code or "").lower()).split())
+    found = []
+    pattern = _ASSERTION_LINE_RE.get(language)
+    if pattern is not None:
+        for line in _added_lines(before, after):
+            if pattern.search(line) and any(not _traceable(next(g for g in m if g), haystack) for m in _COMPARED_RE.findall(line)):
+                found.append(line.strip())
+    if _test_units(language, after) > max(1, _test_units(language, before)):
+        found.append(EXTRA_TEST)
+    return found
+
+
+def _test_units(language: str, code: str | None) -> int:
+    """Tests in the code: each test function, plus top-level (unindented)
+    Python assertions, which are a test of their own."""
+    test_re = _TEST_FUNCTION_RE.get(language)
+    units = len(test_re.findall(code or "")) if test_re else 0
+    if language == "python" and re.search(r"^assert\b", code or "", re.M):
+        units += 1
+    return units
