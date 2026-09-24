@@ -139,7 +139,7 @@ def test_second_login_kicks_out_the_first_session_mid_round(client, monkeypatch)
 def test_second_login_does_not_kick_the_first_session_between_rounds(client, monkeypatch):
     """No round in_progress means nothing at stake - a candidate switching
     devices between rounds (or just idly logged in twice) isn't punished."""
-    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _login(client, HR_EMAIL, HR_PASSWORD)
     device_a_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     device_b_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
 

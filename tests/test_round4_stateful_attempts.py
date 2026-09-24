@@ -11,7 +11,7 @@ State awareness section (Original defect vs. Subsequent protection) for
 the corresponding instruction given to the LLM scorer - these tests pin
 the deterministic backstop that holds regardless of what the LLM does.
 """
-from app.services.round4_evidence_audit import audit_round4_findings, SEVERITY_WEIGHTS
+from app.services.round4_evidence_audit import audit_round4_findings
 
 
 def _test_cases(turns_by_case):

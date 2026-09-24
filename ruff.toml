@@ -1,0 +1,14 @@
+# Linting (Phase 4 stability work). Run: ruff check backend/app tests
+# Kept to rules that find real bugs - undefined or unused names, syntax
+# errors, mutable/call defaults - rather than style, so a failure always
+# means something. (The earlier live crash "NameError: name 're' is not
+# defined" in round3_policy.py is exactly what F821 catches.)
+target-version = "py312"
+exclude = ["backend/app/static"]
+
+[lint]
+select = ["F", "E9", "PLE", "B006", "B008"]
+
+[lint.flake8-bugbear]
+# FastAPI's dependency / parameter declarations are meant to be call defaults.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Body", "fastapi.File", "fastapi.Form", "fastapi.UploadFile"]

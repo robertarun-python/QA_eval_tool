@@ -14,7 +14,7 @@ renders whatever's currently saved rather than taking a body.
 from .conftest import (
     HR_EMAIL, HR_PASSWORD,
     CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD,
-    FAKE_REFERENCE, _login, _auth, _publish_scenario,
+    _login, _auth, _publish_scenario,
 )
 
 FAKE_SUMMARY_RESULT = {
@@ -56,7 +56,7 @@ def test_summary_generated_and_downloadable_as_pdf(client, monkeypatch):
     monkeypatch.setattr(llm_service, "generate_candidate_summary", _capture)
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    scenario = _publish_scenario(client, hr_token, monkeypatch, title="Checkout flow")
+    _publish_scenario(client, hr_token, monkeypatch, title="Checkout flow")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {

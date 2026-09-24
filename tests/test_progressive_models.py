@@ -14,7 +14,6 @@ existing ones causes no collision - the actual proof, alongside a full
 existing-suite run reported separately, that Rounds 1-4 are unaffected.
 """
 import sys
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))

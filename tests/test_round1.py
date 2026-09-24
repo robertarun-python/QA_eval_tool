@@ -511,7 +511,7 @@ def test_round1_submission_scored_via_background_task(client, monkeypatch):
     from app.services import llm_service
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    scenario = _publish_scenario(client, hr_token, monkeypatch, title="Search box")
+    _publish_scenario(client, hr_token, monkeypatch, title="Search box")
 
     monkeypatch.setattr(
         llm_service, "score_round1_submission",

@@ -451,7 +451,6 @@ def test_score_round4_pilot_dispatch_does_not_touch_legacy_round4_scoring(monkey
     """Structural proof that _SCORERS[4] routing is additive - a legacy
     (non-pilot) round 4 submission still calls score_round4_submission,
     never score_round4_pilot_submission."""
-    import types
 
     class _FakeScenario:
         config_json = {}

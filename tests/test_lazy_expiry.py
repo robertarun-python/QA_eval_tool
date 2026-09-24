@@ -127,7 +127,7 @@ def test_candidate_returning_after_the_deadline_sees_the_round_already_closed(cl
     deadline has actually passed does their own next request see it as
     closed, same as HR's."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    published = _publish_scenario(client, hr_token, monkeypatch)
+    _publish_scenario(client, hr_token, monkeypatch)
     _stub_round1_scoring(monkeypatch)
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     client.post("/candidate/round/1/start", cookies=_auth(cand_token))

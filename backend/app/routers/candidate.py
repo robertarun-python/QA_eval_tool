@@ -24,7 +24,7 @@ from ..schemas import (
     Round4TestCaseCreate, Round4TestCaseOut, Round4DraftUpdate, Round4EnvironmentOut,
     Round4UiMockupOut, Round2SubmissionCreate, Round4CodeSnippetOut, ExpireRoundPayload, TabSwitchOut,
     Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut, Round3DirectEditCreate,
-    Round3RunInputCreate, Round3RunPollOut, Round3RunOut, Round3StateOut,
+    Round3RunInputCreate, Round3RunPollOut, Round3StateOut,
     Round4PilotTurnCreate, Round4PilotTurnOut, Round4PilotClarifyCreate, Round4PilotClarifyOut, Round4PilotRunOut,
     Round4PilotCodeUpdate,
     Round4AutoStateOut, Round4AutoDesignRowOut, Round4AutoLanguageCreate, Round4AutoSelectCreate, Round4AutoRefineCreate,

@@ -31,7 +31,7 @@ def _date(days_from_now: int = 0) -> str:
 
 def _set_exam_date(email: str, days_ago: int):
     import app.database as database_module
-    from app.models import CandidateAppearance, User
+    from app.models import User
 
     db = database_module.SessionLocal()
     user = db.query(User).filter(User.email == email).one()

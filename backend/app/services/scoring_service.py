@@ -203,8 +203,8 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                     "actual_output_error": "Reference test case is missing 'input' - could not run.",
                 })
                 continue
-            result = execution_service.run_code(language=language, code=final_code, stdin=[tc_input])
-            if result.infra_error:
+            run = execution_service.run_code(language=language, code=final_code, stdin=[tc_input])
+            if run.infra_error:
                 # Per the design spec's Error handling section: a hosted
                 # execution-API infra failure (e.g. the Piston endpoint
                 # rejecting the request) must never be scored as if it
@@ -218,7 +218,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                 # exception to RoundStatus.scoring_failed - the same path
                 # every other scoring failure takes.
                 raise RuntimeError(f"Code execution infra error while scoring test case: {tc.get('description', tc_input)}")
-            actual_output = (result.stdout or "").strip()
+            actual_output = (run.stdout or "").strip()
             expected_output = tc.get("expected_output")
             # input()'s prompt argument (if the candidate's code passes
             # one) writes straight to stdout with no trailing newline
@@ -808,7 +808,6 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
     for submission in submissions:
         if submission.status != RoundStatus.in_progress or submission.started_at is None:
             continue
-        scenario = submission.scenario
         deadline = submission.started_at + timedelta(minutes=submission.time_limit_minutes)
         if now < deadline:
             continue

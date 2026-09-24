@@ -96,7 +96,7 @@ def test_hr_can_create_and_publish_a_round3_coding_scenario(client, monkeypatch)
 
 def test_round3_coding_full_happy_path(client, monkeypatch):
     from app.services import llm_service, execution_service
-    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    from .conftest import CANDIDATE1_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
@@ -208,7 +208,7 @@ def test_round3_coding_run_is_genuinely_interactive_end_to_end(client, monkeypat
     test_execution_service.py for that layer)."""
     import time as time_module
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -270,7 +270,7 @@ def test_round3_coding_run_is_genuinely_interactive_end_to_end(client, monkeypat
 
 def test_round3_coding_turn_asking_which_loop_is_correct_gets_refused(client, monkeypatch):
     from app.services import llm_service
-    from .conftest import CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD
+    from .conftest import CANDIDATE2_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -303,7 +303,7 @@ def test_round3_coding_current_code_threads_between_turns(client, monkeypatch):
     property audited at scoring time instead (see
     test_scoring_service_round3_coding.py's guardrail-violation test)."""
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -344,7 +344,7 @@ def test_round3_coding_declared_constructs_persist_and_thread_between_turns(clie
     a claim about what the (mocked) LLM does with it, which is
     llm_service's own concern (see test_llm_service_round3_coding.py)."""
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -413,7 +413,7 @@ def test_round3_coding_full_construct_checklist_flow_end_to_end(client, monkeypa
     together correctly, not just each piece in isolation."""
     import json as json_module
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -497,7 +497,7 @@ def test_round3_coding_produces_code_for_a_fully_specified_instruction_even_with
     left vague - never for one it hasn't gotten to yet."""
     import json as json_module
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -548,7 +548,7 @@ def test_round3_coding_produces_code_for_a_fully_specified_instruction_even_with
 
 def test_round3_coding_direct_edit_creates_a_turn_and_persists_declared_constructs(client, monkeypatch):
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -606,7 +606,7 @@ def test_round3_coding_direct_edit_creates_a_turn_and_persists_declared_construc
 
 def test_round3_coding_direct_edit_rejects_empty_code(client, monkeypatch):
     from app.services import llm_service
-    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    from .conftest import CANDIDATE1_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
@@ -634,7 +634,7 @@ def test_round3_coding_direct_edit_full_flow_end_to_end(client, monkeypatch):
     say-so."""
     import json as json_module
     from app.services import llm_service
-    from .conftest import CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD
+    from .conftest import CANDIDATE3_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
@@ -885,7 +885,7 @@ def test_round3_turn_route_persists_explain_kind_with_no_code_change(client, mon
     the candidate-facing shape must never carry the HR-only audit fields
     added below (code_modified/requested_scope/lines_changed)."""
     from app.services import llm_service
-    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    from .conftest import CANDIDATE1_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
