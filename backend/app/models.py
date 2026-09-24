@@ -109,14 +109,13 @@ class Scenario(Base):
 
     @property
     def is_pilot(self) -> bool:
-        """Round 4 only: whether this is the Focused Automation Pilot
-        (single-file coding exercise) rather than the legacy conversational
-        flow - see seed_round4_pilot.py, which is the only writer of
-        config_json["mode"] == "pilot_automation". A computed property
+        """Round 2 slot only: whether this is the retired Focused Automation
+        Pilot (config_json["mode"] == "pilot_automation"), kept so its old
+        results still read correctly. A computed property
         (same pattern as Submission.tab_switch_count) so schemas.ScenarioPublicOut
         can expose it via from_attributes without duplicating the check -
         candidate.py's pre-start screen needs this to know which briefing
-        to show before a submission (and therefore Round4StateOut.is_pilot)
+        to show before a submission (and therefore Round2EntryStateOut.is_pilot)
         exists yet."""
         return (self.config_json or {}).get("mode") == "pilot_automation"
 
@@ -165,21 +164,21 @@ class Scenario(Base):
     # Round 4 only: auto-generated fictional test-environment reference
     # facts (credentials, a simulated API base URL, ...) shown to
     # candidates alongside the scenario description - see
-    # llm_service.generate_round4_environment. Same lifecycle as
+    # llm_service.generate_round2_automation_environment. Same lifecycle as
     # reference_json: generated at creation, HR can regenerate it,
     # required before publish.
     environment_json = Column(JSON, nullable=True)
     # Round 4 only: auto-generated structured reference screens (login
     # page, home page, ...) shown to candidates as a static visual
     # reference for the app they're automating - see
-    # llm_service.generate_round4_ui_mockup. Structured (screens ->
+    # llm_service.generate_round2_automation_ui_mockup. Structured (screens ->
     # ordered typed elements), never raw HTML, so the frontend renders it
     # through trusted CSS instead of injecting LLM-authored markup. Same
     # lifecycle as environment_json: generated at creation, HR can
     # regenerate it (together with environment_json), required before publish.
     ui_mockup_json = Column(JSON, nullable=True)
     # Round 4 only: set when HR hand-edits environment_json's fields (see
-    # hr.py's update_round4_environment) - makes _resync_round4_reference_for_band
+    # hr.py's update_round2_automation_environment) - makes _resync_round2_automation_reference_for_band
     # skip regenerating environment_json for this scenario when a different
     # round 1 scenario goes live for the same band, so an HR-typed credential
     # isn't silently overwritten by that background resync. Only HR's own
@@ -294,7 +293,7 @@ class Submission(Base):
     # cases. created_at is monotonic regardless, which is what "the
     # transcript in the order it happened" actually needs - code that
     # wants turns grouped by test case does that grouping itself, e.g.
-    # scoring_service.score_round4_submission.
+    # the retired conversational Round 2 scorer.
     conversation_turns = relationship(
         "ConversationTurn", back_populates="submission",
         order_by="ConversationTurn.created_at",
@@ -411,7 +410,7 @@ class Score(Base):
     @property
     def evidence_audit(self) -> dict | None:
         """Round 4 only - the deterministic evidence-audit trail (see
-        services.round4_evidence_audit.audit_round4_findings) recording
+        services.round2_automation_evidence_audit.audit_round2_automation_findings) recording
         which findings survived vs. were rejected and why. Computed, not
         a column - lives inside raw_llm_response_json (already HR-only
         via SubmissionReportOut), surfaced here as its own field so HR
@@ -458,7 +457,7 @@ class ConversationTurn(Base):
     turn_number = Column(Integer, nullable=False)
     candidate_prompt = Column(Text, nullable=False)
     # Structured, not plain text: {response_text, steps, observed_result,
-    # status} - see schemas.Round4TurnResponse / llm_service.round4_respond.
+    # status} - see schemas.Round4TurnResponse (retired conversational Round 2 format; kept for old results).
     # No code field, deliberately - the candidate reasons from an
     # execution trace (plain-English steps + what was observed), never
     # from reading an implementation. Every other LLM-output column in

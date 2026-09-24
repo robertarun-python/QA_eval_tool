@@ -1,7 +1,7 @@
 """
 AI-Assisted Test Automation round - deterministic controls. NO LLM CALL
-ANYWHERE IN THIS MODULE, by the same discipline as round3_policy.py,
-round4_pilot_policy.py and progressive_policy.py.
+ANYWHERE IN THIS MODULE, by the same discipline as round3_policy.py
+and progressive_policy.py.
 
 Two independent controls, both deterministic, because "the prompt tells
 the model not to" is not by itself an enforceable boundary:
@@ -27,6 +27,7 @@ Deliberately narrow, and honest about it: substring/regex matching over
 known request shapes, not natural-language understanding.
 """
 import re
+from difflib import SequenceMatcher
 
 REFUSAL_MESSAGE = (
     "That part is yours to decide, not mine - I can only automate the test design you already "
@@ -79,6 +80,10 @@ def _snapshot_text(selected_rows: list[dict]) -> str:
     """Everything the candidate themselves authored in Round 1 for the
     rows they chose, plus any append-only refinement notes - the full set
     of values the assistant is allowed to encode."""
+    return _snapshot_text_as_written(selected_rows).lower()
+
+
+def _snapshot_text_as_written(selected_rows: list[dict]) -> str:
     parts = []
     for row in selected_rows or []:
         for key in ("title", "preconditions", "steps", "test_data", "expected_result"):
@@ -87,7 +92,7 @@ def _snapshot_text(selected_rows: list[dict]) -> str:
                 parts.append(str(value))
         for note in row.get("refinements") or []:
             parts.append(str(note))
-    return " ".join(parts).lower()
+    return " ".join(parts)
 
 
 def untraceable_literals(code: str, selected_rows: list[dict], environment_code: str = "") -> list[str]:
@@ -254,3 +259,69 @@ def fabricated_observations(before: str | None, after: str | None) -> list[str]:
         if m and _OBSERVED_NAME_RE.search(m.group(1)) and "expect" not in m.group(1).lower():
             flagged.append(line.strip())
     return flagged
+
+
+# 6. CHANGED CANDIDATE VALUES: a value the candidate stated (an email, a
+#    password, a name, a quoted string - in their design or any message for
+#    this test case) must reach the code exactly as written. Run B's
+#    "use the same user" turn came back with "Patient1" where the candidate
+#    had said "Patient One"; nothing noticed. Flagged: a string literal in the
+#    code that is a near-copy of a stated value (same letters ignoring
+#    spaces and punctuation, or very similar - a case-only difference
+#    doesn't count) while the stated value itself appears nowhere in the code. A literal the candidate also stated, or one
+#    from the provided environment, is legitimate and never flagged.
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_QUOTED_RE = re.compile(r"""["'`]([^"'`\n]{3,80})["'`]""")
+_KEYED_VALUE_RE = re.compile(
+    r"\b(?:name|full name|username|user name|user|password|pwd|email|e-mail)\s*(?:is|=|:)?\s*"
+    r"([A-Z][\w@!#$%&*+-]*(?:\.[\w@!#$%&*+-]+)*(?: [A-Z][\w@!#$%&*+-]*(?:\.[\w@!#$%&*+-]+)*)*|\S*\d\S*)"
+)
+_CODE_STRING_RE = re.compile(r"""["']([^"'\n]{3,120})["']""")
+_SIMILAR = 0.75
+
+
+def _norm_value(v: str) -> str:
+    return re.sub(r"[\W_]+", "", v.lower())
+
+
+def _stated_values(selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str) -> set[str]:
+    texts = [_snapshot_text_as_written(selected_rows), candidate_prompt or ""]
+    texts += [t.get("candidate_prompt") or "" for t in conversation_so_far or []]
+    values: set[str] = set()
+    for text in texts:
+        values.update(_EMAIL_RE.findall(text))
+        values.update(m.strip() for m in _QUOTED_RE.findall(text))
+        values.update(m.strip("([{").rstrip(".,;:!)]}") for m in _KEYED_VALUE_RE.findall(text))
+    values = {v for v in values if len(_norm_value(v)) >= 4}
+    # A value the candidate themselves wrote in more than one form
+    # ("Wrong@999" and "wrong@999") has no single right spelling to hold
+    # the code to - skip it rather than flag whichever one the code used.
+    by_form: dict[str, set[str]] = {}
+    for v in values:
+        by_form.setdefault(v.lower(), set()).add(v)
+    return {v for v in values if len(by_form[v.lower()]) == 1}
+
+
+def changed_candidate_values(
+    code: str | None, selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str,
+    environment_code: str = "",
+) -> list[str]:
+    """'<stated> -> <in code>' for each stated value the code carries only an altered copy of."""
+    code = code or ""
+    stated = _stated_values(selected_rows, conversation_so_far, candidate_prompt)
+    literals = {m.strip() for m in _CODE_STRING_RE.findall(code)}
+    changed = []
+    for value in sorted(stated):
+        if value in code:
+            continue
+        nv = _norm_value(value)
+        for lit in sorted(literals):
+            if lit in stated or lit in (environment_code or "") or ("@" in lit) != ("@" in value):
+                continue
+            if lit.lower() == value.lower():
+                continue  # case only ("welcome, jordan" -> "Welcome, Jordan") - not a changed value
+            nl = _norm_value(lit)
+            if nl and (nl == nv or SequenceMatcher(None, nv, nl).ratio() >= _SIMILAR):
+                changed.append(f"{value} -> {lit}")
+                break
+    return changed

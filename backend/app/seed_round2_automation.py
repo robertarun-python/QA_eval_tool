@@ -18,7 +18,7 @@ them) and prompts/round2_automation_scoring.txt's REFERENCE ONLY section.
 
 No schema change and no migration: this inserts a normal Scenario row
 using columns that already exist. Idempotent. Standalone entrypoint, same
-convention as every migrate_*.py / seed_round4_pilot.py.
+convention as every migrate_*.py.
 
 Run from backend/: python -m app.seed_round2_automation
 """

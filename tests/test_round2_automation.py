@@ -66,8 +66,8 @@ def _publish_auto_scenario(client, hr_token, monkeypatch, band="0-7"):
     Mocked the same way _publish_round4_scenario already does, so this
     helper never makes a real LLM call."""
     from .conftest import FAKE_ENVIRONMENT, FAKE_UI_MOCKUP
-    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
-    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
 
     scenario = client.post(
         "/hr/scenarios",
@@ -1199,7 +1199,7 @@ def test_auto_tc_audit_payload_builds_one_real_entry_per_selected_tc():
     assert len(payload) == 2
     assert payload[0]["title"] == "Test case 0: Reject zero amount"
     assert payload[1]["title"] == "Test case 1: Accept valid amount"
-    # response_message remapped to model_response - what round4_evidence_audit's
+    # response_message remapped to model_response - what round2_automation_evidence_audit's
     # _turn_text actually reads (see the remapping this mirrors).
     assert payload[0]["turns"][0]["model_response"] == "Encoded TC0."
     assert payload[1]["turns"][0]["model_response"] == "Encoded TC1 distinctively."
@@ -1289,7 +1289,7 @@ def test_evidence_audit_never_attributes_one_tcs_turn_to_the_other(client, monke
 
 
 def test_unsupported_finding_is_dropped_by_the_shared_evidence_audit(client, monkeypatch):
-    """The automation round reuses round4_evidence_audit unmodified - a
+    """The automation round reuses round2_automation_evidence_audit unmodified - a
     finding citing a quote that was never said must not survive."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)
@@ -1334,8 +1334,8 @@ def test_legacy_round1_rows_without_test_data_still_work(client, monkeypatch):
 
 def test_publish_gate_requires_ground_truth_and_environment(client, monkeypatch):
     from .conftest import FAKE_ENVIRONMENT, FAKE_UI_MOCKUP
-    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
-    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     scenario = client.post(
@@ -1461,7 +1461,7 @@ def test_only_the_first_generation_for_a_tc_gets_the_flaw_instruction(client, mo
 
 
 # ---- Scoring fidelity: a supported finding must survive to the Score ----
-# End-to-end counterpart to test_round4_evidence_audit.py's unit coverage:
+# End-to-end counterpart to test_round2_automation_evidence_audit.py's unit coverage:
 # proves the persisted evidence actually reaches the auditor through
 # score_round2_automation_submission, not just that the auditor can use it.
 
@@ -1513,7 +1513,7 @@ def test_fabricated_finding_is_still_dropped_and_refunded(client, monkeypatch):
         "severity": "low",
         "evidence": [{"quote": "the run crashed catastrophically"}],
     })
-    # 98 + 3 restored, capped at 100 by _round4_findings_to_misses - the
+    # 98 + 3 restored, capped at 100 by _round2_automation_findings_to_misses - the
     # same arithmetic that produced the original 98->100 symptom. Here it
     # is CORRECT, because this finding genuinely cites nothing real.
     assert score["final_score"] == 100
@@ -1613,7 +1613,7 @@ def test_quote_evidence_tagged_with_wrong_test_case_is_rejected_end_to_end(clien
     """A finding quotes TC1's own code but tags the citation as TC0's
     evidence (evidence.test_case) - must be discarded and refunded, not
     silently matched because the quote is real text somewhere in the
-    submission. See round4_evidence_audit._check_evidence's "wrong_test_case"
+    submission. See round2_automation_evidence_audit._check_evidence's "wrong_test_case"
     branch."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)

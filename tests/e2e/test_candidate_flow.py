@@ -87,6 +87,9 @@ def test_round3_ai_prompted_coding(app_page):
     expect(page.locator("#round3-coding-turns")).to_contain_text("Fake AI mode")
     expect(page.locator("#round3-coding-code")).to_contain_text("instruction: Read one line of input")
 
+    page.click("#round3-coding-run-btn")  # really executes the code in the sandbox
+    expect(page.locator("#round3-terminal-status")).to_contain_text("exited with code 0", timeout=30000)
+
     page.click("text=Submit Round 3")
     expect(page.locator('button[onclick="loadRound(4)"]')).to_be_enabled()
 

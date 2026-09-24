@@ -12,7 +12,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from ..models import Submission, Score, RoundStatus, Scenario, User, AppSettings, CandidateSummary
-from . import llm_service, execution_service, round3_scope_guard, round4_evidence_audit
+from . import llm_service, execution_service, round3_scope_guard, round2_automation_evidence_audit
 
 # Keep in sync with routers/candidate.py's ROUND_SEQUENCE - duplicated
 # rather than imported to avoid a routers -> services -> routers import
@@ -274,35 +274,28 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     return score
 
 
-def _round4_findings_to_misses(
+def _round2_automation_findings_to_misses(
     result: dict, test_cases_payload: list[dict],
     supporting_texts: list[str] | dict[str, list[str]] | None = None,
 ) -> tuple[list[str], int | None, dict | None]:
-    """Runs the scorer's structured findings (see prompts/round4_scoring.txt
-    and schemas.Round4Finding) through the deterministic, non-LLM evidence
+    """Runs the scorer's structured findings (see prompts/round2_automation_scoring.txt
+    and schemas.Round2AutomationFinding) through the deterministic, non-LLM evidence
     auditor before any of them are allowed to become a scored weakness or
-    move final_score - see round4_evidence_audit.py's module docstring for
+    move final_score - see round2_automation_evidence_audit.py's module docstring for
     why a prompt telling the LLM "don't hallucinate" isn't sufficient on
     its own. A finding the auditor rejects (NOT_ESTABLISHED or
     CONTRADICTED) is dropped from misses_json entirely and its severity's
     points are added back to final_score, so an unsupported deduction
     never survives into the persisted Score.
 
-    Backward compatible with the old flat `misses: [str, ...]` shape (no
-    `findings` key), for tests that monkeypatch score_round4_conversation
-    directly with that shape (e.g. test_round4.py's FAKE_SCORE) - those
-    pass straight through with no audit, exactly as score_round4_submission
-    behaved previously. A REAL call never takes this branch:
-    llm_service.score_round4_conversation raises if its own LLM response
-    is missing "findings" rather than returning the old shape, since the
-    prompt it sends always asks for "findings" - so this is a test
-    convenience, not a live fallback a real scoring result can silently
-    slip through."""
+    A result with no `findings` key (the old flat `misses: [str, ...]`
+    shape, e.g. a test's fake scorer) passes straight through with no
+    audit."""
     findings = result.get("findings")
     if findings is None:
         return result.get("misses", []), result.get("final_score"), None
 
-    report = round4_evidence_audit.audit_round4_findings(test_cases_payload, findings, supporting_texts)
+    report = round2_automation_evidence_audit.audit_round2_automation_findings(test_cases_payload, findings, supporting_texts)
     final_score = result.get("final_score")
     if isinstance(final_score, (int, float)):
         final_score = min(100, int(final_score) + report.score_adjustment())
@@ -346,7 +339,7 @@ def _auto_tc_label(row: dict) -> str:
     """The exact per-test-case label shown both to the scorer (as each
     evidence block's own heading - see _auto_tc_evidence_blocks) and to
     the evidence auditor (_auto_tc_audit_payload's title;
-    round4_evidence_audit's test_case matching for both the no_turns
+    round2_automation_evidence_audit's test_case matching for both the no_turns
     shape and the TC-scoped quote-only shape) - defined once so the two
     can never drift out of sync. Index-prefixed so it's unique even if
     two selected test cases share a candidate-authored title."""
@@ -390,7 +383,7 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
 
 def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
     """One real per-test-case entry - not a single synthetic "Automation
-    session" entry. round4_evidence_audit numbers a turn citation as a
+    session" entry. round2_automation_evidence_audit numbers a turn citation as a
     1-indexed position in the FLATTENED sequence across every entry in
     this list, in order (see that module's own docstring) - with one
     synthetic entry, two selected test cases' own turn 1 (each test
@@ -398,13 +391,13 @@ def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
     occupied flattened position 1, so a citation naming one test case's
     turn could validate against the OTHER's turn text. Splitting into
     real per-test-case entries is exactly the shape the audit module was
-    built for - proven already by round4_scoring.txt's legacy debugging
-    flow, which uses the identical convention - so round4_evidence_audit.py
+    built for - the retired conversational format used the identical
+    convention - so round2_automation_evidence_audit.py
     itself needs no change for turn citations. The SAME label
     (_auto_tc_label) is also the key scoring_service.score_round2_automation_submission
     builds its TC-scoped supporting_texts dict with, so a quote-only
     citation tagged with this exact label gets checked against only that
-    test case's own evidence too - see round4_evidence_audit._check_evidence.
+    test case's own evidence too - see round2_automation_evidence_audit._check_evidence.
 
     For exactly one selected test case this returns exactly one entry,
     so flattened position and that test case's own turn_number coincide
@@ -426,10 +419,9 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
     routers/candidate.py's /round/4/auto/* endpoints, its only writers);
     ground truth and validation notes come from the scenario's
     reference_json and are REFERENCE ONLY. Findings run through the same
-    round4_evidence_audit backstop (_round4_findings_to_misses, reused
+    round2_automation_evidence_audit backstop (_round2_automation_findings_to_misses, reused
     unmodified) as the other round 4 flows, and the per-area sub-scores
-    live inside raw_llm_response_json rather than new Score columns -
-    same reasoning as score_round4_pilot_submission.
+    live inside raw_llm_response_json rather than new Score columns.
 
     Each selected test case now carries its own independent state, sent
     to the scorer as its own self-contained evidence block (see
@@ -476,7 +468,7 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
     # ONE test case it's tagged with (evidence.test_case = that block's
     # own label) so a finding can't borrow evidence that only exists in a
     # different selected test case - see
-    # round4_evidence_audit._check_evidence. An untagged or
+    # round2_automation_evidence_audit._check_evidence. An untagged or
     # unrecognized-tag citation still falls back to the lenient
     # whole-submission check below it, unchanged from before.
     supporting_texts_by_tc = {
@@ -487,7 +479,7 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
         ]
         for block in tc_evidence
     }
-    misses, final_score, evidence_audit_summary = _round4_findings_to_misses(
+    misses, final_score, evidence_audit_summary = _round2_automation_findings_to_misses(
         result, audit_payload, supporting_texts_by_tc,
     )
 
@@ -509,7 +501,7 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
     return score
 
 
-def _score_round4(db: Session, submission: Submission) -> Score:
+def _score_round2_automation(db: Session, submission: Submission) -> Score:
     """Round 2 slot dispatch. Only the AI-assisted automation mode is live;
     the legacy conversational and pilot modes were retired (their results
     keep the scores they already have and stay readable for HR), so an
@@ -522,14 +514,14 @@ def _score_round4(db: Session, submission: Submission) -> Score:
 
 
 # Slot -> scorer. The automation family (legacy conversational, pilot and
-# AI-assisted automation - see _score_round4's own mode dispatch) now sits
+# AI-assisted automation - see _score_round2_automation's own mode dispatch) now sits
 # at slot 2, and the debugging investigation at slot 4; the FUNCTION names
 # still carry the round numbers those flows were built under, kept as a
 # historical label the same way this repo's migrate_round3_*.py scripts
 # are. This dict is the single place that says which slot runs which flow.
 _SCORERS = {
     1: score_round1_submission,
-    2: _score_round4,                 # AI-Assisted Test Automation
+    2: _score_round2_automation,                 # AI-Assisted Test Automation
     3: score_round3_submission,
     4: score_round2_investigation,    # Debugging
 }

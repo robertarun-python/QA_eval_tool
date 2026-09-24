@@ -99,16 +99,9 @@ async function loadRound(n) {
   }
   // renderCandidateRoundNav (above) already set the page header AND the
   // rail's tick label from the static ROUND_LABELS map, before this
-  // scenario was known - neither the Focused Automation Pilot (see
-  // models.Scenario.is_pilot) nor AI-Assisted Test Automation (see
-  // models.Scenario.is_auto) is "Conversational" at all, so correct both
-  // now that we actually know which round 4 shape this is. No-op for
-  // every other round/scenario.
-  if (n === 2 && state.scenario && state.scenario.is_pilot) {
-    setPageHeader("Candidate Assessment", "Round 2 · Automation Engineering with AI Assistance", "");
-    const tickLabel = document.getElementById("round-tick-label-2");
-    if (tickLabel) tickLabel.textContent = "Automation Engineering";
-  } else if (n === 2 && state.scenario && state.scenario.is_auto) {
+  // scenario was known - correct both for AI-Assisted Test Automation (see
+  // models.Scenario.is_auto). No-op for every other round/scenario.
+  if (n === 2 && state.scenario && state.scenario.is_auto) {
     setPageHeader("Candidate Assessment", "Round 2 · AI-Assisted Test Automation", "");
     const tickLabel = document.getElementById("round-tick-label-2");
     if (tickLabel) tickLabel.textContent = "AI-Assisted Test Automation";
@@ -226,7 +219,7 @@ function openModalOverlay(overlay) {
     box.tabIndex = -1;
     box.focus();
   }
-  // The neutral briefing modals (see showRoundIntro/showRound4Intro/
+  // The neutral briefing modals (see showRoundIntro/showRound2AutomationIntro/
   // showRound3CodingIntro) put their only focusable control - the "Got
   // it" button - at the BOTTOM, after several paragraphs of notes. box
   // is capped to max-height + overflow-y:auto (see style.css), so the
@@ -375,11 +368,6 @@ async function confirmStartRound2Automation() {
   renderRoundEntry(2, box, state.scenario, null);
 }
 
-function round4OnLanguageSelectChange() {
-  const language = document.getElementById("round4-language-select").value;
-  document.getElementById("round4-start-btn").disabled = !language;
-}
-
 // Each round's candidate-facing shape is genuinely different now: round
 // 1 is repeatable test-case rows, round 2 is a shorter investigation
 // list + one root-cause conclusion, round 4 is conversational. No
@@ -392,7 +380,7 @@ function renderRoundEntry(n, box, scenario, submission, environment, uiMockup) {
   } else if (n === 3) {
     renderRound3CodingView(box);
   } else {
-    renderRound4View(box);
+    renderRound2AutomationView(box);
   }
 }
 
@@ -402,7 +390,7 @@ function renderRoundEntry(n, box, scenario, submission, environment, uiMockup) {
 // guarantee round 3's test cases already have (see
 // ROUND4_DRAFT_DEBOUNCE_MS below), just for one whole-round form instead
 // of a per-test-case composer. Debounced so normal typing doesn't fire a
-// request per keystroke; best-effort (like round4FlushDraft) since the
+// request per keystroke; best-effort since the
 // DOM itself is always the source of truth for what's on screen right
 // now - a failed autosave only risks losing up to the debounce window's
 // worth of typing on an actual crash/refresh, never anything visible.
@@ -706,14 +694,6 @@ function renderExecutionSteps(steps) {
   `;
 }
 
-let round4DefaultLanguage = "python";
-
-const ROUND4_CODE_LANGUAGE_OPTIONS = [
-  ["python", "Python"],
-  ["java", "Java"],
-  ["javascript", "JavaScript"],
-];
-
 // A "label" element immediately followed by a "text" element is a
 // detail-view field (Title / The Great Gatsby), not two independent
 // headings - see renderMockupScreens below for why that distinction
@@ -736,7 +716,7 @@ function groupMockupElements(elements) {
 }
 
 // Shared by the candidate's round 3 view and HR's scenario detail -
-// renders Round4UiMockupOut's structured screens (screen -> ordered
+// renders Round2AutomationUiMockupOut's structured screens (screen -> ordered
 // typed elements) as a static, schematic wireframe. Deliberately never
 // injects LLM-authored HTML/CSS: every element renders through this
 // app's own trusted CSS classes, keyed only off `type`, with all text
@@ -901,9 +881,7 @@ async function doSubmitRound1(force = false) {
   const submitBtn = document.getElementById("round1-submit-btn");
   // Guards against a double-click firing two concurrent submits (the
   // second would just 400 on the server, but this avoids the confusing
-  // in-between state and a wasted round trip) - see the identical guard
-  // on round4SendMessage for the more consequential version of this bug
-  // (there it could create two conversation turns with the same number).
+  // in-between state and a wasted round trip).
   if (submitBtn && submitBtn.disabled) return;
   const content = collectRows();
   // force (the timer just hit zero) skips these checks entirely - they

@@ -39,8 +39,8 @@ from ..schemas import (
     Round4TestCaseOut, Round3TurnOut, Round3TurnAuditOut, Round3RunOut, CandidateAssessmentSummaryOut,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
-    ScenarioTimeLimitUpdate, Round4InstructionsUpdate, TestCaseRow,
-    Round4EnvironmentUpdate, Round4EnvironmentOut,
+    ScenarioTimeLimitUpdate, Round2AutomationInstructionsUpdate, TestCaseRow,
+    Round2AutomationEnvironmentUpdate, Round2AutomationEnvironmentOut,
 )
 from ..dependencies import require_hr
 from ..services import llm_service
@@ -209,20 +209,20 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
             Scenario.is_live.is_(True),
         ).first()
         app_description = live_round1.description if live_round1 else scenario.description
-        scenario.environment_json = llm_service.generate_round4_environment(
+        scenario.environment_json = llm_service.generate_round2_automation_environment(
             app_description=app_description,
         )
-        scenario.ui_mockup_json = llm_service.generate_round4_ui_mockup(
+        scenario.ui_mockup_json = llm_service.generate_round2_automation_ui_mockup(
             app_description=app_description,
         )
         # A fresh AI-generated sheet, not HR's own edit anymore - see
-        # environment_hr_edited and update_round4_environment below.
+        # environment_hr_edited and update_round2_automation_environment below.
         scenario.environment_hr_edited = False
     db.commit()
     db.refresh(scenario)
 
 
-def _resync_round4_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
+def _resync_round2_automation_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
     """Called right after a round1 scenario newly goes live (see
     publish_scenario/move_to_screening below). If a round4 scenario is
     ALSO currently live for the same band, its environment_json/
@@ -243,24 +243,24 @@ def _resync_round4_reference_for_band(round1_scenario: Scenario, db: Session) ->
     Also skipped (silently, same best-effort spirit) while any candidate
     is actively mid-round-4 on that live scenario - same "don't change
     the rules mid-conversation" guard as every other round4-config
-    mutation (see _require_round4_not_in_progress). This action is about
+    mutation (see _require_round2_automation_not_in_progress). This action is about
     round 1, not round 4, but round 1 going live is exactly what
     triggers this resync, so without the guard a candidate's
     environment/screens could silently change out from under them
     mid-conversation."""
     if round1_scenario.round_number != 1:
         return
-    live_round4 = db.query(Scenario).filter(
+    live_round2_automation = db.query(Scenario).filter(
         Scenario.round_number == 2,
         Scenario.experience_band == round1_scenario.experience_band,
         Scenario.is_live.is_(True),
     ).first()
-    if live_round4 is None:
+    if live_round2_automation is None:
         return
     in_progress_count = (
         db.query(Submission)
         .filter(
-            Submission.scenario_id == live_round4.id,
+            Submission.scenario_id == live_round2_automation.id,
             Submission.status == RoundStatus.in_progress,
             Submission.archived.is_(False),
         )
@@ -274,11 +274,11 @@ def _resync_round4_reference_for_band(round1_scenario: Scenario, db: Session) ->
         # test case and round 4 automation both key off the same login.
         # This resync must not silently overwrite that; only HR's own
         # "Regenerate" button (regenerate_reference) is allowed to.
-        if not live_round4.environment_hr_edited:
-            live_round4.environment_json = llm_service.generate_round4_environment(
+        if not live_round2_automation.environment_hr_edited:
+            live_round2_automation.environment_json = llm_service.generate_round2_automation_environment(
                 app_description=round1_scenario.description,
             )
-        live_round4.ui_mockup_json = llm_service.generate_round4_ui_mockup(
+        live_round2_automation.ui_mockup_json = llm_service.generate_round2_automation_ui_mockup(
             app_description=round1_scenario.description,
         )
         db.commit()
@@ -294,12 +294,12 @@ def regenerate_reference(scenario_id: int, background_tasks: BackgroundTasks, db
     truth out from under whoever's already been scored. Round 4 has no
     such answer key (its "reference" is just environment/screen flavor
     text), and its scenarios go live immediately on creation (see
-    createRound4Scenario in app.js) rather than sitting as a draft
+    createRound2AutomationScenario in app.js) rather than sitting as a draft
     first, so it gets the same live-editable-but-blocked-mid-round
     treatment as its other settings instead."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is not None and scenario.round_number == 2:
-        _require_round4_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")
+        _require_round2_automation_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")
     else:
         scenario = _get_draft_scenario_or_404(scenario_id, db)
     _generate_reference(scenario, db)
@@ -447,7 +447,7 @@ def update_scenario_time_limit(scenario_id: int, payload: ScenarioTimeLimitUpdat
     return scenario
 
 
-def _get_round4_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
+def _get_round2_automation_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
@@ -456,7 +456,7 @@ def _get_round4_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
     return scenario
 
 
-def _require_round4_not_in_progress(scenario_id: int, db: Session, background_tasks: BackgroundTasks, action: str) -> None:
+def _require_round2_automation_not_in_progress(scenario_id: int, db: Session, background_tasks: BackgroundTasks, action: str) -> None:
     """Shared by round4-config and round4-instructions below. Scoped to
     this one exact scenario, not band-wide like the time-limit block:
     both of these only ever affect round 4's own LLM calls, so a
@@ -492,13 +492,13 @@ def _require_round4_not_in_progress(scenario_id: int, db: Session, background_ta
 
 
 @router.patch("/scenarios/{scenario_id}/round4-instructions", response_model=ScenarioOut)
-def update_round4_instructions(scenario_id: int, payload: Round4InstructionsUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def update_round2_automation_instructions(scenario_id: int, payload: Round2AutomationInstructionsUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Title/description on a round4 scenario, editable regardless of
     status - unlike round1/2 (see ScenarioUpdate, draft-only), round 4
     has no fixed reference answer gating a "review before publish" step,
     so there's no equivalent reason to restrict this to drafts."""
-    scenario = _get_round4_scenario_or_404(scenario_id, db)
-    _require_round4_not_in_progress(scenario_id, db, background_tasks, "change this round's instructions")
+    scenario = _get_round2_automation_scenario_or_404(scenario_id, db)
+    _require_round2_automation_not_in_progress(scenario_id, db, background_tasks, "change this round's instructions")
 
     scenario.title = payload.title
     scenario.description = payload.description
@@ -508,19 +508,19 @@ def update_round4_instructions(scenario_id: int, payload: Round4InstructionsUpda
 
 
 @router.patch("/scenarios/{scenario_id}/round4-environment", response_model=ScenarioOut)
-def update_round4_environment(scenario_id: int, payload: Round4EnvironmentUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def update_round2_automation_environment(scenario_id: int, payload: Round2AutomationEnvironmentUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Lets HR hand-set the auto-generated environment_json.fields (e.g.
     pin a specific test login) instead of only being able to regenerate
     the whole sheet blind. Sets environment_hr_edited so
-    _resync_round4_reference_for_band stops silently overwriting this on
+    _resync_round2_automation_reference_for_band stops silently overwriting this on
     an unrelated round1 rotation - see that function and models.Scenario.
     Blocked mid-round for the same fairness reason as round4-config/
     round4-instructions: a candidate's test data shouldn't change under
     them mid-conversation."""
-    scenario = _get_round4_scenario_or_404(scenario_id, db)
-    _require_round4_not_in_progress(scenario_id, db, background_tasks, "change this round's test environment")
+    scenario = _get_round2_automation_scenario_or_404(scenario_id, db)
+    _require_round2_automation_not_in_progress(scenario_id, db, background_tasks, "change this round's test environment")
 
-    scenario.environment_json = Round4EnvironmentOut(fields=payload.fields, notes=payload.notes).model_dump()
+    scenario.environment_json = Round2AutomationEnvironmentOut(fields=payload.fields, notes=payload.notes).model_dump()
     scenario.environment_hr_edited = True
     db.commit()
     db.refresh(scenario)
@@ -576,7 +576,7 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     db.commit()
     db.refresh(scenario)
     if scenario.is_live:
-        _resync_round4_reference_for_band(scenario, db)
+        _resync_round2_automation_reference_for_band(scenario, db)
     return scenario
 
 
@@ -603,7 +603,7 @@ def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User 
     scenario.is_live = True
     db.commit()
     db.refresh(scenario)
-    _resync_round4_reference_for_band(scenario, db)
+    _resync_round2_automation_reference_for_band(scenario, db)
     return scenario
 
 

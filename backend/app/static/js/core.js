@@ -21,7 +21,7 @@ const ROUND_LABELS = { 1: "Manual test cases", 2: "AI-Assisted Test Automation",
 // different kind of prompt (a feature to test, a bug report to debug, a
 // problem statement to solve), so one static placeholder can't describe
 // all of them. Round 4 isn't here - it has its own dedicated authoring
-// panel (see selectHRRound/loadRound4Settings), never this shared form.
+// panel (see selectHRRound/loadRound2AutomationSettings), never this shared form.
 // Experience band is a hidden feature right now - HR no longer picks one
 // per scenario or per candidate (see resetCreateScenarioForm/createScenario
 // below and loadCandidates), so every scenario is created under this one
@@ -129,10 +129,7 @@ const archivedSubmissionIds = new Set(); // submissions of the archived appearan
 let candidateAppearances = [];          // last GET /hr/candidates/{id}/appearances for the open candidate        // a retry/override changed a score while the detail view was open - Back re-fetches the list (keeping search/filter/page) instead of showing stale numbers
 let timerHandle = null;
 let rowCount = 0;
-let round4State = null;           // last-fetched Round4StateOut, refreshed after every turn/test-case creation
-let round4ViewedTestCaseId = null; // which test case tab is showing
-let round4DraftBuffer = {};        // { testCaseId: latestTypedText } - instant, in-memory, survives tab switches with zero latency
-let round4DraftTimers = {};        // { testCaseId: setTimeout handle } - debounced PATCH to the server
+let round2EntryState = null;           // last-fetched Round 2 state (GET /candidate/round/2/state)
 
 function jsonHeaders() {
   return { "Content-Type": "application/json" };

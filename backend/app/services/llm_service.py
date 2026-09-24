@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from ..config import settings
 from ..schemas import (
-    Round4EnvironmentOut, Round4UiMockupOut, Round3CodingTurnResponse, Round4Finding,
+    Round2AutomationEnvironmentOut, Round2AutomationUiMockupOut, Round3CodingTurnResponse, Round2AutomationFinding,
     Round4PilotTurnResponse, Round2AutomationClarifyLLMResponse,
 )
 from . import clarify_loop
@@ -47,7 +47,7 @@ def _get_client() -> anthropic.Anthropic:
                 "and fill in a real key from console.anthropic.com."
             )
         # Explicit timeout, not the SDK's default (several minutes) - two
-        # call sites run synchronously in the request path (round4_turn,
+        # call sites run synchronously in the request path (round2_automation_turn,
         # which a candidate is actively waiting on mid-assessment, and
         # HR's _generate_reference) and both now fail cleanly on an
         # ERROR (see the try/except wrapping at each call site), but
@@ -914,36 +914,36 @@ def score_round3_coding(
 
 # ---- Round 2 (AI-assisted test automation): reference environment and screens ----
 
-def generate_round4_environment(app_description: str) -> dict:
+def generate_round2_automation_environment(app_description: str) -> dict:
     """Auto-generates fictional test-environment reference facts (test
     login credentials, API endpoints, a DB schema reference, ...) for a
     round 4 scenario - shown to every candidate served this scenario.
-    Grounded in the same app_description as generate_round4_ui_mockup
+    Grounded in the same app_description as generate_round2_automation_ui_mockup
     (whichever Round 1 scenario is live for this band, resolved by the
     caller - see hr.py's _generate_reference) rather than round 4's own
     description, which is just instructions to the candidate, not a
     description of the app under test - generic grounding here produced
     generic, unhelpful credentials/schema before this was fixed."""
-    prompt = _load_prompt("round4_environment_generation.txt").format(
+    prompt = _load_prompt("round2_automation_environment_generation.txt").format(
         app_description=app_description,
     )
     result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the test environment, got: {type(result)}")
-    # Validated (not just "has a fields key") - Round4EnvironmentOut is
-    # only enforced at read time on ScenarioPublicOut/Round4StateOut, so
+    # Validated (not just "has a fields key") - Round2AutomationEnvironmentOut is
+    # only enforced at read time on ScenarioPublicOut/Round2EntryStateOut, so
     # an unvalidated shape mismatch here (e.g. a non-string field value)
     # would sail through db.commit() in hr.py and only surface as a
     # broken candidate-facing read later. HR's own ScenarioOut uses a
     # loose dict, so this doesn't affect HR's own preview either way -
     # it's purely about not shipping a bad shape live.
     try:
-        return Round4EnvironmentOut.model_validate(result).model_dump()
+        return Round2AutomationEnvironmentOut.model_validate(result).model_dump()
     except ValidationError as e:
         raise ValueError(f"Test environment response didn't match the expected shape: {e}") from e
 
 
-def generate_round4_ui_mockup(app_description: str) -> dict:
+def generate_round2_automation_ui_mockup(app_description: str) -> dict:
     """Auto-generates a structured (never raw HTML) reference sketch of
     the app's screens - shown to the candidate as a static visual
     reference, the way a real QA automation engineer would have the
@@ -952,14 +952,14 @@ def generate_round4_ui_mockup(app_description: str) -> dict:
     answer/round 4 automation is about) - see hr.py's _generate_reference
     for that lookup; app_description is already resolved by the caller,
     this function doesn't know or care where it came from."""
-    prompt = _load_prompt("round4_ui_mockup_generation.txt").format(
+    prompt = _load_prompt("round2_automation_ui_mockup_generation.txt").format(
         app_description=app_description,
     )
     result = _call_claude_json(prompt)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the UI mockup, got: {type(result)}")
     try:
-        return Round4UiMockupOut.model_validate(result).model_dump()
+        return Round2AutomationUiMockupOut.model_validate(result).model_dump()
     except ValidationError as e:
         raise ValueError(f"UI mockup response didn't match the expected shape: {e}") from e
 
@@ -1064,30 +1064,39 @@ def round2_automation_turn(
         # (see round2_automation_policy.fabricated_observations).
         allowed_fakes = 1 if inject_flaw else 0
 
-        def _problems(code: str) -> tuple[list[str], list[str]]:
+        # Values the candidate stated must reach the code exactly (see
+        # round2_automation_policy.changed_candidate_values) - not checked on
+        # the planted-flaw turn, whose flaw may legitimately be a value.
+        def _problems(code: str) -> tuple[list[str], list[str], list[str]]:
             fakes = round2_automation_policy.fabricated_observations(current_code, code)
+            changed = [] if inject_flaw else round2_automation_policy.changed_candidate_values(code, *design_args, environment_code)
             return (
                 round2_automation_policy.unrequested_assertions(language, current_code, code, *design_args),
                 fakes if len(fakes) > allowed_fakes else [],
+                changed,
             )
 
-        flagged, fakes = _problems(parsed["code_after"])
-        if flagged or fakes:
+        flagged, fakes, changed = _problems(parsed["code_after"])
+        if flagged or fakes or changed:
             notes = []
             if flagged:
                 notes.append(_UNREQUESTED_ASSERTIONS_NOTE.format(lines="\n".join(flagged)))
             if fakes:
                 notes.append(_FABRICATED_OBSERVATIONS_NOTE.format(lines="\n".join(fakes)))
+            if changed:
+                notes.append(_CHANGED_VALUES_NOTE.format(lines="\n".join(changed)))
             retry, retry_planted = _generate("\n\n".join(notes))
             if retry["response_kind"] == "code_edit":
                 parsed, planted_flaw = retry, retry_planted
-                flagged, fakes = _problems(parsed["code_after"])
+                flagged, fakes, changed = _problems(parsed["code_after"])
             if flagged:
                 parsed["code_after"], remaining = round2_automation_policy.drop_single_line_statements(parsed["code_after"], flagged)
                 if remaining:
                     parsed["unrequested_checks"] = remaining
             if fakes:
                 parsed["fabricated_observations"] = fakes
+            if changed:
+                parsed["changed_values"] = changed
     else:
         # Replies must not reveal values that exist only in the environment
         # (see round2_automation_policy.leaked_environment_values).
@@ -1105,6 +1114,13 @@ def round2_automation_turn(
         # everything the candidate is sent, see schemas.SubmissionOut.
         parsed["planted_flaw"] = (planted_flaw or "").strip() or "A flaw was planted in this code but not described."
     return parsed
+
+
+_CHANGED_VALUES_NOTE = (
+    "IMPORTANT - your previous attempt was rejected before the candidate saw it, because it changed "
+    "values the candidate gave (stated value -> what your code used):\n{lines}\n"
+    "Use every value the candidate gave exactly as they wrote it - same spelling, spacing and characters."
+)
 
 
 _UNREQUESTED_ASSERTIONS_NOTE = (
@@ -1220,7 +1236,7 @@ def score_round2_automation_conversation(
     scoring_service._auto_tc_evidence_blocks) - each one's own design,
     final code, turns, code edits, execution result and validation, with
     no cross-TC concatenation. Findings go through the SAME
-    round4_evidence_audit backstop as every other round 4 flow (see
+    round2_automation_evidence_audit backstop as every other round 4 flow (see
     scoring_service.score_round2_automation_submission). ground_truth/
     validation_notes are REFERENCE ONLY and never reach the candidate or
     the generator."""
@@ -1239,7 +1255,7 @@ def score_round2_automation_conversation(
     validated = []
     for entry in result["findings"] or []:
         try:
-            validated.append(Round4Finding.model_validate(entry).model_dump())
+            validated.append(Round2AutomationFinding.model_validate(entry).model_dump())
         except ValidationError:
             continue
     result["findings"] = validated

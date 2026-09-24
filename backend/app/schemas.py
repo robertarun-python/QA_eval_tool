@@ -163,7 +163,7 @@ class ScenarioTimeLimitUpdate(BaseModel):
     time_limit_minutes: int = Field(ge=1)
 
 
-class Round4InstructionsUpdate(BaseModel):
+class Round2AutomationInstructionsUpdate(BaseModel):
     """See hr.py's PATCH /scenarios/{id}/round4-instructions - editing
     title/description on a round4 scenario regardless of status, same
     reasoning and blocking as the round's time limit. Round 1/2 keep
@@ -214,7 +214,7 @@ class ScenarioOut(ScenarioPublicOut):
     # Round 4 only: the auto-generated test-environment reference facts
     # and reference UI screens (see Scenario.environment_json/
     # ui_mockup_json). Not on ScenarioPublicOut either - each is included
-    # there separately, as Round4EnvironmentOut/Round4UiMockupOut, shaped
+    # there separately, as Round2AutomationEnvironmentOut/Round2AutomationUiMockupOut, shaped
     # for direct candidate display rather than HR's raw-JSON review.
     environment_json: Optional[dict] = None
     ui_mockup_json: Optional[dict] = None
@@ -360,7 +360,7 @@ class ScoreOverrideRequest(BaseModel):
     override_note: str = Field(min_length=1, max_length=2000)
 
 
-ASSESSOR_ONLY_CONTENT_KEYS = frozenset({"planted_flaw", "unrequested_checks", "fabricated_observations"})
+ASSESSOR_ONLY_CONTENT_KEYS = frozenset({"planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"})
 
 
 def _strip_keys(value, keys):
@@ -464,10 +464,10 @@ class RoundStateOut(BaseModel):
     # still accurate once they reach round 2, without round 1 ever
     # generating or storing its own separate copy. None if no round 2
     # scenario is live yet for this band. See candidate.py's get_round.
-    environment: Optional["Round4EnvironmentOut"] = None
+    environment: Optional["Round2AutomationEnvironmentOut"] = None
     # Same deal as environment above, for the reference app screens
     # (Scenario.ui_mockup_json on that same live round-2 scenario).
-    ui_mockup: Optional["Round4UiMockupOut"] = None
+    ui_mockup: Optional["Round2AutomationUiMockupOut"] = None
 
 
 # ---- HR candidate dashboard ----
@@ -605,11 +605,11 @@ class Round1ContextOut(BaseModel):
     submitted_rows: list[dict]
 
 
-class Round4EnvironmentOut(BaseModel):
+class Round2AutomationEnvironmentOut(BaseModel):
     """Auto-generated, fictional test-environment reference facts (test
     login credentials, a simulated API base URL, ...) shown to the
     candidate alongside the scenario description - see
-    llm_service.generate_round4_environment. A loose dict rather than
+    llm_service.generate_round2_automation_environment. A loose dict rather than
     fixed fields, since different scenarios legitimately need different
     reference facts (a login flow needs credentials; a reporting feature
     might need a date range instead)."""
@@ -617,39 +617,39 @@ class Round4EnvironmentOut(BaseModel):
     notes: Optional[str] = None
 
 
-class Round4EnvironmentUpdate(BaseModel):
-    """Body for hr.py's update_round4_environment - HR hand-editing the
+class Round2AutomationEnvironmentUpdate(BaseModel):
+    """Body for hr.py's update_round2_automation_environment - HR hand-editing the
     auto-generated environment_json.fields (e.g. pinning a specific test
     login) instead of only being able to regenerate the whole sheet. Same
-    shape as Round4EnvironmentOut; kept separate since an update payload
+    shape as Round2AutomationEnvironmentOut; kept separate since an update payload
     and a read shape can diverge later even though they match today."""
     fields: dict[str, str]
     notes: Optional[str] = None
 
 
-class Round4MockupElement(BaseModel):
+class Round2AutomationMockupElement(BaseModel):
     """One element on a reference screen, in display order (order IS the
     layout - no free-text position field for the renderer to interpret).
     Structured on purpose, never raw HTML/CSS - see
-    llm_service.generate_round4_ui_mockup and app.js's renderMockupScreens,
+    llm_service.generate_round2_automation_ui_mockup and app.js's renderMockupScreens,
     which renders each type through the app's own trusted CSS."""
     type: Literal["label", "input", "button", "link", "text"]
     text: str
 
 
-class Round4MockupScreen(BaseModel):
+class Round2AutomationMockupScreen(BaseModel):
     name: str
-    elements: list[Round4MockupElement]
+    elements: list[Round2AutomationMockupElement]
 
 
-class Round4UiMockupOut(BaseModel):
+class Round2AutomationUiMockupOut(BaseModel):
     """Auto-generated, structured reference screens (login page, home
     page, ...) shown to the candidate as a static visual reference for
-    the app they're automating - see llm_service.generate_round4_ui_mockup.
+    the app they're automating - see llm_service.generate_round2_automation_ui_mockup.
     Deliberately includes 1-2 pairs of easy-to-confuse element labels per
     scenario, by design - precision in describing the UI is part of what
     this round assesses."""
-    screens: list[Round4MockupScreen]
+    screens: list[Round2AutomationMockupScreen]
 
 
 class Round4ExecutionStep(BaseModel):
@@ -668,9 +668,9 @@ class Round4ExecutionStep(BaseModel):
 
 
 class Round4TurnResponse(BaseModel):
-    """The assistant's structured reply for one turn - see
-    llm_service.round4_respond and prompts/round4_partial_response.txt.
-    No code field on purpose (see Round4ExecutionStep)."""
+    """One turn's reply in the retired conversational Round 2 format -
+    kept so HR can still read those old results. No code field on purpose
+    (see Round4ExecutionStep)."""
     response_text: str
     steps: list[Round4ExecutionStep]
     observed_result: str
@@ -678,25 +678,24 @@ class Round4TurnResponse(BaseModel):
 
 
 class Round4PilotTurnResponse(BaseModel):
-    """The assistant's structured reply for one Round 4 pilot turn - see
-    llm_service.round4_pilot_turn and prompts/round4_pilot_turn.txt. Unlike
-    Round4TurnResponse (no code field, by design - see that class), this
-    round's assistant IS a coding assistant editing a real file, so
-    code_after carries the full updated file when response_kind is
-    "code_edit" - same shape as Round3CodingTurnResponse."""
+    """The assistant's structured reply for one code-writing turn (named
+    for the retired pilot that introduced it; now validates every Round 2
+    automation turn - see llm_service.round2_automation_turn). code_after
+    carries the full updated file when response_kind is "code_edit" - same
+    shape as Round3CodingTurnResponse."""
     response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
     response_message: str
     code_after: Optional[str] = None
 
 
-class Round4FindingEvidence(BaseModel):
-    """One citation backing a Round4Finding - see
-    services.round4_evidence_audit, which is the deterministic (no LLM)
+class Round2AutomationFindingEvidence(BaseModel):
+    """One citation backing a Round2AutomationFinding - see
+    services.round2_automation_evidence_audit, which is the deterministic (no LLM)
     layer that actually checks these against the transcript rather than
     trusting them. `turn` is a 1-indexed position in the flattened
     sequence of every turn across every test case, in payload order -
     not the per-test-case turn_number used elsewhere in this app (see
-    round4_scoring.txt's evidence-discipline section). Exactly one of
+    round2_automation_scoring.txt). Exactly one of
     (turn + quote) or (test_case + no_turns) is expected; the auditor
     treats any other combination as invalid rather than guessing."""
     turn: Optional[int] = None
@@ -705,20 +704,16 @@ class Round4FindingEvidence(BaseModel):
     no_turns: bool = False
 
 
-class Round4Finding(BaseModel):
-    """One negative finding from the Round 4 scorer (prompts/
-    round4_scoring.txt), replacing a bare miss string with a claim the
+class Round2AutomationFinding(BaseModel):
+    """One negative finding from the Round 2 automation scorer (prompts/
+    round2_automation_scoring.txt), replacing a bare miss string with a claim the
     deterministic evidence auditor can actually check. See
-    services.round4_evidence_audit.audit_round4_findings - a finding
+    services.round2_automation_evidence_audit.audit_round2_automation_findings - a finding
     with no evidence, a fabricated quote, or an out-of-range turn
     reference never survives to become a scored weakness."""
     claim: str = Field(min_length=1)
     severity: Literal["low", "medium", "high"] = "low"
-    evidence: list[Round4FindingEvidence] = Field(default_factory=list)
-
-
-class Round4TestCaseCreate(BaseModel):
-    title: Optional[str] = Field(default=None, max_length=300)
+    evidence: list[Round2AutomationFindingEvidence] = Field(default_factory=list)
 
 
 class Round4TestCaseOut(BaseModel):
@@ -730,22 +725,6 @@ class Round4TestCaseOut(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class Round4DraftUpdate(BaseModel):
-    """PATCH body for autosaving a test case's in-progress, unsent
-    message - see candidate.py's PATCH /round/4/test-case/{id}/draft."""
-    draft_prompt: str = Field(max_length=10000)
-
-
-class Round4TurnCreate(BaseModel):
-    test_case_id: int
-    # min_length=1 for the same reason every other candidate-input field
-    # has it (TestCaseRow, Round2InvestigationRow, Round2SubmissionCreate.
-    # root_cause) - a client-side check alone doesn't stop a direct API
-    # call from sending an empty prompt and burning an LLM call on it.
-    # max_length bounds the LLM tokens (and cost) one turn can force.
-    candidate_prompt: str = Field(min_length=1, max_length=10000)
 
 
 class Round4TurnOut(BaseModel):
@@ -765,17 +744,7 @@ class Round4TurnOut(BaseModel):
         protected_namespaces = ()
 
 
-class Round4CodeSnippetOut(BaseModel):
-    """Trial feature (see routers/candidate.py's GET /round/4/turn/{id}/code,
-    llm_service.generate_round4_code_snippet) - an on-demand, candidate-
-    facing rendering of an already-completed turn as code, in a language
-    the candidate picks. Not persisted anywhere and has no effect on
-    scoring - purely a rendering of what's already in the transcript."""
-    language: str
-    code: str
-
-
-class Round4StateOut(BaseModel):
+class Round2EntryStateOut(BaseModel):
     """Everything the round 4 candidate screen needs in one call: the
     auto-generated test environment, their own round 1 context, their
     test cases (candidate-created, open-ended), and the full transcript
@@ -783,31 +752,16 @@ class Round4StateOut(BaseModel):
     scenario: ScenarioPublicOut
     submission: SubmissionOut
     round1_context: Round1ContextOut
-    environment: Optional[Round4EnvironmentOut] = None
-    ui_mockup: Optional[Round4UiMockupOut] = None
+    environment: Optional[Round2AutomationEnvironmentOut] = None
+    ui_mockup: Optional[Round2AutomationUiMockupOut] = None
     test_cases: list[Round4TestCaseOut]
     turns: list[Round4TurnOut]
-    # Focused Automation Pilot only (see routers/candidate.py's
-    # /round/4/pilot/* endpoints) - all default to "not a pilot scenario"
-    # so a legacy round 4 scenario's response shape is completely
-    # unchanged from before these fields existed.
-    is_pilot: bool = False
-    pilot_starter_code: Optional[str] = None
-    pilot_code: Optional[str] = None
-    pilot_turns: list["Round4PilotTurnOut"] = Field(default_factory=list)
-    pilot_clarification: Optional["Round4PilotClarifyOut"] = None
-    pilot_last_run: Optional["Round4PilotRunOut"] = None
-
-
-class Round4PilotTurnCreate(BaseModel):
-    candidate_prompt: str = Field(min_length=1, max_length=10000)
 
 
 # ---- AI-Assisted Test Automation round (Scenario.config_json["mode"] ==
 # "ai_test_automation") - the candidate automates test cases THEY designed
-# in round 1. Selected per-scenario, alongside the legacy conversational
-# round 4 and the Focused Automation Pilot; see routers/candidate.py's
-# /round/4/auto/* endpoints. ----
+# in round 1 - the only live round 2 format; see routers/candidate.py's
+# /round/2/auto/* endpoints. ----
 
 class Round2AutomationDesignRowOut(BaseModel):
     """One of the candidate's own Round 1 rows, as an immutable snapshot.
@@ -1014,45 +968,9 @@ class Round2AutomationStateOut(BaseModel):
     # writing a test plan: the app's own screens and its test-environment
     # facts (credentials, base URL, ...). None if this scenario predates
     # that generator or it failed - the frontend just shows nothing then.
-    environment: Optional[Round4EnvironmentOut] = None
-    ui_mockup: Optional[Round4UiMockupOut] = None
+    environment: Optional[Round2AutomationEnvironmentOut] = None
+    ui_mockup: Optional[Round2AutomationUiMockupOut] = None
     tc_state: list[Round2AutomationTCStateOut] = Field(default_factory=list)
-
-
-class Round4PilotCodeUpdate(BaseModel):
-    """Optional body for /round/4/pilot/run and /round/4/pilot/submit -
-    the candidate's own direct edit to the code buffer, so both operate
-    on exactly what's currently in the editor rather than a stale
-    AI-turn snapshot (see routers/candidate.py's _apply_pilot_code_edit).
-    `code` defaults to None (no edit to apply - use whatever's already
-    stored) so a caller that sends no body at all, or code=null, is a
-    no-op - keeps existing behavior unchanged."""
-    code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
-
-
-class Round4PilotTurnOut(BaseModel):
-    turn_number: int
-    candidate_prompt: str
-    response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
-    response_message: str
-    code_after: Optional[str] = None
-
-
-class Round4PilotClarifyCreate(BaseModel):
-    question: str = Field(min_length=1, max_length=2000)
-
-
-class Round4PilotClarifyOut(BaseModel):
-    question: str
-    response: str
-
-
-class Round4PilotRunOut(BaseModel):
-    stdout: str
-    stderr: str
-    exit_code: Optional[int] = None
-    timed_out: bool = False
-    infra_error: bool = False
 
 
 # ---- Round 3 (AI-prompted coding: the candidate never writes code

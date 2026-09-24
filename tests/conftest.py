@@ -204,8 +204,8 @@ def _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7", title="A
     both the same way _publish_scenario mocks the round 1/2 reference
     generators."""
     from app.services import llm_service
-    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
-    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
 
     scenario = client.post(
         "/hr/scenarios",
