@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
 from ..models import Submission, Score, RoundStatus, Scenario, User, AppSettings, CandidateSummary
-from . import llm_service, execution_service, round4_evidence_audit
+from . import llm_service, execution_service, round3_scope_guard, round4_evidence_audit
 
 # Keep in sync with routers/candidate.py's ROUND_SEQUENCE - duplicated
 # rather than imported to avoid a routers -> services -> routers import
@@ -150,6 +150,22 @@ def _flag_large_pastes(turns, conversation_payload: list[dict], tab_switch_event
         previous = lines
 
 
+def _flag_dropped_requirements(conversation_payload: list[dict]) -> None:
+    """Marks each assistant code_edit whose code dropped a requirement the
+    candidate stated for it (Priority 5 - distinct/unique/no duplicates
+    only, see round3_scope_guard.dropped_requirement), so the scorer blames
+    the assistant, not the candidate. Same instruction context the live
+    check uses: the turn's message plus any clarify chain it answers. Never
+    on direct_edit turns - that code is the candidate's own."""
+    for i, payload in enumerate(conversation_payload):
+        if payload.get("response_kind") != "code_edit" or not payload.get("code_after"):
+            continue
+        instruction = round3_scope_guard.instruction_text(conversation_payload[:i], payload.get("candidate_prompt"))
+        dropped = round3_scope_guard.dropped_requirement(instruction, payload["code_after"])
+        if dropped:
+            payload["dropped_requirement"] = dropped
+
+
 def score_round3_submission(db: Session, submission: Submission) -> Score:
     """Round 3 (AI-prompted coding): re-run the candidate's final code
     against the scenario's HR-approved test suite for an objective pass
@@ -229,6 +245,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
 
     conversation_payload = [t.to_conversation_payload() for t in turns]
     _flag_large_pastes(turns, conversation_payload, submission.tab_switch_events_json or [])
+    _flag_dropped_requirements(conversation_payload)
 
     result = llm_service.score_round3_coding(
         scenario_description=scenario.description,

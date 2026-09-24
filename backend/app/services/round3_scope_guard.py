@@ -238,6 +238,32 @@ REGENERATION_NOTE = (
     "response_message."
 )
 
+# Sent to the model only. Keeps the candidate's requirement without letting
+# the retry pick the technique for them.
+REQUIREMENT_NOTE = (
+    "IMPORTANT - your previous attempt at this turn was rejected before the candidate saw it, "
+    "because the code does not keep something the candidate explicitly required: \"{requirement}\" - "
+    "only distinct values may count, and your code treats repeated values as separate ones. "
+    "Write the edit again, keeping that requirement exactly as they stated it together with "
+    "everything else they asked for. How repeated values are left out is still the candidate's "
+    "decision: use only a technique or data structure they named themselves in this conversation, "
+    "never one you pick for them. If they haven't named one, respond with \"clarify\" and ask one "
+    "plain question about how they want repeated values to be left out - without offering or "
+    "naming any options. Never mention this check or the rejected attempt in your response_message."
+)
+
+
+def regeneration_note(additions: list | None, dropped: str | None) -> str:
+    """The single retry note for everything the first attempt got wrong -
+    one regeneration covers both kinds of problem."""
+    notes = []
+    if additions:
+        notes.append(REGENERATION_NOTE.format(items=", ".join(additions)))
+    if dropped:
+        notes.append(REQUIREMENT_NOTE.format(requirement=dropped))
+    return "\n\n".join(notes)
+
+
 SCOPE_FALLBACK_MESSAGE = (
     "I need a more specific instruction for that - tell me exactly what this step should do, "
     "and I'll write only that."
@@ -289,6 +315,56 @@ _ACTION_CLAIMS = (
 )
 
 
+# Requirements the candidate states that the code must keep (Priority 5).
+# The scope check above only sees what an edit ADDS; live traces showed the
+# model dropping "distinct" from "count how many distinct numbers..." 6/6,
+# counting repeats instead, with nothing noticing. Deliberately one closed
+# requirement for now - distinct/unique/no duplicates - checked against a
+# closed set of evidence in the whole resulting code, not a general
+# semantic verifier. The requirement authorizes no technique: the retry
+# note below still makes the candidate choose how (a set is still "chose a
+# set" to the scope check unless they named it).
+_DISTINCT_REQ_RE = re.compile(
+    r"\b(distinct|unique)\s+(\w+\s+){0,2}?(numbers?|values?|elements?|items?|integers?|ints?|entries|nums)\b"
+    r"|\b(numbers?|values?|elements?|items?|integers?|ints?|entries|nums)\s+(that are |which are |are )?(distinct|unique)\b"
+    r"|\bno duplicates?\b"
+)
+_DISTINCT_NEGATED_RE = re.compile(
+    r"\b(not|non-?)\s*(distinct|unique)\b|\binclud(e|es|ing)\s+(the\s+)?duplicates?\b|\bwith duplicates?\b|\bcount(ing)?\s+(the\s+)?duplicates?\b"
+)
+# Evidence the code keeps only distinct values: a set (any language), explicit
+# membership-based de-duplication, dict.fromkeys, or comparing each value with
+# its neighbour after sorting.
+_DISTINCT_EVIDENCE_RE = re.compile(
+    r"\bset\s*\(|\bHashSet\b|\bTreeSet\b|new Set\s*\(|\.distinct\s*\(|dict\.fromkeys\s*\("
+    r"|\bnot\s+in\b|!\s*\w+\.(contains|includes)\s*\(|\.indexOf\s*\([^)]*\)\s*===?\s*-1"
+    r"|!=\s*\w+\s*\[\s*\w+\s*[-+]\s*1\s*\]|\w+\s*\[\s*\w+\s*[-+]\s*1\s*\]\s*!="
+)
+
+
+def _stated_requirements(text: str | None) -> list[str]:
+    """The distinct/unique phrases a text actually asks for, sentence by
+    sentence - a sentence that negates it ("not distinct", "including
+    duplicates") states no requirement."""
+    found = []
+    for sentence in re.split(r"(?<=[.!?;])\s+|\n+", (text or "").lower()):
+        if _DISTINCT_NEGATED_RE.search(sentence):
+            continue
+        m = _DISTINCT_REQ_RE.search(sentence)
+        if m:
+            found.append(m.group(0))
+    return found
+
+
+def dropped_requirement(instruction: str | None, new_code: str | None) -> str | None:
+    """The candidate's own words for a distinct/unique requirement the
+    resulting code shows no sign of keeping, or None."""
+    stated = _stated_requirements(instruction)
+    if stated and not _DISTINCT_EVIDENCE_RE.search(new_code or ""):
+        return stated[0]
+    return None
+
+
 def misleading_claim(response_message: str | None, current_code: str | None, new_code: str | None) -> bool:
     """True when the reply describes a change the code doesn't contain -
     a wrong sort order (see misleading_order_claim), or a claimed action
@@ -298,7 +374,10 @@ def misleading_claim(response_message: str | None, current_code: str | None, new
         return True
     msg = (response_message or "").lower()
     added = "\n".join(added_lines(current_code, new_code))
-    return any(claim.search(msg) and not code.search(added) for claim, code in _ACTION_CLAIMS)
+    if any(claim.search(msg) and not code.search(added) for claim, code in _ACTION_CLAIMS):
+        return True
+    # "counts how many distinct numbers..." over code that counts repeats too
+    return bool(_stated_requirements(msg)) and not _DISTINCT_EVIDENCE_RE.search(new_code or "")
 
 
 def diff_summary(current_code: str | None, new_code: str | None) -> str:

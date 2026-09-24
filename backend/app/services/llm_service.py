@@ -452,11 +452,15 @@ def _round3_coding_turn_once(
                 return None
             if round3_scope_guard.is_noop_edit(current_code, p.code_after):
                 return "noop"
-            return round3_scope_guard.unrequested_additions(language, current_code, p.code_after, instruction) or None
+            # Added what wasn't asked for, and/or dropped a requirement that was
+            # (round3_scope_guard.dropped_requirement) - one retry covers both.
+            additions = round3_scope_guard.unrequested_additions(language, current_code, p.code_after, instruction)
+            dropped = round3_scope_guard.dropped_requirement(instruction, p.code_after)
+            return (additions, dropped) if additions or dropped else None
 
         problem = _scope_problem(parsed)
         if problem and problem != "noop":
-            parsed = _raw_turn(regeneration_note=round3_scope_guard.REGENERATION_NOTE.format(items=", ".join(problem)))
+            parsed = _raw_turn(regeneration_note=round3_scope_guard.regeneration_note(*problem))
             problem = _scope_problem(parsed)
             if problem and problem != "noop":
                 return {
