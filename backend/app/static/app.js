@@ -272,6 +272,7 @@ async function login() {
 }
 
 async function logout() {
+  setWideLayout(false);
   // A nudge, not a block, same as the tab-switch guard - candidates can
   // still choose to log out, they just can't do it by accident. Unlike
   // the tab-switch guard, though, this one really does end the round:
@@ -3202,8 +3203,17 @@ function renderCandidateRoundNav() {
   }
 }
 
+// Coding screens (Round 2 automation, Round 3) get a wider page than the
+// 76rem reading width - code and conversation need the room. Every other
+// screen resets it (loadRound, selectCandidatePage, logout).
+function setWideLayout(on) {
+  const main = document.querySelector(".app-content");
+  if (main) main.classList.toggle("is-wide", Boolean(on));
+}
+
 async function loadRound(n) {
   currentRound = n;
+  setWideLayout(false);
   stopTimer();
   resetTopbarTimer();
   disarmTabGuard();
@@ -4011,6 +4021,7 @@ function renderRound3IoFormat(fmt) {
 function renderRound3CodingLayout(box) {
   const s = round3CodingState;
   if (!s) return;
+  setWideLayout(true);
   const turnsHtml = s.turns.map((t) => `
     <div class="round3-coding-turn">
       <p class="round3-coding-prompt"><strong>You:</strong> ${escapeHtml(t.candidate_prompt)}</p>
@@ -5917,6 +5928,7 @@ function round4AutoTcSectionHtml(row) {
 }
 
 function renderRound4AutomationLayout(box) {
+  setWideLayout(true);
   const s = round4AutoState;
   const scenario = round4State.scenario;
 
@@ -6565,6 +6577,7 @@ function renderCandidateProgressiveNav() {
 
 function selectCandidatePage(page) {
   candidatePage = page;
+  setWideLayout(false);
   document.getElementById("round-view").classList.toggle("hidden", page !== "rounds");
   document.getElementById("progressive-candidate-view").classList.toggle("hidden", page !== "progressive");
   renderCandidateProgressiveNav();
