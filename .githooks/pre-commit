@@ -1,0 +1,11 @@
+#!/bin/sh
+# One branch per change: no direct commits on main. Work on a branch
+# (git switch -c fix/short-name), run scripts/check.sh, then merge.
+# Merges into main are allowed (this hook doesn't run for them).
+# Emergency override: git commit --no-verify
+branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+if [ "$branch" = "main" ]; then
+  echo "Refusing to commit directly on main - create a branch first:" >&2
+  echo "  git switch -c fix/<short-name>" >&2
+  exit 1
+fi

@@ -16,6 +16,7 @@ everywhere else in the app.
 """
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolved relative to this file, not the process's cwd - the documented
@@ -24,6 +25,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # one at the project root, and pydantic-settings treats a missing env
 # file as "no overrides" rather than an error.
 _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_SQLITE_PREFIX = "sqlite:///"
 
 
 class Settings(BaseSettings):
@@ -47,6 +50,18 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
 
     database_url: str = "sqlite:///./qa_eval.db"
+
+    @field_validator("database_url")
+    @classmethod
+    def _pin_relative_sqlite_path(cls, url: str) -> str:
+        """A relative SQLite path ("./qa_eval.db") means backend/, the
+        documented run directory - not whatever directory a command happens
+        to run from. Left relative, a script or test run from the project
+        root silently opened (and created) a second, empty qa_eval.db there
+        instead of the real one."""
+        if url.startswith(_SQLITE_PREFIX) and not url.startswith(_SQLITE_PREFIX + "/") and ":memory:" not in url:
+            return _SQLITE_PREFIX + str((_BACKEND_DIR / url[len(_SQLITE_PREFIX):]).resolve())
+        return url
     claude_model: str = "claude-sonnet-4-5"
     # Code-writing AI calls answer through a tool call (llm_service._call_claude_tool)
     # instead of JSON text, so whole code files never need JSON escaping - the

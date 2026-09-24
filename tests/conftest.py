@@ -2,8 +2,17 @@
 Shared pytest fixtures. Uses an in-memory SQLite DB per test run so
 tests never touch your real qa_eval.db and can run in any order.
 """
+import os
 import sys
 from pathlib import Path
+
+# Before anything imports the app: point its own engine at a throwaway
+# in-memory database, overriding .env. Importing app.main runs
+# create_all() on that engine, and anything that reaches the module-level
+# SessionLocal without the `client` fixture's patch would otherwise read
+# and write the real qa_eval.db. With this it gets an empty database and
+# fails loudly instead. tests/test_db_isolation.py keeps it that way.
+os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
