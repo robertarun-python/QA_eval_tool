@@ -72,11 +72,9 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 APP_SCRIPTS = (
     "core.js",               # constants, theme, API helper, login
     "hr.js",                 # HR console
-    "candidate.js",          # candidate shell, navigation, rounds 1 and 4, timers
+    "candidate.js",          # candidate shell, navigation, rounds 1 and 4, timers, time-up expiry
     "round3.js",             # round 3: AI-prompted coding + terminal
-    "round2_legacy.js",      # round 2: retired simulated mode
     "tab_guard.js",          # anti-cheating tab-switch guard
-    "round2_pilot.js",       # round 2: retired pilot mode
     "round2_automation.js",  # round 2: AI-assisted test automation
     "progressive.js",        # round 5 POC (experimental)
     "boot.js",               # starts the session - must stay last

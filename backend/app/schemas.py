@@ -75,12 +75,6 @@ class AppSettingsOut(BaseModel):
     round2_time_limit_minutes: Optional[int] = None
     round3_time_limit_minutes: Optional[int] = None
     round4_time_limit_minutes: Optional[int] = None
-    # Read-only here - see config.py's round4_default_assistance_pct.
-    # Not part of AppSettingsUpdate below: it's an env-sourced,
-    # deployment-level fallback, not something HR edits through this
-    # form. Exposed purely so app.js's round4 settings card can read the
-    # real server default instead of hardcoding its own separate copy.
-    round4_default_assistance_pct: int
 
     class Config:
         from_attributes = True
@@ -169,21 +163,10 @@ class ScenarioTimeLimitUpdate(BaseModel):
     time_limit_minutes: int = Field(ge=1)
 
 
-class Round4ConfigUpdate(BaseModel):
-    """See hr.py's PATCH /scenarios/{id}/round4-config - the one round4-
-    specific tunable exposed to HR: how often the simulated assistant
-    gets things right per turn (Scenario.config_json["assistance_pct"],
-    see llm_service.DEFAULT_ROUND4_CONFIG). Bounded away from the
-    extremes - 0% or 100% both defeat the exercise, since an assistant
-    that's always wrong or always right gives the candidate nothing
-    real to verify."""
-    assistance_pct: int = Field(ge=10, le=95)
-
-
 class Round4InstructionsUpdate(BaseModel):
     """See hr.py's PATCH /scenarios/{id}/round4-instructions - editing
     title/description on a round4 scenario regardless of status, same
-    reasoning and blocking as Round4ConfigUpdate above. Round 1/2 keep
+    reasoning and blocking as the round's time limit. Round 1/2 keep
     title/description as draft-only edits (see ScenarioUpdate) because
     they gate a fixed reference answer that's meaningful to review before
     publishing; round 4 has no such reference, so there's no equivalent
@@ -240,8 +223,8 @@ class ScenarioOut(ScenarioPublicOut):
     # explain why the "resyncs automatically" note doesn't apply anymore.
     environment_hr_edited: bool = False
     # Round 4 only in practice (round 1/2 scenarios never set anything
-    # here) - see Round4ConfigUpdate. HR-facing so the assistant-accuracy
-    # editor can show the current value; candidates never see this.
+    # here) - the round's mode lives here. HR-facing; candidates never
+    # see this.
     config_json: dict[str, Any] = {}
 
 

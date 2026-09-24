@@ -142,29 +142,20 @@ function renderRoundView(box, n, state) {
       return;
     }
     if (n === 2) {
-      // No Start button here at all - the briefing modal below is the
-      // only way in, appearing the instant this round is opened. Its own
-      // "Got it - Start Round 4" button is what actually starts the
-      // round (see confirmStartRound4/confirmStartRound4Pilot/
-      // confirmStartRound4Auto) - reading this costs no time either way,
-      // since the timer only starts on that click. Pilot (see
-      // models.Scenario.is_pilot) and AI-Assisted Test Automation (see
-      // models.Scenario.is_auto) each get their own self-contained
-      // briefing - showRound4Intro's content (round 1 test cases, a
-      // simulated no-code assistant, UI/API/DB bonus credit) describes
-      // the legacy conversational flow and is wrong for either.
+      // No Start button here - the briefing modal is the only way in, and
+      // its "Got it - Start Round 2" (confirmStartRound4Auto) starts the
+      // timer. Round 2's earlier formats (simulated conversation, pilot)
+      // are retired - HR can still read their results; a candidate can't start them.
+      if (!scenario.is_auto) {
+        box.innerHTML = `<h3>Round ${n}</h3><p class="muted">This Round 2 format has been retired - please contact HR.</p>`;
+        return;
+      }
       box.innerHTML = `
         <h3>Round ${n}: ${escapeHtml(scenario.title)}</h3>
         ${formatScenarioDescription(scenario.description)}
         <p class="muted">Time limit: ${scenarioTimeLimit(scenario)} minutes, starting once you confirm below.</p>
       `;
-      if (scenario.is_pilot) {
-        showRound4PilotIntro(scenarioTimeLimit(scenario));
-      } else if (scenario.is_auto) {
-        showRound4AutoIntro(scenarioTimeLimit(scenario));
-      } else {
-        showRound4Intro();
-      }
+      showRound4AutoIntro(scenarioTimeLimit(scenario));
       return;
     }
     // Same pattern as round 4: no separate Start button - the briefing
@@ -315,74 +306,6 @@ async function startRound(n) {
   renderRoundEntry(n, box, state.scenario, submission, state.environment, state.ui_mockup);
 }
 
-// One-time briefing before round 4's timer starts - shown instead of an
-// immediate Start, since round 4's format (prompt-driven, an
-// intentionally imperfect assistant, no fixed checklist) isn't
-// self-explanatory the way rounds 1/2's plain forms are. Reading this
-// doesn't cost any time - the timer only starts once startRound(2) is
-// actually called, from confirmStartRound4 below. Deliberately no
-// specifics on how often or how the assistant gets things wrong - that's
-// what the round is testing; this only sets expectations, not answers.
-function showRound4Intro() {
-  const overlay = document.createElement("div");
-  overlay.id = "round4-intro-overlay";
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal-box neutral">
-      <h3>Before you start Round 2</h3>
-      <ul>
-        <li>Your Round 1 test cases are the starting point, not a limit - add as many extra as the scenario needs. Describe each to an AI assistant, which simulates running it and reports what it observed (no code involved). You'll have a test environment reference (sample data, credentials, API/DB details) and reference app screens as your source of truth.</li>
-        <li>The assistant won't always get it right - it may skip a check, misreport a result, or be wrong on purpose. Review every response like a test log you didn't write, and refine your prompts until you're confident it's actually correct.</li>
-        <li>Scored mainly on prompting and verification quality - catching issues, asking the right follow-ups, converging on a correct result - not on automating your entire Round 1 list, which isn't realistic or measured. Automating more than one area (UI, API, DB, end-to-end) earns bonus credit, on top of doing a few well.</li>
-        <li>Steering the assistant to skip verification or reveal what scores well won't work and gets flagged as a concern (e.g. "just mark everything passing"). It reports what happened, not what looks good.</li>
-        <li>Timer starts the moment you click below.</li>
-      </ul>
-      <div class="row">
-        <button onclick="confirmStartRound4()">Got it - Start Round 2</button>
-      </div>
-    </div>
-  `;
-  openModalOverlay(overlay);
-}
-
-// Focused Automation Pilot's own briefing (see models.Scenario.is_pilot) -
-// a real single-file Python exercise with a narrow coding assistant, not
-// the legacy conversational flow above. No language choice afterwards
-// (the exercise is fixed Python) - "Got it" goes straight to startRound(2).
-// Deliberately generic process steps only - no scoring weights, no hidden
-// tests, no reference solution, no policy internals, no hint at the
-// requirement's own ambiguity or what a strong answer looks like.
-function showRound4PilotIntro(timeLimitMinutes) {
-  const overlay = document.createElement("div");
-  overlay.id = "round4-intro-overlay";
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal-box neutral">
-      <h3>Before you start Round 2</h3>
-      <ol>
-        <li>Review the provided automation.</li>
-        <li>Ask clarification questions when a requirement is unclear.</li>
-        <li>Use the provided AI assistant for focused assistance.</li>
-        <li>Modify the automation.</li>
-        <li>Run and inspect the result.</li>
-        <li>Validate repeatability/persistence and the final automation.</li>
-        <li>Submit when satisfied.</li>
-      </ol>
-      <p class="muted">You are responsible for understanding, validating, and maintaining the final automation.</p>
-      <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</p>
-      <div class="row">
-        <button onclick="confirmStartRound4Pilot()">Got it - Start Round 2</button>
-      </div>
-    </div>
-  `;
-  openModalOverlay(overlay);
-}
-
-function confirmStartRound4Pilot() {
-  closeModalOverlay("round4-intro-overlay");
-  startRound(2);
-}
-
 // AI-Assisted Test Automation's own briefing (see models.Scenario.is_auto) -
 // the candidate automates test cases THEY designed in round 1, not the
 // legacy conversational flow above. Unlike the other round 2 briefings,
@@ -452,41 +375,9 @@ async function confirmStartRound4Auto() {
   renderRoundEntry(2, box, state.scenario, null);
 }
 
-// Split from the intro (see showRound4Intro) so the language choice
-// happens as its own confirmed step, matching the "Got it" -> pick ->
-// Start pattern used elsewhere - not silently defaulting
-// round4DefaultLanguage's initial "python" value the way it used to.
-// Unlike round 2/3's locked language, this choice ISN'T locked for the
-// round - round4OnLanguageChange already lets the candidate switch per
-// turn - this only sets what that default starts as, so no code has to
-// change to support it.
-function confirmStartRound4() {
-  closeModalOverlay("round4-intro-overlay");
-  document.getElementById("round-view").insertAdjacentHTML("beforeend", `
-    <div class="field-row" style="align-items:center">
-      <span class="muted">Preferred language for generated code</span>
-      <select id="round4-language-select" onchange="round4OnLanguageSelectChange()">
-        <option value="" selected>Select a language...</option>
-        ${ROUND4_CODE_LANGUAGE_OPTIONS.map(([value, label]) => `<option value="${value}">${label}</option>`).join("")}
-      </select>
-    </div>
-    <p class="muted">You can switch languages per turn once the round starts - this just sets your starting default.</p>
-    <div class="row">
-      <button id="round4-start-btn" onclick="confirmStartRound4WithLanguage()" disabled>Start Round 2</button>
-    </div>
-  `);
-}
-
 function round4OnLanguageSelectChange() {
   const language = document.getElementById("round4-language-select").value;
   document.getElementById("round4-start-btn").disabled = !language;
-}
-
-function confirmStartRound4WithLanguage() {
-  const language = document.getElementById("round4-language-select").value;
-  if (!language) return;
-  round4DefaultLanguage = language;
-  startRound(2);
 }
 
 // Each round's candidate-facing shape is genuinely different now: round
@@ -783,4 +674,366 @@ async function doSubmitRound2Investigation(force = false) {
     if (submitBtn) submitBtn.disabled = false;
     statusEl.textContent = e.message;
   }
+}
+
+// ---- Moved from the retired Round 2 script (round2_legacy.js): Round 1's
+// test-case rows, the round timer, time-up expiry and reference panels -
+// live code that shared a file with the retired simulated Round 2. ----
+
+const STEP_MARKS = { pass: "✓", fail: "✗", partial: "~" };
+
+// Shared by the candidate's live transcript and HR's read-only report -
+// plain-English action list, each with its own pass/fail marker, so a
+// failure is locatable to a specific step rather than just an overall
+// verdict. Deliberately never renders code - see Round4ExecutionStep.
+function renderExecutionSteps(steps) {
+  if (!steps || steps.length === 0) return "";
+  return `
+    <ol class="exec-steps">
+      ${steps.map((step) => `
+        <li class="exec-step exec-step-${step.status}">
+          <span class="exec-step-mark">${STEP_MARKS[step.status] || "?"}</span>
+          ${escapeHtml(step.description)}
+          ${step.detail ? `
+            <details class="exec-step-detail">
+              <summary>Show detail</summary>
+              ${escapeHtml(step.detail)}
+            </details>
+          ` : ""}
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+let round4DefaultLanguage = "python";
+
+const ROUND4_CODE_LANGUAGE_OPTIONS = [
+  ["python", "Python"],
+  ["java", "Java"],
+  ["javascript", "JavaScript"],
+];
+
+// A "label" element immediately followed by a "text" element is a
+// detail-view field (Title / The Great Gatsby), not two independent
+// headings - see renderMockupScreens below for why that distinction
+// matters. Any other element (including a label with no following
+// text, or two labels/texts that aren't adjacent) passes through
+// unchanged.
+function groupMockupElements(elements) {
+  const grouped = [];
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    const next = elements[i + 1];
+    if (el.type === "label" && next && next.type === "text") {
+      grouped.push({ kind: "field", label: el.text, value: next.text });
+      i++; // consumed both
+    } else {
+      grouped.push(el);
+    }
+  }
+  return grouped;
+}
+
+// Shared by the candidate's round 3 view and HR's scenario detail -
+// renders Round4UiMockupOut's structured screens (screen -> ordered
+// typed elements) as a static, schematic wireframe. Deliberately never
+// injects LLM-authored HTML/CSS: every element renders through this
+// app's own trusted CSS classes, keyed only off `type`, with all text
+// escaped - see models.Scenario.ui_mockup_json for why.
+function renderMockupScreens(mockup, idPrefix) {
+  if (!mockup || !mockup.screens || mockup.screens.length === 0) return "";
+  const screens = mockup.screens;
+  const tabs = screens.map((screen, i) => `
+    <button class="nav-btn ${i === 0 ? "active" : ""}" onclick="selectMockupScreen('${idPrefix}', ${i})">
+      <span class="nav-chip">${i + 1}</span>
+      <span class="nav-btn-copy"><span class="nav-btn-label">${escapeHtml(screen.name)}</span></span>
+    </button>
+  `).join("");
+
+  // Window "chrome" (dots + a fake address-bar pill showing the screen
+  // name) is purely decorative - it's what turns "a dashed box of
+  // stacked labels" into something that actually reads as a browser
+  // window a tester would have open, without pretending to be a real
+  // screenshot. Elements below flow in a wrapping row (see .mockup-
+  // screen-body) instead of one per line, so short controls like a
+  // button next to a link sit side by side - a genuinely standalone
+  // label/text (a section heading, a status message) still forces its
+  // own line so it doesn't blend into the controls next to it, input
+  // fields lay their caption beside the box instead of above it. A
+  // "label" element immediately followed by a "text" element (e.g.
+  // {label:"Title"}, {text:"The Great Gatsby"}) is a detail-view field,
+  // not two separate headings - a details/summary screen is routinely
+  // ALL such pairs back to back (see groupMockupElements below), and
+  // rendering each half as its own identically-styled full-width line
+  // read as a wall of disconnected, misaligned text. Merged into one
+  // compact "label: value" row instead.
+  const panels = screens.map((screen, i) => `
+    <div class="mockup-screen ${i === 0 ? "" : "hidden"}" id="${idPrefix}-screen-${i}">
+      <div class="mockup-screen-chrome">
+        <span class="mockup-screen-dot"></span>
+        <span class="mockup-screen-dot"></span>
+        <span class="mockup-screen-dot"></span>
+        <span class="mockup-screen-url">${escapeHtml(screen.name)}</span>
+      </div>
+      <div class="mockup-screen-body">
+        ${groupMockupElements(screen.elements).map((el) => el.kind === "field" ? `
+          <div class="mockup-el mockup-el-field">
+            <span class="mockup-el-field-label">${escapeHtml(el.label)}</span>
+            <span class="mockup-el-field-value">${escapeHtml(el.value)}</span>
+          </div>
+        ` : `
+          <div class="mockup-el mockup-el-${el.type}">
+            ${el.type === "input" ? `<span class="mockup-el-caption">${escapeHtml(el.text)}</span><span class="mockup-el-box"></span>` : escapeHtml(el.text)}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  `).join("");
+
+  return `
+    <div class="row" id="${idPrefix}-screens" style="margin-bottom:0.5rem">${tabs}</div>
+    ${panels}
+    <p class="muted">Static reference only - nothing here is clickable or live.</p>
+  `;
+}
+
+function selectMockupScreen(idPrefix, index) {
+  document.querySelectorAll(`#${idPrefix}-screens .nav-btn`).forEach((btn, i) => btn.classList.toggle("active", i === index));
+  document.querySelectorAll(`[id^="${idPrefix}-screen-"]`).forEach((panel, i) => panel.classList.toggle("hidden", i !== index));
+}
+
+// A generic, non-editable format example shown right above the
+// candidate's own rows - deliberately a universal "login" example rather
+// than anything drawn from the actual scenario, so it illustrates the
+// expected shape of an answer without hinting at what to test in THIS
+// scenario. Lives in its own <tbody>, outside #tc-rows, so collectRows()
+// (which only queries within #tc-rows) never picks it up - nothing extra
+// needed to keep it out of what gets submitted.
+function exampleTestCaseRowHtml() {
+  return `
+    <tr class="example-row">
+      <td class="tc-no">Ex</td>
+      <td data-label="Test Case / Scenario">Verify login with valid credentials</td>
+      <td data-label="Preconditions">User has a registered account</td>
+      <td data-label="Steps">1. Open the login page. 2. Enter a valid username and password. 3. Click "Login".</td>
+      <td data-label="Test Data">username = jordan.rivera@example.com; password = Passw0rd!2026</td>
+      <td data-label="Expected Result / Assertions">User is redirected to /dashboard and the header shows "Welcome, Jordan".</td>
+      <td class="tc-actions"></td>
+    </tr>
+  `;
+}
+
+function addRow(initial = null) {
+  const id = rowCount++;
+  const tbody = document.getElementById("tc-rows");
+  const tr = document.createElement("tr");
+  tr.id = `row-${id}`;
+  tr.innerHTML = `
+    <td class="tc-no"></td>
+    <td data-label="Test Case / Scenario"><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()" /></td>
+    <td data-label="Preconditions"><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
+    <td data-label="Steps"><textarea class="tc-steps ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td data-label="Test Data"><textarea class="tc-data ta-grow" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
+    <td data-label="Expected Result / Assertions"><textarea class="tc-expected ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td class="tc-actions"><button class="btn-danger btn-sm tc-remove" onclick="removeRow('row-${id}')">Remove</button></td>
+  `;
+  tbody.appendChild(tr);
+  if (initial) {
+    tr.querySelector(".tc-title").value = initial.title || "";
+    tr.querySelector(".tc-pre").value = initial.preconditions || "";
+    tr.querySelector(".tc-steps").value = initial.steps || "";
+    // `|| ""` covers a draft/submission autosaved before test_data existed.
+    tr.querySelector(".tc-data").value = initial.test_data || "";
+    tr.querySelector(".tc-expected").value = initial.expected_result || "";
+  }
+  autoGrowAll(tr);
+  renumberRows();
+}
+
+function removeRow(rowId) {
+  document.getElementById(rowId).remove();
+  renumberRows();
+  scheduleRoundDraftSave(1, round1DraftPayload); // removing a row must survive a refresh too, not just additions
+  round1UpdateSubmitState();
+}
+
+// Mirrors doSubmitRound1's own completeness check (title + steps +
+// expected_result on every row collectRows() returns) so the button's
+// disabled state is never a lie the candidate discovers only after
+// clicking - see the identical reasoning on round1UpdateSubmitState's
+// counterparts for rounds 2-4.
+function round1UpdateSubmitState() {
+  const submitBtn = document.getElementById("round1-submit-btn");
+  if (!submitBtn) return;
+  const content = collectRows();
+  const ready = content.length > 0 && content.every((r) => r.title.trim() && r.steps.trim() && r.expected_result.trim());
+  submitBtn.disabled = !ready;
+}
+
+function renumberRows() {
+  document.querySelectorAll("#tc-rows tr").forEach((tr, i) => {
+    tr.querySelector(".tc-no").textContent = i + 1;
+    // Each field names its column and row - the column headers are hidden
+    // when rows become cards on smaller screens (style.css, .tc-table).
+    tr.querySelectorAll("td[data-label]").forEach((td) => {
+      const field = td.querySelector("input, textarea");
+      if (field) field.setAttribute("aria-label", `${td.dataset.label}, test case ${i + 1}`);
+    });
+    tr.querySelector(".tc-remove")?.setAttribute("aria-label", `Remove test case ${i + 1}`);
+  });
+}
+
+function collectRows() {
+  return [...document.querySelectorAll("#tc-rows tr")]
+    .map((tr) => ({
+      title: tr.querySelector(".tc-title").value,
+      preconditions: tr.querySelector(".tc-pre").value,
+      steps: tr.querySelector(".tc-steps").value,
+      test_data: tr.querySelector(".tc-data").value,
+      expected_result: tr.querySelector(".tc-expected").value,
+    }))
+    .filter((r) => r.title.trim() || r.steps.trim());
+}
+
+async function doSubmitRound1(force = false) {
+  const statusEl = document.getElementById("submit-status");
+  const submitBtn = document.getElementById("round1-submit-btn");
+  // Guards against a double-click firing two concurrent submits (the
+  // second would just 400 on the server, but this avoids the confusing
+  // in-between state and a wasted round trip) - see the identical guard
+  // on round4SendMessage for the more consequential version of this bug
+  // (there it could create two conversation turns with the same number).
+  if (submitBtn && submitBtn.disabled) return;
+  const content = collectRows();
+  // force (the timer just hit zero) skips these checks entirely - they
+  // exist to help a candidate who still has time avoid wasting their one
+  // submit, not to block the round from ever closing once time is up.
+  // They used to run unconditionally, which silently blocked the
+  // auto-submit path too: an empty or incomplete row at zero meant
+  // nothing was ever sent, and every later attempt hit the same wall -
+  // the round just stayed on screen forever with an expired timer.
+  if (!force) {
+    if (content.length === 0) {
+      statusEl.textContent = "Add at least one row before submitting.";
+      return;
+    }
+    // collectRows() only drops rows with NEITHER title nor steps filled
+    // in (an unused blank row) - a row with just one of the required
+    // fields typed in would otherwise reach the server, which requires
+    // title, steps, AND expected result (see schemas.TestCaseRow) and
+    // rejects it. Catch that here with a specific message instead of a
+    // round trip.
+    const incompleteIndex = content.findIndex((r) => !r.title.trim() || !r.steps.trim() || !r.expected_result.trim());
+    if (incompleteIndex !== -1) {
+      const r = content[incompleteIndex];
+      const missing = [
+        !r.title.trim() && "Title",
+        !r.steps.trim() && "Steps",
+        !r.expected_result.trim() && "Expected result",
+      ].filter(Boolean);
+      statusEl.textContent = `Row ${incompleteIndex + 1} is missing: ${missing.join(", ")}.`;
+      return;
+    }
+  }
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
+    stopTimer();
+    disarmTabGuard();
+    // No results screen - scoring happens in the background on HR's
+    // side; the candidate just moves on to whatever's unlocked next.
+    refreshCandidateNav();
+  } catch (e) {
+    if (force) {
+      // Nothing submittable even now (empty, or a row missing a required
+      // field), or the server's own deadline check beat this attempt -
+      // the round still has to end, saving whatever's here. See
+      // forceExpireRound.
+      await forceExpireRound(1, { content });
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = false;
+    statusEl.textContent = e.message;
+  }
+}
+
+function startTimer(deadlineMs, onExpire, roundNumber) {
+  const timerEl = document.getElementById("timer");
+  // Lives in the sticky topbar, not inline in the round's own content -
+  // Round 3's reference panels alone run 900px+, so a timer buried in
+  // that flow could go unseen for a while on a scroll. Hidden by default
+  // (see index.html); shown only while a round is actually running.
+  timerEl.classList.remove("hidden");
+  armTabGuard(roundNumber);
+  function tick() {
+    const remaining = deadlineMs - Date.now();
+    if (remaining <= 0) {
+      stopTimer();
+      disarmTabGuard(); // time's up is a hard boundary regardless of whether auto-submit below succeeds
+      onExpire();
+      return;
+    }
+    const mins = Math.floor(remaining / 60000);
+    const secs = Math.floor((remaining % 60000) / 1000);
+    timerEl.textContent = `Time remaining: ${mins}:${String(secs).padStart(2, "0")}`;
+    timerEl.classList.toggle("timer-critical", remaining <= 5 * 60 * 1000);
+  }
+  tick();
+  timerHandle = setInterval(tick, 1000);
+}
+
+// Deliberately does NOT touch the tab-switch guard - see disarmTabGuard,
+// called separately (and only) at points where a round genuinely ends:
+// a successful submit, the timer naturally expiring, navigating to a
+// different round, or logging out. A validation failure inside a submit
+// attempt (e.g. "add a row first") means the round is still very much
+// in progress, so the guard/fullscreen must stay engaged through that -
+// this used to also exit fullscreen on every submit *attempt*,
+// regardless of whether it actually succeeded, which is why "Submit"
+// with an empty form looked like it silently disabled the guard.
+function stopTimer() {
+  if (timerHandle) {
+    clearInterval(timerHandle);
+    timerHandle = null;
+  }
+  // Deliberately does NOT hide/clear the topbar timer element here - a
+  // couple of call sites (the onExpire callbacks in renderEntryForm/
+  // renderInvestigationForm/round4AutoSubmit) call this and THEN set the
+  // timer's text to "Time's up - submitting automatically..." while the
+  // auto-submit request is in flight; hiding it here would make that
+  // message invisible. See resetTopbarTimer, called instead at the
+  // points where a round view actually finishes transitioning away
+  // (loadRound, the "all rounds complete" branch, logout).
+}
+
+function resetTopbarTimer() {
+  const timerEl = document.getElementById("timer");
+  timerEl.classList.add("hidden");
+  timerEl.classList.remove("timer-critical");
+  timerEl.textContent = "";
+}
+
+// Shared by all three rounds' auto-submit-on-expiry paths (see
+// doSubmitRound1/doSubmitRound2Investigation's force=true, and
+// round4AutoSubmit's catch above) - the guaranteed way a round closes
+// once its timer hits zero and a real submit wasn't possible (empty/
+// incomplete content, or losing a race against the server's own deadline
+// check). Whatever draft content the candidate had (round is passed in
+// via `body`, may be empty) is saved as-is and the round is finalized as
+// a real submission - see candidate.py's POST /round/{n}/expire. A
+// candidate who ran out of time having written nothing still has to move
+// on to the next round, not get stuck here.
+async function forceExpireRound(roundNumber, body = {}) {
+  try {
+    await api(`/candidate/round/${roundNumber}/expire`, { method: "POST", body: JSON.stringify(body) });
+  } catch (e) {
+    // Nothing more to do client-side if even this fails (e.g. a network
+    // blip) - the candidate stays on this screen, but at least the timer
+    // display already says time's up rather than claiming to still be
+    // "submitting automatically."
+  }
+  stopTimer();
+  disarmTabGuard();
+  refreshCandidateNav();
 }

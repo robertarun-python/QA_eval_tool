@@ -91,8 +91,8 @@ def test_each_call_gets_a_timeout_sized_to_its_reply(monkeypatch):
 
 
 def test_code_writing_calls_ask_for_the_larger_limit():
-    for fn in (llm_service.round4_auto_turn, llm_service._round3_coding_turn_once, llm_service.round4_pilot_turn,
-               llm_service.round3_syntax_fix, llm_service._round4_force_flaw, llm_service.generate_round3_reference):
+    for fn in (llm_service.round4_auto_turn, llm_service._round3_coding_turn_once,
+               llm_service.round3_syntax_fix, llm_service.generate_round3_reference):
         assert "max_tokens=_CODE_REPLY_TOKENS" in inspect.getsource(fn), fn.__name__
     assert llm_service._CODE_REPLY_TOKENS >= 8192
 
@@ -323,6 +323,6 @@ def test_tool_output_falls_back_to_json_text_if_the_api_rejects_it(monkeypatch):
 
 def test_code_writing_calls_pass_their_schema():
     for fn, schema in ((llm_service.round4_auto_turn, "SCHEMA_CODE_TURN"), (llm_service._round3_coding_turn_once, "SCHEMA_CODE_TURN"),
-                       (llm_service.round4_pilot_turn, "SCHEMA_CODE_TURN"), (llm_service.round3_syntax_fix, "SCHEMA_SYNTAX_FIX"),
+                       (llm_service.round3_syntax_fix, "SCHEMA_SYNTAX_FIX"),
                        (llm_service.generate_round3_reference, "SCHEMA_R3_REFERENCE")):
         assert f"schema={schema}" in inspect.getsource(fn), fn.__name__

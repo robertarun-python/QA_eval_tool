@@ -1332,25 +1332,6 @@ def test_legacy_round1_rows_without_test_data_still_work(client, monkeypatch):
     assert res.json()["selected"][0]["test_data"] == ""
 
 
-def test_auto_endpoints_reject_a_non_automation_round4_scenario(client, monkeypatch):
-    """The other two round 4 modes are untouched: their scenarios must not
-    be drivable through the automation endpoints."""
-    from .conftest import _publish_round4_scenario
-    from .test_round4 import _complete_round1_and_2
-
-    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=1)
-    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="Debug scenario")
-    _publish_round4_scenario(client, hr_token, monkeypatch)
-    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_round1_and_2(client, hr_token, cand_token, monkeypatch)
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
-
-    res = client.get("/candidate/round/2/auto/state", cookies=_auth(cand_token))
-    assert res.status_code == 400
-    assert "not an AI-assisted automation scenario" in res.json()["detail"]
-
-
 def test_publish_gate_requires_ground_truth_and_environment(client, monkeypatch):
     from .conftest import FAKE_ENVIRONMENT, FAKE_UI_MOCKUP
     monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: dict(FAKE_ENVIRONMENT))

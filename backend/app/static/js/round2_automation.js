@@ -526,3 +526,50 @@ async function round4AutoSubmitClicked() {
     round4AutoSetBusy(false);
   }
 }
+
+// ---- Round 2 view dispatch and time-up (moved from round2_legacy.js) ----
+
+async function renderRound4View(box) {
+  box.innerHTML = loadingHtml();
+  try {
+    round4State = await api("/candidate/round/2/state");
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
+  // Round 2 is the AI-Assisted Test Automation round. Its two earlier
+  // formats (the simulated conversation and the pilot) are retired - HR can
+  // still read their stored results, but a candidate can't take them.
+  if (!(round4State.scenario && round4State.scenario.is_auto)) {
+    box.innerHTML = `<h3>Round 2</h3><p class="muted">This Round 2 format has been retired - please contact HR.</p>`;
+    return;
+  }
+  await loadRound4Automation(box);
+
+  if (!timerHandle) {
+    const submission = round4State.submission;
+    const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, round4State.scenario) * 60 * 1000;
+    startTimer(deadline, round4AutoSubmit, 2);
+  }
+}
+
+// Round 2's time is up: submit every selected test case's current code -
+// the same request as the Submit button. If that's rejected (a test case
+// never generated or never run), expire Round 2 so it still ends and is
+// scored. Before this, time-up sent a field the endpoint doesn't have
+// ("validation", silently dropped) and then expired ROUND 4 - a leftover
+// from the Round 2<->4 swap - leaving Round 2 open and the timer firing again.
+async function round4AutoSubmit() {
+  const timerEl = document.getElementById("timer");
+  if (timerEl) timerEl.textContent = "Time's up - submitting automatically...";
+  const selected = (round4AutoState && round4AutoState.selected) || [];
+  const entries = selected.map((r) => ({ row_index: r.index, code: round4AutoCode(r.index) || null }));
+  try {
+    await api("/candidate/round/2/auto/submit", { method: "POST", body: JSON.stringify({ entries }) });
+    stopTimer();
+    disarmTabGuard();
+    refreshCandidateNav();
+  } catch (e) {
+    await forceExpireRound(2);
+  }
+}

@@ -2,7 +2,7 @@
 Batch C of the Sep 2026 assistant guardrail fixes - the remaining deferred
 items, all checked without a real model call:
 
-- the simulated R2 mode is retired (HR can't publish or go live with it)
+- the retired R2 modes (simulated and pilot) can't be published or go live
 - R3 flags technique choices the candidate never made, and replaces
   replies that describe a sort order the code doesn't produce
 - R2 removes assertions nobody asked for and never reveals values that
@@ -16,7 +16,6 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from app.config import settings
 from app.routers import hr as hr_router
 from app.services import llm_service, round3_scope_guard as guard, scoring_service
 
@@ -27,18 +26,17 @@ def _scenario(round_number=2, mode=None):
     return SimpleNamespace(round_number=round_number, config_json={"mode": mode} if mode else {})
 
 
-def test_simulated_round2_mode_can_no_longer_go_live(monkeypatch):
-    monkeypatch.setattr(settings, "legacy_simulated_round2_enabled", False)
+@pytest.mark.parametrize("mode", [None, "pilot_automation"])
+def test_retired_round2_modes_can_no_longer_go_live(mode):
     with pytest.raises(HTTPException) as err:
-        hr_router._reject_retired_round2_mode(_scenario())
+        hr_router._reject_retired_round2_mode(_scenario(mode=mode))
     assert err.value.status_code == 400 and "retired" in err.value.detail
 
 
 @pytest.mark.parametrize("scenario", [
-    _scenario(mode="ai_test_automation"), _scenario(mode="pilot_automation"), _scenario(round_number=1), _scenario(round_number=3),
+    _scenario(mode="ai_test_automation"), _scenario(round_number=1), _scenario(round_number=3),
 ])
-def test_other_scenarios_are_unaffected(monkeypatch, scenario):
-    monkeypatch.setattr(settings, "legacy_simulated_round2_enabled", False)
+def test_other_scenarios_are_unaffected(scenario):
     hr_router._reject_retired_round2_mode(scenario)  # no exception
 
 

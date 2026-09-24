@@ -26,7 +26,6 @@ from fpdf.fonts import FontFace
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from ..config import settings
 from ..database import get_db
 from ..models import (
     User, Scenario, ScenarioStatus, Submission, Score, RoundStatus, ExperienceBand, Role, AppSettings,
@@ -40,7 +39,7 @@ from ..schemas import (
     Round4TestCaseOut, Round3TurnOut, Round3TurnAuditOut, Round3RunOut, CandidateAssessmentSummaryOut,
     CandidateRoundComment, AppSettingsOut, AppSettingsUpdate,
     BulkUploadResult, CandidateBandUpdate, CandidateAppearanceOut, ScoreOverrideRequest,
-    ScenarioTimeLimitUpdate, Round4ConfigUpdate, Round4InstructionsUpdate, TestCaseRow,
+    ScenarioTimeLimitUpdate, Round4InstructionsUpdate, TestCaseRow,
     Round4EnvironmentUpdate, Round4EnvironmentOut,
 )
 from ..dependencies import require_hr
@@ -73,11 +72,7 @@ def get_settings(db: Session) -> AppSettings:
 
 
 def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
-    """AppSettingsOut mixes the DB-backed, HR-editable fields on
-    app_settings with config.py's round4_default_assistance_pct - a
-    separate, env-sourced, read-only fallback (see that schema's
-    docstring) - so it can't just be `return app_settings` like the rest
-    of this file's response_model endpoints."""
+    """The HR-editable settings, as the Settings page reads them."""
     return AppSettingsOut(
         round1_passing_score=app_settings.round1_passing_score,
         round2_passing_score=app_settings.round2_passing_score,
@@ -90,7 +85,6 @@ def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
         round2_time_limit_minutes=app_settings.round2_time_limit_minutes,
         round3_time_limit_minutes=app_settings.round3_time_limit_minutes,
         round4_time_limit_minutes=app_settings.round4_time_limit_minutes,
-        round4_default_assistance_pct=settings.round4_default_assistance_pct,
     )
 
 
@@ -497,22 +491,6 @@ def _require_round4_not_in_progress(scenario_id: int, db: Session, background_ta
         )
 
 
-@router.patch("/scenarios/{scenario_id}/round4-config", response_model=ScenarioOut)
-def update_round4_config(scenario_id: int, payload: Round4ConfigUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
-    """The one round4-specific tunable exposed to HR: how often the
-    simulated assistant gets things right per turn (see Round4ConfigUpdate
-    and llm_service.DEFAULT_ROUND4_CONFIG). Allowed regardless of draft/
-    published/live status, same reasoning as update_scenario_time_limit -
-    doesn't retroactively invalidate anything already scored."""
-    scenario = _get_round4_scenario_or_404(scenario_id, db)
-    _require_round4_not_in_progress(scenario_id, db, background_tasks, "change the assistant's accuracy")
-
-    scenario.config_json = {**(scenario.config_json or {}), "assistance_pct": payload.assistance_pct}
-    db.commit()
-    db.refresh(scenario)
-    return scenario
-
-
 @router.patch("/scenarios/{scenario_id}/round4-instructions", response_model=ScenarioOut)
 def update_round4_instructions(scenario_id: int, payload: Round4InstructionsUpdate, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Title/description on a round4 scenario, editable regardless of
@@ -550,16 +528,13 @@ def update_round4_environment(scenario_id: int, payload: Round4EnvironmentUpdate
 
 
 def _reject_retired_round2_mode(scenario: Scenario) -> None:
-    """See settings.legacy_simulated_round2_enabled."""
-    if (
-        scenario.round_number == 2
-        and not (scenario.config_json or {}).get("mode")
-        and not settings.legacy_simulated_round2_enabled
-    ):
+    """Round 2's legacy conversational and pilot modes are retired (their
+    old results stay viewable) - only an AI-Assisted Test Automation
+    scenario can be published or go live."""
+    if scenario.round_number == 2 and (scenario.config_json or {}).get("mode") != "ai_test_automation":
         raise HTTPException(
             400,
-            "The simulated role-play automation mode is retired - its results are invented by the AI, not "
-            "produced by running code. Use an AI-Assisted Test Automation scenario for round 2 instead.",
+            "This Round 2 format is retired. Use an AI-Assisted Test Automation scenario for round 2 instead.",
         )
 
 
@@ -573,34 +548,17 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     published-but-invisible with no HR action ever having asked for that."""
     scenario = _get_draft_scenario_or_404(scenario_id, db)
     _reject_retired_round2_mode(scenario)
-    # Round 4 has no scenario-level test-case reference to review upfront
-    # (its target is each candidate's own round 1 answer) - but it does
-    # have its own generated content that must exist before candidates
-    # see this scenario: the Test Environment reference sheet and the
-    # reference UI screens.
-    if scenario.round_number == 2 and (scenario.config_json or {}).get("mode") == "ai_test_automation":
-        # AI-Assisted Test Automation - the candidate automates their own
-        # round 1 design, so there's no scenario-level test-case reference
-        # and no environment/UI mockup to require. What must exist is the
+    if scenario.round_number == 2:
+        # AI-Assisted Test Automation (the only live round 2 format) - the
+        # candidate automates their own round 1 design, so there's no
+        # scenario-level test-case reference. What must exist is the
         # HR/system-only ground truth the scorer judges the candidate's
-        # execution interpretation against (see seed_round4_auto.py).
+        # execution interpretation against (see seed_round4_auto.py) and
+        # the automation environment code.
         if not (scenario.reference_json or {}).get("ground_truth"):
             raise HTTPException(400, "Can't publish an automation scenario with no ground truth for execution interpretation yet.")
         if not (scenario.config_json or {}).get("environment_code_by_language"):
             raise HTTPException(400, "Can't publish an automation scenario with no automation environment configured yet.")
-    elif scenario.round_number == 2 and (scenario.config_json or {}).get("mode") == "pilot_automation":
-        # Focused Automation Pilot - a single-file coding exercise, not
-        # the legacy role-play flow, so it has no environment_json/
-        # ui_mockup_json to require. Its own scoring ground truth
-        # (reference_json - see seed_round4_pilot.py) is what must exist
-        # before candidates see it, same as every non-round-4 round.
-        if not scenario.reference_json:
-            raise HTTPException(400, "Can't publish a round 4 pilot scenario with no reference solution/validation yet.")
-    elif scenario.round_number == 2:
-        if not scenario.environment_json:
-            raise HTTPException(400, "Can't publish a round 4 scenario with no test environment generated yet.")
-        if not scenario.ui_mockup_json:
-            raise HTTPException(400, "Can't publish a round 4 scenario with no reference UI screens generated yet.")
     elif not scenario.reference_json:
         raise HTTPException(400, "Can't publish a scenario with no reference answer yet - generate or write one first.")
 

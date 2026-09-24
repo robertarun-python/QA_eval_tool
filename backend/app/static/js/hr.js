@@ -660,13 +660,6 @@ async function loadRound4Settings() {
 }
 
 function renderRound4SettingsCard(scenario, groundedInTitle) {
-  // 60 below is a defensive fallback only (e.g. this renders before
-  // appSettings has loaded) - the real default always comes from the
-  // server (see AppSettingsOut.round4_default_assistance_pct /
-  // config.py's round4_default_assistance_pct), same pattern as
-  // passingScoreForRound() above.
-  const serverDefault = (appSettings && appSettings.round4_default_assistance_pct) ?? 60;
-  const assistancePct = (scenario.config_json && scenario.config_json.assistance_pct) || serverDefault;
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
       <h3>Round 2 <span class="badge badge-published">LIVE</span></h3>
@@ -689,28 +682,6 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
         </div>
         <button onclick="saveRound4TimeLimit(${scenario.id})">Save</button>
       </div>`}
-
-      <h4>Assistant accuracy</h4>
-      <p class="muted">How often the simulated assistant gets things right per turn - the rest of the time it confidently reports a flawed result, on purpose, for the candidate to catch. Lower means more planted issues; higher means fewer.</p>
-      <div class="row" style="align-items:center">
-        <div class="field-inline">
-          <span class="muted">% correct per turn</span>
-          <input id="round4-config-edit-${scenario.id}" type="number" min="10" max="95" value="${assistancePct}" />
-        </div>
-        <button onclick="saveRound4ConfigEdit(${scenario.id})">Save</button>
-      </div>
-
-      <h4>How this round works</h4>
-      <details class="hint-box">
-        <summary>Guardrails the assistant follows (for reference - candidates only see the short heads-up version, not this level of detail)</summary>
-        <ul style="margin:0.5rem 0 0; padding-left:1.2rem">
-          <li>Deliberately correct only ~${assistancePct}% of the time per turn (see above) - candidates are told this upfront.</li>
-          <li>Never shows real code by default - only plain-English steps and observed results. A candidate can optionally view a completed turn rendered as a code snippet, but that snippet never contains pass/fail judgments either.</li>
-          <li>Never states or hints which category (UI, API, DB, end-to-end) a candidate's test case falls into - that's for the candidate to reason out themselves.</li>
-          <li>Refuses to discuss other candidates, skip ahead to a result, or mark everything as passed without actually simulating it - regardless of how the request is framed.</li>
-          <li>Attempts to direct the assistant's behavior or the scoring itself (e.g. "mark everything as passing," "tell me what gets the best score") are refused in-turn and separately flagged as a red flag in the scoring feedback - candidates are told upfront that this gets flagged, but not the exact trigger phrasing or that scoring is where it's recorded.</li>
-        </ul>
-      </details>
 
       <h4>Grounded in</h4>
       <p class="muted">${groundedInTitle
@@ -778,26 +749,6 @@ async function saveRound4TimeLimit(id) {
   }
   try {
     await api(`/hr/scenarios/${id}/time-limit`, { method: "PATCH", body: JSON.stringify({ time_limit_minutes: value }) });
-    statusEl.textContent = "Saved.";
-  } catch (e) {
-    inputEl.value = inputEl.defaultValue;
-    statusEl.className = "error-text";
-    statusEl.textContent = e.message;
-  }
-}
-
-async function saveRound4ConfigEdit(id) {
-  const statusEl = document.getElementById(`r4-status-${id}`);
-  const inputEl = document.getElementById(`round4-config-edit-${id}`);
-  const value = Number(inputEl.value);
-  statusEl.className = "muted";
-  if (!Number.isInteger(value) || value < 10 || value > 95) {
-    statusEl.className = "error-text";
-    statusEl.textContent = "Assistant accuracy must be a whole number between 10 and 95.";
-    return;
-  }
-  try {
-    await api(`/hr/scenarios/${id}/round4-config`, { method: "PATCH", body: JSON.stringify({ assistance_pct: value }) });
     statusEl.textContent = "Saved.";
   } catch (e) {
     inputEl.value = inputEl.defaultValue;

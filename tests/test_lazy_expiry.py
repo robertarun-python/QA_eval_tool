@@ -85,8 +85,8 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # No longer blocked - the abandoned round is lazily closed out as
     # part of this same request.
     from app.services import llm_service
-    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
-        "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
+    monkeypatch.setattr(llm_service, "score_round4_auto_conversation", lambda **kwargs: {
+        "scores": {}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
     })
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 200
@@ -208,40 +208,6 @@ def test_close_expired_submissions_schedules_scoring_as_a_background_task_not_in
     assert len(background_tasks.tasks) == 1
 
     db.close()
-
-
-def test_expired_round4_in_progress_submission_no_longer_blocks_round4_config_edit(client, monkeypatch):
-    """Same bug class as the time-limit block above, but for round 4's
-    own in-progress guard (_require_round4_not_in_progress) - it must
-    also lazily close an abandoned-past-deadline submission before
-    counting, or an abandoned round 4 candidate blocks HR from ever
-    editing that scenario's config again.
-
-    Round 3 has to be completed too, not just 1/2, before round 4/start
-    is reachable - ROUND_SEQUENCE is (1, 2, 3, 4) now that round 3
-    (AI-prompted coding) is a real round again."""
-    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    published = _publish_round4_scenario(client, hr_token, monkeypatch)
-    from app.services import llm_service
-    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
-        "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
-    })
-    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-    _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, seed_upto=1)
-    client.post("/candidate/round/2/start", cookies=_auth(cand_token))
-
-    res = client.patch(
-        f"/hr/scenarios/{published['id']}/round4-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
-    )
-    assert res.status_code == 409
-
-    _set_started_at(2, minutes_ago=31)
-
-    res = client.patch(
-        f"/hr/scenarios/{published['id']}/round4-config", json={"assistance_pct": 80}, cookies=_auth(hr_token),
-    )
-    assert res.status_code == 200
-    assert res.json()["config_json"]["assistance_pct"] == 80
 
 
 def test_expired_in_progress_submission_shows_correctly_in_appearance_report_not_stale(client, monkeypatch):

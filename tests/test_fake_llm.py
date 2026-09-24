@@ -30,7 +30,7 @@ def fake_mode(monkeypatch):
     monkeypatch.setattr(llm_service, "_get_client", no_api)
 
 
-SCRIPTED = sorted(set(CALLS) - {"score_round4_conversation", "score_round4_pilot_conversation", "round4_respond", "_round4_force_flaw"})
+SCRIPTED = sorted(CALLS)
 
 
 @pytest.mark.parametrize("call_name", SCRIPTED)

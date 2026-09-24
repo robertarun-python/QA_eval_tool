@@ -137,7 +137,7 @@ CALLS = _page_calls()
 
 def test_the_page_makes_the_expected_number_of_calls():
     # A parser that silently found nothing would make every other test here pass.
-    assert len(CALLS) >= 100
+    assert len(CALLS) >= 90
 
 
 @pytest.mark.parametrize("line,path,method,keys,spread", CALLS, ids=[f"app.js:{c[0]} {c[2]} {c[1]}" for c in CALLS])

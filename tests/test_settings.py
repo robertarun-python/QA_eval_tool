@@ -29,25 +29,7 @@ def test_default_settings_row_exists(client):
         "round2_time_limit_minutes": None,
         "round3_time_limit_minutes": None,
         "round4_time_limit_minutes": None,
-        "round4_default_assistance_pct": 50,
     }
-
-
-def test_settings_exposes_the_round4_default_assistance_pct_read_only(client):
-    """See config.py's round4_default_assistance_pct - an env-sourced,
-    deployment-level fallback (not HR-editable through this form, unlike
-    the passing-score fields above), exposed here purely so the HR round4
-    settings card in app.js can read the real server default instead of
-    hardcoding its own separate copy of it."""
-    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    payload = {
-        "round1_passing_score": 60, "round2_passing_score": 80, "round3_passing_score": 75, "round4_passing_score": 75,
-        "final_passing_score": 200, "reapplication_window_months": 3, "assessment_window_days": 14,
-    }
-    res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
-    assert res.status_code == 200
-    # Unaffected by the PUT - it isn't part of AppSettingsUpdate.
-    assert res.json()["round4_default_assistance_pct"] == 50
 
 
 def test_settings_round_trip(client):
@@ -63,10 +45,10 @@ def test_settings_round_trip(client):
     }
     res = client.put("/hr/settings", json=payload, cookies=_auth(hr_token))
     assert res.status_code == 200
-    assert res.json() == {**payload, **_NO_ROUND_LIMITS, "round4_default_assistance_pct": 50}
+    assert res.json() == {**payload, **_NO_ROUND_LIMITS}
 
     res = client.get("/hr/settings", cookies=_auth(hr_token))
-    assert res.json() == {**payload, **_NO_ROUND_LIMITS, "round4_default_assistance_pct": 50}
+    assert res.json() == {**payload, **_NO_ROUND_LIMITS}
 
 
 def test_settings_reject_out_of_range_values(client):
