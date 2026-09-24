@@ -12,8 +12,9 @@ from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, JSON, Enum, Boolean
 )
-from sqlalchemy.orm import object_session, relationship
+from sqlalchemy.orm import object_session, relationship, validates
 
+from . import content_schemas
 from .database import Base
 from .services import round3_io_format
 
@@ -215,6 +216,17 @@ class Submission(Base):
     # in-progress deadline. Null only for attempts started before this
     # existed; those keep their scenario's own limit (time_limit_minutes below).
     time_limit_minutes_at_start = Column(Integer, nullable=True)
+
+    @validates("content")
+    def _check_content(self, key, value):
+        """Every write of a candidate's answers is checked against its
+        round's schema (content_schemas.py) - a wrong shape fails here, at
+        the line that wrote it, instead of later in a candidate's session or
+        in scoring. Never changes what's stored."""
+        problem = content_schemas.content_problem(self.round_number, value)
+        if problem:
+            raise ValueError(f"Refusing to store a malformed answer - {problem}")
+        return value
 
     @property
     def time_limit_minutes(self) -> int | None:

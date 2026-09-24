@@ -41,7 +41,7 @@ def _make_scored_submission(db, candidate, scenario, round_number, final_score, 
         user_id=candidate.id, scenario_id=scenario.id, round_number=round_number,
         status=RoundStatus(status), started_at=now - timedelta(minutes=10),
         submitted_at=now if status != "in_progress" else None,
-        content={},
+        content=[] if round_number == 1 else {},  # round 1 answers are a list (content_schemas.py)
     )
     db.add(submission)
     db.commit()
