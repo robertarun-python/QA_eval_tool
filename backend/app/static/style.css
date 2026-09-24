@@ -1572,9 +1572,35 @@ textarea.ta-grow   { resize: none; overflow-y: auto; max-height: 60vh; }
 .tc-table textarea.tc-steps, .tc-table textarea.tc-expected { min-height: 6.5rem; }
 .tc-table tbody tr:last-child td { border-bottom: 1px solid var(--border); }
 .tc-table tbody tr:hover { background: none; }
-@media (max-width: 68rem) {
-  .tc-table .tc-col-title { width: 16%; }
-  .tc-table .tc-col-pre { width: 14%; }
+/* Below 1280px the six-column table no longer fits beside the nav rail
+   (it needed 62rem and scrolled sideways inside a form) - each row becomes
+   a card instead. Same markup, so autosave/submit/draft-restore still read
+   the same fields; labels come from each cell's data-label. */
+@media (max-width: 80rem) {
+  .tc-table { min-width: 0; table-layout: auto; }
+  .tc-table, .tc-table tbody { display: block; width: 100%; }
+  .tc-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .tc-table tr {
+    display: grid; grid-template-columns: 1fr 1fr; column-gap: var(--space-compact);
+    border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-elevated);
+    padding: var(--space-compact); margin-bottom: var(--space-compact);
+  }
+  .tc-table tr.example-row { border-style: dashed; background: var(--surface-interactive); }
+  .tc-table th, .tc-table td, .tc-table tbody tr:last-child td { display: block; border: 0; padding: 0.35rem 0; }
+  .tc-table th:first-child, .tc-table td:first-child { padding-left: 0; }
+  .tc-table td.tc-no { grid-row: 1; grid-column: 1; align-self: center; }
+  .tc-table td.tc-no::before { content: "Test case "; }
+  .tc-table tr.example-row td.tc-no { font-size: 0; }
+  .tc-table tr.example-row td.tc-no::before { content: "Example (format only)"; font-size: var(--text-sm); }
+  .tc-table td.tc-actions { grid-row: 1; grid-column: 2; text-align: right; }
+  .tc-table td[data-label="Steps"] { grid-column: 1 / -1; }
+  .tc-table td[data-label]::before {
+    content: attr(data-label); display: block; margin-bottom: 0.25rem;
+    font-size: var(--text-xs); font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em;
+  }
+}
+@media (max-width: 40rem) {
+  .tc-table td[data-label] { grid-column: 1 / -1; }
 }
 
 /* ============================================================

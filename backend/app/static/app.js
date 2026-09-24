@@ -5072,12 +5072,12 @@ function exampleTestCaseRowHtml() {
   return `
     <tr class="example-row">
       <td class="tc-no">Ex</td>
-      <td>Verify login with valid credentials</td>
-      <td>User has a registered account</td>
-      <td>1. Open the login page. 2. Enter a valid username and password. 3. Click "Login".</td>
-      <td>username = jordan.rivera@example.com; password = Passw0rd!2026</td>
-      <td>User is redirected to /dashboard and the header shows "Welcome, Jordan".</td>
-      <td></td>
+      <td data-label="Test Case / Scenario">Verify login with valid credentials</td>
+      <td data-label="Preconditions">User has a registered account</td>
+      <td data-label="Steps">1. Open the login page. 2. Enter a valid username and password. 3. Click "Login".</td>
+      <td data-label="Test Data">username = jordan.rivera@example.com; password = Passw0rd!2026</td>
+      <td data-label="Expected Result / Assertions">User is redirected to /dashboard and the header shows "Welcome, Jordan".</td>
+      <td class="tc-actions"></td>
     </tr>
   `;
 }
@@ -5089,12 +5089,12 @@ function addRow(initial = null) {
   tr.id = `row-${id}`;
   tr.innerHTML = `
     <td class="tc-no"></td>
-    <td><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()" /></td>
-    <td><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
-    <td><textarea class="tc-steps ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
-    <td><textarea class="tc-data ta-grow" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
-    <td><textarea class="tc-expected ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
-    <td><button class="btn-danger btn-sm" onclick="removeRow('row-${id}')">Remove</button></td>
+    <td data-label="Test Case / Scenario"><input class="tc-title" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()" /></td>
+    <td data-label="Preconditions"><input class="tc-pre" oninput="scheduleRoundDraftSave(1, round1DraftPayload)" /></td>
+    <td data-label="Steps"><textarea class="tc-steps ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td data-label="Test Data"><textarea class="tc-data ta-grow" placeholder="Concrete values, e.g. amount = 0.00; card = 4000-0000-0000-0069" oninput="scheduleRoundDraftSave(1, round1DraftPayload)"></textarea></td>
+    <td data-label="Expected Result / Assertions"><textarea class="tc-expected ta-grow" oninput="scheduleRoundDraftSave(1, round1DraftPayload); round1UpdateSubmitState()"></textarea></td>
+    <td class="tc-actions"><button class="btn-danger btn-sm tc-remove" onclick="removeRow('row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
   if (initial) {
@@ -5130,8 +5130,15 @@ function round1UpdateSubmitState() {
 }
 
 function renumberRows() {
-  document.querySelectorAll("#tc-rows .tc-no").forEach((cell, i) => {
-    cell.textContent = i + 1;
+  document.querySelectorAll("#tc-rows tr").forEach((tr, i) => {
+    tr.querySelector(".tc-no").textContent = i + 1;
+    // Each field names its column and row - the column headers are hidden
+    // when rows become cards on smaller screens (style.css, .tc-table).
+    tr.querySelectorAll("td[data-label]").forEach((td) => {
+      const field = td.querySelector("input, textarea");
+      if (field) field.setAttribute("aria-label", `${td.dataset.label}, test case ${i + 1}`);
+    });
+    tr.querySelector(".tc-remove")?.setAttribute("aria-label", `Remove test case ${i + 1}`);
   });
 }
 
