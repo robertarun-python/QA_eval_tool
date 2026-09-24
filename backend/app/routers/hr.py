@@ -94,6 +94,20 @@ def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
     )
 
 
+@router.get("/ai-health")
+def ai_health(hr: User = Depends(require_hr)):
+    """Recent AI calls since the server started (metadata only - never
+    prompts or replies): counts by outcome and the latest calls, so a
+    failure the candidate saw as "trouble responding" can be traced to its
+    cause (see llm_service._record_call)."""
+    calls = llm_service.recent_calls()
+    by_outcome: dict[str, int] = {}
+    for call in calls:
+        by_outcome[call["outcome"]] = by_outcome.get(call["outcome"], 0) + 1
+    problems = [c for c in calls if c["outcome"] != "ok"]
+    return {"total": len(calls), "by_outcome": by_outcome, "recent_problems": problems[:20], "recent_calls": calls[:30]}
+
+
 @router.get("/settings", response_model=AppSettingsOut)
 def get_app_settings(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     return _app_settings_out(get_settings(db))

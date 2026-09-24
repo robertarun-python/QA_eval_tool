@@ -48,6 +48,12 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./qa_eval.db"
     claude_model: str = "claude-sonnet-4-5"
+    # Code-writing AI calls answer through a tool call (llm_service._call_claude_tool)
+    # instead of JSON text, so whole code files never need JSON escaping - the
+    # cause of live "Expecting ',' delimiter" failures. Off until validated
+    # once against the real API; if the API rejects it, calls fall back to
+    # the JSON-text path automatically.
+    llm_tool_output: bool = False
 
     # The original round 2 automation mode (a round-2 scenario with no
     # config "mode"): the model role-plays running the candidate's test and

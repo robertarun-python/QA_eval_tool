@@ -558,7 +558,8 @@ async function loadAppSettings() {
   document.getElementById("set-window").value = appSettings.reapplication_window_months;
   document.getElementById("set-assessment-window").value = appSettings.assessment_window_days;
   for (const n of [1, 2, 3, 4]) document.getElementById(`set-time-r${n}`).value = appSettings[`round${n}_time_limit_minutes`] ?? "";
-  loadScenarios();  // the list's time column shows the round limit - loads in parallel at login
+  loadScenarios();
+  loadAiHealth();  // the list's time column shows the round limit - loads in parallel at login
 }
 
 // Purely a form reset - no API call, no new backend capability. Fills
@@ -577,6 +578,25 @@ function resetSettingsToDefaults() {
   document.getElementById("set-assessment-window").value = 1;
   for (const n of [1, 2, 3, 4]) document.getElementById(`set-time-r${n}`).value = "";  // default: each scenario's own
   document.getElementById("settings-status").textContent = "Defaults filled in - click \"Save changes\" to apply.";
+}
+
+// HR Settings' AI health card - GET /hr/ai-health (metadata only).
+async function loadAiHealth() {
+  const box = document.getElementById("ai-health");
+  if (!box) return;
+  try {
+    const h = await api("/hr/ai-health");
+    const counts = Object.entries(h.by_outcome).map(([k, v]) =>
+      `<span class="tag ${k === "ok" ? "tag-accent" : ""}">${escapeHtml(k)}: ${v}</span>`).join(" ");
+    const rows = h.recent_problems.map((c) => `
+      <tr><td class="muted">${escapeHtml(c.at)}</td><td>${escapeHtml(c.caller)}</td><td>${escapeHtml(c.outcome)}</td><td>${escapeHtml(c.detail || "")}</td></tr>`).join("");
+    box.innerHTML = `
+      <p>${h.total} AI call${h.total === 1 ? "" : "s"} since the server started. ${counts}</p>
+      ${rows ? `<div class="table-scroll"><table><thead><tr><th>When (UTC)</th><th>Step</th><th>Outcome</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`
+             : `<p class="muted">No failed AI calls.</p>`}`;
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+  }
 }
 
 async function saveAppSettings() {

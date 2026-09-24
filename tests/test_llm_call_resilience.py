@@ -211,3 +211,117 @@ def test_round2_ask_ai_recovers_from_a_broken_reply(client, monkeypatch):
     assert res.status_code == 201, res.text
     assert res.json()["response_kind"] == "code_edit"
     assert calls["n"] >= 3  # gate, broken reply, corrected reply
+
+
+# ---- every call is logged (AI health) ----
+
+class _Usage:
+    input_tokens = 1200
+    output_tokens = 340
+
+
+def _reply(text=None, stop="end_turn", tool_input=None):
+    content = [SimpleNamespace(type="tool_use", name="submit_reply", input=tool_input)] if tool_input is not None else \
+              ([SimpleNamespace(type="text", text=text)] if text is not None else [])
+    return SimpleNamespace(content=content, stop_reason=stop, usage=_Usage())
+
+
+class _ScriptedClient:
+    """Returns scripted replies in order; each may be an exception to raise."""
+
+    def __init__(self, *replies):
+        self.replies, self.calls = list(replies), []
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs):
+        self.calls.append(kwargs)
+        reply = self.replies[min(len(self.calls) - 1, len(self.replies) - 1)]
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def test_each_call_is_logged_with_its_caller_and_outcome(monkeypatch, capsys):
+    monkeypatch.setattr(llm_service, "_get_client", lambda: _ScriptedClient(_reply('{"a"', stop="max_tokens"), _reply('{"a": 1}')))
+    llm_service._CALL_LOG.clear()
+    llm_service._call_claude_json("p")
+    log = llm_service.recent_calls()
+    assert [c["outcome"] for c in log] == ["ok", "cut_off_retrying"]  # newest first
+    assert log[0]["caller"] == "test_each_call_is_logged_with_its_caller_and_outcome"
+    assert log[0]["input_tokens"] == 1200 and log[0]["output_tokens"] == 340 and log[0]["ms"] is not None
+    assert "[llm] " in capsys.readouterr().err
+    assert "prompt" not in log[0] and "reply" not in log[0]  # metadata only
+
+
+def test_invalid_json_and_invalid_replies_are_logged(monkeypatch):
+    llm_service._CALL_LOG.clear()
+    monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: "{}")
+    with pytest.raises(ValueError):
+        llm_service.score_round3_coding(scenario_description="d", expected_approach="e", conversation_so_far=[], test_results=[])
+    assert llm_service.recent_calls()[0]["outcome"] == "invalid_reply"
+
+
+def test_hr_ai_health_reports_problems(client, monkeypatch):
+    llm_service._CALL_LOG.clear()
+    monkeypatch.setattr(llm_service, "_get_client", lambda: _ScriptedClient(_reply(None)))
+    with pytest.raises(RuntimeError):
+        llm_service._call_claude("p")
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    health = client.get("/hr/ai-health", cookies=_auth(hr_token)).json()
+    assert health["total"] == 1 and health["by_outcome"] == {"empty_reply": 1}
+    assert health["recent_problems"][0]["outcome"] == "empty_reply"
+
+
+def test_ai_health_is_hr_only(client):
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    assert client.get("/hr/ai-health", cookies=_auth(cand_token)).status_code == 403
+
+
+# ---- tool-use output for code-writing calls (settings.llm_tool_output) ----
+
+CODE_WITH_QUOTES = 'def test_login():\n    """Checks "Welcome, Jordan" shows."""\n    assert page["title"] == "Home"\n'
+
+
+def test_tool_output_returns_code_without_json_escaping(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "llm_tool_output", True)
+    monkeypatch.setattr(llm_service, "_tool_output_disabled_reason", None)
+    client = _ScriptedClient(_reply(stop="tool_use", tool_input={"response_kind": "code_edit", "response_message": "Wrote it",
+                                                                  "code_after": CODE_WITH_QUOTES, "planted_flaw": "x"}))
+    monkeypatch.setattr(llm_service, "_get_client", lambda: client)
+    result = llm_service._call_claude_json("p", max_tokens=8192, schema=llm_service.SCHEMA_CODE_TURN)
+    assert result["code_after"] == CODE_WITH_QUOTES and result["planted_flaw"] == "x"
+    assert client.calls[0]["tool_choice"] == {"type": "tool", "name": "submit_reply"}
+    assert client.calls[0]["tools"][0]["input_schema"] is llm_service.SCHEMA_CODE_TURN
+
+
+def test_tool_output_is_off_by_default(monkeypatch):
+    from app.config import settings
+    assert settings.llm_tool_output is False
+    client = _ScriptedClient(_reply('{"response_kind": "explain", "response_message": "ok"}'))
+    monkeypatch.setattr(llm_service, "_get_client", lambda: client)
+    llm_service._call_claude_json("p", schema=llm_service.SCHEMA_CODE_TURN)
+    assert "tools" not in client.calls[0]
+
+
+def test_tool_output_falls_back_to_json_text_if_the_api_rejects_it(monkeypatch):
+    import anthropic
+    import httpx
+    from app.config import settings
+    monkeypatch.setattr(settings, "llm_tool_output", True)
+    monkeypatch.setattr(llm_service, "_tool_output_disabled_reason", None)
+    rejected = anthropic.BadRequestError("tools not supported", response=httpx.Response(400, request=httpx.Request("POST", "http://api")), body=None)
+    client = _ScriptedClient(rejected, _reply('{"response_kind": "explain", "response_message": "ok"}'),
+                             _reply('{"response_kind": "explain", "response_message": "again"}'))
+    monkeypatch.setattr(llm_service, "_get_client", lambda: client)
+    assert llm_service._call_claude_json("p", schema=llm_service.SCHEMA_CODE_TURN)["response_message"] == "ok"
+    assert llm_service._call_claude_json("p", schema=llm_service.SCHEMA_CODE_TURN)["response_message"] == "again"
+    assert "tools" in client.calls[0] and "tools" not in client.calls[1] and "tools" not in client.calls[2]  # tried once, then off
+
+
+def test_code_writing_calls_pass_their_schema():
+    for fn, schema in ((llm_service.round4_auto_turn, "SCHEMA_CODE_TURN"), (llm_service._round3_coding_turn_once, "SCHEMA_CODE_TURN"),
+                       (llm_service.round4_pilot_turn, "SCHEMA_CODE_TURN"), (llm_service.round3_syntax_fix, "SCHEMA_SYNTAX_FIX"),
+                       (llm_service.generate_round3_reference, "SCHEMA_R3_REFERENCE")):
+        assert f"schema={schema}" in inspect.getsource(fn), fn.__name__

@@ -493,6 +493,11 @@
                 <button class="btn-primary" onclick="saveAppSettings()">Save changes</button>
               </div>
               <p id="settings-status" class="muted"></p>
+
+              <h4 class="settings-subheading">AI health</h4>
+              <p class="muted" style="margin-top:0">Every AI call since the server last started - which step made it, how long it took and whether it worked. When a candidate sees "The assistant had trouble responding", the reason is listed here.</p>
+              <div class="row"><button class="btn-secondary btn-sm" type="button" onclick="loadAiHealth()">Refresh</button></div>
+              <div id="ai-health"><p class="muted">Loading...</p></div>
             </div>
           </div>
 

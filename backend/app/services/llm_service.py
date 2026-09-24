@@ -9,6 +9,9 @@ import hashlib
 import json
 import re
 import sys
+import time
+from collections import deque
+from datetime import datetime
 from pathlib import Path
 
 import anthropic
@@ -123,6 +126,45 @@ def _accepts_temperature(model: str) -> bool:
     return (model or "").startswith(_SAMPLING_MODEL_PREFIXES)
 
 
+# ---- AI call log (Phase 1 stability work) ----
+# Every call records what happened - which function asked, how long it took,
+# tokens, stop reason, outcome - as one server-log line and in a short
+# in-memory history for HR's "AI health" card (GET /hr/ai-health). Metadata
+# only: never the prompt or the reply. The history resets on a server
+# restart; the log lines don't.
+_CALL_LOG: deque = deque(maxlen=500)
+_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_record_call"}
+
+
+def _calling_function() -> str:
+    frame = sys._getframe(1)
+    while frame is not None and frame.f_code.co_name in _INTERNAL_CALLERS:
+        frame = frame.f_back
+    return frame.f_code.co_name if frame is not None else "?"
+
+
+def _record_call(outcome: str, *, started: float | None = None, max_tokens: int | None = None, message=None, detail: str = "") -> None:
+    usage = getattr(message, "usage", None)
+    entry = {
+        "at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "caller": _calling_function(),
+        "outcome": outcome,
+        "ms": int((time.monotonic() - started) * 1000) if started is not None else None,
+        "max_tokens": max_tokens,
+        "stop_reason": getattr(message, "stop_reason", None),
+        "input_tokens": getattr(usage, "input_tokens", None),
+        "output_tokens": getattr(usage, "output_tokens", None),
+        "detail": detail[:300],
+    }
+    _CALL_LOG.append(entry)
+    print("[llm] " + " ".join(f"{k}={v}" for k, v in entry.items() if v not in (None, "")), file=sys.stderr)
+
+
+def recent_calls() -> list[dict]:
+    """Newest first - for HR's AI health card."""
+    return list(reversed(_CALL_LOG))
+
+
 class LLMReplyTruncated(RuntimeError):
     """The model's reply hit its token limit even after one retry with a
     doubled limit - the reply is incomplete (typically a JSON string cut off
@@ -158,22 +200,31 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     budget = max_tokens
     for _ in range(2):
-        message = client.messages.create(
-            model=settings.claude_model,
-            max_tokens=budget,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-            timeout=_timeout_for(budget),
-            **extra,
-        )
+        started = time.monotonic()
+        try:
+            message = client.messages.create(
+                model=settings.claude_model,
+                max_tokens=budget,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=_timeout_for(budget),
+                **extra,
+            )
+        except Exception as e:
+            _record_call("api_error", started=started, max_tokens=budget, detail=f"{type(e).__name__}: {e}")
+            raise
         text = "".join(getattr(block, "text", "") or "" for block in (message.content or []))
         if getattr(message, "stop_reason", None) != "max_tokens":
             if not text.strip():
+                _record_call("empty_reply", started=started, max_tokens=budget, message=message)
                 raise RuntimeError("The model returned an empty reply.")
+            _record_call("ok", started=started, max_tokens=budget, message=message)
             return text
         if budget >= _MAX_OUTPUT_TOKENS:
+            _record_call("cut_off", started=started, max_tokens=budget, message=message)
             break
-        print(f"[llm] reply cut off at {budget} tokens - retrying once with {min(budget * 2, _MAX_OUTPUT_TOKENS)}", file=sys.stderr)
+        _record_call("cut_off_retrying", started=started, max_tokens=budget, message=message,
+                     detail=f"retrying once with {min(budget * 2, _MAX_OUTPUT_TOKENS)} tokens")
         budget = min(budget * 2, _MAX_OUTPUT_TOKENS)
     raise LLMReplyTruncated(f"The model's reply was cut off at its {budget}-token limit.")
 
@@ -238,20 +289,140 @@ def _log_unparseable(raw: str, error: json.JSONDecodeError) -> None:
     print(f"[llm] unparseable reply ({error}); {len(raw or '')} chars; around the error: {snippet!r}", file=sys.stderr)
 
 
-def _call_claude_json(prompt: str, max_tokens: int = 4096):
+# ---- Tool-use output for code-writing calls (settings.llm_tool_output) ----
+_TOOL_NAME = "submit_reply"
+_TOOL_NOTE = (
+    "\n\nSubmit your reply by calling the submit_reply tool, with the JSON fields described above as its "
+    "arguments. Code goes in as plain text - no JSON escaping needed."
+)
+_tool_output_disabled_reason: str | None = None  # set once if the API rejects tool use - then JSON text only
+
+
+def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict:
+    """Same guarantees as _call_claude (cut-off retry, scaled timeout,
+    logging), but the reply comes back as the arguments of a forced tool
+    call - already-parsed fields, so a code file inside it can't break JSON."""
+    client = _get_client()
+    extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
+    tool = {"name": _TOOL_NAME, "description": "Submit your reply - its arguments are the reply's fields.", "input_schema": schema}
+    budget = max_tokens
+    for _ in range(2):
+        started = time.monotonic()
+        try:
+            message = client.messages.create(
+                model=settings.claude_model, max_tokens=budget, system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt + _TOOL_NOTE}],
+                tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME},
+                timeout=_timeout_for(budget), **extra,
+            )
+        except Exception as e:
+            _record_call("api_error", started=started, max_tokens=budget, detail=f"tool: {type(e).__name__}: {e}")
+            raise
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            if budget >= _MAX_OUTPUT_TOKENS:
+                _record_call("cut_off", started=started, max_tokens=budget, message=message, detail="tool")
+                break
+            _record_call("cut_off_retrying", started=started, max_tokens=budget, message=message, detail="tool")
+            budget = min(budget * 2, _MAX_OUTPUT_TOKENS)
+            continue
+        block = next((b for b in (message.content or []) if getattr(b, "type", None) == "tool_use"), None)
+        if block is None or not isinstance(getattr(block, "input", None), dict):
+            _record_call("invalid_reply", started=started, max_tokens=budget, message=message, detail="tool: no tool call in reply")
+            raise ValueError("The model didn't return its reply through the tool.")
+        _record_call("ok", started=started, max_tokens=budget, message=message, detail="tool")
+        return block.input
+    raise LLMReplyTruncated(f"The model's reply was cut off at its {budget}-token limit.")
+
+
+def _call_claude_json(prompt: str, max_tokens: int = 4096, schema: dict | None = None):
     """_call_claude + _parse_json_response for every call that expects JSON,
-    with one corrective retry when the reply isn't valid JSON."""
+    with one corrective retry when the reply isn't valid JSON. With a
+    `schema` and settings.llm_tool_output on, the reply comes through a tool
+    call instead (see _call_claude_tool) - falling back to JSON text for this
+    process if the API rejects tool use."""
+    global _tool_output_disabled_reason
+    if schema is not None and settings.llm_tool_output and _tool_output_disabled_reason is None:
+        try:
+            return _call_claude_tool(prompt, schema, max_tokens=max_tokens)
+        except anthropic.BadRequestError as e:
+            _tool_output_disabled_reason = f"{type(e).__name__}: {e}"
+            _record_call("tool_output_disabled", detail=_tool_output_disabled_reason)
     raw = _call_claude(prompt, max_tokens=max_tokens)
     try:
         return _parse_json_response(raw)
     except json.JSONDecodeError as error:
         _log_unparseable(raw, error)
+        _record_call("invalid_json_retrying", detail=str(error))
         retry_raw = _call_claude(prompt + "\n\n" + _JSON_RETRY_NOTE.format(error=error), max_tokens=max_tokens)
         try:
             return _parse_json_response(retry_raw)
         except json.JSONDecodeError as retry_error:
             _log_unparseable(retry_raw, retry_error)
+            _record_call("invalid_json", detail=str(retry_error))
             raise
+
+
+def _require_reply(result, what: str, *, numbers=(), strings=(), lists=(), score_range=(0, 100)) -> dict:
+    """The fields a caller will SAVE must be present with the right type -
+    tests/test_llm_bad_replies.py found scorers accepting {} or
+    {"final_score": "high"} and returning it to be stored as a score. A
+    reply that fails this raises a clear ValueError instead: the router
+    shows "trouble responding", background scoring records scoring_failed
+    and can be retried - bad data is never saved. `lists` are optional
+    (callers default them to []) but must be lists when present."""
+    if not isinstance(result, dict):
+        raise ValueError(f"{what}: expected a JSON object from the AI, got {type(result).__name__}")
+    problems = []
+    for field in numbers:
+        value = result.get(field)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            problems.append(f"{field} (not a number)")
+        elif not score_range[0] <= value <= score_range[1]:
+            problems.append(f"{field} (out of range: {value})")
+    problems += [f"{field} (not text)" for field in strings if not isinstance(result.get(field), str)]
+    problems += [f"{field} (not a list)" for field in lists if field in result and not isinstance(result[field], list)]
+    if problems:
+        _record_call("invalid_reply", detail=f"{what}: {', '.join(problems)}")
+        raise ValueError(f"{what}: the AI reply is missing or has the wrong type for {', '.join(problems)}")
+    return result
+
+
+def _require_rows(result, what: str, required_text: str | None = None) -> list:
+    """A generated answer key must be a non-empty list of row objects (with
+    `required_text` filled in, when given) - an empty or junk list used to be
+    saved as the reference every candidate is graded against."""
+    if not isinstance(result, list) or not result or not all(isinstance(row, dict) for row in result):
+        _record_call("invalid_reply", detail=f"{what}: not a non-empty list of rows")
+        raise ValueError(f"{what}: expected a non-empty JSON array of objects from the AI, got {str(result)[:120]!r}")
+    if required_text and not all(isinstance(row.get(required_text), str) and row[required_text].strip() for row in result):
+        raise ValueError(f"{what}: every row needs a non-empty {required_text!r}")
+    return result
+
+
+# Reply schemas for the code-writing calls (tool-use output). Only the core
+# fields are typed; anything else the prompt asks for (planted_flaw, ...)
+# still passes through - JSON schema allows extra properties by default.
+_TEXT = {"type": "string"}
+_TEXT_OR_NULL = {"type": ["string", "null"]}
+SCHEMA_CODE_TURN = {
+    "type": "object",
+    "properties": {"response_kind": _TEXT, "response_message": _TEXT, "code_after": _TEXT_OR_NULL,
+                   "category_status": {"type": "object"}},
+    "required": ["response_kind", "response_message"],
+}
+SCHEMA_SYNTAX_FIX = {
+    "type": "object",
+    "properties": {"response_kind": _TEXT, "response_message": _TEXT, "code_after": _TEXT, "category_status": {"type": "object"}},
+    "required": ["code_after"],
+}
+SCHEMA_R3_REFERENCE = {
+    "type": "object",
+    "properties": {
+        "test_cases": {"type": "array", "items": {"type": "object"}}, "expected_approach": _TEXT,
+        "required_constructs": {"type": "array", "items": _TEXT}, "reference_solution": _TEXT,
+    },
+    "required": ["test_cases", "expected_approach", "reference_solution"],
+}
 
 
 # ---- Round 1 ----
@@ -262,10 +433,7 @@ def generate_round1_reference(scenario_description: str, experience_band: str, t
         experience_band=experience_band,
         time_limit_minutes=time_limit_minutes,
     )
-    result = _call_claude_json(prompt)
-    if not isinstance(result, list):
-        raise ValueError(f"Expected a JSON array of test cases, got: {type(result)}")
-    return result
+    return _require_rows(_call_claude_json(prompt), "Round 1 reference", required_text="title")
 
 
 def score_round1_submission(
@@ -281,9 +449,7 @@ def score_round1_submission(
         reference_cases=json.dumps(reference_cases, indent=2),
         candidate_submission=candidate_submission,
     )
-    result = _call_claude_json(prompt)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result = _require_reply(_call_claude_json(prompt), "Round 1 scoring", numbers=("coverage_score", "final_score"), strings=("feedback_text",), lists=("misses", "concept_coverage"))
     result["_provenance"] = _scoring_provenance("round1_scoring.txt", prompt_text)
     return result
 
@@ -306,10 +472,7 @@ def generate_round2_reference(scenario_description: str, experience_band: str, t
         experience_band=experience_band,
         time_limit_minutes=time_limit_minutes,
     )
-    result = _call_claude_json(prompt)
-    if not isinstance(result, list):
-        raise ValueError(f"Expected a JSON array of debugging steps, got: {type(result)}")
-    return result
+    return _require_rows(_call_claude_json(prompt), "Debugging reference")
 
 
 def score_round2_submission(
@@ -327,9 +490,7 @@ def score_round2_submission(
         candidate_investigation=json.dumps(candidate_investigation, indent=2),
         candidate_root_cause=candidate_root_cause,
     )
-    result = _call_claude_json(prompt)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result = _require_reply(_call_claude_json(prompt), "Debugging scoring", numbers=("coverage_score", "final_score"), strings=("feedback_text",), lists=("misses",))
     result["_provenance"] = _scoring_provenance("round2_debug_scoring.txt", prompt_text)
     return result
 
@@ -350,7 +511,7 @@ def generate_round3_reference(scenario_description: str, experience_band: str, i
         input_format=io_format["input"],
         output_format=io_format["output"],
     )
-    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_R3_REFERENCE)
     if (
         not isinstance(result, dict)
         or "test_cases" not in result
@@ -519,7 +680,7 @@ def _round3_coding_turn_once(
         # 4096, not the 2048 used before this feature - the response now
         # carries a full code snapshot AND a category_status block (one
         # neutral_question per open category) in the same JSON object.
-        result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
+        result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
         try:
@@ -666,7 +827,7 @@ def round3_syntax_fix(
         language=language,
         required_constructs=json.dumps(required_constructs),
     )
-    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_SYNTAX_FIX)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the syntax-fix response, got: {type(result)}")
     try:
@@ -739,9 +900,7 @@ def score_round3_coding(
         conversation_so_far=json.dumps(conversation_so_far, indent=2),
         test_results=json.dumps(test_results, indent=2),
     )
-    result = _call_claude_json(prompt, max_tokens=2048)
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a JSON object for scoring, got: {type(result)}")
+    result = _require_reply(_call_claude_json(prompt, max_tokens=2048), "Round 3 scoring", numbers=("correctness_score", "precision_score", "efficiency_score", "independent_judgment_score", "final_score"), strings=("feedback_text",), lists=("misses", "guardrail_violations"))
     result["_provenance"] = _scoring_provenance("round3_coding_scoring.txt", prompt_text)
     return result
 
@@ -1060,7 +1219,7 @@ def round4_pilot_turn(
         conversation_so_far=json.dumps(conversation_so_far, indent=2),
         candidate_prompt=candidate_prompt,
     )
-    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS)
+    result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the pilot turn, got: {type(result)}")
     return Round4PilotTurnResponse.model_validate(result).model_dump()
@@ -1185,7 +1344,7 @@ def round4_auto_turn(
     )
 
     def _generate(note: str = "") -> tuple[dict, str | None]:
-        result = _call_claude_json(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=_CODE_REPLY_TOKENS)
+        result = _call_claude_json(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
         planted = result.pop("planted_flaw", None)
