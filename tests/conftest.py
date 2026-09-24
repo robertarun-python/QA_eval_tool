@@ -63,11 +63,6 @@ def client(monkeypatch):
     # in test assertions.
     import app.database as database_module
     monkeypatch.setattr(database_module, "SessionLocal", TestingSessionLocal)
-    # Much of the suite still exercises the retired simulated round 2 mode
-    # (see settings.legacy_simulated_round2_enabled); the retirement itself
-    # is tested with it switched back off.
-    from app.config import settings as app_settings
-    monkeypatch.setattr(app_settings, "legacy_simulated_round2_enabled", True)
 
     with TestClient(app) as c:
         # Fix for a bug found in the 2026-09-12 engineering review: httpx's
@@ -197,19 +192,20 @@ def _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7", title="A
 
     scenario = client.post(
         "/hr/scenarios",
-        json={"round_number": 2, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30},
+        json={"round_number": 2, "title": title, "description": "Automate a subset of your round 1 test cases.", "experience_band": band, "time_limit_minutes": 30,
+              "config_json": {"mode": "ai_test_automation", "environment_code_by_language": {"python": "# env\n"}}},
         cookies=_auth(hr_token),
     ).json()
+    # The automation reference is system-authored (seed_round2_automation.py),
+    # not generated - set it directly, as that seed does.
+    import app.database as database_module
+    from app.models import Scenario
+    db = database_module.SessionLocal()
+    db.get(Scenario, scenario["id"]).reference_json = {"ground_truth": "g", "validation_notes": "v"}
+    db.commit()
+    db.close()
     client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))
     return scenario
-
-
-def _create_round4_test_case(client, token, title=None):
-    return client.post(
-        "/candidate/round/2/test-case",
-        json={"title": title},
-        cookies=_auth(token),
-    ).json()
 
 
 def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band="0-7", email=None, seed_upto=2):
@@ -222,7 +218,7 @@ def _complete_rounds_1_through_3(client, hr_token, cand_token, monkeypatch, band
     round 2 (AI-assisted automation), round 3 (coding). Round 2 is seeded
     rather than driven end-to-end - its real flow needs a test selection,
     AI turns and an execution, none of which any caller of this helper is
-    actually testing (see test_round4_auto.py for that round's own
+    actually testing (see test_round2_automation.py for that round's own
     coverage)."""
     from app.services import llm_service, execution_service
 

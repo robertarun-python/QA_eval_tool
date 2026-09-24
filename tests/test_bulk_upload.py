@@ -115,7 +115,7 @@ def test_reupload_resets_and_archives_with_reapplied_flag(client, monkeypatch):
     from app.services import llm_service
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    scenario = _publish_scenario(client, hr_token, monkeypatch, title="R1 scenario")
+    _publish_scenario(client, hr_token, monkeypatch, title="R1 scenario")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
         lambda **kwargs: {"coverage_score": 90, "misses": [], "final_score": 90, "feedback_text": "great"},

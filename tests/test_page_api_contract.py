@@ -1,5 +1,5 @@
 """
-Contract between the page (static/app.js) and the API (FastAPI routes): every
+Contract between the page (static/js/*.js) and the API (FastAPI routes): every
 request the page makes must hit a route that exists, with a method it
 accepts, and - when the body is written inline - send only fields that
 route's schema knows (FastAPI silently DROPS unknown fields, so a renamed or
@@ -22,7 +22,9 @@ from fastapi.routing import APIRoute
 
 from app.main import app
 
-APP_JS = (Path(__file__).parent.parent / "backend" / "app" / "static" / "app.js").read_text()
+from .page_js import page_js
+
+APP_JS = page_js()  # every page script, in load order
 
 
 def _matching(text: str, start: int, open_ch: str, close_ch: str) -> int:
@@ -135,7 +137,7 @@ CALLS = _page_calls()
 
 def test_the_page_makes_the_expected_number_of_calls():
     # A parser that silently found nothing would make every other test here pass.
-    assert len(CALLS) >= 100
+    assert len(CALLS) >= 90
 
 
 @pytest.mark.parametrize("line,path,method,keys,spread", CALLS, ids=[f"app.js:{c[0]} {c[2]} {c[1]}" for c in CALLS])

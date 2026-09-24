@@ -8,7 +8,6 @@ from .conftest import (
     CANDIDATE2_EMAIL, CANDIDATE2_PASSWORD,  # 0-7 band
     CANDIDATE3_EMAIL, CANDIDATE3_PASSWORD,
     FAKE_REFERENCE, FAKE_ENVIRONMENT, FAKE_UI_MOCKUP, _login, _auth, _publish_scenario, _publish_round4_scenario, _complete_rounds_1_through_3,
-    _create_round4_test_case,
 )
 
 
@@ -304,20 +303,13 @@ def test_time_limit_is_blocked_while_a_candidate_is_mid_round4(client, monkeypat
     fresh = client.get("/hr/scenarios", cookies=_auth(hr_token)).json()
     assert next(s for s in fresh if s["id"] == published["id"])["time_limit_minutes"] == 30
 
-    # Once they submit, HR is free to change it again. Submitting requires
-    # at least one test case with a turn (see candidate.py's round4_submit).
-    from app.services import llm_service
-    monkeypatch.setattr(llm_service, "round4_respond", lambda **kwargs: {
-        "response_text": "ok", "steps": [{"description": "Did a thing", "status": "pass"}],
-        "observed_result": "It worked.", "status": "pass",
-    })
-    monkeypatch.setattr(llm_service, "score_round4_conversation", lambda **kwargs: {
-        "coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "Nothing submitted.",
-    })
-    tc = _create_round4_test_case(client, cand_token, title="A test case")
-    client.post("/candidate/round/2/turn", json={"test_case_id": tc["id"], "candidate_prompt": "go"}, cookies=_auth(cand_token))
-    res = client.post("/candidate/round/2/submit", cookies=_auth(cand_token))
-    assert res.status_code == 201
+    # Once their round is submitted, HR is free to change it again.
+    import app.database as database_module
+    from app.models import RoundStatus, Submission
+    db = database_module.SessionLocal()
+    db.query(Submission).filter(Submission.round_number == 2).one().status = RoundStatus.submitted
+    db.commit()
+    db.close()
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 200
     assert res.json()["time_limit_minutes"] == 45
@@ -511,7 +503,7 @@ def test_round1_submission_scored_via_background_task(client, monkeypatch):
     from app.services import llm_service
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    scenario = _publish_scenario(client, hr_token, monkeypatch, title="Search box")
+    _publish_scenario(client, hr_token, monkeypatch, title="Search box")
 
     monkeypatch.setattr(
         llm_service, "score_round1_submission",

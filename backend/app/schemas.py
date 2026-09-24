@@ -75,12 +75,6 @@ class AppSettingsOut(BaseModel):
     round2_time_limit_minutes: Optional[int] = None
     round3_time_limit_minutes: Optional[int] = None
     round4_time_limit_minutes: Optional[int] = None
-    # Read-only here - see config.py's round4_default_assistance_pct.
-    # Not part of AppSettingsUpdate below: it's an env-sourced,
-    # deployment-level fallback, not something HR edits through this
-    # form. Exposed purely so app.js's round4 settings card can read the
-    # real server default instead of hardcoding its own separate copy.
-    round4_default_assistance_pct: int
 
     class Config:
         from_attributes = True
@@ -169,21 +163,10 @@ class ScenarioTimeLimitUpdate(BaseModel):
     time_limit_minutes: int = Field(ge=1)
 
 
-class Round4ConfigUpdate(BaseModel):
-    """See hr.py's PATCH /scenarios/{id}/round4-config - the one round4-
-    specific tunable exposed to HR: how often the simulated assistant
-    gets things right per turn (Scenario.config_json["assistance_pct"],
-    see llm_service.DEFAULT_ROUND4_CONFIG). Bounded away from the
-    extremes - 0% or 100% both defeat the exercise, since an assistant
-    that's always wrong or always right gives the candidate nothing
-    real to verify."""
-    assistance_pct: int = Field(ge=10, le=95)
-
-
 class Round4InstructionsUpdate(BaseModel):
     """See hr.py's PATCH /scenarios/{id}/round4-instructions - editing
     title/description on a round4 scenario regardless of status, same
-    reasoning and blocking as Round4ConfigUpdate above. Round 1/2 keep
+    reasoning and blocking as the round's time limit. Round 1/2 keep
     title/description as draft-only edits (see ScenarioUpdate) because
     they gate a fixed reference answer that's meaningful to review before
     publishing; round 4 has no such reference, so there's no equivalent
@@ -240,8 +223,8 @@ class ScenarioOut(ScenarioPublicOut):
     # explain why the "resyncs automatically" note doesn't apply anymore.
     environment_hr_edited: bool = False
     # Round 4 only in practice (round 1/2 scenarios never set anything
-    # here) - see Round4ConfigUpdate. HR-facing so the assistant-accuracy
-    # editor can show the current value; candidates never see this.
+    # here) - the round's mode lives here. HR-facing; candidates never
+    # see this.
     config_json: dict[str, Any] = {}
 
 
@@ -826,7 +809,7 @@ class Round4PilotTurnCreate(BaseModel):
 # round 4 and the Focused Automation Pilot; see routers/candidate.py's
 # /round/4/auto/* endpoints. ----
 
-class Round4AutoDesignRowOut(BaseModel):
+class Round2AutomationDesignRowOut(BaseModel):
     """One of the candidate's own Round 1 rows, as an immutable snapshot.
     `index` is its position in the Round 1 submission - the handle used to
     select it and to attach refinements to it (Round 1 rows still carry no
@@ -841,31 +824,31 @@ class Round4AutoDesignRowOut(BaseModel):
     refinements: list[str] = Field(default_factory=list)
 
 
-class Round4AutoLanguageCreate(BaseModel):
+class Round2AutomationLanguageCreate(BaseModel):
     """The candidate's language for this round. Writable exactly once,
     and before any test case can be selected - see routers/candidate.py's
-    round4_auto_lock_language. Round 3 inherits whatever is locked here
+    round2_automation_lock_language. Round 3 inherits whatever is locked here
     (see _round3_language_for) rather than asking again."""
     language: Literal["python", "java", "javascript"]
 
 
-class Round4AutoSelectCreate(BaseModel):
+class Round2AutomationSelectCreate(BaseModel):
     """1-2 Round 1 rows, by index - normally sent one at a time (the
     candidate automates a test case, then decides whether to add a
     second), but a caller may still send both together. Only after the
     language is locked, and never re-selecting a row already added - see
-    routers/candidate.py's round4_auto_select."""
+    routers/candidate.py's round2_automation_select."""
     row_indexes: list[int] = Field(min_length=1, max_length=2)
 
 
-class Round4AutoRefineCreate(BaseModel):
+class Round2AutomationRefineCreate(BaseModel):
     row_index: int
     note: str = Field(min_length=1, max_length=2000)
 
 
-class Round4AutoTestDataUpdate(BaseModel):
+class Round2AutomationTestDataUpdate(BaseModel):
     """Corrects ONE selected test case's own test data for automation
-    purposes - see routers/candidate.py's round4_auto_update_test_data.
+    purposes - see routers/candidate.py's round2_automation_update_test_data.
     Never touches the immutable Round 1 record or the original design
     snapshot's own test_data, which stays available for HR/scoring
     transparency once a correction is made (see
@@ -874,7 +857,7 @@ class Round4AutoTestDataUpdate(BaseModel):
     test_data: str = Field(min_length=1, max_length=2000)
 
 
-class Round4AutoTurnCreate(BaseModel):
+class Round2AutomationTurnCreate(BaseModel):
     """row_index picks which selected test case this turn is about -
     optional only when exactly one test case is selected (see
     routers/candidate.py's _resolve_tc_row), required once there are two."""
@@ -882,7 +865,7 @@ class Round4AutoTurnCreate(BaseModel):
     row_index: Optional[int] = None
 
 
-class Round4AutoTurnOut(BaseModel):
+class Round2AutomationTurnOut(BaseModel):
     row_index: int
     turn_number: int
     candidate_prompt: str
@@ -891,26 +874,26 @@ class Round4AutoTurnOut(BaseModel):
     code_after: Optional[str] = None
 
 
-class Round4AutoClarifyCreate(BaseModel):
+class Round2AutomationClarifyCreate(BaseModel):
     """The candidate's automation instruction, submitted to the
     clarification-only flow (see routers/candidate.py's
-    round4_auto_clarify) rather than /turn - this endpoint never writes
+    round2_automation_clarify) rather than /turn - this endpoint never writes
     code, regardless of how complete the instruction turns out to be.
-    row_index: see Round4AutoTurnCreate."""
+    row_index: see Round2AutomationTurnCreate."""
     candidate_prompt: str = Field(min_length=1, max_length=10000)
     row_index: Optional[int] = None
 
 
-class Round4AutoClarifyLLMResponse(BaseModel):
+class Round2AutomationClarifyLLMResponse(BaseModel):
     """The raw shape the clarify-check LLM call returns - see
-    llm_service.round4_auto_clarify and prompts/round4_auto_clarify.txt.
+    llm_service.round2_automation_clarify and prompts/round2_automation_clarify.txt.
     Internal to that function; the endpoint's actual response is the
-    same Round4AutoTurnOut every other R2 turn uses, with code_after
+    same Round2AutomationTurnOut every other R2 turn uses, with code_after
     always null - this flow never generates code.
 
     The LLM is deliberately confined to CLASSIFICATION (a bounded
     status, plus the raw material a deterministic rule needs), not
-    given authority over the actual outcome - round4_auto_clarify_policy
+    given authority over the actual outcome - round2_automation_clarify_policy
     .build_clarify_response is what decides what the candidate sees.
     "contradicts_prior" is its own status, not folded into
     "insufficient": a candidate who already said two different things
@@ -931,38 +914,38 @@ class Round4AutoClarifyLLMResponse(BaseModel):
         return self
 
 
-class Round4AutoCodeUpdate(BaseModel):
+class Round2AutomationCodeUpdate(BaseModel):
     """The candidate's own direct edit to one selected test case's own
     code buffer. Recorded as its own audit entry (see
-    Round4AutoTCStateOut.code_edits_count) so "what the assistant
+    Round2AutomationTCStateOut.code_edits_count) so "what the assistant
     produced" and "what the candidate changed themselves" stay
-    distinguishable at scoring time. row_index: see Round4AutoTurnCreate."""
+    distinguishable at scoring time. row_index: see Round2AutomationTurnCreate."""
     code: str = Field(min_length=1, max_length=200000)
     row_index: Optional[int] = None
 
 
-class Round4AutoRunCreate(BaseModel):
+class Round2AutomationRunCreate(BaseModel):
     """Optional body for run - one test case's current editor contents,
     so it acts on exactly what's on screen for that TC. code: None = use
-    what's already stored. row_index: see Round4AutoTurnCreate."""
+    what's already stored. row_index: see Round2AutomationTurnCreate."""
     code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
     row_index: Optional[int] = None
 
 
-class Round4AutoTCSubmitEntry(BaseModel):
-    """One selected test case's final code - see Round4AutoSubmitCreate.entries.
+class Round2AutomationTCSubmitEntry(BaseModel):
+    """One selected test case's final code - see Round2AutomationSubmitCreate.entries.
     No candidate-written interpretation: whether the run genuinely proves
     the expected result is judged from the code and execution result
-    alone (see prompts/round4_auto_scoring.txt)."""
+    alone (see prompts/round2_automation_scoring.txt)."""
     row_index: int
     code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
 
 
-class Round4AutoSubmitCreate(BaseModel):
+class Round2AutomationSubmitCreate(BaseModel):
     """`entries` is one per selected test case - submit checks that each
     selected test case was independently run at least once, not just one
     shared run for the whole round (see routers/candidate.py's
-    round4_auto_submit).
+    round2_automation_submit).
 
     Back-compat convenience: with exactly one test case selected, the
     flat `code` field below may be used instead of `entries` - the shape
@@ -970,11 +953,11 @@ class Round4AutoSubmitCreate(BaseModel):
     single-entry list for that one TC. Two or more selected test cases
     must use `entries` explicitly - there's no longer a single buffer a
     flat `code` could unambiguously refer to."""
-    entries: Optional[list[Round4AutoTCSubmitEntry]] = None
+    entries: Optional[list[Round2AutomationTCSubmitEntry]] = None
     code: Optional[str] = Field(default=None, min_length=1, max_length=200000)
 
 
-class Round4AutoRunOut(BaseModel):
+class Round2AutomationRunOut(BaseModel):
     stdout: str
     stderr: str
     exit_code: Optional[int] = None
@@ -990,37 +973,37 @@ class Round4AutoRunOut(BaseModel):
     ran_at: Optional[datetime] = None
 
 
-class Round4AutoTCStateOut(BaseModel):
+class Round2AutomationTCStateOut(BaseModel):
     """One selected test case's own independent automation state - its
     own code, AI turns, direct-edit count, last run and interpretation,
     untouched by any other selected test case (see routers/candidate.py's
-    round4_auto_turn/code/run, all row_index-scoped). code starts as the
-    provided environment at selection time (see round4_auto_select)."""
+    round2_automation_turn/code/run, all row_index-scoped). code starts as the
+    provided environment at selection time (see round2_automation_select)."""
     row_index: int
     code: str = ""
-    turns: list[Round4AutoTurnOut] = Field(default_factory=list)
+    turns: list[Round2AutomationTurnOut] = Field(default_factory=list)
     code_edits_count: int = 0
-    last_run: Optional[Round4AutoRunOut] = None
+    last_run: Optional[Round2AutomationRunOut] = None
     validation: str = ""
 
 
-class Round4AutoStateOut(BaseModel):
+class Round2AutomationStateOut(BaseModel):
     """Everything the automation round's candidate screen needs. Nothing
     here carries ground truth, validation notes, the scoring rubric, or
     the traceability signal - those are HR/system-only (see
-    prompts/round4_auto_scoring.txt's REFERENCE ONLY section).
+    prompts/round2_automation_scoring.txt's REFERENCE ONLY section).
 
     language is None until the candidate locks it (see
-    round4_auto_lock_language) - test-case selection is blocked until
+    round2_automation_lock_language) - test-case selection is blocked until
     then, so every other field below is meaningless pre-lock.
 
     tc_state carries each selected test case's own independent
-    automation state (see Round4AutoTCStateOut); `selected` itself stays
+    automation state (see Round2AutomationTCStateOut); `selected` itself stays
     the immutable design snapshot only, never mutable state."""
     language: Optional[str] = None
     language_locked: bool = False
-    available_rows: list[Round4AutoDesignRowOut]
-    selected: list[Round4AutoDesignRowOut]
+    available_rows: list[Round2AutomationDesignRowOut]
+    selected: list[Round2AutomationDesignRowOut]
     selection_locked: bool
     environment_code: str
     # Candidate-facing reference material, reused unmodified from whatever
@@ -1033,7 +1016,7 @@ class Round4AutoStateOut(BaseModel):
     # that generator or it failed - the frontend just shows nothing then.
     environment: Optional[Round4EnvironmentOut] = None
     ui_mockup: Optional[Round4UiMockupOut] = None
-    tc_state: list[Round4AutoTCStateOut] = Field(default_factory=list)
+    tc_state: list[Round2AutomationTCStateOut] = Field(default_factory=list)
 
 
 class Round4PilotCodeUpdate(BaseModel):

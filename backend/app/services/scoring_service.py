@@ -203,8 +203,8 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                     "actual_output_error": "Reference test case is missing 'input' - could not run.",
                 })
                 continue
-            result = execution_service.run_code(language=language, code=final_code, stdin=[tc_input])
-            if result.infra_error:
+            run = execution_service.run_code(language=language, code=final_code, stdin=[tc_input])
+            if run.infra_error:
                 # Per the design spec's Error handling section: a hosted
                 # execution-API infra failure (e.g. the Piston endpoint
                 # rejecting the request) must never be scored as if it
@@ -218,7 +218,7 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
                 # exception to RoundStatus.scoring_failed - the same path
                 # every other scoring failure takes.
                 raise RuntimeError(f"Code execution infra error while scoring test case: {tc.get('description', tc_input)}")
-            actual_output = (result.stdout or "").strip()
+            actual_output = (run.stdout or "").strip()
             expected_output = tc.get("expected_output")
             # input()'s prompt argument (if the candidate's code passes
             # one) writes straight to stdout with no trailing newline
@@ -274,104 +274,6 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     return score
 
 
-def _build_round4_evidence(submission: Submission) -> dict:
-    """PRIMARY EVIDENCE for Round 4 scoring - see prompts/round4_scoring.txt's
-    own PRIMARY EVIDENCE / REFERENCE ONLY labels and
-    llm_service.score_round4_conversation's docstring, which this must
-    stay in lockstep with. Built ENTIRELY from this one submission's own
-    round4_test_cases/turns - no other round, no other candidate, no
-    cached score ever contributes here. Keep this the only place that
-    builds a round4_evidence dict, so "what counts as Round 4 evidence"
-    has exactly one definition in the codebase."""
-    test_cases = [
-        {
-            "title": tc.title or f"Test case {i + 1}",
-            "turns": [
-                {"turn_number": t.turn_number, "candidate_prompt": t.candidate_prompt, "model_response": t.model_response}
-                for t in tc.turns
-            ],
-        }
-        for i, tc in enumerate(submission.round4_test_cases)
-    ]
-    return {"test_cases": test_cases}
-
-
-def _build_round1_reference_context(db: Session, submission: Submission) -> dict:
-    """REFERENCE ONLY for Round 4 scoring - just enough of the
-    candidate's own Round 1 work to understand the scenario being
-    automated. Never a source of Round 4 findings (see the prompt's own
-    guardrail language) - deliberately carries only scenario_title/
-    scenario_description/submitted_rows, nothing that looks like a
-    finding or a prior evaluation result.
-
-    archived.is_(False) matters for a re-applied candidate (see
-    CandidateAppearance) - without it, a candidate with more than one
-    round 1 submission (current + an old, archived one from a prior
-    cycle) could get scored against the WRONG scenario's title/
-    description/rows, since .first() with no ordering has no guarantee
-    of picking the current one. _round1_context_for (used for the live
-    round 4 UI) already filters this correctly - this lookup, used at
-    final scoring time, was the one place that didn't."""
-    round1_submission = (
-        db.query(Submission)
-        .filter(Submission.user_id == submission.user_id, Submission.round_number == 1, Submission.archived.is_(False))
-        .first()
-    )
-    return {
-        "scenario_title": round1_submission.scenario.title if round1_submission else "",
-        "scenario_description": round1_submission.scenario.description if round1_submission else "",
-        "submitted_rows": (round1_submission.content or []) if round1_submission else [],
-    }
-
-
-def score_round4_submission(db: Session, submission: Submission) -> Score:
-    """Round 4 gets one holistic score across all the candidate's own
-    test cases (not per-test-case sub-scores - see
-    llm_service.score_round4_conversation), same Score shape as every
-    other round. Unlike rounds 1/2 there's no scenario reference to
-    score against - the target is the candidate's own round 1
-    submission, fetched fresh here rather than passed in.
-
-    round4_evidence (PRIMARY) and round1_reference_context (REFERENCE
-    ONLY) are built and passed as two separate, narrowly-shaped dicts -
-    see _build_round4_evidence/_build_round1_reference_context and
-    llm_service.score_round4_conversation's own enforced key whitelist -
-    rather than one combined blob, specifically so Round 2, Round 3,
-    another candidate's data, or a previous scoring result have no field
-    to be accidentally placed into on either side of that boundary."""
-    scenario = submission.scenario
-    config = {**llm_service.DEFAULT_ROUND4_CONFIG, **(scenario.config_json or {})}
-
-    round4_evidence = _build_round4_evidence(submission)
-    round1_reference_context = _build_round1_reference_context(db, submission)
-
-    result = llm_service.score_round4_conversation(
-        round4_evidence=round4_evidence,
-        round1_reference_context=round1_reference_context,
-        assistance_pct=config["assistance_pct"],
-    )
-    misses, final_score, evidence_audit_summary = _round4_findings_to_misses(result, round4_evidence["test_cases"])
-
-    score = _get_or_create_score(db, submission)
-    _apply_provenance(score, result)
-    score.coverage_score = result.get("coverage_score")
-    score.misses_json = misses
-    score.final_score = final_score
-    score.feedback_text = result.get("feedback_text")
-    raw_response = {
-        "round1_reference_context": round1_reference_context,
-        "round4_evidence": round4_evidence,
-        "scoring": result,
-    }
-    if evidence_audit_summary is not None:
-        raw_response["evidence_audit"] = evidence_audit_summary
-    score.raw_llm_response_json = raw_response
-    submission.status = RoundStatus.scored
-    db.commit()
-    db.refresh(score)
-    return score
-
-
 def _round4_findings_to_misses(
     result: dict, test_cases_payload: list[dict],
     supporting_texts: list[str] | dict[str, list[str]] | None = None,
@@ -414,89 +316,19 @@ def _round4_findings_to_misses(
     return report.surviving_claims(), final_score, audit_report
 
 
-def _build_round4_pilot_evidence(submission: Submission) -> dict:
-    """PRIMARY EVIDENCE for the Round 4 pilot ("Focused Automation
-    Pilot") - built entirely from this submission's own content JSON
-    (see routers/candidate.py's /round/4/pilot/* endpoints, the only
-    writers of this shape - never from another submission or a cached
-    score). Wraps the pilot's flat AI-turn list as ONE synthetic "test
-    case" so round4_evidence_audit.py (built for the legacy per-test-case
-    shape) can check evidence citations against it completely unmodified -
-    the auditor only needs a flattened turn list with candidate_prompt/
-    model_response per turn, not what the turns semantically represent."""
-    content = submission.content or {}
-    turns = content.get("turns") or []
-    audit_turns = [
-        {"turn_number": t["turn_number"], "candidate_prompt": t["candidate_prompt"], "model_response": t.get("response_message", "")}
-        for t in turns
-    ]
-    return {
-        "test_cases": [{"title": "Transaction flow automation", "turns": audit_turns}],
-        "final_code": content.get("code", ""),
-        "clarification": (
-            {"question": content["clarification_question"], "response": content["clarification_response"]}
-            if content.get("clarification_question") else None
-        ),
-        "execution_result": content.get("last_run") or {},
-    }
-
-
-def score_round4_pilot_submission(db: Session, submission: Submission) -> Score:
-    """Scores a Round 4 pilot submission - see
-    llm_service.score_round4_pilot_conversation and
-    prompts/round4_pilot_scoring.txt's 5-area rubric. Findings go through
-    the SAME round4_evidence_audit backstop as the legacy round 4 path
-    (_round4_findings_to_misses, reused completely unmodified below) - a
-    pilot finding with no real citation in the candidate's own turns/code
-    never survives into the persisted Score any more than a legacy one
-    does. Per-area sub-scores live inside raw_llm_response_json["scoring"]
-    ["scores"] rather than new Score columns - see ScoreOut.evidence_audit's
-    own reasoning for exposing structured detail through the existing
-    raw_llm_response_json column instead of widening the Score table."""
-    scenario = submission.scenario
-    reference = scenario.reference_json or {}
-    pilot_evidence = _build_round4_pilot_evidence(submission)
-
-    result = llm_service.score_round4_pilot_conversation(
-        scenario_instructions=scenario.description,
-        starter_code=(scenario.config_json or {}).get("starter_code", ""),
-        final_code=pilot_evidence["final_code"],
-        turns=pilot_evidence["test_cases"][0]["turns"],
-        clarification=pilot_evidence["clarification"],
-        execution_result=pilot_evidence["execution_result"],
-        reference_solution=reference.get("reference_solution", ""),
-        validation_notes=reference.get("validation_notes", ""),
-    )
-    misses, final_score, evidence_audit_summary = _round4_findings_to_misses(result, pilot_evidence["test_cases"])
-
-    score = _get_or_create_score(db, submission)
-    _apply_provenance(score, result)
-    score.misses_json = misses
-    score.final_score = final_score
-    score.feedback_text = result.get("feedback_text")
-    raw_response = {"pilot_evidence": pilot_evidence, "scoring": result}
-    if evidence_audit_summary is not None:
-        raw_response["evidence_audit"] = evidence_audit_summary
-    score.raw_llm_response_json = raw_response
-    submission.status = RoundStatus.scored
-    db.commit()
-    db.refresh(score)
-    return score
-
-
 _TC_DESIGN_FIELDS = ("index", "title", "preconditions", "steps", "test_data", "expected_result", "refinements")
 
 
 def _auto_tc_design_only(row: dict) -> dict:
     """Strips a selected row down to its immutable design fields only -
     the shape every selected row had before round 2 gained independent
-    per-TC automation state (see routers/candidate.py's round4_auto_select).
+    per-TC automation state (see routers/candidate.py's round2_automation_select).
     Used wherever "the candidate's design" is shown, so mutable state
     (code/turns/code_edits/last_run/validation) never leaks into what's
     supposed to be the immutable-design section of the scoring prompt.
 
     test_data reflects the candidate's own correction if they made one
-    (see routers/candidate.py's round4_auto_update_test_data) - that's
+    (see routers/candidate.py's round2_automation_update_test_data) - that's
     what the AI actually automated against and what the scorer should
     judge against, not a value the candidate has since flagged as wrong.
     The original is kept alongside as original_test_data whenever a
@@ -525,7 +357,7 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
     """One self-contained evidence block per selected test case - no
     concatenation, no cross-TC label-parsing, replacing the old
     _aggregate_auto_tc_state flattening. Each block carries exactly what
-    routers/candidate.py's round4_auto_turn/clarify/code/run/submit
+    routers/candidate.py's round2_automation_turn/clarify/code/run/submit
     persist for that ONE test case: its own design (title/steps/
     test_data/expected_result AND its own append-only refinement notes -
     see _auto_tc_design_only, which already scopes "refinements" to this
@@ -534,7 +366,7 @@ def _auto_tc_evidence_blocks(selected: list[dict]) -> list[dict]:
     nothing extra needed here), its own code_edits, its own last
     execution result. No candidate-written interpretation field - whether
     a run genuinely proves the expected result is judged from final_code
-    and execution_result alone (see prompts/round4_auto_scoring.txt).
+    and execution_result alone (see prompts/round2_automation_scoring.txt).
     This round's scoring MODEL is not being redesigned - only the shape
     of the data feeding it, since it used to live in one shared buffer
     (then one flattened string) and now lives, and is shown, per selected
@@ -569,7 +401,7 @@ def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
     built for - proven already by round4_scoring.txt's legacy debugging
     flow, which uses the identical convention - so round4_evidence_audit.py
     itself needs no change for turn citations. The SAME label
-    (_auto_tc_label) is also the key scoring_service.score_round4_auto_submission
+    (_auto_tc_label) is also the key scoring_service.score_round2_automation_submission
     builds its TC-scoped supporting_texts dict with, so a quote-only
     citation tagged with this exact label gets checked against only that
     test case's own evidence too - see round4_evidence_audit._check_evidence.
@@ -587,9 +419,9 @@ def _auto_tc_audit_payload(selected: list[dict]) -> list[dict]:
     return payload
 
 
-def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
-    """AI-Assisted Test Automation - see llm_service.score_round4_auto_conversation
-    and prompts/round4_auto_scoring.txt's 5-area rubric. Every piece of
+def score_round2_automation_submission(db: Session, submission: Submission) -> Score:
+    """AI-Assisted Test Automation - see llm_service.score_round2_automation_conversation
+    and prompts/round2_automation_scoring.txt's 5-area rubric. Every piece of
     PRIMARY EVIDENCE comes from this submission's own content JSON (see
     routers/candidate.py's /round/4/auto/* endpoints, its only writers);
     ground truth and validation notes come from the scenario's
@@ -606,7 +438,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     exactly ONE scoring call per submission, same as before; only how
     its inputs are gathered and shaped changed, not the scoring model
     itself."""
-    from . import round4_auto_policy
+    from . import round2_automation_policy
 
     scenario = submission.scenario
     reference = scenario.reference_json or {}
@@ -622,7 +454,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
     environment_code = environments.get(language, "")
     for block in tc_evidence:
-        block["untraceable_literals"] = round4_auto_policy.untraceable_literals(
+        block["untraceable_literals"] = round2_automation_policy.untraceable_literals(
             block["final_code"], [block["design"]], environment_code=environment_code,
         )
 
@@ -632,7 +464,7 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
     # another's.
     audit_payload = _auto_tc_audit_payload(selected)
 
-    result = llm_service.score_round4_auto_conversation(
+    result = llm_service.score_round2_automation_conversation(
         language=language,
         tc_evidence=tc_evidence,
         ground_truth=reference.get("ground_truth", ""),
@@ -678,20 +510,15 @@ def score_round4_auto_submission(db: Session, submission: Submission) -> Score:
 
 
 def _score_round4(db: Session, submission: Submission) -> Score:
-    """Round 4 dispatch: a scenario's config_json.mode decides which of
-    the two round 4 flows actually scores this submission - legacy
-    conversation-based (score_round4_submission, unchanged) or the new
-    pilot single-file-automation flow (score_round4_pilot_submission) -
-    see routers/hr.py's publish_scenario for where that mode is set.
-    Every pre-existing round 4 scenario has no "mode" key at all, so this
-    is a 100%-additive branch: score_round4_submission's own behavior for
-    every scenario that predates the pilot is completely unchanged."""
+    """Round 2 slot dispatch. Only the AI-assisted automation mode is live;
+    the legacy conversational and pilot modes were retired (their results
+    keep the scores they already have and stay readable for HR), so an
+    attempt to score one fails clearly and lands the submission in
+    scoring_failed rather than running a scorer that no longer exists."""
     mode = (submission.scenario.config_json or {}).get("mode")
     if mode == "ai_test_automation":
-        return score_round4_auto_submission(db, submission)
-    if mode == "pilot_automation":
-        return score_round4_pilot_submission(db, submission)
-    return score_round4_submission(db, submission)
+        return score_round2_automation_submission(db, submission)
+    raise ValueError("This Round 2 format has been retired and can no longer be scored")
 
 
 # Slot -> scorer. The automation family (legacy conversational, pilot and
@@ -808,7 +635,6 @@ def close_expired_submissions(db: Session, submissions: list[Submission], backgr
     for submission in submissions:
         if submission.status != RoundStatus.in_progress or submission.started_at is None:
             continue
-        scenario = submission.scenario
         deadline = submission.started_at + timedelta(minutes=submission.time_limit_minutes)
         if now < deadline:
             continue

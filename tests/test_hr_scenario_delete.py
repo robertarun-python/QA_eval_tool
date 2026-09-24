@@ -62,8 +62,6 @@ def test_hr_cannot_delete_the_live_scenario(client, monkeypatch):
 
 
 def test_hr_cannot_delete_a_scenario_with_a_submission_even_if_archived(client, monkeypatch):
-    from app.services import llm_service
-    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="Live one")

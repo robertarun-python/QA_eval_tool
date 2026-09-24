@@ -3,3 +3,5 @@
 # Browser tests (tests/e2e). After installing: python -m playwright install chromium
 playwright==1.47.0
 pytest-playwright==0.5.2
+ruff==0.6.9
+mypy==1.11.2

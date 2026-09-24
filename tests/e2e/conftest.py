@@ -61,7 +61,7 @@ def e2e_server(tmp_path_factory):
         "LLM_TOOL_OUTPUT": "false", "PYTHONUNBUFFERED": "1",
     }
     subprocess.run([sys.executable, "-m", "app.seed"], cwd=BACKEND, env=env, check=True, capture_output=True)
-    subprocess.run([sys.executable, "-m", "app.seed_round4_auto"], cwd=BACKEND, env=env, check=True, capture_output=True)
+    subprocess.run([sys.executable, "-m", "app.seed_round2_automation"], cwd=BACKEND, env=env, check=True, capture_output=True)
     port = _free_port()
     log = open(work / "server.log", "w")
     proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", str(port)],

@@ -9,7 +9,6 @@ interpreter" tests at the bottom, which intentionally exercise the actual
 Python subprocess path end-to-end since Python is guaranteed present in
 this test environment.
 """
-import subprocess
 import sys
 from pathlib import Path
 

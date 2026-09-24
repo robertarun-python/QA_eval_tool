@@ -43,7 +43,7 @@ def test_round1_manual_test_cases(app_page):
     submit = page.locator("#round1-submit-btn")
     expect(submit).to_be_enabled()
     submit.click()
-    expect(page.locator(f'button[onclick="loadRound(2)"]')).to_be_enabled()
+    expect(page.locator('button[onclick="loadRound(2)"]')).to_be_enabled()
 
 
 def test_round2_ai_assisted_automation(app_page):

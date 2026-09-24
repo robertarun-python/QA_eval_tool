@@ -140,7 +140,7 @@ def test_result_stays_in_progress_when_one_round_is_scoring_failed(client, monke
 
 def test_submitted_at_is_set_on_a_real_round_submit(client, monkeypatch):
     from app.services import llm_service
-    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, FAKE_REFERENCE, _publish_scenario
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, _publish_scenario
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")

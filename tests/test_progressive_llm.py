@@ -29,7 +29,7 @@ from app.database import Base
 from app import models  # noqa: F401 - registers users/etc. onto Base.metadata
 from app.models import User, Role
 from app.models_progressive import ProgressiveProblem, ProgressiveRequirement
-from app.services import llm_service, progressive_service, progressive_llm
+from app.services import llm_service
 from app.services.progressive_llm import build_generator_context, render_prompt, generate_response
 from app.services.progressive_service import start_attempt, AttemptNotActiveError
 

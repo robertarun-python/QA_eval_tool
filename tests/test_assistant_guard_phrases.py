@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from app.services import clarify_loop, llm_service, round3_policy, round4_auto_clarify_policy, round4_auto_policy
+from app.services import clarify_loop, llm_service, round3_policy, round2_automation_clarify_policy, round2_automation_policy
 
 
 # ---- R3: whole-task and "finish it for me" requests -----------------------
@@ -56,7 +56,7 @@ def test_r3_one_word_answer_to_a_finish_it_request_is_still_refused():
     "Log in with the test data and assert the header",
 ])
 def test_r2_legitimate_requests_are_not_refused(text):
-    assert not round4_auto_policy.is_prohibited(text)
+    assert not round2_automation_policy.is_prohibited(text)
 
 
 @pytest.mark.parametrize("text", [
@@ -64,7 +64,7 @@ def test_r2_legitimate_requests_are_not_refused(text):
     "come up with some checks", "invent sample data", "what else should i test", "do it all for me",
 ])
 def test_r2_delegated_design_work_is_refused(text):
-    assert round4_auto_policy.is_prohibited(text)
+    assert round2_automation_policy.is_prohibited(text)
 
 
 # ---- "I'm done" signals ---------------------------------------------------
@@ -92,8 +92,8 @@ def test_test_steps_are_not_mistaken_for_done_signals(text):
 
 def test_r2_gate_keeps_asking_when_a_step_merely_contains_proceed():
     asked = [{"candidate_prompt": "automate it", "response_kind": "clarify", "response_message": "What should prove it worked?"}]
-    assert not round4_auto_clarify_policy.should_stop_clarifying(asked, "then it should proceed to the next page", "What should appear there?")
-    assert round4_auto_clarify_policy.should_stop_clarifying(asked, "No only this", "What should appear there?")
+    assert not round2_automation_clarify_policy.should_stop_clarifying(asked, "then it should proceed to the next page", "What should appear there?")
+    assert round2_automation_clarify_policy.should_stop_clarifying(asked, "No only this", "What should appear there?")
 
 
 # ---- R3 loop breaker -------------------------------------------------------

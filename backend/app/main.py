@@ -66,6 +66,20 @@ BASE_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=BASE_DIR / "templates")
 
+# The page's scripts (static/js), in load order. Plain scripts sharing one
+# global scope - buttons call their functions by name - split from the old
+# single app.js by area, in its original order: load order must stay this.
+APP_SCRIPTS = (
+    "core.js",               # constants, theme, API helper, login
+    "hr.js",                 # HR console
+    "candidate.js",          # candidate shell, navigation, rounds 1 and 4, timers, time-up expiry
+    "round3.js",             # round 3: AI-prompted coding + terminal
+    "tab_guard.js",          # anti-cheating tab-switch guard
+    "round2_automation.js",  # round 2: AI-assisted test automation
+    "progressive.js",        # round 5 POC (experimental)
+    "boot.js",               # starts the session - must stay last
+)
+
 
 @app.get("/")
 def index(request: Request):
@@ -74,11 +88,11 @@ def index(request: Request):
     # build step here, so without this a browser that already cached the
     # old file keeps running/rendering it after an edit until a hard
     # refresh forces a re-fetch.
-    app_js_version = int((BASE_DIR / "static" / "app.js").stat().st_mtime)
+    scripts = [(name, int((BASE_DIR / "static" / "js" / name).stat().st_mtime)) for name in APP_SCRIPTS]
     style_css_version = int((BASE_DIR / "static" / "style.css").stat().st_mtime)
     response = templates.TemplateResponse("index.html", {
         "request": request,
-        "app_js_version": app_js_version,
+        "scripts": scripts,
         "style_css_version": style_css_version,
         "fake_ai_banner": fake_llm.BANNER if settings.llm_fake_mode else "",
     })

@@ -521,6 +521,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v={{ app_js_version }}"></script>
+  {% for name, version in scripts %}<script src="/static/js/{{ name }}?v={{ version }}"></script>
+  {% endfor %}
 </body>
 </html>

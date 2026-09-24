@@ -6,21 +6,21 @@ test cases THEY designed in round 1, so this scenario carries no test-case
 reference of its own - what it does carry is:
 
   config_json["environment_code_by_language"]  the small provided helper
-      environment, per executable language (see prompts/round4_auto_helpers_*.txt)
+      environment, per executable language (see prompts/round2_automation_helpers_*.txt)
   reference_json["ground_truth"]               HR/system-only: how that
       environment actually behaves, so the scorer can judge whether the
       candidate's interpretation of their own run is CORRECT
   reference_json["validation_notes"]           HR/system-only judging notes
 
 Neither reference_json key is ever sent to the candidate or to the
-generator - see routers/candidate.py's Round4AutoStateOut (no field for
-them) and prompts/round4_auto_scoring.txt's REFERENCE ONLY section.
+generator - see routers/candidate.py's Round2AutomationStateOut (no field for
+them) and prompts/round2_automation_scoring.txt's REFERENCE ONLY section.
 
 No schema change and no migration: this inserts a normal Scenario row
 using columns that already exist. Idempotent. Standalone entrypoint, same
 convention as every migrate_*.py / seed_round4_pilot.py.
 
-Run from backend/: python -m app.seed_round4_auto
+Run from backend/: python -m app.seed_round2_automation
 """
 from pathlib import Path
 
@@ -31,9 +31,9 @@ from .models import Scenario, ScenarioStatus, ExperienceBand, User
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 _HELPER_FILES = {
-    "python": "round4_auto_helpers_python.txt",
-    "javascript": "round4_auto_helpers_javascript.txt",
-    "java": "round4_auto_helpers_java.txt",
+    "python": "round2_automation_helpers_python.txt",
+    "javascript": "round2_automation_helpers_javascript.txt",
+    "java": "round2_automation_helpers_java.txt",
 }
 
 INSTRUCTIONS = (

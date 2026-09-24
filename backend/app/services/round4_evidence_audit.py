@@ -195,7 +195,7 @@ def _check_evidence(
         needle = _normalize(quote_text)
         # TC-scoped check, when the caller supplied per-test-case evidence
         # (supporting_texts_by_tc, keyed the same way
-        # _auto_tc_audit_payload/round4_auto_scoring.txt label a test
+        # _auto_tc_audit_payload/round2_automation_scoring.txt label a test
         # case) AND the finding tagged which one this quote is about.
         # Multi-TC submissions only - see scoring_service.
         # _auto_tc_evidence_blocks. A recognized tag that ISN'T found

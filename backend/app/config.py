@@ -59,15 +59,6 @@ class Settings(BaseSettings):
     # candidates: the app shows a banner on every page while it's on.
     llm_fake_mode: bool = False
 
-    # The original round 2 automation mode (a round-2 scenario with no
-    # config "mode"): the model role-plays running the candidate's test and
-    # invents the results, so no result in it comes from real execution.
-    # Retired Sep 2026 in favour of AI-Assisted Test Automation, which runs
-    # real code - HR can no longer publish or go live with such a scenario.
-    # Existing records stay viewable. Left switchable only because the test
-    # suite still exercises the legacy flow.
-    legacy_simulated_round2_enabled: bool = False
-
     # Seed-default only now, not read anywhere at request time: the
     # migration (migrate_bulk_candidates.py) uses this once to populate
     # the initial models.AppSettings row's per-round/final passing
@@ -84,18 +75,6 @@ class Settings(BaseSettings):
     # request actually landing, not meant to allow real extra time. See
     # routers/candidate.py's _require_within_time_limit.
     submission_grace_seconds: int = 60
-
-    # How often Round 4's assistant is instructed to be correct per turn
-    # (the rest of the time it introduces a deliberate flaw) - the whole
-    # premise of that round is the candidate catching what the assistant
-    # gets wrong. HR can still override this per scenario via
-    # Scenario.config_json (see llm_service.DEFAULT_ROUND4_CONFIG); this
-    # is only the fallback when a scenario doesn't set its own. Lowered
-    # from 60 - HR found candidates were seeing too few catchable
-    # mistakes to genuinely exercise the round. Applies to new scenarios
-    # only; anything already published keeps whatever config_json it
-    # already has.
-    round4_default_assistance_pct: int = 50
 
     # Round 3 (AI-prompted coding) code execution - see
     # services/execution_service.py, which runs candidate code as a local
