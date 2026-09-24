@@ -3747,17 +3747,23 @@ function round2DraftPayload() {
   };
 }
 
+// Grows a textarea with what's typed instead of scrolling inside a fixed
+// box - the CSS min-height is still the starting size.
+function autoGrowTextarea(el) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+}
+
 function renderInvestigationForm(box, scenario, submission) {
   rowCount = 0;
   box.innerHTML = `
     <h3>Round 4: ${escapeHtml(scenario.title)}</h3>
     ${formatScenarioDescription(scenario.description)}
+    <p class="muted example-note">Example format (not a hint for this scenario): "Checked the application logs around the time of the issue for related error messages."</p>
     <div class="table-scroll">
-      <table>
-        <thead><tr><th>SI.No</th><th>Investigation area</th><th></th></tr></thead>
-        <tbody>
-          <tr class="example-row"><td class="tc-no">Ex</td><td>Checked the application logs around the time of the issue for related error messages (format only, not a hint for this scenario)</td><td></td></tr>
-        </tbody>
+      <table class="inv-table">
+        <thead><tr><th class="inv-col-no">SI.No</th><th>Investigation area</th><th class="inv-col-action"><span class="sr-only">Actions</span></th></tr></thead>
         <tbody id="inv-rows"></tbody>
       </table>
     </div>
@@ -3803,11 +3809,12 @@ function addInvestigationRow(initial = null) {
   tr.id = `inv-row-${id}`;
   tr.innerHTML = `
     <td class="inv-no"></td>
-    <td><textarea class="inv-area" oninput="scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
-    <td><button onclick="removeInvestigationRow('inv-row-${id}')">Remove</button></td>
+    <td><textarea class="inv-area" rows="2" placeholder="One area you investigated and what you found" oninput="autoGrowTextarea(this); scheduleRoundDraftSave(4, round2DraftPayload); round2UpdateSubmitState()"></textarea></td>
+    <td><button class="btn-ghost btn-sm inv-remove" onclick="removeInvestigationRow('inv-row-${id}')">Remove</button></td>
   `;
   tbody.appendChild(tr);
   if (initial) tr.querySelector(".inv-area").value = initial.area || "";
+  autoGrowTextarea(tr.querySelector(".inv-area"));
   renumberInvestigationRows();
 }
 
@@ -3831,8 +3838,11 @@ function round2UpdateSubmitState() {
 }
 
 function renumberInvestigationRows() {
-  document.querySelectorAll("#inv-rows .inv-no").forEach((cell, i) => {
-    cell.textContent = i + 1;
+  document.querySelectorAll("#inv-rows tr").forEach((tr, i) => {
+    tr.querySelector(".inv-no").textContent = i + 1;
+    // Screen readers otherwise hear "text area" and a row of identical "Remove" buttons.
+    tr.querySelector(".inv-area").setAttribute("aria-label", `Investigation area ${i + 1}`);
+    tr.querySelector(".inv-remove").setAttribute("aria-label", `Remove investigation area ${i + 1}`);
   });
 }
 
@@ -5737,7 +5747,7 @@ function round4AutoRunResultHtml(rowIndex, run) {
         ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
         ${passed ? `<p class="result-state-caveat">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
-        <details style="margin-top:0.6rem">
+        <details style="margin-top:0.6rem"${passed ? "" : " open"}>
           <summary>Execution log</summary>
           ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
           ${run.stderr ? `<pre class="code-snippet round3-coding-stderr">${escapeHtml(run.stderr)}</pre>` : ""}
@@ -5867,10 +5877,10 @@ function round4AutoTcSectionHtml(row) {
   // depends on has already been shown.
   const codeSectionHtml = unlocked ? `
       <div class="section-header"><h3>Generated code &middot; your edits</h3></div>
-      <div class="code-panel">
+      <div class="code-panel r4a-code-panel">
         <div class="code-panel-head"><span>Automation code</span><span>Editable - review before you trust a PASS</span></div>
         <div class="code-panel-body">
-          <textarea id="r4a-code-${row.index}" class="round4-pilot-code">${escapeHtml(tc.code || "")}</textarea>
+          <textarea id="r4a-code-${row.index}" class="round4-pilot-code r4a-code-editor" spellcheck="false">${escapeHtml(tc.code || "")}</textarea>
         </div>
       </div>
       ${round4AutoTestDataHtml(row)}
@@ -5978,6 +5988,37 @@ function renderRound4AutomationLayout(box) {
       </div>
     </div>` : ""}
     <p id="r4a-status" class="muted"></p>`;
+  round4AutoAfterRender();
+}
+
+// Where each code box was left, keyed by its id - every action re-renders
+// the whole screen, and Save/Run must not throw the candidate back to line 1.
+const r4aEditorView = {};
+// The candidate's own test starts after ~100 lines of fixed practice
+// environment (Run B: line 110 of 134). New code opens there - at the first
+// test, or the "write your tests below" marker before any exists.
+const R4A_OWN_CODE_RE = /^[ \t]*(async def test_|def test_|function test|(public |private |static |async )*void test|@Test\b|(#|\/\/) *TODO: write your automated)/m;
+
+function round4AutoAfterRender() {
+  document.querySelectorAll("textarea.r4a-code-editor").forEach((el) => {
+    const prev = r4aEditorView[el.id];
+    if (prev && prev.code === el.value) {
+      el.scrollTop = prev.scrollTop;
+    } else {
+      const m = R4A_OWN_CODE_RE.exec(el.value);
+      if (m) {
+        const line = el.value.slice(0, m.index).split("\n").length - 1;
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 20;
+        el.scrollTop = Math.max(0, (line - 2) * lineHeight);  // two lines of context above
+      }
+    }
+    const remember = () => { r4aEditorView[el.id] = { code: el.value, scrollTop: el.scrollTop }; };
+    remember();
+    el.addEventListener("scroll", remember);
+    el.addEventListener("input", remember);
+  });
+  // The conversation is capped in height (style.css) - keep the newest message in view.
+  document.querySelectorAll(".r4a-chat-log").forEach((log) => { log.scrollTop = log.scrollHeight; });
 }
 
 // Shared by every action except submit: call the endpoint, re-fetch state,

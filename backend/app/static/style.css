@@ -1336,6 +1336,21 @@ details summary { cursor: pointer; color: var(--accent); margin-bottom: var(--sp
    vs. a short JSON snippet). */
 .round4-pilot-code { min-height: 20rem; }
 
+/* Round 2 (AI-assisted automation) code editor - the file is ~130 lines
+   with the candidate's own test near the end, so the box scales with the
+   screen instead of a fixed ~15 lines, and only the textarea scrolls (the
+   panel around it no longer adds a second scrollbar). */
+.r4a-code-panel .code-panel-body { overflow: hidden; }
+.r4a-code-panel textarea.r4a-code-editor { height: clamp(24rem, 65vh, 48rem); min-height: 12rem; overflow: auto; }
+/* The conversation above the code no longer pushes it down the page. */
+.r4a-chat-log { max-height: 18rem; overflow-y: auto; }
+
+/* Round 4 (debugging) investigation rows: one short entry each - start at
+   two lines and grow with the text (autoGrowTextarea), not the global 8rem. */
+.inv-table .inv-col-no { width: 4rem; }
+.inv-table .inv-col-action { width: 6rem; }
+.inv-table textarea.inv-area { min-height: 3.25rem; margin-bottom: 0; overflow: hidden; resize: none; }
+
 /* ============================================================
    20. SETTINGS PAGE (HR Settings - redesigned to match the reference
    enterprise mockup; UI/UX only, see app.js's loadAppSettings/
