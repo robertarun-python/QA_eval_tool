@@ -7,7 +7,6 @@ freed up by the Round 3 -> Round 2 renumbering and has since been reused
 for a new round (AI-prompted coding), unrelated to the manual-testing
 round that used to live at that number.
 """
-import threading
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -20,8 +19,8 @@ from ..database import get_db
 from ..models import User, Scenario, Submission, RoundStatus, Round4TestCase, CandidateAppearance, Round3Turn, Round3ExecutionRun
 from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
-    Round1ContextOut, Round4StateOut, Round4TestCaseOut, Round4EnvironmentOut,
-    Round4UiMockupOut, Round2SubmissionCreate, ExpireRoundPayload, TabSwitchOut,
+    Round1ContextOut, Round2EntryStateOut, Round4TestCaseOut, Round2AutomationEnvironmentOut,
+    Round2AutomationUiMockupOut, Round2SubmissionCreate, ExpireRoundPayload, TabSwitchOut,
     Round3StartRequest, Round3DraftUpdate, Round3TurnCreate, Round3TurnOut, Round3DirectEditCreate,
     Round3RunInputCreate, Round3RunPollOut, Round3StateOut,
     Round2AutomationStateOut, Round2AutomationDesignRowOut, Round2AutomationLanguageCreate, Round2AutomationSelectCreate, Round2AutomationRefineCreate,
@@ -32,27 +31,6 @@ from ..schemas import (
 from ..dependencies import require_candidate
 from ..services import llm_service, execution_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
-
-ROUND4_CODE_LANGUAGES = ("python", "java", "javascript")
-
-# Serializes the generate-then-persist section of round4_turn_code per
-# turn (see below) - two concurrent requests for the same (turn,
-# language), e.g. the candidate opening the same turn's code view in
-# two tabs, would otherwise both see the cache empty and both call the
-# LLM, and whichever commits last would silently overwrite the other's
-# cached code. One lock per turn_id (not a single global lock) so
-# unrelated turns/candidates never wait on each other.
-_round4_code_locks: dict[int, threading.Lock] = {}
-_round4_code_locks_guard = threading.Lock()
-
-
-def _round4_code_lock(turn_id: int) -> threading.Lock:
-    with _round4_code_locks_guard:
-        lock = _round4_code_locks.get(turn_id)
-        if lock is None:
-            lock = threading.Lock()
-            _round4_code_locks[turn_id] = lock
-        return lock
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
 _VALID_TYPES = ("Positive", "Negative", "Boundary", "Edge")
@@ -123,7 +101,7 @@ def _max_completed_round(db: Session, candidate: User) -> int:
     scoring_service.close_expired_submissions) - this is called by
     _require_round_unlocked, which every round endpoint checks first,
     including the write endpoints (submit_round, submit_round2,
-    round4_submit, start_round). Closing an expired submission there
+    round2_automation_submit, start_round). Closing an expired submission there
     would risk discarding a real, in-flight submit payload for that
     exact round the instant it arrived even slightly late - the correct
     rejection for that is _require_within_time_limit's own 400, not a
@@ -311,8 +289,8 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
     # - `or {}` only guards a row written before this column existed.
     declared_constructs = (existing_turns[-1].declared_constructs_json if existing_turns else None) or {}
 
-    # Called synchronously in the request path (same reasoning as Round
-    # 4's round4_turn - see that function's comment): nothing is
+    # Called synchronously in the request path (same as Round 2's
+    # round2_automation_turn): nothing is
     # persisted below until the LLM call succeeds and validates.
     try:
         response = llm_service.round3_coding_turn(
@@ -558,7 +536,7 @@ def _round1_context_for(candidate: User, db: Session) -> Round1ContextOut:
     )
 
 
-def _round4_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
+def _round2_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
     scenario = _live_scenario(db, 2, candidate)
     if scenario is None:
         raise HTTPException(404, "No published scenario for round 2 yet - check back once HR has published one.")
@@ -575,35 +553,9 @@ def _test_case_out(tc: Round4TestCase) -> Round4TestCaseOut:
     )
 
 
-def _is_pilot_scenario(scenario: Scenario) -> bool:
-    return (scenario.config_json or {}).get("mode") == "pilot_automation"
-
-
-def _ensure_pilot_content(scenario: Scenario, submission: Submission, db: Session) -> dict:
-    """Lazily seeds submission.content with the pilot's starter code on
-    first access - /round/2/start (shared with the legacy round 2 flow,
-    unchanged) knows nothing about pilot scenarios, so this is where a
-    fresh pilot submission actually gets its starting state."""
-    content = submission.content
-    if not content or content.get("mode") != "pilot_automation":
-        content = {
-            "mode": "pilot_automation",
-            "language": "python",
-            "code": (scenario.config_json or {}).get("starter_code", ""),
-            "turns": [],
-            "clarification_question": None,
-            "clarification_response": None,
-            "last_run": None,
-        }
-        submission.content = content
-        db.commit()
-        db.refresh(submission)
-    return submission.content
-
-
-def _build_round4_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round4StateOut:
-    environment = Round4EnvironmentOut(**scenario.environment_json) if scenario.environment_json else None
-    ui_mockup = Round4UiMockupOut(**scenario.ui_mockup_json) if scenario.ui_mockup_json else None
+def _build_round2_entry_state(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> Round2EntryStateOut:
+    environment = Round2AutomationEnvironmentOut(**scenario.environment_json) if scenario.environment_json else None
+    ui_mockup = Round2AutomationUiMockupOut(**scenario.ui_mockup_json) if scenario.ui_mockup_json else None
     fields = dict(
         scenario=scenario,
         submission=submission,
@@ -613,50 +565,21 @@ def _build_round4_state(scenario: Scenario, submission: Submission, candidate: U
         test_cases=[_test_case_out(tc) for tc in submission.round4_test_cases],
         turns=submission.conversation_turns,
     )
-    if _is_pilot_scenario(scenario):
-        content = _ensure_pilot_content(scenario, submission, db)
-        fields.update(
-            is_pilot=True,
-            pilot_starter_code=(scenario.config_json or {}).get("starter_code", ""),
-            pilot_code=content.get("code", ""),
-            pilot_turns=content.get("turns", []),
-            pilot_clarification=(
-                {"question": content["clarification_question"], "response": content["clarification_response"]}
-                if content.get("clarification_question") else None
-            ),
-            pilot_last_run=content.get("last_run"),
-        )
-    return Round4StateOut(**fields)
+    return Round2EntryStateOut(**fields)
 
 
-@router.get("/round/2/state", response_model=Round4StateOut)
-def round4_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+@router.get("/round/2/state", response_model=Round2EntryStateOut)
+def round2_entry_state(db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
     _require_round_unlocked(2, db, candidate)
-    scenario, submission = _round4_scenario_and_submission(candidate, db)
-    return _build_round4_state(scenario, submission, candidate, db)
-
-
-# ---- Round 2 pilot ("Focused Automation Pilot") - a single-file Python
-# automation exercise with a narrow AI coding assistant, distinct from the
-# legacy round 2 flow above (candidate writes and edits real code, not a
-# plain-English conversation with a role-playing AI). Selected per-scenario
-# via Scenario.config_json["mode"] == "pilot_automation" (see hr.py's
-# publish_scenario and seed_round4_pilot.py) - every endpoint below is new
-# and additive; nothing above this comment is touched by it. ----
-
-_PERSISTENCE_CLARIFICATION_PATTERNS = (
-    "persist", "database", "db record", "source of truth",
-    "what counts as", "how do i verify", "how should i verify", "verify persist",
-)
+    scenario, submission = _round2_scenario_and_submission(candidate, db)
+    return _build_round2_entry_state(scenario, submission, candidate, db)
 
 
 # ---- AI-Assisted Test Automation round (Scenario.config_json["mode"] ==
 # "ai_test_automation") - the candidate automates test cases THEY designed
-# in round 1, in the language they picked in round 3. A third round-4 mode
-# alongside the legacy conversational flow and the Focused Automation
-# Pilot; everything below is new and additive, and no existing endpoint is
-# touched by it. State lives entirely in Submission.content (no migration),
-# same as the pilot. ----
+# in round 1. The only live round 2 format (the legacy conversational
+# flow and the Focused Automation Pilot are retired). State lives entirely
+# in Submission.content (no migration). ----
 
 _AUTO_LANGUAGE_HELPER_FILES = {
     "python": "round2_automation_helpers_python.txt",
@@ -797,7 +720,7 @@ def _build_auto_state(scenario: Scenario, submission: Submission, candidate: Use
 
 
 def _round2_automation_scenario_and_submission(candidate: User, db: Session) -> tuple[Scenario, Submission]:
-    scenario, submission = _round4_scenario_and_submission(candidate, db)
+    scenario, submission = _round2_scenario_and_submission(candidate, db)
     if not _is_auto_scenario(scenario):
         raise HTTPException(400, "This round 2 scenario is not an AI-assisted automation scenario.")
     return scenario, submission
@@ -1100,7 +1023,7 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
         "response_message": response["response_message"],
         "code_after": response.get("code_after"),
     }
-    for key in ("planted_flaw", "unrequested_checks", "fabricated_observations"):  # assessor-only - see schemas.SubmissionOut
+    for key in ("planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"):  # assessor-only - see schemas.SubmissionOut
         if response.get(key):
             turn_record[key] = response[key]
     turns.append(turn_record)
@@ -1331,9 +1254,9 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
         round2_scenario = _live_scenario(db, 2, candidate)
         if round2_scenario is not None:
             if round2_scenario.environment_json:
-                environment = Round4EnvironmentOut(**round2_scenario.environment_json)
+                environment = Round2AutomationEnvironmentOut(**round2_scenario.environment_json)
             if round2_scenario.ui_mockup_json:
-                ui_mockup = Round4UiMockupOut(**round2_scenario.ui_mockup_json)
+                ui_mockup = Round2AutomationUiMockupOut(**round2_scenario.ui_mockup_json)
     return RoundStateOut(scenario=scenario, submission=submission, environment=environment, ui_mockup=ui_mockup)
 
 
@@ -1469,8 +1392,8 @@ def save_round_draft(
     candidate: User = Depends(require_candidate),
 ):
     """Periodic autosave for rounds 1/2's in-progress content, the same
-    pattern round 2's test cases already have (see round4_save_draft
-    above) - so a crash, refresh, or network loss mid-round doesn't
+    pattern round 2's code already has (see round2_automation_save_code)
+    - so a crash, refresh, or network loss mid-round doesn't
     silently lose typed-but-unsubmitted work while the timer keeps
     counting down. Reuses ExpireRoundPayload's shape (deliberately
     permissive - see its docstring), but unlike /expire below this never

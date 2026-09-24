@@ -80,10 +80,10 @@ def _reply(caller: str, prompt: str):
                            "execution_and_validation": 14}, "final_score": 70, "findings": [], "feedback_text": _SCORE_FEEDBACK}
     if caller == "generate_candidate_summary":
         return {"rounds": [], "key_observations": ["Fake AI mode: placeholder observation"], "verdict": "Fake AI mode placeholder verdict"}
-    if caller == "generate_round4_environment":
+    if caller == "generate_round2_automation_environment":
         return {"fields": {"Test account email": "fake.tester@example.com", "Test account password": "FakePass!1"},
                 "notes": "Fake AI mode placeholder environment."}
-    if caller == "generate_round4_ui_mockup":
+    if caller == "generate_round2_automation_ui_mockup":
         return {"screens": [{"name": "Login", "elements": [{"type": "label", "text": "Email"}, {"type": "input", "text": "Email"},
                                                            {"type": "button", "text": "Login"}]}]}
     if caller == "round2_automation_clarify":

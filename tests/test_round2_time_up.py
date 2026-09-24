@@ -31,7 +31,7 @@ def test_time_up_submits_round2_and_falls_back_to_expiring_round2():
 
 
 def test_round2_timer_is_wired_to_the_round2_auto_submit():
-    body = _function(page_js(), "renderRound4View")
+    body = _function(page_js(), "renderRound2AutomationView")
     assert "startTimer(deadline, round2AutomationSubmit, 2)" in body
 
 

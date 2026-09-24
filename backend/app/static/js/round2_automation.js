@@ -325,7 +325,7 @@ function round2AutomationTcSectionHtml(row) {
 function renderRound2AutomationLayout(box) {
   setWideLayout(true);
   const s = round2AutomationState;
-  const scenario = round4State.scenario;
+  const scenario = round2EntryState.scenario;
 
   if (!s.language_locked) {
     box.innerHTML = `
@@ -432,7 +432,7 @@ function round2AutomationAfterRender() {
 }
 
 // Shared by every action except submit: call the endpoint, re-fetch state,
-// re-render. Same reasoning as the pilot's round4PilotAction - the server
+// re-render - the server
 // is the single source of truth for what actually persisted.
 // rowIndex: a test case's own action (Ask / Save / Run / test data) - its
 // progress and any error show beside that test case's buttons, not in the
@@ -529,10 +529,10 @@ async function round2AutomationSubmitClicked() {
 
 // ---- Round 2 view dispatch and time-up (moved from round2_legacy.js) ----
 
-async function renderRound4View(box) {
+async function renderRound2AutomationView(box) {
   box.innerHTML = loadingHtml();
   try {
-    round4State = await api("/candidate/round/2/state");
+    round2EntryState = await api("/candidate/round/2/state");
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
     return;
@@ -540,15 +540,15 @@ async function renderRound4View(box) {
   // Round 2 is the AI-Assisted Test Automation round. Its two earlier
   // formats (the simulated conversation and the pilot) are retired - HR can
   // still read their stored results, but a candidate can't take them.
-  if (!(round4State.scenario && round4State.scenario.is_auto)) {
+  if (!(round2EntryState.scenario && round2EntryState.scenario.is_auto)) {
     box.innerHTML = `<h3>Round 2</h3><p class="muted">This Round 2 format has been retired - please contact HR.</p>`;
     return;
   }
   await loadRound2Automation(box);
 
   if (!timerHandle) {
-    const submission = round4State.submission;
-    const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, round4State.scenario) * 60 * 1000;
+    const submission = round2EntryState.submission;
+    const deadline = new Date(submission.started_at + "Z").getTime() + attemptTimeLimit(submission, round2EntryState.scenario) * 60 * 1000;
     startTimer(deadline, round2AutomationSubmit, 2);
   }
 }

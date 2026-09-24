@@ -1,7 +1,7 @@
 """
 Round 3: AI-prompted coding - see
 docs/superpowers/specs/2026-08-23-round3-ai-coding-design.md. Not to be
-confused with tests/test_round4.py (the renamed automation round).
+confused with tests/test_round2_automation_setup.py (the renamed automation round).
 """
 import sys
 from pathlib import Path

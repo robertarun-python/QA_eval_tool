@@ -1,7 +1,8 @@
 """
-Deterministic (no LLM) verification of Round 4 scoring findings against
-the actual transcript. The Round 4 scorer (prompts/round4_scoring.txt)
-already carries strong evidence-discipline instructions, but a prompt is
+Deterministic (no LLM) verification of Round 2 automation scoring
+findings against the actual transcript (built for the retired
+conversational format, still named for its old slot). The scorer
+(prompts/round2_automation_scoring.txt) already carries strong evidence-discipline instructions, but a prompt is
 not a guarantee - this module is the backstop: it independently checks
 whether each finding's cited evidence actually exists in the transcript
 before that finding is allowed to cost the candidate any points. It
@@ -9,15 +10,14 @@ never calls an LLM; every verdict here is produced by exact/normalized
 string matching and structural counting against test_cases_json, the
 same data the scorer was given.
 
-Turn numbering: schemas.Round4FindingEvidence.turn is a 1-indexed
+Turn numbering: schemas.Round2AutomationFindingEvidence.turn is a 1-indexed
 position in the FLATTENED sequence of every turn across every test
 case, in the same order test cases appear in the scoring payload (test
 case 1's turns, then test case 2's, ...) - not the per-test-case
-turn_number used elsewhere in this app (see ConversationTurn.turn_number
-and round4_scoring.txt's evidence-discipline section, which instructs
-the scorer to count this way).
+turn_number used elsewhere in this app (see
+scoring_service._auto_tc_audit_payload, which builds the payload this way).
 
-See scoring_service.score_round4_submission for how an AuditReport's
+See scoring_service._round2_automation_findings_to_misses for how an AuditReport's
 surviving_claims()/score_adjustment() feed back into the persisted Score.
 """
 import re
@@ -50,7 +50,7 @@ _ABSOLUTE_NEGATIVE_CLAIM = re.compile(
 # What counts as the candidate actually following up, for the check
 # above - a literal question mark, or one of the common phrasings this
 # app's own transcripts use to challenge an unexpected result (see
-# tests/test_round4.py fixtures and the real double-booking transcript
+# tests/test_round2_automation_setup.py fixtures and the real double-booking transcript
 # this module was written against). Deliberately narrow: a false
 # negative here just leaves a finding at whatever its evidence-based
 # status already was, never wrongly downgrades a genuinely valid finding.
@@ -153,7 +153,7 @@ class AuditReport:
     def findings_detail(self) -> list[dict]:
         """The full explainable chain for every finding, in order -
         Finding -> Evidence -> Evidence status -> Score impact - meant to
-        be persisted verbatim (see scoring_service.score_round4_submission's
+        be persisted verbatim (see scoring_service.score_round2_automation_submission's
         raw_llm_response_json["evidence_audit"]) so a rejected or accepted
         deduction can always be traced back to exactly what was cited and why."""
         return [f.to_dict() for f in self.findings]
@@ -166,7 +166,7 @@ class AuditReport:
     def score_adjustment(self) -> int:
         """Points to add back to the LLM's final_score - one rejected
         finding's implied deduction, reversed, per finding rejected. See
-        scoring_service.score_round4_submission; this is what makes
+        scoring_service._round2_automation_findings_to_misses; this is what makes
         requirement 8 (an unsupported deduction must not survive) hold
         even though the LLM computes final_score as one holistic number
         rather than a literal running total."""
@@ -178,7 +178,7 @@ def _check_evidence(
     supporting_texts: list[str] | None = None, supporting_texts_by_tc: dict[str, list[str]] | None = None,
 ) -> EvidenceCheck:
     # A quote that appears verbatim in one of the caller's OTHER persisted
-    # evidence artefacts (see audit_round4_findings' supporting_texts) is
+    # evidence artefacts (see audit_round2_automation_findings' supporting_texts) is
     # established the same way a turn quote is: the text demonstrably
     # exists in something this submission actually recorded. Checked before
     # the turn lookup because a finding about the final code or the
@@ -268,16 +268,16 @@ def _contradicted_by_followup(claim: str, evidence: list[dict], flat: list[dict]
     return False
 
 
-def audit_round4_findings(
+def audit_round2_automation_findings(
     test_cases: list[dict], findings: list[dict],
     supporting_texts: list[str] | dict[str, list[str]] | None = None,
 ) -> AuditReport:
     """The single entry point: check every LLM-generated finding against
     the transcript and return a verdict per finding, deterministically.
-    `test_cases` is the same payload passed to llm_service.score_round4_conversation
-    (list of {title, turns: [{turn_number, candidate_prompt, model_response}]});
+    `test_cases` is the per-test-case payload the scorer was given (see
+    scoring_service._auto_tc_audit_payload);
     `findings` is the scorer's own findings list (list of dicts shaped
-    like schemas.Round4Finding).
+    like schemas.Round2AutomationFinding).
 
     `supporting_texts` is for a round whose PRIMARY EVIDENCE is not only a
     conversation. The AI-assisted automation round also persists a final

@@ -95,7 +95,7 @@ def _complete_round1_and_2(client, hr_token, cand_token, monkeypatch):
 
 
 def test_round4_environment_and_mockup_grounded_in_live_round1_scenario(client, monkeypatch):
-    """Both generate_round4_environment and generate_round4_ui_mockup
+    """Both generate_round2_automation_environment and generate_round2_automation_ui_mockup
     describe the actual app under test, which lives in round 1's
     scenario, not round 4's own (see hr.py's _generate_reference) - both
     must receive the identical resolved app_description."""
@@ -112,8 +112,8 @@ def test_round4_environment_and_mockup_grounded_in_live_round1_scenario(client, 
         mockup_captured.update(kwargs)
         return dict(FAKE_UI_MOCKUP)
 
-    monkeypatch.setattr(llm_service, "generate_round4_environment", _capture_env)
-    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", _capture_mockup)
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", _capture_env)
+    monkeypatch.setattr(llm_service, "generate_round2_automation_ui_mockup", _capture_mockup)
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
 
@@ -181,11 +181,11 @@ def test_round4_state_requires_start_first(client, monkeypatch):
 
 def test_round4_environment_generation_rejects_malformed_shape(client, monkeypatch):
     """Same class of gap as the turn-response one above, one step earlier
-    in the pipeline: generate_round4_environment only checked for a
-    'fields' key, not that it actually matched Round4EnvironmentOut
+    in the pipeline: generate_round2_automation_environment only checked for a
+    'fields' key, not that it actually matched Round2AutomationEnvironmentOut
     (fields: dict[str, str]) - a nested object as a field value is valid
     JSON but the wrong shape, and used to only fail once a candidate's
-    Round4StateOut read hit it live."""
+    Round2EntryStateOut read hit it live."""
     import json
     from app.services import llm_service
 
@@ -218,7 +218,7 @@ def test_round4_reference_resyncs_when_round1_scenario_changes(client, monkeypat
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="First app")
-    # _publish_round4_scenario monkeypatches generate_round4_environment/
+    # _publish_round4_scenario monkeypatches generate_round2_automation_environment/
     # ui_mockup itself for round4's own creation - the call-tracking mock
     # below is installed AFTER, so it only observes what happens next.
     round4 = _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7")
@@ -229,8 +229,8 @@ def test_round4_reference_resyncs_when_round1_scenario_changes(client, monkeypat
         calls.append(kwargs.get("app_description"))
         return {"fields": {"call number": str(len(calls))}, "notes": ""}
 
-    monkeypatch.setattr(llm_service, "generate_round4_environment", fake_env)
-    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", fake_env)
+    monkeypatch.setattr(llm_service, "generate_round2_automation_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
 
     # A second round1 scenario for the same band, published but not yet
     # promoted live (the first one is still live) - no resync should
@@ -249,7 +249,7 @@ def test_round4_reference_resyncs_when_round1_scenario_changes(client, monkeypat
 
 def test_round4_resync_skipped_while_a_candidate_is_mid_round4(client, monkeypatch):
     """Same "don't change the rules mid-round" guard every other
-    round 2 scenario mutation already has (see _require_round4_not_in_progress)
+    round 2 scenario mutation already has (see _require_round2_automation_not_in_progress)
     must also apply here - promoting a new round1 scenario live is an
     action about round 1, but it's exactly what triggers this resync, so
     without the guard a candidate's environment/screens could silently
@@ -266,8 +266,8 @@ def test_round4_resync_skipped_while_a_candidate_is_mid_round4(client, monkeypat
     client.post("/candidate/round/2/start", cookies=_auth(cand_token))
 
     calls = []
-    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: calls.append(1) or {"fields": {}, "notes": ""})
-    monkeypatch.setattr(llm_service, "generate_round4_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", lambda **kwargs: calls.append(1) or {"fields": {}, "notes": ""})
+    monkeypatch.setattr(llm_service, "generate_round2_automation_ui_mockup", lambda **kwargs: dict(FAKE_UI_MOCKUP))
 
     second_round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Second app")
     res = client.post(f"/hr/scenarios/{second_round1['id']}/move-to-screening", cookies=_auth(hr_token))
@@ -362,7 +362,7 @@ def test_round4_regenerate_reference_works_on_a_live_scenario(client, monkeypatc
     fresh = client.get(f"/hr/scenarios/{round4['id']}", cookies=_auth(hr_token)).json()
     assert fresh["status"] == "published"
 
-    monkeypatch.setattr(llm_service, "generate_round4_environment", lambda **kwargs: {"fields": {"regenerated": "yes"}, "notes": ""})
+    monkeypatch.setattr(llm_service, "generate_round2_automation_environment", lambda **kwargs: {"fields": {"regenerated": "yes"}, "notes": ""})
     res = client.post(f"/hr/scenarios/{round4['id']}/regenerate-reference", cookies=_auth(hr_token))
     assert res.status_code == 200
     assert res.json()["environment_json"]["fields"]["regenerated"] == "yes"

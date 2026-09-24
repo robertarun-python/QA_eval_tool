@@ -93,26 +93,26 @@ function selectHRRound(n) {
 
   // The automation round sits at slot 2 since the 2<->4 renumbering; the
   // identifier keeps its historical name (see scoring_service._SCORERS).
-  const isRound4 = n === 2;
+  const isRound2Automation = n === 2;
   // It gets its own single settings view instead of the author/review/
-  // publish flow - see loadRound4Settings for why none of that maps onto
+  // publish flow - see loadRound2AutomationSettings for why none of that maps onto
   // this round's actual shape (no fixed reference, no meaningfully
   // different "versions" to browse or compare).
-  document.getElementById("create-scenario-row").classList.toggle("hidden", isRound4);
-  document.getElementById("screening-history-panel").classList.toggle("hidden", isRound4);
-  document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound4);
+  document.getElementById("create-scenario-row").classList.toggle("hidden", isRound2Automation);
+  document.getElementById("screening-history-panel").classList.toggle("hidden", isRound2Automation);
+  document.getElementById("round4-settings-panel").classList.toggle("hidden", !isRound2Automation);
   // #scenario-kpis sits outside create-scenario-row (so it reads as part
   // of the page, not nested inside the 2-column workspace) - it needs
   // its own hide, or it'd keep showing whichever round's counts were
   // last loaded instead of disappearing along with the rest of the
   // round 1-3 scenario-library UI.
-  document.getElementById("scenario-kpis").classList.toggle("hidden", isRound4);
+  document.getElementById("scenario-kpis").classList.toggle("hidden", isRound2Automation);
   // Round 3's guardrail reference (see index.html) - static, no API call,
   // just shown/hidden alongside the rest of this round's panels.
   document.getElementById("round3-guardrails-panel").classList.toggle("hidden", n !== 3);
 
-  if (isRound4) {
-    loadRound4Settings();
+  if (isRound2Automation) {
+    loadRound2AutomationSettings();
   } else {
     resetCreateScenarioForm();
     loadScenarios();
@@ -327,7 +327,7 @@ async function loadScenarios() {
 
 // Round 4 has no scenario library (one config per band, no draft/
 // published/live library concept the way rounds 1-3 have - see
-// loadRound4Settings) - these counts wouldn't mean anything there.
+// loadRound2AutomationSettings) - these counts wouldn't mean anything there.
 function renderScenarioKpis() {
   const box = document.getElementById("scenario-kpis");
   if (currentHRRound === 4) {
@@ -542,8 +542,8 @@ async function openScenarioDetail(id) {
       `).join("");
 
   const isDraft = scenario.status === "draft";
-  // Round 4 no longer routes through here at all (see loadRound4Settings/
-  // renderRound4SettingsCard) - it has no fixed reference to author/
+  // Round 4 no longer routes through here at all (see loadRound2AutomationSettings/
+  // renderRound2AutomationSettingsCard) - it has no fixed reference to author/
   // review/compare across versions the way round 1/2 do, so it gets its
   // own dedicated settings panel instead of a "Review" flow into this one.
   box.innerHTML = `
@@ -638,7 +638,7 @@ function closeScenarioDetail() {
 // Used to render one card per experience band - band is a hidden feature
 // now (see DEFAULT_BAND), so there's only ever the one card.
 
-async function loadRound4Settings() {
+async function loadRound2AutomationSettings() {
   const box = document.getElementById("round4-settings-panel");
   let allScenarios;
   try {
@@ -656,10 +656,10 @@ async function loadRound4Settings() {
     return;
   }
   const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === DEFAULT_BAND && s.is_live);
-  box.innerHTML = renderRound4SettingsCard(liveScenario, liveRound1 ? liveRound1.title : null);
+  box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null);
 }
 
-function renderRound4SettingsCard(scenario, groundedInTitle) {
+function renderRound2AutomationSettingsCard(scenario, groundedInTitle) {
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
       <h3>Round 2 <span class="badge badge-published">LIVE</span></h3>
@@ -670,7 +670,7 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
       <input id="r4-title-${scenario.id}" value="${escapeAttr(scenario.title)}" />
       <textarea id="r4-desc-${scenario.id}">${escapeHtml(scenario.description)}</textarea>
       <div class="row">
-        <button onclick="saveRound4Instructions(${scenario.id})">Save instructions</button>
+        <button onclick="saveRound2AutomationInstructions(${scenario.id})">Save instructions</button>
       </div>
 
       <h4>Time limit</h4>
@@ -680,7 +680,7 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
           <span class="muted">min limit</span>
           <input id="r4-time-limit-${scenario.id}" type="number" min="1" value="${scenario.time_limit_minutes}" />
         </div>
-        <button onclick="saveRound4TimeLimit(${scenario.id})">Save</button>
+        <button onclick="saveRound2AutomationTimeLimit(${scenario.id})">Save</button>
       </div>`}
 
       <h4>Grounded in</h4>
@@ -700,7 +700,7 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
             </dl>
             <textarea id="r4-env-notes-${scenario.id}" rows="2" placeholder="Notes (optional)">${escapeHtml(scenario.environment_json.notes || "")}</textarea>
             <div class="row">
-              <button onclick="saveRound4Environment(${scenario.id})">Save environment fields</button>
+              <button onclick="saveRound2AutomationEnvironment(${scenario.id})">Save environment fields</button>
             </div>
             ${scenario.environment_hr_edited
               ? `<p class="muted">These fields were hand-set by HR - the automatic refresh that runs when a different round 1 scenario goes live won't overwrite them. Only "Regenerate" below replaces them.</p>`
@@ -709,7 +709,7 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
         ` : `<p class="muted">No test environment generated yet.</p>`}
         ${scenario.ui_mockup_json ? renderMockupScreens(scenario.ui_mockup_json, `hr-mockup-${scenario.id}`) : `<p class="muted">No reference screens generated yet.</p>`}
         <div class="row">
-          <button id="r4-regen-btn-${scenario.id}" onclick="regenerateRound4Reference(${scenario.id})">Regenerate environment &amp; screens</button>
+          <button id="r4-regen-btn-${scenario.id}" onclick="regenerateRound2AutomationReference(${scenario.id})">Regenerate environment &amp; screens</button>
         </div>
       </details>
 
@@ -718,7 +718,7 @@ function renderRound4SettingsCard(scenario, groundedInTitle) {
   `;
 }
 
-async function saveRound4Instructions(id) {
+async function saveRound2AutomationInstructions(id) {
   const statusEl = document.getElementById(`r4-status-${id}`);
   const title = document.getElementById(`r4-title-${id}`).value.trim();
   const description = document.getElementById(`r4-desc-${id}`).value.trim();
@@ -737,7 +737,7 @@ async function saveRound4Instructions(id) {
   }
 }
 
-async function saveRound4TimeLimit(id) {
+async function saveRound2AutomationTimeLimit(id) {
   const statusEl = document.getElementById(`r4-status-${id}`);
   const inputEl = document.getElementById(`r4-time-limit-${id}`);
   const value = Number(inputEl.value);
@@ -757,7 +757,7 @@ async function saveRound4TimeLimit(id) {
   }
 }
 
-async function saveRound4Environment(id) {
+async function saveRound2AutomationEnvironment(id) {
   const statusEl = document.getElementById(`r4-status-${id}`);
   const container = document.getElementById(`r4-env-fields-${id}`);
   const fields = {};
@@ -771,14 +771,14 @@ async function saveRound4Environment(id) {
       method: "PATCH",
       body: JSON.stringify({ fields, notes: notes || null }),
     });
-    loadRound4Settings();
+    loadRound2AutomationSettings();
   } catch (e) {
     statusEl.className = "error-text";
     statusEl.textContent = e.message;
   }
 }
 
-async function regenerateRound4Reference(id) {
+async function regenerateRound2AutomationReference(id) {
   const statusEl = document.getElementById(`r4-status-${id}`);
   const btn = document.getElementById(`r4-regen-btn-${id}`);
   btn.disabled = true;
@@ -787,7 +787,7 @@ async function regenerateRound4Reference(id) {
   statusEl.textContent = "Regenerating (a few seconds)...";
   try {
     await api(`/hr/scenarios/${id}/regenerate-reference`, { method: "POST" });
-    loadRound4Settings();
+    loadRound2AutomationSettings();
   } catch (e) {
     statusEl.className = "error-text";
     statusEl.textContent = e.message;
