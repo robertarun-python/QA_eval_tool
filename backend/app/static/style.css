@@ -2108,3 +2108,22 @@ span.cdd-mini-label { margin-right: 0.35rem; }
   position: sticky; top: 0; z-index: 1000; padding: 0.5rem 1rem; text-align: center;
   background: #B45309; color: #FFFFFF; font-weight: 700; font-size: var(--text-sm);
 }
+
+
+/* ---- Small screens (exploratory audit, Sep 2026) ----
+   Candidates: the rounds (tables, code editors, a terminal) can't work on a
+   phone - say so plainly instead of showing a squashed page. HR: keep the
+   menu inside the screen and Log out reachable. */
+.small-screen-notice { display: none; }
+@media (max-width: 56rem) {
+  body[data-role="candidate"] .small-screen-notice {
+    display: flex; flex-direction: column; justify-content: center; gap: var(--space-default);
+    position: fixed; inset: 0; z-index: 10000; padding: var(--space-loose, 1.5rem);
+    background: var(--canvas, var(--surface)); color: var(--text-primary);
+  }
+}
+@media (max-width: 47.5rem) {
+  .tick-rail { flex-direction: row; flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  .rail-footer { flex-direction: row; flex-wrap: wrap; align-items: center; width: 100%; }
+  .rail-footer .btn-label { display: inline; }
+}

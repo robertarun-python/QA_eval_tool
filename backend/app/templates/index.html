@@ -385,28 +385,6 @@
               </div>
             </div>
 
-            <!-- Visual structure only - see settings-tab-disabled: these four
-                 don't correspond to any real backend capability yet, so they
-                 render inert (no click handler, no page) rather than pretend
-                 to be functional. Pass criteria is the one real, working tab. -->
-            <div class="settings-tabs" role="tablist" aria-label="Settings sections">
-              <button class="settings-tab active" type="button" role="tab" aria-selected="true">
-                <span class="settings-tab-icon panel-icon-accent" aria-hidden="true">&#9678;</span> Pass criteria
-              </button>
-              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
-                <span class="settings-tab-icon" aria-hidden="true">&#9881;</span> Application settings
-              </button>
-              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
-                <span class="settings-tab-icon" aria-hidden="true">&#128197;</span> Assessment windows
-              </button>
-              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
-                <span class="settings-tab-icon" aria-hidden="true">&#128276;</span> Notifications
-              </button>
-              <button class="settings-tab settings-tab-disabled" type="button" role="tab" aria-selected="false" disabled title="Not available yet">
-                <span class="settings-tab-icon" aria-hidden="true">&#128274;</span> Data &amp; privacy
-              </button>
-            </div>
-
             <div class="panel card settings-card">
               <div class="settings-card-header">
                 <div class="panel-header-icon">
@@ -507,6 +485,13 @@
 
         <!-- Candidate view -->
         <section id="candidate-panel" class="hidden">
+          <!-- Shown instead of the rounds on a phone-sized screen (style.css):
+               the rounds need a keyboard and room for tables and code. -->
+          <div class="small-screen-notice" role="alert">
+            <h2>Please use a laptop or desktop</h2>
+            <p>This assessment needs a larger screen and a keyboard - you'll write test cases and work with code. Sign in on a computer to continue; anything you've already done is saved.</p>
+            <button class="btn-secondary" onclick="logout()">Log out</button>
+          </div>
           <div id="round-view" class="panel"></div>
 
           <!-- Round 5 (Progressive Engineering) POC - candidate UI only

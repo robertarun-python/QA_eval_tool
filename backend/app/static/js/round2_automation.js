@@ -42,7 +42,7 @@ function round2AutomationTcTableHtml(rows, selectedIndexes) {
     <div class="tc-card${selectedSet.has(r.index) ? " is-selected" : ""}">
       <div class="tc-card-head">
         <div class="tc-card-title-group">
-          <span class="tc-card-num">${r.index}</span>
+          <span class="tc-card-num">${r.index + 1}</span>
           <span class="tc-card-title">${escapeHtml(r.title || "(untitled)")}</span>
         </div>
         ${selectedSet.has(r.index) ? `<span class="tc-card-selected-tag">Being automated</span>` : ""}
@@ -82,7 +82,7 @@ function round2AutomationNextPickHtml(remaining) {
         <div class="field" style="flex:1 1 18rem">
           <select id="r4a-next-pick-select">
             <option value="" selected>Select...</option>
-            ${remaining.map((r) => `<option value="${r.index}">${escapeHtml(r.title || `Test case ${r.index}`)}</option>`).join("")}
+            ${remaining.map((r) => `<option value="${r.index}">${escapeHtml(r.title || `Test case ${r.index + 1}`)}</option>`).join("")}
           </select>
         </div>
         <button class="btn-primary" id="r4a-automate-btn" onclick="round2AutomationAutomateClicked()">Automate this test case</button>
@@ -100,6 +100,7 @@ function round2AutomationAutomateClicked() {
   round2AutomationAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: [Number(val)] }) }));
 }
 
+// Test cases are numbered from 1 on screen, as in Round 1; row indexes stay 0-based.
 function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
   const passed = run.exit_code === 0 && !run.timed_out && !run.infra_error;
@@ -112,7 +113,7 @@ function round2AutomationRunResultHtml(rowIndex, run) {
     <div class="result-state ${passed ? "is-pass" : "is-fail"}">
       <span class="result-state-icon">${passed ? "✓" : "✕"}</span>
       <div class="result-state-body">
-        <div class="result-state-label">${passed ? "PASS" : "FAIL"} - Test case ${rowIndex}</div>
+        <div class="result-state-label">${passed ? "PASS" : "FAIL"} - Test case ${rowIndex + 1}</div>
         <p class="result-state-detail">${meta}</p>
         ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
@@ -303,7 +304,7 @@ function round2AutomationTcSectionHtml(row) {
   return `
     <div class="surface r4a-tc-panel" data-row-index="${row.index}" style="margin:var(--space-default) 0">
       <div class="section-header">
-        <h2>Test case ${row.index} <span class="muted" style="font-weight:400">- ${escapeHtml(row.title || "(untitled)")}</span></h2>
+        <h2>Test case ${row.index + 1} <span class="muted" style="font-weight:400">- ${escapeHtml(row.title || "(untitled)")}</span></h2>
       </div>
       ${(row.refinements || []).length > 0 ? `<p class="muted" style="margin:0 0 0.5rem 0"><strong>Your refinement notes:</strong> ${row.refinements.map((n) => escapeHtml(n)).join(" &middot; ")}</p>` : ""}
       <p class="muted" style="margin:0 0 var(--space-compact) 0">AI-generated code may be buggy, incomplete, or subtly wrong even when it runs cleanly - review it before trusting a PASS.</p>

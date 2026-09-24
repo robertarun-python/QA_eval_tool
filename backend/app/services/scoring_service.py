@@ -527,6 +527,30 @@ _SCORERS = {
 }
 
 
+# Scoring runs in the server process (BackgroundTasks). A restart mid-scoring
+# - the dev server restarts on every code change - left the round at
+# "submitted" forever: nothing finishes it and HR's Retry only accepts
+# scoring_failed. Longer than any real scoring call (a few minutes at most).
+SCORING_STALE_MINUTES = 15
+INTERRUPTED_SCORING_MESSAGE = "Scoring was interrupted (the server restarted while it ran) - use Retry scoring."
+
+
+def fail_interrupted_scoring(db: Session) -> int:
+    """Marks rounds stuck at "submitted" past SCORING_STALE_MINUTES as
+    scoring_failed, so HR sees them and can Retry. Returns how many."""
+    cutoff = datetime.utcnow() - timedelta(minutes=SCORING_STALE_MINUTES)
+    stuck = db.query(Submission).filter(
+        Submission.status == RoundStatus.submitted, Submission.archived.is_(False),
+        Submission.submitted_at.isnot(None), Submission.submitted_at < cutoff,
+    ).all()
+    for submission in stuck:
+        submission.status = RoundStatus.scoring_failed
+        submission.scoring_error = INTERRUPTED_SCORING_MESSAGE
+    if stuck:
+        db.commit()
+    return len(stuck)
+
+
 def score_submission_in_background(submission_id: int) -> None:
     """The one entry point every submit endpoint's BackgroundTasks call
     and HR's retry-scoring endpoint (routers/hr.py) both go through -

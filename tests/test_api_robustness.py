@@ -127,3 +127,40 @@ def test_no_route_crashes_on_junk_bodies(world):
             if res.status_code >= 500:
                 problems.append(f"{method} {route.path} body {label} -> {res.status_code}: {res.text[:120]}")
     assert not problems, "\n".join(problems)
+
+
+def test_password_guessing_is_throttled_per_account(client):
+    from app.routers.auth import LOGIN_MAX_FAILURES
+    for _ in range(LOGIN_MAX_FAILURES):
+        assert client.post("/auth/login", json={"identifier": CANDIDATE1_EMAIL, "password": "guess"}).status_code == 401
+    blocked = client.post("/auth/login", json={"identifier": CANDIDATE1_EMAIL, "password": CANDIDATE1_PASSWORD})
+    assert blocked.status_code == 429 and "try again" in blocked.json()["detail"]
+    # Other accounts are unaffected.
+    assert client.post("/auth/login", json={"identifier": HR_EMAIL, "password": HR_PASSWORD}).status_code == 200
+
+
+def test_settings_row_creation_survives_a_race(client, monkeypatch):
+    """Two dashboard requests creating the settings row at once: the loser
+    must use the winner's row, not crash (hr.get_settings)."""
+    import app.database as database_module
+    from app.models import AppSettings
+    from app.routers import hr as hr_router
+    db = database_module.SessionLocal()
+    db.query(AppSettings).delete()
+    db.commit()
+    real_get = db.get
+    calls = {"n": 0}
+
+    def racing_get(model, ident):
+        calls["n"] += 1
+        if calls["n"] == 1:  # another request inserts the row right after we looked
+            other = database_module.SessionLocal()
+            other.add(AppSettings(id=1))
+            other.commit()
+            other.close()
+            return None
+        return real_get(model, ident)
+
+    monkeypatch.setattr(db, "get", racing_get)
+    assert hr_router.get_settings(db).id == 1
+    db.close()
