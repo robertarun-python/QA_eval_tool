@@ -4151,9 +4151,13 @@ function codeEditorUpdateGutter(textarea) {
   // metrics - the Round 2 (dark panel) and Round 3 boxes differ in padding.
   const cs = getComputedStyle(textarea);
   for (const prop of ["fontSize", "lineHeight", "paddingTop", "paddingBottom"]) gutter.style[prop] = cs[prop];
+  // data-first-line: the box may hold only the end of a file (Round 2 keeps
+  // the practice environment read-only above it) - number from the real line.
+  const first = parseInt(textarea.dataset.firstLine || "1", 10);
   const lineCount = textarea.value.split("\n").length;
-  if (gutter.children.length !== lineCount) {
-    gutter.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${i + 1}</span>`).join("");
+  if (gutter.children.length !== lineCount || gutter.dataset.first !== String(first)) {
+    gutter.innerHTML = Array.from({ length: lineCount }, (_, i) => `<span>${first + i}</span>`).join("");
+    gutter.dataset.first = String(first);
   }
   codeEditorSyncScroll(textarea);
 }
@@ -5911,9 +5915,43 @@ function round4AutoReferenceTabClicked(name) {
   document.querySelectorAll("[data-r4a-ref-panel]").forEach((panel) => panel.classList.toggle("active", panel.dataset.r4aRefPanel === name));
 }
 
+// The fixed practice environment is shown read-only and collapsed; only the
+// candidate's part is editable (UI review item 8). It splits ONLY while the
+// file still starts with the environment exactly as provided - if the
+// assistant or anyone changed it, the whole file stays editable and nothing
+// is hidden. Save/Run/Submit always send fixed part + box (round4AutoCode),
+// byte-identical to the file.
+const r4aFixedPrefix = {};  // code box id -> the read-only text in front of it
+
+function round4AutoFixedPrefix(environmentCode) {
+  const env = environmentCode || "";
+  const m = /^[ \t]*(#|\/\/) *TODO: write your automated/m.exec(env);
+  return m ? env.slice(0, m.index) : "";
+}
+function round4AutoSplitCode(code, environmentCode) {
+  const prefix = round4AutoFixedPrefix(environmentCode);
+  const text = code || "";
+  if (prefix && text.startsWith(prefix)) return { fixed: prefix, editable: text.slice(prefix.length) };
+  return { fixed: "", editable: text };
+}
+function round4AutoCode(rowIndex) {
+  const id = `r4a-code-${rowIndex}`;
+  const el = document.getElementById(id);
+  return el ? (r4aFixedPrefix[id] || "") + el.value : "";
+}
+
 function round4AutoTcSectionHtml(row) {
   const tc = round4AutoTcState(row.index);
   const unlocked = round4AutoTcIsUnlocked(tc);
+  const codeId = `r4a-code-${row.index}`;
+  const split = round4AutoSplitCode(tc.code, round4AutoState && round4AutoState.environment_code);
+  r4aFixedPrefix[codeId] = split.fixed;
+  const fixedLines = split.fixed ? split.fixed.split("\n").length - 1 : 0;
+  const envHtml = split.fixed ? `
+          <details class="r4a-env">
+            <summary>Practice environment &middot; read-only &middot; lines 1&ndash;${fixedLines} (the app and helpers your test uses)</summary>
+            <div class="code-with-lines r4a-env-code">${codeWithLineNumbersHtml(split.fixed.replace(/\n$/, ""))}</div>
+          </details>` : "";
   // Order matches the actual workflow: prompt first (below), code
   // appears as a result of that and sits right under where the
   // candidate was just typing, then the test data it's about to run
@@ -5926,12 +5964,13 @@ function round4AutoTcSectionHtml(row) {
       <div class="code-panel r4a-code-panel">
         <div class="code-panel-head"><span>Automation code</span><span>Editable - review before you trust a PASS</span></div>
         <div class="code-panel-body">
-          ${codeEditorHtml(`r4a-code-${row.index}`, tc.code, "round4-pilot-code r4a-code-editor")}
+          ${envHtml}
+          ${codeEditorHtml(codeId, split.editable, "round4-pilot-code r4a-code-editor", `data-first-line="${fixedLines + 1}"`)}
         </div>
       </div>
       ${round4AutoTestDataHtml(row)}
       <div class="action-bar code-actions-sticky" style="border-top:none; margin-top:0">
-        <span class="muted">Run uses exactly what's in the code box above. Your own edits are recorded separately from the assistant's.</span>
+        <span class="muted">Run uses exactly this file - the practice environment plus your code box. Your own edits are recorded separately from the assistant's.</span>
         <div class="action-bar-buttons">
           <button class="btn-secondary r4a-save-btn" onclick="round4AutoSaveCodeClicked(${row.index})">Save my edit</button>
           <button class="btn-primary r4a-run-btn" onclick="round4AutoRunClicked(${row.index})">Run</button>
@@ -6111,13 +6150,13 @@ function round4AutoAskClicked(rowIndex) {
 }
 
 function round4AutoSaveCodeClicked(rowIndex) {
-  const code = document.getElementById(`r4a-code-${rowIndex}`).value;
+  const code = round4AutoCode(rowIndex);
   if (!code) return;
   round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }));
 }
 
 function round4AutoRunClicked(rowIndex) {
-  const code = document.getElementById(`r4a-code-${rowIndex}`).value;
+  const code = round4AutoCode(rowIndex);
   round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }));
 }
 
@@ -6145,7 +6184,7 @@ async function round4AutoSubmitClicked() {
       if (statusEl) statusEl.textContent = `Run "${r.title || `test case ${r.index}`}" at least once before submitting.`;
       return;
     }
-    entries.push({ row_index: r.index, code: document.getElementById(`r4a-code-${r.index}`).value });
+    entries.push({ row_index: r.index, code: round4AutoCode(r.index) });
   }
 
   round4AutoBusy = true;
