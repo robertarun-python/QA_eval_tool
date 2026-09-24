@@ -403,12 +403,25 @@ function scheduleRoundDraftSave(roundNumber, buildPayload) {
 }
 
 function flushRoundDraft(roundNumber, buildPayload) {
-  clearTimeout(roundDraftTimer);
-  roundDraftTimer = null;
+  cancelRoundDraftSave();
+  let payload;
+  try {
+    payload = buildPayload();
+  } catch (e) {
+    return; // the round's form is gone (submitted or expired) - nothing left to save
+  }
   api(`/candidate/round/${roundNumber}/draft`, {
     method: "PATCH",
-    body: JSON.stringify(buildPayload()),
+    body: JSON.stringify(payload),
   }).catch(() => {}); // best-effort - see comment above
+}
+
+// A pending autosave must never fire after the round has ended: it would
+// read a form that's been replaced (a page error) or save to a closed round
+// (a 400). Called whenever a round ends - see stopTimer.
+function cancelRoundDraftSave() {
+  clearTimeout(roundDraftTimer);
+  roundDraftTimer = null;
 }
 
 // Round 1: repeatable test-case rows (title/preconditions/steps/test_data/expected_result).
@@ -646,6 +659,7 @@ async function doSubmitRound2Investigation(force = false) {
     }
   }
   if (submitBtn) submitBtn.disabled = true;
+  cancelRoundDraftSave();  // no autosave may land after (or race) the submit
   try {
     await api("/candidate/round/4/submit", { method: "POST", body: JSON.stringify({ investigation, root_cause }) });
     stopTimer();
@@ -656,7 +670,7 @@ async function doSubmitRound2Investigation(force = false) {
       // Nothing submittable even now, or the server's own deadline check
       // beat this attempt - the round still has to end, saving whatever's
       // here. See forceExpireRound.
-      await forceExpireRound(2, { investigation, root_cause });
+      await forceExpireRound(4, { investigation, root_cause });  // debugging is slot 4
       return;
     }
     if (submitBtn) submitBtn.disabled = false;
@@ -915,6 +929,7 @@ async function doSubmitRound1(force = false) {
     }
   }
   if (submitBtn) submitBtn.disabled = true;
+  cancelRoundDraftSave();  // no autosave may land after (or race) the submit
   try {
     await api("/candidate/round/1/submit", { method: "POST", body: JSON.stringify({ content }) });
     stopTimer();
@@ -971,6 +986,7 @@ function startTimer(deadlineMs, onExpire, roundNumber) {
 // regardless of whether it actually succeeded, which is why "Submit"
 // with an empty form looked like it silently disabled the guard.
 function stopTimer() {
+  cancelRoundDraftSave();
   if (timerHandle) {
     clearInterval(timerHandle);
     timerHandle = null;

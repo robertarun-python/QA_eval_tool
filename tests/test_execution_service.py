@@ -45,7 +45,7 @@ def test_run_code_passes_stdin_joined_by_newlines(monkeypatch):
     # candidate's own "read until blank" loop can terminate for real
     # instead of hitting a bare EOFError.
     assert captured["stdin_text"] == "2\n3\n\n"
-    assert captured["cmd"][0] == sys.executable
+    assert captured["cmd"][0] == execution_service.PYTHON
 
 
 def test_run_code_lets_a_read_until_blank_loop_terminate_cleanly():
@@ -321,15 +321,14 @@ def test_ascii_output_is_unchanged_by_the_utf8_env():
     assert result.stdout.strip() == "5"
 
 
-def test_child_env_sets_utf8_without_dropping_the_real_environment():
-    """PATH etc. must still reach the child - a replaced (rather than
-    extended) environment would break interpreter resolution."""
-    import os
-    env = execution_service._child_env()
-    assert env["PYTHONIOENCODING"] == "utf-8"
-    assert len(env) >= len(os.environ)
-    for key in os.environ:
-        assert key in env
+def test_child_env_is_minimal_utf8_and_never_the_servers_own(monkeypatch, tmp_path):
+    """UTF-8 output and a PATH that resolves interpreters - but none of the
+    server's own environment, which can hold secrets (see _child_env)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-never-reach-candidate-code")
+    env = execution_service._child_env(tmp_path)
+    assert env["PYTHONIOENCODING"] == "utf-8" and "/usr/bin" in env["PATH"]
+    assert env["HOME"] == str(tmp_path) and env["TMPDIR"] == str(tmp_path)
+    assert "ANTHROPIC_API_KEY" not in env and not any("sk-should-never" in v for v in env.values())
 
 
 def test_run_code_treats_a_javac_that_cannot_report_its_version_as_infra_error(monkeypatch):

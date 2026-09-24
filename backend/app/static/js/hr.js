@@ -1064,7 +1064,7 @@ function renderCandidatesTable() {
 
   let rows = lastLoadedCandidates;
   if (query) rows = rows.filter((c) => c.email.toLowerCase().includes(query));
-  if (statusFilter) rows = rows.filter((c) => c.result === statusFilter);
+  if (statusFilter) rows = rows.filter((c) => candidateStage(c) === statusFilter);
 
   const totalRows = rows.length;
   const filtered = Boolean(query || statusFilter);
@@ -1147,6 +1147,7 @@ function renderCandidatesTable() {
 // honour the current search (the same email filter the table uses).
 const CANDIDATE_STATUS_TABS = [
   { value: "", label: "All" },
+  { value: "not_started", label: "Not started" },
   { value: "in_progress", label: "In progress" },
   { value: "selected", label: "Selected" },
   { value: "not_selected", label: "Not selected" },
@@ -1155,7 +1156,7 @@ const CANDIDATE_STATUS_TABS = [
 function renderCandidateStatusTabs(query, statusFilter) {
   const searched = query ? lastLoadedCandidates.filter((c) => c.email.toLowerCase().includes(query)) : lastLoadedCandidates;
   document.getElementById("candidates-status-tabs").innerHTML = CANDIDATE_STATUS_TABS.map((t) => {
-    const count = t.value ? searched.filter((c) => c.result === t.value).length : searched.length;
+    const count = t.value ? searched.filter((c) => candidateStage(c) === t.value).length : searched.length;
     const active = t.value === statusFilter;
     return `
       <button type="button" class="tab cd-status-tab${active ? " active" : ""}" aria-pressed="${active}" onclick="selectCandidateStatusTab('${t.value}')">
@@ -1337,7 +1338,16 @@ function exportCandidatesCsv() {
 function resultBadge(result) {
   if (result === "selected") return `<span class="badge badge-published">Selected</span>`;
   if (result === "not_selected") return `<span class="badge badge-neutral">Not selected</span>`;
+  if (result === "not_started") return `<span class="badge badge-neutral">Not started</span>`;
   return `<span class="badge cd-badge-info">In progress</span>`;
+}
+
+// The server's result is "in_progress" for every candidate without a final
+// decision - including one who hasn't started. The page shows "not_started"
+// separately so the badge, the filter tabs and the summary cards agree.
+function candidateStage(c) {
+  if (c.result === "in_progress" && c.rounds.every((r) => r.status === "not_started")) return "not_started";
+  return c.result;
 }
 
 // One-line summary of what's actually happening for this candidate
@@ -1353,7 +1363,7 @@ function candidateStatusCaption(c) {
 // Just the result badge - the one-line "what's happening now" caption
 // moved under the Progress column (see candidateProgressCell).
 function statusCell(c) {
-  return `<div class="status-cell">${resultBadge(c.result)}</div>`;
+  return `<div class="status-cell">${resultBadge(candidateStage(c))}</div>`;
 }
 
 // Aggregate score, its % of the fixed 400-point scale (4 rounds x 100 -
@@ -1803,7 +1813,7 @@ function renderCandidateDetailShell(id) {
         </div>
       </div>
     </div>
-    ${c ? `<div class="status-cell" id="candidate-detail-result">${resultBadge(c.result)}</div>` : ""}
+    ${c ? `<div class="status-cell" id="candidate-detail-result">${resultBadge(candidateStage(c))}</div>` : ""}
   `;
   renderCandidateAssessmentSummary(c);
   setPageHeader("HR Console", "Candidate report", "Scores, evidence and actions for one candidate.");
@@ -1888,7 +1898,7 @@ function renderCandidateAssessmentSummary(c) {
         </div>
         <div class="cdd-card">
           <h4 class="cdd-card-label">Result</h4>
-          <div class="status-cell">${resultBadge(c.result)}</div>
+          <div class="status-cell">${resultBadge(candidateStage(c))}</div>
           <p class="cdd-card-note muted">${escapeHtml(candidateResultExplanation(c))}</p>
         </div>
         <div class="cdd-card">
@@ -1919,7 +1929,7 @@ async function refreshCandidateDetailSummary(id, seq) {
   const c = list.find((x) => x.id === id);
   if (!c) return;
   const badge = document.getElementById("candidate-detail-result");
-  if (badge) badge.innerHTML = resultBadge(c.result);
+  if (badge) badge.innerHTML = resultBadge(candidateStage(c));
   renderCandidateAssessmentSummary(c);
 }
 

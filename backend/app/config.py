@@ -107,6 +107,10 @@ class Settings(BaseSettings):
     # truly abandoned or hung run, not the per-response wait), separate
     # from and much larger than execution_timeout_seconds.
     interactive_execution_timeout_seconds: int = 300
+    # Candidate code runs inside an OS sandbox (execution_service._sandboxed):
+    # "auto" uses the platform's (macOS sandbox-exec) and refuses to run code
+    # where there is none. "off" runs it unprotected - development only.
+    execution_sandbox: str = "auto"
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
     # logins instead of open signup: 1 HR + 3 candidates. Emails default to
