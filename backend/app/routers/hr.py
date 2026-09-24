@@ -14,6 +14,7 @@ rounds 1/2 (generated at creation, required before publish) - see
 publish_scenario and list_scenarios below, and routers/candidate.py for
 its dedicated endpoints.
 """
+import traceback
 import difflib
 from collections import Counter
 from contextlib import contextmanager
@@ -155,6 +156,7 @@ def _generate_reference(scenario: Scenario, db: Session) -> None:
     try:
         _generate_reference_unsafe(scenario, db)
     except Exception:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "Reference generation failed - try again.")
 
 
@@ -1115,6 +1117,7 @@ def candidate_summary(candidate_id: int, background_tasks: BackgroundTasks, db: 
     try:
         validated_rounds = [CandidateRoundComment(**r) for r in result["rounds"]]
     except ValidationError as e:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, f"The generated summary didn't match the expected shape: {e}")
 
     summary = db.query(CandidateSummary).filter(CandidateSummary.user_id == candidate.id).first()

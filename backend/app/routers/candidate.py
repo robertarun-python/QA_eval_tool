@@ -372,6 +372,7 @@ def round3_coding_direct_edit(payload: Round3DirectEditCreate, db: Session = Dep
             declared_constructs=declared_constructs,
         )
     except Exception:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try saving again.")
 
     turn = Round3Turn(
@@ -723,6 +724,7 @@ def round4_turn(payload: Round4TurnCreate, db: Session = Depends(get_db), candid
             turn_number=turn_number,
         )
     except Exception:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
     turn = ConversationTurn(
@@ -786,6 +788,7 @@ def round4_turn_code(turn_id: int, language: str, db: Session = Depends(get_db),
                 language=language,
             )
         except Exception:
+            traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
             raise HTTPException(502, "Couldn't generate a code snippet just now - try again.")
 
         turn.generated_code_json = {**(turn.generated_code_json or {}), language: code}
@@ -905,6 +908,7 @@ def round4_pilot_turn(payload: Round4PilotTurnCreate, db: Session = Depends(get_
             candidate_prompt=payload.candidate_prompt,
         )
     except Exception:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
     turn_record = {
@@ -1442,6 +1446,7 @@ def round4_auto_turn(payload: Round4AutoTurnCreate, db: Session = Depends(get_db
                 candidate_prompt=payload.candidate_prompt,
             )
     except Exception:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
     turn_record = {
@@ -1505,6 +1510,7 @@ def round4_auto_clarify(payload: Round4AutoClarifyCreate, db: Session = Depends(
             candidate_prompt=payload.candidate_prompt,
         )
     except Exception:
+        traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
 
     turn_record = {

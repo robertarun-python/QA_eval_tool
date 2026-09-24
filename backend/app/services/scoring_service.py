@@ -5,6 +5,7 @@ is "what do we do with the answer" - easier to unit test scoring logic
 without mocking the Anthropic client every time.
 """
 import json
+import traceback
 from datetime import datetime, timedelta
 
 from fastapi import BackgroundTasks
@@ -743,6 +744,7 @@ def score_submission_in_background(submission_id: int) -> None:
             # calls the LLM.
             db.query(CandidateSummary).filter(CandidateSummary.user_id == submission.user_id).delete()
         except Exception as e:
+            traceback.print_exc()  # scoring_error keeps only the message; the traceback goes to the server log
             db.rollback()  # discard any half-formed pending changes (e.g. a Score added but not yet committed) before recording the failure
             submission.status = RoundStatus.scoring_failed
             submission.scoring_error = str(e)[:2000]

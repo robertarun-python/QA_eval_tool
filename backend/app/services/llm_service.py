@@ -8,6 +8,7 @@ wording is easy to find and edit without touching Python.
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 
 import anthropic
@@ -122,17 +123,59 @@ def _accepts_temperature(model: str) -> bool:
     return (model or "").startswith(_SAMPLING_MODEL_PREFIXES)
 
 
+class LLMReplyTruncated(RuntimeError):
+    """The model's reply hit its token limit even after one retry with a
+    doubled limit - the reply is incomplete (typically a JSON string cut off
+    mid-code), so it is never parsed as if it were whole."""
+
+
+# Hard ceiling for the automatic retry below - well inside the model's own
+# output limit, and far above any reply this app legitimately needs.
+_MAX_OUTPUT_TOKENS = 16384
+
+
+# Reply limit for calls whose reply carries a whole code file (plus other
+# JSON fields) - a Round 2 automation file with its practice environment is
+# ~130 lines, and 4096 cut such replies off. A limit costs nothing unless used.
+_CODE_REPLY_TOKENS = 8192
+
+
+def _timeout_for(max_tokens: int) -> float:
+    """Per-call timeout scaled to how long the reply may be (~50 tokens/s
+    plus overhead), between 60s and 240s. One fixed 60s for every call
+    (the client default above) timed out long code-writing replies while
+    short ones never came close."""
+    return min(240.0, max(60.0, 30.0 + max_tokens / 50))
+
+
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
+    """The one place every Claude call goes through. A reply cut off at
+    max_tokens (stop_reason "max_tokens") used to be returned as-is and only
+    failed later as unparseable JSON ("Unterminated string ...") - live R2
+    first-generation turns hit this. It is now retried once with double the
+    limit, and raised as LLMReplyTruncated if it's still cut off."""
     client = _get_client()
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
-    message = client.messages.create(
-        model=settings.claude_model,
-        max_tokens=max_tokens,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}],
-        **extra,
-    )
-    return message.content[0].text
+    budget = max_tokens
+    for _ in range(2):
+        message = client.messages.create(
+            model=settings.claude_model,
+            max_tokens=budget,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=_timeout_for(budget),
+            **extra,
+        )
+        text = "".join(getattr(block, "text", "") or "" for block in (message.content or []))
+        if getattr(message, "stop_reason", None) != "max_tokens":
+            if not text.strip():
+                raise RuntimeError("The model returned an empty reply.")
+            return text
+        if budget >= _MAX_OUTPUT_TOKENS:
+            break
+        print(f"[llm] reply cut off at {budget} tokens - retrying once with {min(budget * 2, _MAX_OUTPUT_TOKENS)}", file=sys.stderr)
+        budget = min(budget * 2, _MAX_OUTPUT_TOKENS)
+    raise LLMReplyTruncated(f"The model's reply was cut off at its {budget}-token limit.")
 
 
 def _parse_json_response(raw_text: str) -> dict | list:
@@ -156,7 +199,21 @@ def _parse_json_response(raw_text: str) -> dict | list:
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    return json.loads(text.strip(), strict=False)
+    try:
+        return json.loads(text.strip(), strict=False)
+    except json.JSONDecodeError:
+        # Prose around the JSON ("Looking at this instruction... {...}") -
+        # parse the outermost object/array, whichever opens first. Only ever
+        # widens what parses; a reply with no whole JSON inside still raises.
+        spans = sorted(
+            (text.find(o), text.rfind(c)) for o, c in (("{", "}"), ("[", "]")) if text.find(o) != -1 and text.rfind(c) > text.find(o)
+        )
+        for start, end in spans:
+            try:
+                return json.loads(text[start:end + 1], strict=False)
+            except json.JSONDecodeError:
+                continue
+        raise
 
 
 # ---- Round 1 ----
@@ -259,7 +316,7 @@ def generate_round3_reference(scenario_description: str, experience_band: str, i
         input_format=io_format["input"],
         output_format=io_format["output"],
     )
-    raw = _call_claude(prompt)
+    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
     result = _parse_json_response(raw)
     if (
         not isinstance(result, dict)
@@ -429,7 +486,7 @@ def _round3_coding_turn_once(
         # 4096, not the 2048 used before this feature - the response now
         # carries a full code snapshot AND a category_status block (one
         # neutral_question per open category) in the same JSON object.
-        raw = _call_claude(prompt, max_tokens=4096)
+        raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
         result = _parse_json_response(raw)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
@@ -577,7 +634,7 @@ def round3_syntax_fix(
         language=language,
         required_constructs=json.dumps(required_constructs),
     )
-    raw = _call_claude(prompt, max_tokens=4096)
+    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the syntax-fix response, got: {type(result)}")
@@ -771,7 +828,7 @@ def _round4_force_flaw(environment: dict | None, candidate_prompt: str, response
         candidate_prompt=candidate_prompt,
         original_response_json=json.dumps(response, indent=2),
     )
-    raw = _call_claude(prompt)
+    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the forced-flaw revision, got: {type(result)}")
@@ -978,7 +1035,7 @@ def round4_pilot_turn(
         conversation_so_far=json.dumps(conversation_so_far, indent=2),
         candidate_prompt=candidate_prompt,
     )
-    raw = _call_claude(prompt, max_tokens=4096)
+    raw = _call_claude(prompt, max_tokens=_CODE_REPLY_TOKENS)
     result = _parse_json_response(raw)
     if not isinstance(result, dict):
         raise ValueError(f"Expected a JSON object for the pilot turn, got: {type(result)}")
@@ -1105,7 +1162,7 @@ def round4_auto_turn(
     )
 
     def _generate(note: str = "") -> tuple[dict, str | None]:
-        raw = _call_claude(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=4096)
+        raw = _call_claude(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=_CODE_REPLY_TOKENS)
         result = _parse_json_response(raw)
         if not isinstance(result, dict):
             raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")

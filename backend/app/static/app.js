@@ -5916,7 +5916,7 @@ function round4AutoTestDataHtml(row) {
 function round4AutoSaveTestDataClicked(rowIndex) {
   const testData = document.getElementById(`r4a-test-data-${rowIndex}`).value.trim();
   if (!testData) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/test-data", { method: "POST", body: JSON.stringify({ row_index: rowIndex, test_data: testData }) }));
+  round4AutoAction(() => api("/candidate/round/2/auto/test-data", { method: "POST", body: JSON.stringify({ row_index: rowIndex, test_data: testData }) }), rowIndex, "Saving test data...");
 }
 
 // Reference material - the app's own screens and test-environment facts,
@@ -6048,6 +6048,7 @@ function round4AutoTcSectionHtml(row) {
         </div>
         <button class="btn-primary r4a-ask-btn" onclick="round4AutoAskClicked(${row.index})">Ask AI</button>
       </div>
+      <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
 
       ${codeSectionHtml}
     </div>`;
@@ -6165,19 +6166,22 @@ function round4AutoAfterRender() {
 // Shared by every action except submit: call the endpoint, re-fetch state,
 // re-render. Same reasoning as the pilot's round4PilotAction - the server
 // is the single source of truth for what actually persisted.
-async function round4AutoAction(actionFn) {
+// rowIndex: a test case's own action (Ask / Save / Run / test data) - its
+// progress and any error show beside that test case's buttons, not in the
+// page-bottom status line (a failed Ask AI used to look like "nothing
+// happened" because the error appeared below Submit).
+async function round4AutoAction(actionFn, rowIndex = null, workingText = "") {
   if (round4AutoBusy) return;
   round4AutoBusy = true;
   round4AutoSetBusy(true);
-  const statusEl = document.getElementById("r4a-status");
-  if (statusEl) statusEl.textContent = "";
+  const statusEl = (rowIndex !== null && document.getElementById(`r4a-tc-status-${rowIndex}`)) || document.getElementById("r4a-status");
+  if (statusEl) { statusEl.className = "muted"; statusEl.textContent = workingText; }
   try {
     await actionFn();
     round4AutoState = await api("/candidate/round/2/auto/state");
     renderRound4AutomationLayout(document.getElementById("round-view"));
   } catch (e) {
-    const el = document.getElementById("r4a-status");
-    if (el) el.textContent = e.message;
+    if (statusEl) { statusEl.className = "error-text"; statusEl.textContent = e.message; }
   } finally {
     round4AutoBusy = false;
     round4AutoSetBusy(false);
@@ -6198,18 +6202,19 @@ function round4AutoAskClicked(rowIndex) {
   const promptEl = document.getElementById(`r4a-prompt-${rowIndex}`);
   const prompt = promptEl.value.trim();
   if (!prompt) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) }));
+  round4AutoAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) }),
+    rowIndex, "Asking the assistant - writing code can take up to a minute or two...");
 }
 
 function round4AutoSaveCodeClicked(rowIndex) {
   const code = round4AutoCode(rowIndex);
   if (!code) return;
-  round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }));
+  round4AutoAction(() => api("/candidate/round/2/auto/code", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Saving...");
 }
 
 function round4AutoRunClicked(rowIndex) {
   const code = round4AutoCode(rowIndex);
-  round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }));
+  round4AutoAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Running...");
 }
 
 async function round4AutoSubmitClicked() {
