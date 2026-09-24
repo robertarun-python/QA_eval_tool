@@ -3,6 +3,7 @@ Login, plus a /me to resolve identity from a token. Accounts are seeded
 (see app/seed.py) or bulk-uploaded by HR (see routers/hr.py, credential_service.py)
 - there is no self-signup route.
 """
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
@@ -20,6 +21,34 @@ from ..services.scoring_service import finalize_abandoned_submission, score_subm
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# Password guessing: after LOGIN_MAX_FAILURES wrong passwords for one account
+# within LOGIN_WINDOW_SECONDS, sign-in for it is refused until the oldest
+# failure ages out. In memory (one server process) - enough for this POC;
+# a multi-process deployment would keep this in shared storage.
+LOGIN_MAX_FAILURES = 5
+LOGIN_WINDOW_SECONDS = 15 * 60
+_login_failures: dict[str, list[float]] = {}
+
+
+def _recent_failures(key: str) -> list[float]:
+    now = time.monotonic()
+    recent = [t for t in _login_failures.get(key, []) if now - t < LOGIN_WINDOW_SECONDS]
+    _login_failures[key] = recent
+    return recent
+
+
+def _login_blocked_for(key: str) -> int:
+    """Seconds until this account may try again, 0 when it may now."""
+    recent = _recent_failures(key)
+    if len(recent) < LOGIN_MAX_FAILURES:
+        return 0
+    return int(LOGIN_WINDOW_SECONDS - (time.monotonic() - recent[0])) + 1
+
+
+def _record_login_failure(key: str) -> None:
+    _recent_failures(key).append(time.monotonic())
+
+
 @router.post("/login", response_model=LoginResponse)
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     # identifier matches either column: HR/seeded accounts log in with
@@ -27,6 +56,13 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     # email's local part - see credential_service.derive_username). Most
     # users will only ever have one of the two set, so this is never
     # ambiguous in practice.
+    key = (payload.identifier or "").strip().lower()
+    retry_after = _login_blocked_for(key)
+    if retry_after:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many failed sign-ins for this account - try again in {max(1, retry_after // 60)} minute(s).",
+        )
     user = db.query(User).filter(
         or_(User.email == payload.identifier, User.username == payload.identifier)
     ).first()
@@ -39,7 +75,9 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     if user is None or not password_ok:
         # Deliberately the same error for "no such user" and "wrong
         # password" - don't leak which one it was.
+        _record_login_failure(key)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Incorrect email or username, or wrong password")
+    _login_failures.pop(key, None)
 
     # A fresh session id on every login (see models.User.active_session_id) -
     # this is what lets dependencies.get_current_user notice a second,

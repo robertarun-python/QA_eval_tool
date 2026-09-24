@@ -24,6 +24,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fpdf import FPDF
 from fpdf.fonts import FontFace
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -45,7 +46,7 @@ from ..schemas import (
 from ..dependencies import require_hr
 from ..services import llm_service
 from ..services import candidate_upload_service
-from ..services.scoring_service import score_submission_in_background, close_expired_submissions, close_expired_assessment_windows
+from ..services.scoring_service import score_submission_in_background, close_expired_submissions, close_expired_assessment_windows, fail_interrupted_scoring
 
 router = APIRouter(prefix="/hr", tags=["hr"])
 
@@ -64,9 +65,17 @@ def get_settings(db: Session) -> AppSettings:
     without ever running it)."""
     app_settings = db.get(AppSettings, 1)
     if app_settings is None:
-        app_settings = AppSettings(id=1)
-        db.add(app_settings)
-        db.commit()
+        # HR's dashboard fires several requests at once; on a fresh database
+        # two of them could both find no row and both insert it - the loser
+        # crashed with a UNIQUE error. Losing that race is fine: use the row
+        # the other request created.
+        try:
+            app_settings = AppSettings(id=1)
+            db.add(app_settings)
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            app_settings = db.get(AppSettings, 1)
         db.refresh(app_settings)
     return app_settings
 
@@ -779,6 +788,7 @@ def _build_candidate_summary(candidate: User, db: Session, background_tasks: Bac
 
 @router.get("/candidates", response_model=list[CandidateSummaryOut])
 def list_candidates(background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    fail_interrupted_scoring(db)
     candidates = db.query(User).filter(User.role == Role.candidate).order_by(User.email).all()
     return [_build_candidate_summary(c, db, background_tasks) for c in candidates]
 
@@ -847,6 +857,7 @@ def candidate_report(candidate_id: int, background_tasks: BackgroundTasks, db: S
     """All submissions (with scores where available) for one candidate's
     CURRENT cycle, across all rounds. A past, archived cycle's report is
     GET /candidates/{id}/appearances/{appearance_id}/report instead."""
+    fail_interrupted_scoring(db)
     candidate = db.get(User, candidate_id)
     if candidate is None or candidate.role != Role.candidate:
         raise HTTPException(404, "Candidate not found")

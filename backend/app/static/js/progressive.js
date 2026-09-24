@@ -438,8 +438,25 @@ let currentProgressiveStageView = null;        // {stage_order, requirement_text
 let progressiveChatTurns = [];                 // session-only transcript, see note above
 let progressiveStageResultView = null;         // aggregate-only {stage_order, passed, test_count, passed_count} for the just-submitted stage
 
-function renderCandidateProgressiveNav() {
-  document.getElementById("candidate-progressive-nav").innerHTML = `
+// Shown only when HR has published at least one problem - otherwise every
+// candidate saw an "Experimental" entry leading to an empty page, right next
+// to their real assessment.
+let candidateHasProgressiveProblems = null;
+
+async function renderCandidateProgressiveNav() {
+  const nav = document.getElementById("candidate-progressive-nav");
+  if (candidateHasProgressiveProblems === null) {
+    try {
+      candidateHasProgressiveProblems = (await api("/candidate/progressive/problems")).length > 0;
+    } catch (e) {
+      candidateHasProgressiveProblems = false;
+    }
+  }
+  if (!candidateHasProgressiveProblems) {
+    nav.innerHTML = "";
+    return;
+  }
+  nav.innerHTML = `
     <div class="rail-divider">
       <div class="rail-section-label">Experimental</div>
       <button class="index-item ${candidatePage === "progressive" ? "active" : ""}" onclick="selectCandidatePage('progressive')"><span>Progressive Engineering</span></button>

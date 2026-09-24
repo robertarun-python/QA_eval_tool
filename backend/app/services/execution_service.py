@@ -17,20 +17,20 @@ Switched from the hosted Piston API to local subprocess execution on
 via a direct 401: "Public Piston API is now whitelist only"), and this
 deployment has no Docker available to self-host it. Running candidate code
 as a plain local subprocess instead needs no external service, but comes
-with a real trade-off worth being explicit about: there is NO sandbox here
-beyond a wall-clock timeout (see settings.execution_timeout_seconds) - no
-network isolation, no filesystem restriction, no memory/CPU cap. That's an
-acceptable trust boundary for this tool's actual shape (a single HR user
-running it locally, scoring code the LLM wrote in response to a candidate's
-own natural-language prompts - not arbitrary third-party or multi-tenant
-code), but it is NOT a hardened sandbox and must not be treated as one if
-this tool's deployment model ever changes (e.g. a hosted multi-tenant
-version) - that would need real isolation (containers, a VM, gVisor, ...)
-before running LLM-generated code at all.
+with a real trade-off: candidates can type code directly (Round 2 and
+Round 3), so everything they run is untrusted. An audit (Sep 2026) showed
+unsandboxed candidate code could read .env (API key, login-signing secret),
+write the real database and reach the network. Every run is therefore
+wrapped by _sandboxed (settings.execution_sandbox): on macOS the built-in
+sandbox-exec denies the network, any read under /Users, any write outside
+the run's own temp directory and spawning processes; the child also gets a
+minimal environment (_child_env). Where no sandbox is available, code is
+refused (infra_error) unless execution_sandbox is explicitly "off" - never
+silently run unprotected. Not a VM: a hosted multi-tenant deployment still
+needs real isolation (containers, gVisor, ...).
 """
 import ast
 import asyncio
-import os
 import re
 import shutil
 import subprocess
@@ -124,7 +124,7 @@ def syntax_error(language: str, code: str | None) -> tuple[bool, str | None]:
     return False, None
 
 
-def _child_env() -> dict:
+def _child_env(cwd: Path | None = None) -> dict:
     """Environment for every candidate process we launch, forcing UTF-8 on
     the CHILD's own stdout/stderr.
 
@@ -137,8 +137,50 @@ def _child_env() -> dict:
     the child has already crashed, so the encoding has to be set here.
 
     PYTHONIOENCODING is Python-specific and simply ignored by node/java, so
-    one environment is safe for all three languages."""
-    return {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    one environment is safe for all three languages.
+
+    Minimal on purpose: never the server's own environment, which can hold
+    secrets (API keys, tokens) - candidate code must not see them."""
+    env = {"PATH": _CHILD_PATH, "LANG": "en_US.UTF-8", "PYTHONIOENCODING": "utf-8"}
+    if cwd is not None:
+        env.update(HOME=str(cwd), TMPDIR=str(cwd))
+    return env
+
+
+# The base interpreter, not the venv's (which sits under /Users, hidden by the sandbox).
+PYTHON = next((str(p) for p in (Path(sys.base_prefix) / "bin" / f"python{sys.version_info[0]}.{sys.version_info[1]}",
+                                  Path(sys.base_prefix) / "bin" / "python3") if p.exists()), sys.executable)
+_CHILD_PATH = "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+_SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+
+
+class SandboxUnavailable(OSError):  # an OSError, so both launch sites report it as infra_error
+    """No way to isolate candidate code on this host - refused, not run unprotected."""
+
+
+def _sandbox_profile(workdir: Path) -> str:
+    work = str(workdir.resolve()).replace('"', "")
+    return f"""(version 1)
+(allow default)
+(deny network*)
+(deny process-fork)
+(deny file-read* (subpath "/Users"))
+(deny file-write*)
+(allow file-write* (subpath "{work}") (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty"))
+(allow file-read* (subpath "{work}"))
+"""
+
+
+def _sandboxed(cmd: list[str], workdir: Path) -> list[str]:
+    """`cmd` wrapped so it can't reach secrets, the database, the network or
+    other processes - see the module docstring. Raises SandboxUnavailable
+    rather than ever returning the bare command, unless the setting is "off"."""
+    mode = settings.execution_sandbox
+    if mode == "off":
+        return cmd
+    if sys.platform == "darwin" and Path(_SANDBOX_EXEC).exists():
+        return [_SANDBOX_EXEC, "-p", _sandbox_profile(workdir), *cmd]
+    raise SandboxUnavailable(f"no sandbox available on {sys.platform} (execution_sandbox={mode!r})")
 
 # What macOS's /usr/bin/javac placeholder prints when no JDK is installed
 # (see the java branch of _prepare_run).
@@ -192,7 +234,7 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
     candidate's Run button) - the only difference between the two is
     unbuffered_python (see start_interactive's -u flag comment)."""
     if language == "python":
-        interpreter = [sys.executable, "-u", str(source)] if unbuffered_python else [sys.executable, str(source)]
+        interpreter = [PYTHON, "-I", "-u", str(source)] if unbuffered_python else [PYTHON, "-I", str(source)]
         return _PreparedRun(run_cmd=interpreter)
     elif language == "javascript":
         node = shutil.which("node")
@@ -233,7 +275,8 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
             # candidate-code fault, not infra_error.
             stderr = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
             return _PreparedRun(compile_stderr=stderr, compile_exit_code=compile_proc.returncode)
-        return _PreparedRun(run_cmd=[java, "-cp", str(tmp_path), "Main"])
+        # -XX:-UsePerfData: the JVM would otherwise write a perf file outside the run's temp directory.
+        return _PreparedRun(run_cmd=[java, "-XX:-UsePerfData", "-cp", str(tmp_path), "Main"])
 
 
 def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds: int) -> tuple[str, str, int | None, bool]:
@@ -246,14 +289,14 @@ def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds:
     infinite loop), not an infrastructure failure."""
     try:
         proc = subprocess.run(
-            cmd, cwd=cwd, input=stdin_text, capture_output=True, text=True,
+            _sandboxed(cmd, cwd), cwd=cwd, input=stdin_text, capture_output=True, text=True,
             # Both halves are needed: env makes the CHILD write UTF-8 (see
             # _child_env), encoding/errors make the PARENT read it back as
             # UTF-8 instead of the host locale, which would otherwise
             # mojibake exactly the characters the child just emitted.
             # errors="replace" keeps a stray undecodable byte from turning
             # a candidate's real run into an infrastructure failure.
-            encoding="utf-8", errors="replace", env=_child_env(),
+            encoding="utf-8", errors="replace", env=_child_env(cwd),
             timeout=timeout_seconds,
         )
         return proc.stdout, proc.stderr, proc.returncode, False
@@ -485,7 +528,7 @@ async def start_interactive(language: str, code: str) -> InteractiveSession:
         # loop for consistency with everything else here being safe to
         # call from an async route without stalling it.
         process = await asyncio.to_thread(
-            subprocess.Popen, run_cmd, cwd=tmp_path,
+            subprocess.Popen, _sandboxed(run_cmd, tmp_path), cwd=tmp_path,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             # bufsize=0: unbuffered on the PARENT's read side. Popen's
             # default (-1, fully buffered for a non-interactive pipe)
@@ -501,7 +544,7 @@ async def start_interactive(language: str, code: str) -> InteractiveSession:
             # _child_env. The parent side here already decodes utf-8 with
             # errors="replace" (_read_stream_thread), so this is the only
             # half that was missing.
-            env=_child_env(),
+            env=_child_env(tmp_path),
         )
     except OSError:
         tmp_dir.cleanup()

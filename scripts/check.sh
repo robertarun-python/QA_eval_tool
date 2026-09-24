@@ -10,5 +10,5 @@ echo "== lint"
 echo "== tests (includes type check, page/API contract and browser tests)"
 $PY -m pytest tests -q -p no:cacheprovider "$@"
 echo "== stored answers still fit their schemas"
-(cd backend && ../$PY -m app.audit_content)
+(cd backend && ../$PY -m app.audit_content && ../$PY -m app.audit_guards)
 echo "All checks passed."

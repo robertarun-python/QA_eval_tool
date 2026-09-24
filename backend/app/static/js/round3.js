@@ -445,7 +445,11 @@ function round3TerminalStatusText() {
 }
 
 function round3TerminalLogHtml() {
-  if (round3RunLog.length === 0) return `<p class="muted">Click Run to execute your code.</p>`;
+  if (round3RunLog.length === 0) {
+    // A run that finished without printing anything must say so, not look like it never ran.
+    if (round3RunFinalStatus && !round3RunActive) return `<p class="muted">The program finished without printing anything.</p>`;
+    return `<p class="muted">${round3RunActive ? "Running..." : "Click Run to execute your code."}</p>`;
+  }
   return `<pre class="round3-terminal-pre">${round3RunLog.map((seg) => {
     const text = escapeHtml(seg.text);
     if (seg.type === "stdin") return `<span class="round3-terminal-stdin">${text}</span>`;

@@ -311,6 +311,8 @@ async function _performLogout() {
   }
   role = null;
   userEmail = null;
+  delete document.body.dataset.role;
+  candidateHasProgressiveProblems = null;  // the next user's own check (see progressive.js)
   document.getElementById("hr-panel").classList.add("hidden");
   document.getElementById("candidate-panel").classList.add("hidden");
   document.getElementById("who").innerHTML = "";
@@ -358,6 +360,7 @@ function onLoggedIn() {
   // role's nav sitting in the DOM alongside the new one.
   document.getElementById("hr-round-nav").innerHTML = "";
   document.getElementById("candidate-round-nav").innerHTML = "";
+  document.body.dataset.role = role;  // role-specific layout rules, e.g. .small-screen-notice
   if (role === "hr") {
     document.getElementById("hr-panel").classList.remove("hidden");
     // A previous HR session on this page (logout without a reload) may

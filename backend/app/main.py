@@ -40,6 +40,14 @@ app = FastAPI(title="QA Eval Tool", version="0.1.0")
 MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
 
 
+@app.exception_handler(OverflowError)
+async def id_out_of_range(request: Request, exc: OverflowError):
+    """An id bigger than the database's integer range (e.g. /hr/scenarios/
+    999999999999999999999999999999) can't exist - answer "not found" instead
+    of crashing. One place for every route (tests/test_api_robustness.py)."""
+    return JSONResponse({"detail": "Not found."}, status_code=404)
+
+
 @app.middleware("http")
 async def limit_request_body_size(request: Request, call_next):
     content_length = request.headers.get("content-length")

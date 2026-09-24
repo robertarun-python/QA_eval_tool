@@ -1067,17 +1067,21 @@ def round2_automation_turn(
         # Values the candidate stated must reach the code exactly (see
         # round2_automation_policy.changed_candidate_values) - not checked on
         # the planted-flaw turn, whose flaw may legitimately be a value.
-        def _problems(code: str) -> tuple[list[str], list[str], list[str]]:
+        # Invented expected values and extra test functions (see
+        # round2_automation_policy.invented_content) are never delivered: if
+        # the retry still has them, the candidate gets a refusal instead.
+        def _problems(code: str) -> tuple[list[str], list[str], list[str], list[str]]:
             fakes = round2_automation_policy.fabricated_observations(current_code, code)
             changed = [] if inject_flaw else round2_automation_policy.changed_candidate_values(code, *design_args, environment_code)
             return (
                 round2_automation_policy.unrequested_assertions(language, current_code, code, *design_args),
                 fakes if len(fakes) > allowed_fakes else [],
                 changed,
+                round2_automation_policy.invented_content(language, current_code, code, *design_args, environment_code),
             )
 
-        flagged, fakes, changed = _problems(parsed["code_after"])
-        if flagged or fakes or changed:
+        flagged, fakes, changed, invented = _problems(parsed["code_after"])
+        if flagged or fakes or changed or invented:
             notes = []
             if flagged:
                 notes.append(_UNREQUESTED_ASSERTIONS_NOTE.format(lines="\n".join(flagged)))
@@ -1085,10 +1089,14 @@ def round2_automation_turn(
                 notes.append(_FABRICATED_OBSERVATIONS_NOTE.format(lines="\n".join(fakes)))
             if changed:
                 notes.append(_CHANGED_VALUES_NOTE.format(lines="\n".join(changed)))
+            if invented:
+                notes.append(_INVENTED_CONTENT_NOTE.format(lines="\n".join(invented)))
             retry, retry_planted = _generate("\n\n".join(notes))
             if retry["response_kind"] == "code_edit":
                 parsed, planted_flaw = retry, retry_planted
-                flagged, fakes, changed = _problems(parsed["code_after"])
+                flagged, fakes, changed, invented = _problems(parsed["code_after"])
+            else:
+                parsed, invented = retry, []
             if flagged:
                 parsed["code_after"], remaining = round2_automation_policy.drop_single_line_statements(parsed["code_after"], flagged)
                 if remaining:
@@ -1097,6 +1105,14 @@ def round2_automation_turn(
                 parsed["fabricated_observations"] = fakes
             if changed:
                 parsed["changed_values"] = changed
+            if invented and parsed["response_kind"] == "code_edit":
+                # An extra test is judged on what the model wrote - removing its
+                # assertions below would otherwise make it look like no test at all.
+                extra_test = any(i == round2_automation_policy.EXTRA_TEST for i in invented)
+                parsed["code_after"], _ = round2_automation_policy.drop_single_line_statements(parsed["code_after"], invented)
+                # Judged on what's left, not on the drop's report: another check may already have removed a line.
+                if extra_test or round2_automation_policy.invented_content(language, current_code, parsed["code_after"], *design_args, environment_code):
+                    return {"response_kind": "refuse", "response_message": round2_automation_policy.REFUSAL_MESSAGE, "code_after": None}
     else:
         # Replies must not reveal values that exist only in the environment
         # (see round2_automation_policy.leaked_environment_values).
@@ -1114,6 +1130,14 @@ def round2_automation_turn(
         # everything the candidate is sent, see schemas.SubmissionOut.
         parsed["planted_flaw"] = (planted_flaw or "").strip() or "A flaw was planted in this code but not described."
     return parsed
+
+
+_INVENTED_CONTENT_NOTE = (
+    "IMPORTANT - your previous attempt was rejected before the candidate saw it, because it invented "
+    "test content the candidate never gave (an expected value nobody stated, or an extra test):\n{lines}\n"
+    "Encode only the candidate's own design: their steps, their data, their expected results - one test "
+    "for their test case. If something needed is missing, ask them instead of choosing it."
+)
 
 
 _CHANGED_VALUES_NOTE = (

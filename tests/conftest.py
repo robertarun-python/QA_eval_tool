@@ -71,6 +71,8 @@ def client(monkeypatch):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+    from app.routers import auth as auth_router
+    auth_router._login_failures.clear()  # the sign-in throttle is per process - start every test clean
 
     # candidate.py's background scoring task opens its own session
     # directly from app.database.SessionLocal (it can't use the get_db
