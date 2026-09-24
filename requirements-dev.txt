@@ -1,0 +1,5 @@
+# Test-only tooling on top of requirements.txt - the app itself never imports these.
+-r requirements.txt
+# Browser tests (tests/e2e). After installing: python -m playwright install chromium
+playwright==1.47.0
+pytest-playwright==0.5.2

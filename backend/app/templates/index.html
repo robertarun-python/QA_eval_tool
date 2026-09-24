@@ -25,6 +25,7 @@
   <link rel="stylesheet" href="/static/style.css?v={{ style_css_version }}" />
 </head>
 <body>
+  {% if fake_ai_banner %}<div class="fake-ai-banner" role="alert">{{ fake_ai_banner }}</div>{% endif %}
 
   <!-- Logged out: a plain centered login screen, no app chrome yet. -->
   <div class="auth-screen" id="auth-screen">

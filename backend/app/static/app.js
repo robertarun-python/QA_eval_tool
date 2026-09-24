@@ -591,7 +591,7 @@ async function loadAiHealth() {
     const rows = h.recent_problems.map((c) => `
       <tr><td class="muted">${escapeHtml(c.at)}</td><td>${escapeHtml(c.caller)}</td><td>${escapeHtml(c.outcome)}</td><td>${escapeHtml(c.detail || "")}</td></tr>`).join("");
     box.innerHTML = `
-      <p>${h.total} AI call${h.total === 1 ? "" : "s"} since the server started. ${counts}</p>
+      <p>AI mode: <strong>${escapeHtml(h.mode)}</strong>. ${h.total} AI call${h.total === 1 ? "" : "s"} since the server started. ${counts}</p>
       ${rows ? `<div class="table-scroll"><table><thead><tr><th>When (UTC)</th><th>Step</th><th>Outcome</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`
              : `<p class="muted">No failed AI calls.</p>`}`;
   } catch (e) {

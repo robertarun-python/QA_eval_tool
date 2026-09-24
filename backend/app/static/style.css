@@ -2102,3 +2102,9 @@ span.cdd-mini-label { margin-right: 0.35rem; }
 .cdd-appearances-table tbody th[scope="row"] { padding: 0.75rem 0; border-bottom: 1px solid var(--border); font-size: inherit; letter-spacing: normal; }
 .cdd-appearances-table tbody tr:last-child th[scope="row"] { border-bottom: none; }
 .cdd-appearances-table tbody th + td { padding-left: var(--space-compact); }
+
+/* Fake-AI mode (settings.llm_fake_mode) - impossible to miss, on every page. */
+.fake-ai-banner {
+  position: sticky; top: 0; z-index: 1000; padding: 0.5rem 1rem; text-align: center;
+  background: #B45309; color: #FFFFFF; font-weight: 700; font-size: var(--text-sm);
+}

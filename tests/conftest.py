@@ -307,3 +307,10 @@ def _seed_completed_rounds(candidate_email, upto, scenario_id=None):
         db.commit()
     finally:
         db.close()
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Browser tests (tests/e2e) always run last: Playwright keeps an event
+    loop running for the rest of the session once it starts, and the
+    execution tests that use asyncio.run() fail if they come after it."""
+    items.sort(key=lambda item: "tests/e2e/" in str(item.path).replace("\\", "/"))

@@ -23,6 +23,7 @@ from ..schemas import (
     Round4PilotTurnResponse, Round4AutoClarifyLLMResponse,
 )
 from . import clarify_loop
+from . import fake_llm
 from . import execution_service
 from . import round3_constructs
 from . import round3_io_format
@@ -140,7 +141,11 @@ def _calling_function() -> str:
     frame = sys._getframe(1)
     while frame is not None and frame.f_code.co_name in _INTERNAL_CALLERS:
         frame = frame.f_back
-    return frame.f_code.co_name if frame is not None else "?"
+    if frame is None:
+        return "?"
+    # A nested helper (round4_auto_turn's _generate, R3's _raw_turn) reports
+    # the call site it belongs to: "round4_auto_turn.<locals>._generate" -> "round4_auto_turn".
+    return frame.f_code.co_qualname.split(".<locals>.")[0]
 
 
 def _record_call(outcome: str, *, started: float | None = None, max_tokens: int | None = None, message=None, detail: str = "") -> None:
@@ -196,6 +201,9 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     failed later as unparseable JSON ("Unterminated string ...") - live R2
     first-generation turns hit this. It is now retried once with double the
     limit, and raised as LLMReplyTruncated if it's still cut off."""
+    if settings.llm_fake_mode:
+        _record_call("fake", max_tokens=max_tokens, detail="fake AI mode - scripted reply")
+        return fake_llm.reply_text(_calling_function(), prompt)
     client = _get_client()
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     budget = max_tokens
@@ -341,7 +349,7 @@ def _call_claude_json(prompt: str, max_tokens: int = 4096, schema: dict | None =
     call instead (see _call_claude_tool) - falling back to JSON text for this
     process if the API rejects tool use."""
     global _tool_output_disabled_reason
-    if schema is not None and settings.llm_tool_output and _tool_output_disabled_reason is None:
+    if schema is not None and settings.llm_tool_output and not settings.llm_fake_mode and _tool_output_disabled_reason is None:
         try:
             return _call_claude_tool(prompt, schema, max_tokens=max_tokens)
         except anthropic.BadRequestError as e:

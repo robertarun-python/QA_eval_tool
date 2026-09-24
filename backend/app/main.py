@@ -9,13 +9,18 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .config import settings
 from .database import Base, engine
+from .services import fake_llm
 from .routers import auth, hr, candidate, progressive
 
 # Creates tables on first run if they don't exist yet. Fine for a POC;
 # a real project would use Alembic migrations instead once the schema
 # needs to change without losing data.
 Base.metadata.create_all(bind=engine)
+
+if settings.llm_fake_mode:
+    print(f"*** {fake_llm.BANNER} (LLM_FAKE_MODE is on) ***", flush=True)
 
 app = FastAPI(title="QA Eval Tool", version="0.1.0")
 
@@ -75,6 +80,7 @@ def index(request: Request):
         "request": request,
         "app_js_version": app_js_version,
         "style_css_version": style_css_version,
+        "fake_ai_banner": fake_llm.BANNER if settings.llm_fake_mode else "",
     })
     # The page itself must never be reused from the browser's cache - it
     # carries the ?v= versions above, so a stale copy keeps loading the old

@@ -104,8 +104,10 @@ def ai_health(hr: User = Depends(require_hr)):
     by_outcome: dict[str, int] = {}
     for call in calls:
         by_outcome[call["outcome"]] = by_outcome.get(call["outcome"], 0) + 1
-    problems = [c for c in calls if c["outcome"] != "ok"]
-    return {"total": len(calls), "by_outcome": by_outcome, "recent_problems": problems[:20], "recent_calls": calls[:30]}
+    problems = [c for c in calls if c["outcome"] not in ("ok", "fake")]
+    from ..config import settings as app_config
+    mode = "fake" if app_config.llm_fake_mode else ("real (tool output)" if app_config.llm_tool_output else "real")
+    return {"mode": mode, "total": len(calls), "by_outcome": by_outcome, "recent_problems": problems[:20], "recent_calls": calls[:30]}
 
 
 @router.get("/settings", response_model=AppSettingsOut)

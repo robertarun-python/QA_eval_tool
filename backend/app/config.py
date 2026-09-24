@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # once against the real API; if the API rejects it, calls fall back to
     # the JSON-text path automatically.
     llm_tool_output: bool = False
+    # Every AI call returns a scripted reply (services/fake_llm.py) - for manual
+    # walkthroughs and browser tests without API credit. Never for real
+    # candidates: the app shows a banner on every page while it's on.
+    llm_fake_mode: bool = False
 
     # The original round 2 automation mode (a round-2 scenario with no
     # config "mode"): the model role-plays running the candidate's test and
