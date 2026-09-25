@@ -11,7 +11,7 @@ Write a reference set of test cases a strong QA engineer at the {experience_band
 - expected_result: a specific, checkable assertion - the exact state, message, value, or record a tester would verify, not a general statement like "it works" or "an error is shown".
 - priority is one of: High, Medium, Low.
 - type is one of: Positive, Negative, Boundary, Edge - and your set of cases should include a realistic mix, not all Positive.
-- Aim for the number and depth of cases a real engineer at this level would produce in a focused {time_limit_minutes}-minute session - don't pad with trivial duplicates, and don't generate more than someone could realistically write by hand in that time (roughly 1 case per 1.5-2 minutes is a reasonable ceiling).
+- Write AT MOST {max_cases} test cases - about what a real engineer at this level could write by hand in a focused {time_limit_minutes}-minute session. Choose the ones that matter most: the main flows first, then the negative, boundary and edge cases most likely to find real bugs. Don't pad with near-duplicates - one case per distinct behaviour (e.g. one case for an invalid format, not one per invalid value).
 
 Respond with ONLY a JSON array, no other text, in this shape:
 [

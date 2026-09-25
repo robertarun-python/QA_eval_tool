@@ -434,13 +434,36 @@ SCHEMA_R3_REFERENCE = {
 
 # ---- Round 1 ----
 
+def round1_reference_case_limit(time_limit_minutes: int) -> int:
+    """About one case per 1.6 minutes - what a candidate could write by hand
+    in the round. A prompt that only asked for "roughly" this got 19-28 cases
+    for a 20-minute round: an answer key twice what a strong candidate can
+    cover, and a practice app (and its cost) built for all of them."""
+    return max(5, round((time_limit_minutes or 20) / 1.6))
+
+
+_PRIORITY_ORDER = {"High": 0, "Medium": 1, "Low": 2}
+
+
+def _keep_top_cases(rows: list[dict], limit: int) -> list[dict]:
+    """The `limit` highest-priority rows, still in the order they were written."""
+    if len(rows) <= limit:
+        return rows
+    ranked = sorted(range(len(rows)), key=lambda i: (_PRIORITY_ORDER.get(rows[i].get("priority"), 1), i))
+    keep = set(ranked[:limit])
+    return [row for i, row in enumerate(rows) if i in keep]
+
+
 def generate_round1_reference(scenario_description: str, experience_band: str, time_limit_minutes: int) -> list[dict]:
+    limit = round1_reference_case_limit(time_limit_minutes)
     prompt = _load_prompt("round1_reference_generation.txt").format(
         scenario_description=scenario_description,
         experience_band=experience_band,
         time_limit_minutes=time_limit_minutes,
+        max_cases=limit,
     )
-    return _require_rows(_call_claude_json(prompt), "Round 1 reference", required_text="title")
+    rows = _require_rows(_call_claude_json(prompt), "Round 1 reference", required_text="title")
+    return _keep_top_cases(rows, limit)
 
 
 def score_round1_submission(
