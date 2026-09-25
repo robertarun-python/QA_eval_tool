@@ -32,3 +32,18 @@ def test_hr_sees_the_candidates_scored_rounds(app_page):
     expect(detail).to_be_visible()
     expect(detail).to_contain_text("placeholder feedback")  # the fake scorer's text reached HR's report
     expect(detail.locator("text=Override score").first).to_be_visible()
+
+
+def test_a_refresh_on_round_2_keeps_round_2s_own_view(app_page):
+    """A refresh lands back on the round HR had open. On Round 2 it used to
+    show Round 1's scenario library (Create + Review) for Round 2's
+    scenarios, and Review crashed on their non-test-case reference."""
+    page = app_page
+    login(page, HR)
+    page.click('button[onclick="selectHRRound(2)"]')
+    expect(page.locator("#round4-settings-panel")).to_be_visible()
+    page.reload()
+    expect(page.locator("#round4-settings-panel")).to_be_visible()
+    expect(page.locator("#round4-settings-panel")).not_to_be_empty()
+    expect(page.locator("#create-scenario-row")).to_be_hidden()
+    expect(page.locator("#screening-history-panel")).to_be_hidden()
