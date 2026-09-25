@@ -1,0 +1,16 @@
+These CHECKLISTS for a practice app (a pretend application for a QA hiring assessment) keep failing, and fixing the app's code hasn't helped - the checklists themselves may be what's wrong. The DESIGN below is the truth: the app is built from it, and every checklist must be satisfiable by an app that follows it exactly.
+
+THE DESIGN:
+<<PLAN>>
+
+EACH FAILING CHECKLIST, the Round 1 test case it automates, and what went wrong when it ran:
+<<FAILING>>
+
+For each checklist, decide which side is wrong:
+- The checklist contradicts the design - e.g. it adds as new a record the starting data ("data") already has; it expects a record to be missing that the starting data holds; it expects a message, page or value the design words differently; it passes a result on as something it isn't; its precondition needs a record the starting data doesn't have and it never creates it. Then rewrite it so it satisfies the design while still testing exactly what the Round 1 test case tests: use values the starting data doesn't have, create missing preconditions in the first steps, use the design's exact messages.
+- The checklist matches the design and the app is simply wrong. Then return it unchanged.
+
+Never make a checklist easier to pass: keep every check it makes (the same kind of check on the same thing, including every Database check), and never drop or loosen an expectation just because the app returned something else. Keep each checklist's "id" and "title" exactly. Use only the design's helpers, in the same step format as the checklists above.
+
+Respond with ONLY a JSON array with one checklist per failing checklist above, rewritten or unchanged:
+[{"id": "...", "title": "...", "steps": [...]}, ...]

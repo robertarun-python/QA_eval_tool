@@ -243,6 +243,36 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
     return runnable, unsupported, problems
 
 
+def _check_counts(checklist: dict) -> tuple[int, int]:
+    """(checks, Database checks) - a rewritten checklist must keep both."""
+    checks = [s for s in checklist.get("steps") or [] if any(k in s for k in ("expect", "expect_includes", "expect_excludes"))]
+    return len(checks), sum((s.get("call") or "").startswith("Database.") for s in checks)
+
+
+def accept_repairs(plan: dict, checklists: list[dict], repaired, failing_ids: set[str]) -> tuple[list[dict], list[str]]:
+    """Swaps in the AI's rewrites of failing checklists - only where the
+    rewrite keeps the id and title, is valid against the design, and checks
+    at least as much (and as much in the Database) as the original, so a
+    checklist can't be "fixed" by dropping what it checked. Returns the
+    checklists and the ids replaced."""
+    by_id = {c["id"]: c for c in checklists}
+    accepted = {}
+    for item in repaired if isinstance(repaired, list) else []:
+        original = by_id.get(item.get("id")) if isinstance(item, dict) else None
+        if original is None or item["id"] not in failing_ids or item == original:
+            continue
+        if (item.get("title") or "") != (original.get("title") or ""):
+            continue
+        runnable, _, problems = validate_checklists(plan, [item], [])
+        if problems or runnable != [item]:
+            continue
+        checks, db_checks = _check_counts(item)
+        original_checks, original_db_checks = _check_counts(original)
+        if checks >= original_checks and db_checks >= original_db_checks:
+            accepted[item["id"]] = item
+    return [accepted.get(c["id"], c) for c in checklists], sorted(accepted)
+
+
 def _problems_for(language: str, report: checker.InspectionReport) -> list[str]:
     lang_report = report.languages.get(language)
     if lang_report is None:
@@ -279,6 +309,20 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
             language_rules=_LANGUAGE_RULES[language],
         )
         return _code(call(prompt, _CODE_TOKENS))
+
+    def repair_checklists(checklists: list[dict], report: checker.InspectionReport) -> tuple[list[dict], list[str]]:
+        # The app code may be right and the checklist wrong (a record the
+        # starting data already has used as "new", a result used as an id) -
+        # code fixes can't solve that, so every earlier stuck build gave up.
+        failed = {r.id: r.failures for r in report.languages["python"].results if not r.passed}
+        cases = {(c.get("title") or "").strip().lower(): c for c in reference_cases}
+        blocks = [json.dumps({"checklist": c, "round1_test_case": cases.get((c.get("title") or "").strip().lower(), {}),
+                              "what_went_wrong": failed[c["id"]][:5]}, indent=1, ensure_ascii=False)
+                  for c in checklists if c["id"] in failed]
+        raw = llm_service._parse_json_response(call(_render(
+            llm_service._load_prompt("practice_app_repair_checklists.txt"), plan=plan_text, failing="\n\n".join(blocks),
+        ), _CHECKLIST_TOKENS))
+        return accept_repairs(result.plan, checklists, raw, set(failed))
 
     try:
         # 1. Plan
@@ -326,6 +370,20 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
             result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
             if not problems or round_no == MAX_FIX_ROUNDS:
                 break
+            if round_no == 1:
+                # A code fix didn't clear everything: check the checklists too.
+                step(3, "re-checking the failing checklists")
+                runnable, rewritten = repair_checklists(runnable, report)
+                result.checklists = runnable
+                checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
+                result.log.append(f"rewrote {len(rewritten)} failing checklist(s): {', '.join(rewritten)}" if rewritten
+                                  else "the failing checklists match the design - kept as they were")
+                if rewritten:
+                    report = checker.inspect({"python": python}, runnable)
+                    problems = _problems_for("python", report)
+                    result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
+                    if not problems:
+                        break
             step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {round_no + 1} of {MAX_FIX_ROUNDS})")
             python = fix("python", python, problems)
         if problems:
