@@ -175,6 +175,31 @@ def _ref_problem(checklist: dict, true_false: set[str]) -> str | None:
     return None
 
 
+def _missing_start_record_problem(checklist: dict, plan: dict, changing: set[str]) -> str | None:
+    """A Database check expecting false for a value the design's starting
+    data holds, when nothing earlier in the checklist was expected to change
+    data successfully - the record is still there, so it can never pass. The
+    Beneficiary build's checklists added the Round 1 test data's account
+    numbers as "new" while the design had pre-loaded them (the test cases
+    also said they "already exist"), so each fix of one broke another."""
+    start_data = str(plan.get("data") or "")
+    for step in checklist["steps"]:
+        call = step.get("call") or ""
+        if call in changing and step.get("expect") is not False:
+            return None  # data may have changed from here on
+        args = step.get("args") or []
+        if call.startswith("Database.") and step.get("expect") is False and args:
+            # The record being looked up is the first argument (later ones are
+            # e.g. its owner, who does exist); matched as a whole value, not
+            # inside a longer one ("12345678" within "1234567890123456").
+            key = args[0]
+            if (isinstance(key, str) and len(key) >= 6
+                    and re.search(rf"(?<![\w@.-]){re.escape(key)}(?![\w@.-])", start_data)):
+                return (f"checklist {checklist['id']!r} expects {call}({key!r}) to be false, but {key!r} is in the design's "
+                        "starting data and nothing earlier removed it - use a value the starting data doesn't have")
+    return None
+
+
 def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict]) -> tuple[list, list, list[str]]:
     """Splits the AI's checklists into runnable ones and unsupported cases,
     and lists problems: a call to a helper the plan doesn't have, a missing
@@ -207,6 +232,8 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
             problems.append(f"checklist {c['id']!r} changes data but never checks the Database layer")
         elif ref_problem := _ref_problem(c, true_false):
             problems.append(ref_problem)
+        elif start_problem := _missing_start_record_problem(c, plan, changing):
+            problems.append(start_problem)
         else:
             runnable.append(c)
     covered = {(c.get("title") or "").strip().lower() for c in runnable} | {u["title"].strip().lower() for u in unsupported}
