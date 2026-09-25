@@ -1233,8 +1233,16 @@ def round2_automation_clarify(
     if round2_automation_policy.is_prohibited(candidate_prompt):
         return {"response_kind": "refuse", "response_message": round2_automation_policy.REFUSAL_MESSAGE, "code_after": None}
 
+    # The candidate's own design is the specification: a complete one needs
+    # no questions, and a test case is asked at most once - both without an
+    # AI call (see round2_automation_clarify_policy, "own design").
+    policy = round2_automation_clarify_policy
+    if policy.design_is_complete(selected_design) or policy.already_asked(conversation_so_far):
+        return {**policy.build_clarify_response(status="sufficient"), "code_after": None}
+    design_question = policy.question_for_design(selected_design)
+
     if round2_automation_clarify_policy.is_placeholder_instruction(candidate_prompt):
-        response = {"response_kind": "clarify", "response_message": round2_automation_clarify_policy.FALLBACK_QUESTION}
+        response = {"response_kind": "clarify", "response_message": design_question}
     else:
         prompt = _load_prompt("round2_automation_clarify.txt").format(
             language=language,
@@ -1267,6 +1275,7 @@ def round2_automation_clarify(
         response = round2_automation_clarify_policy.build_clarify_response(
             status=status, question=parsed.question,
             prior_value=parsed.prior_value, current_value=parsed.current_value,
+            fallback=design_question,
         )
 
     # Loop breaker, applied to every clarifying reply whichever branch made

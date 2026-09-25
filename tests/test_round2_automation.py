@@ -51,6 +51,11 @@ R1_ROWS = [
     },
 ]
 
+# The clarifying gate only runs for a design with something missing (a complete
+# one is its own specification - round2_automation_clarify_policy "own design"),
+# so the gate's own tests use designs without test data.
+GATE_ROWS = [{**row, "test_data": ""} for row in R1_ROWS]
+
 GROUND_TRUTH = "create_record rejects amount <= 0 and writes nothing; Database.find is the only proof of persistence."
 
 
@@ -504,7 +509,7 @@ def test_legitimate_request_reaches_the_generator_and_updates_the_code(client, m
 
 def test_clarify_asks_a_neutral_question_and_writes_no_code(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, r1_rows=GATE_ROWS)
     _select(client, cand_token, (0,))
     baseline_code = _state(client, cand_token)["tc_state"][0]["code"]
 
@@ -553,7 +558,7 @@ def test_clarify_never_writes_code_even_when_the_instruction_is_complete(client,
 ])
 def test_clarify_substitutes_the_fallback_when_the_drafted_question_leaks_the_layer(client, monkeypatch, leaking_question):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, r1_rows=GATE_ROWS)
     _select(client, cand_token, (0,))
 
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
@@ -568,8 +573,9 @@ def test_clarify_substitutes_the_fallback_when_the_drafted_question_leaks_the_la
     assert body["response_kind"] == "clarify"
     # The leaking draft never reaches the candidate - a fixed, pre-approved,
     # category-neutral question is substituted instead.
-    from app.services.round2_automation_clarify_policy import FALLBACK_QUESTION
-    assert body["response_message"] == FALLBACK_QUESTION
+    # Replaced by a question naming what the design is actually missing
+    # (here its test data) - not the layer, and not one generic sentence.
+    assert body["response_message"] == "Which test data should the test use?"
     for leaked_word in ("ui", "api", "database", "backend", "front end", "layer"):
         assert leaked_word not in body["response_message"].lower()
 
@@ -612,7 +618,7 @@ def test_clarify_requires_row_index_once_two_test_cases_are_selected(client, mon
 
 def test_clarify_and_turn_share_one_conversation_log_per_tc(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, r1_rows=GATE_ROWS)
     _select(client, cand_token, (0,))
 
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
@@ -761,7 +767,7 @@ def test_clarify_never_loops_on_a_repeated_scope_narrowing_contradiction(client,
     still flagged once, but reaffirming it a second time must resolve to
     sufficient rather than asking the identical question again forever."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, r1_rows=GATE_ROWS)
     _select(client, cand_token, (0,))
 
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
@@ -789,7 +795,7 @@ def test_clarify_flags_an_instruction_that_contradicts_the_candidates_own_design
     candidate said two different things, so the follow-up asks which one
     is current rather than asking a fresh neutral question."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, r1_rows=GATE_ROWS)
     _select(client, cand_token, (0,))
 
     monkeypatch.setattr(llm_service, "_call_claude", lambda *a, **k: json.dumps(
@@ -1530,7 +1536,7 @@ def test_fabricated_finding_is_still_dropped_and_refunded(client, monkeypatch):
 
 def test_two_tc_evidence_blocks_are_fully_isolated(client, monkeypatch):
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
-    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch, r1_rows=GATE_ROWS)
     _select(client, cand_token, (0, 1))
 
     # Refinement attribution: only TC0 gets a refinement note.
