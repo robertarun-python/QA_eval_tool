@@ -101,3 +101,18 @@ def test_round_2_shows_only_the_generate_flow_when_round_1_changed(app_page, e2e
         expect(card.get_by_role("button", name="Approve - use it for Round 2")).to_be_visible()
     finally:
         _set_live_round1_build(e2e_server, None)
+
+
+def test_review_brings_the_scenario_into_view(app_page):
+    """The review panel opens below the scenario list; on a laptop screen that
+    is off-screen, so Review looked like it did nothing."""
+    page = app_page
+    page.set_viewport_size({"width": 1280, "height": 500})
+    login(page, HR)
+    page.click('button[onclick="selectHRRound(1)"]')
+    page.get_by_role("button", name="Review").first.click()
+    detail = page.locator("#scenario-detail")
+    expect(detail).to_be_visible()
+    # Its top scrolled up to the top of the window, not just a sliver at the bottom.
+    page.wait_for_function("() => { const top = document.getElementById('scenario-detail').getBoundingClientRect().top;"
+                           " return top >= 0 && top < 150; }", timeout=5000)
