@@ -694,37 +694,23 @@ function renderPracticeAppPanel(id, d) {
   return `<h4>Round 2 practice app</h4>${intro}${body}<p id="practice-app-status" class="muted"></p>`;
 }
 
-// Shown on the Round 2 card when the live Round 1 scenario isn't the one the
-// live practice app was built for - with the next step right there.
-function practiceAppMismatchNotice(pairedTitle, liveRound1) {
-  if (!liveRound1) {
-    return `<p class="error-text" role="alert">No Round 1 scenario is live. Make ${escapeHtml(pairedTitle)} live in Round 1, or another scenario with its own practice app.</p>`;
-  }
-  const status = ((liveRound1.config_json || {}).practice_app || {}).status || "none";
-  const title = escapeHtml(liveRound1.title);
-  const head = `<p class="error-text" role="alert">The live Round 1 scenario is <strong>${title}</strong>, but this practice app was built for <strong>${escapeHtml(pairedTitle)}</strong> - candidates would design tests it can't run. Don't send candidates the test until this is fixed.</p>`;
-  if (status === "building") {
-    return head + `<p>A practice app for ${title} is being built:</p>${practiceAppProgressHtml((liveRound1.config_json || {}).practice_app || {})}
-      <p class="muted">This updates by itself, and you'll get a notification when it's ready.</p>`;
-  }
-  if (status === "ready") {
-    return head + `<p>✅ A practice app for ${title} is ready and passed every check.</p>
-      <button class="btn-primary" onclick="approvePracticeAppFromRound2(${liveRound1.id})">Approve it - switch Round 2 to ${title}</button>
-      <p id="practice-app-r2-status" class="muted"></p>`;
-  }
-  const again = status === "not_ready" || status === "failed";
-  return head + `<p>${again ? `The last build for ${title} didn't pass every check - see Round 1 → ${title} → Review for details, or build it again.` : `Build a practice app for ${title}: it's checked automatically against every Round 1 test case, and you approve it before candidates see it.`}</p>
-    <button class="btn-primary" onclick="buildPracticeAppFromRound2(${liveRound1.id})">${again ? "Build again" : "Build practice app"} for ${title}</button>
-    <p id="practice-app-r2-status" class="muted"></p>`;
+// Shown on the Round 2 card when no Round 1 scenario is live. (A live Round 1
+// without its own practice app gets renderRound2NeedsPracticeApp instead.)
+function practiceAppNoRound1Notice(pairedTitle) {
+  return `<p class="error-text" role="alert">No Round 1 scenario is live. Make ${escapeHtml(pairedTitle)} live in Round 1, or another scenario with its own practice app.</p>`;
 }
 
 async function buildPracticeAppFromRound2(round1Id) {
-  if (!confirm("Build the Round 2 practice app for the live Round 1 scenario? Nothing changes for candidates until you approve it.")) return;
+  if (!confirm("Generate Round 2 for the live Round 1 scenario? It takes about 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
+  const buttons = [...document.querySelectorAll("#round4-settings-panel button")];
+  buttons.forEach((b) => { b.disabled = true; });
+  const status = document.getElementById("practice-app-r2-status");
+  if (status) { status.className = "muted"; status.textContent = "Starting…"; }
   try {
     await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
   } catch (e) {
-    const status = document.getElementById("practice-app-r2-status");
-    if (status) status.textContent = e.message;
+    buttons.forEach((b) => { b.disabled = false; });
+    if (status) { status.className = "error-text"; status.textContent = e.message; }
     return;
   }
   watchPracticeAppBuild(round1Id);
@@ -943,12 +929,17 @@ async function loadRound2AutomationSettings() {
   // "create one" prompt (bootstrapping round 4, if ever needed, is a
   // direct API action, not a standing part of this page).
   const liveScenario = allScenarios.find((s) => s.round_number === 2 && s.experience_band === DEFAULT_BAND && s.is_live);
-  if (!liveScenario) {
+  const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === DEFAULT_BAND && s.is_live);
+  if (liveRound1 && !(liveScenario && round2BuiltFor(liveScenario, liveRound1))) {
+    // Round 1 changed: the previous Round 2 content was built for another
+    // scenario, so none of it is shown - only the way to build this one's.
+    box.innerHTML = renderRound2NeedsPracticeApp(liveRound1);
+  } else if (!liveScenario) {
     box.innerHTML = "";
     return;
+  } else {
+    box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, liveRound1);
   }
-  const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === DEFAULT_BAND && s.is_live);
-  box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, liveRound1);
   clearTimeout(round2PracticeAppTimer);
   if (liveRound1 && ((liveRound1.config_json || {}).practice_app || {}).status === "building") {
     round2PracticeAppTimer = setTimeout(() => {
@@ -958,6 +949,55 @@ async function loadRound2AutomationSettings() {
 }
 
 let round2PracticeAppTimer = null;
+
+// Is this Round 2 scenario's practice app the one built for this Round 1
+// scenario? Seeded environments only record the title they were built for.
+function round2BuiltFor(round2, round1) {
+  const config = round2.config_json || {};
+  if (config.paired_round1_scenario_id) return config.paired_round1_scenario_id === round1.id;
+  return Boolean(config.paired_round1_title) && config.paired_round1_title === round1.title;
+}
+
+// The Round 2 card while the live Round 1 has no practice app live in
+// Round 2: one button to build it, its progress while it builds (button
+// disabled), then the results - every Round 1 test case - and Approve.
+function renderRound2NeedsPracticeApp(round1) {
+  const d = (round1.config_json || {}).practice_app || {};
+  const title = escapeHtml(round1.title);
+  const stats = d.total ? `${d.working} of ${d.total} test cases work in every language` : "";
+  const button = (label, disabled = false) =>
+    `<button id="r2-generate-btn" class="btn-primary" onclick="buildPracticeAppFromRound2(${round1.id})" ${disabled ? "disabled" : ""}>${label}</button>`;
+  let badge;
+  let body;
+  if (d.status === "building") {
+    badge = `<span class="badge badge-draft">IN PROGRESS</span>`;
+    body = `${practiceAppProgressHtml(d)}${button("Generating…", true)}
+      <p class="muted">This updates by itself - you can leave the page and you'll get a notification when it's done.</p>`;
+  } else if (d.status === "ready") {
+    badge = `<span class="badge badge-published">READY TO APPROVE</span>`;
+    body = `<p>✅ Done - ${stats}.</p>${practiceAppCoverageTable(d.coverage)}
+      <div class="row"><button class="btn-primary" onclick="approvePracticeAppFromRound2(${round1.id})">Approve - use it for Round 2</button>
+      <button class="btn-secondary" onclick="buildPracticeAppFromRound2(${round1.id})">Generate again</button></div>`;
+  } else if (d.status === "not_ready") {
+    badge = `<span class="badge">NOT READY</span>`;
+    body = `<p class="error-text">❌ Done, but not usable - ${stats}. Generating again often fixes it; otherwise adjust the Round 1 test cases marked below.</p>
+      ${practiceAppCoverageTable(d.coverage)}${button("Generate again")}`;
+  } else if (d.status === "failed") {
+    badge = `<span class="badge">FAILED</span>`;
+    body = `<p class="error-text">The last run stopped: ${escapeHtml(d.error || "unknown error")}</p>${button("Try again")}`;
+  } else {
+    badge = `<span class="badge">NOT GENERATED</span>`;
+    body = `<p>Generate Round 2 for <strong>${title}</strong>: a practice app built from its Round 1 test cases, checked automatically against every one of them. Nothing changes for candidates until you approve it.</p>
+      ${button("Generate Round 2")}`;
+  }
+  return `
+    <div class="panel card" style="margin-bottom:1.5rem">
+      <h3>Round 2 ${badge}</h3>
+      <p class="muted">Round 1 is now <strong>${title}</strong>. Round 2's previous content was built for a different scenario, so it's hidden until Round 2 is generated for this one.</p>
+      ${body}
+      <p id="practice-app-r2-status" class="muted"></p>
+    </div>`;
+}
 
 function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound1 = null) {
   const paired = scenario.config_json || {};
@@ -988,7 +1028,7 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound
       ${isPaired ? `
         <h4>Practice app</h4>
         <p class="muted">Candidates automate their Round 1 test cases against a practice app built for <strong>${escapeHtml(paired.paired_round1_title || "")}</strong>.</p>
-        ${groundedInTitle !== paired.paired_round1_title ? practiceAppMismatchNotice(paired.paired_round1_title, liveRound1) : ""}` : ""}
+        ${liveRound1 ? "" : practiceAppNoRound1Notice(paired.paired_round1_title || "")}` : ""}
 
       ${isPaired ? "" : `      <h4>Grounded in</h4>
       <p class="muted">\${groundedInTitle

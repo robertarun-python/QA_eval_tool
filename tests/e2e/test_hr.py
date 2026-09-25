@@ -47,3 +47,57 @@ def test_a_refresh_on_round_2_keeps_round_2s_own_view(app_page):
     expect(page.locator("#round4-settings-panel")).not_to_be_empty()
     expect(page.locator("#create-scenario-row")).to_be_hidden()
     expect(page.locator("#screening-history-panel")).to_be_hidden()
+
+
+def _set_live_round1_build(e2e_server, summary):
+    """The live Round 1 scenario's practice-app summary, written straight to
+    the test server's database (fake AI mode can't really build one)."""
+    import json
+    import sqlite3
+    con = sqlite3.connect(e2e_server["log"].parent / "e2e.db")
+    try:
+        (config,) = con.execute("SELECT config_json FROM scenarios WHERE round_number = 1 AND is_live = 1").fetchone()
+        config = json.loads(config or "{}")
+        if summary is None:
+            config.pop("practice_app", None)
+        else:
+            config["practice_app"] = summary
+        con.execute("UPDATE scenarios SET config_json = ? WHERE round_number = 1 AND is_live = 1", (json.dumps(config),))
+        con.commit()
+    finally:
+        con.close()
+
+
+def test_round_2_shows_only_the_generate_flow_when_round_1_changed(app_page, e2e_server):
+    """The live Round 2 wasn't built for the live Round 1: none of its old
+    content shows - just Generate, its progress (button disabled), then the
+    results and Approve."""
+    page = app_page
+    card = page.locator("#round4-settings-panel")
+    try:
+        login(page, HR)
+        page.click('button[onclick="selectHRRound(2)"]')
+        expect(card.locator("#r2-generate-btn")).to_have_text("Generate Round 2")
+        expect(card).to_contain_text("Login page test design")
+        expect(card).not_to_contain_text("Save instructions")
+        expect(card).not_to_contain_text("test environment")
+
+        # Fake AI mode refuses to build: the reason shows and the button comes back.
+        card.locator("#r2-generate-btn").click()
+        expect(card.locator("#practice-app-r2-status")).to_contain_text("fake AI mode")
+        expect(card.locator("#r2-generate-btn")).to_be_enabled()
+
+        _set_live_round1_build(e2e_server, {"status": "building", "started_at": "2026-09-25T10:00:00", "step": 2, "step_detail": ""})
+        page.reload()
+        expect(card).to_contain_text("IN PROGRESS")
+        expect(card).to_contain_text("Building the Python version")
+        expect(card.locator("#r2-generate-btn")).to_be_disabled()
+
+        _set_live_round1_build(e2e_server, {"status": "ready", "working": 1, "total": 1,
+                                            "coverage": [{"title": "Valid login", "status": "works", "details": []}]})
+        page.reload()
+        expect(card).to_contain_text("1 of 1 test cases work")
+        expect(card).to_contain_text("Valid login")
+        expect(card.get_by_role("button", name="Approve - use it for Round 2")).to_be_visible()
+    finally:
+        _set_live_round1_build(e2e_server, None)
