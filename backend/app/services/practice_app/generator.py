@@ -254,6 +254,33 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
     return runnable, unsupported, problems
 
 
+def _title_key(item) -> str:
+    return (item.get("title") or "").strip().lower() if isinstance(item, dict) else ""
+
+
+def merge_checklist_retry(first: list, first_valid: list[dict], retried) -> list:
+    """The first attempt's valid checklists (and its "unsupported" entries),
+    plus the retry's checklists only for test cases the first attempt got
+    wrong or missed. A full retry used to replace everything - the Beneficiary
+    build's first attempt had one bad checklist, its retry broke six good ones
+    (an invented "assert" step) and those test cases were dropped."""
+    valid_ids = {c["id"] for c in first_valid}
+    good = lambda c: isinstance(c, dict) and (c.get("id") in valid_ids or c.get("unsupported"))  # noqa: E731
+    covered = {_title_key(c) for c in first if good(c)}
+    used_ids = {c.get("id") for c in first if good(c)}
+    replacements = {}
+    for c in retried if isinstance(retried, list) else []:
+        if isinstance(c, dict) and _title_key(c) not in covered and c.get("id") not in used_ids:
+            replacements.setdefault(_title_key(c), c)
+    merged = []
+    for c in first:  # in the first attempt's order, each bad one swapped for its retry
+        if good(c):
+            merged.append(c)
+        elif _title_key(c) in replacements:
+            merged.append(replacements.pop(_title_key(c)))
+    return merged + list(replacements.values())  # test cases the first attempt missed
+
+
 def _check_counts(checklist: dict) -> tuple[int, int]:
     """(checks, Database checks) - a rewritten checklist must keep both."""
     checks = [s for s in checklist.get("steps") or [] if any(k in s for k in ("expect", "expect_includes", "expect_excludes"))]
@@ -296,8 +323,14 @@ def _problems_for(language: str, report: checker.InspectionReport) -> list[str]:
 
 
 def generate(title: str, description: str, reference_cases: list[dict], known_facts: dict | None = None,
-             progress=None) -> PracticeAppResult:
-    """progress(step_index, detail) is called as each of STEPS starts or advances."""
+             progress=None, reuse: dict | None = None) -> PracticeAppResult:
+    """progress(step_index, detail) is called as each of STEPS starts or advances.
+
+    reuse: the last build's {"plan", "checklists", "unsupported", "python"}.
+    If that Python app still passes every checklist, design, checklists and
+    Python are kept and only the translations are redone - when only a
+    translation failed, "Generate again" costs two AI calls, not ten. If it
+    doesn't pass, reuse is ignored and the build starts from scratch."""
     result = PracticeAppResult(reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")])
     cases_text = _format_cases(reference_cases)
 
@@ -336,73 +369,107 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         return accept_repairs(result.plan, checklists, raw, set(failed))
 
     try:
-        # 1. Plan
-        step(0)
-        plan = llm_service._parse_json_response(call(_render(
-            llm_service._load_prompt("practice_app_plan.txt"),
-            title=title, description=description, reference_cases=cases_text,
-            known_facts=json.dumps(known_facts, indent=1, ensure_ascii=False) if known_facts else "(none)",
-        ), _PLAN_TOKENS))
-        if not isinstance(plan, dict) or not plan.get("helpers"):
-            raise ValueError("the AI's design had no helpers")
-        result.plan = plan
-        plan_text = json.dumps(plan, indent=1, ensure_ascii=False)
-        result.log.append(f"designed {plan.get('app_name', title)!r} with {len(plan['helpers'])} helpers")
+        reused = False
+        if reuse and reuse.get("python") and reuse.get("checklists") and reuse.get("plan"):
+            step(3, "re-checking the last build's Python app")
+            report = checker.inspect({"python": reuse["python"]}, reuse["checklists"])
+            if not _problems_for("python", report):
+                reused = True
+                result.plan, result.checklists = reuse["plan"], reuse["checklists"]
+                result.unsupported = reuse.get("unsupported") or []
+                runnable, python = result.checklists, reuse["python"]
+                plan_text = json.dumps(result.plan, indent=1, ensure_ascii=False)
+                checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
+                result.log.append(f"reused the last build's design, checklists and Python app ({len(runnable)} of "
+                                  f"{len(runnable)} still pass) - only translating")
+            else:
+                result.log.append("the last build's Python app no longer passes every checklist - building from scratch")
+        if not reused:
+            # 1. Plan
+            step(0)
+            plan = llm_service._parse_json_response(call(_render(
+                llm_service._load_prompt("practice_app_plan.txt"),
+                title=title, description=description, reference_cases=cases_text,
+                known_facts=json.dumps(known_facts, indent=1, ensure_ascii=False) if known_facts else "(none)",
+            ), _PLAN_TOKENS))
+            if not isinstance(plan, dict) or not plan.get("helpers"):
+                raise ValueError("the AI's design had no helpers")
+            result.plan = plan
+            plan_text = json.dumps(plan, indent=1, ensure_ascii=False)
+            result.log.append(f"designed {plan.get('app_name', title)!r} with {len(plan['helpers'])} helpers")
 
-        # 2. Checklists (one retry if they don't match the design)
-        step(1)
-        checklist_prompt = _render(llm_service._load_prompt("practice_app_checklists.txt"), plan=plan_text, reference_cases=cases_text)
-        raw = llm_service._parse_json_response(call(checklist_prompt, _CHECKLIST_TOKENS))
-        runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
-        if problems:
-            result.log.append("checklists needed a second attempt: " + "; ".join(problems[:5]))
-            step(1, "second attempt")
-            retry = checklist_prompt + "\n\nYour previous attempt had these problems - fix every one:\n" + "\n".join(f"- {p}" for p in problems)
-            raw = llm_service._parse_json_response(call(retry, _CHECKLIST_TOKENS))
+            # 2. Checklists (one retry if they don't match the design)
+            step(1)
+            checklist_prompt = _render(llm_service._load_prompt("practice_app_checklists.txt"), plan=plan_text, reference_cases=cases_text)
+            raw = llm_service._parse_json_response(call(checklist_prompt, _CHECKLIST_TOKENS))
             runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
-            for p in problems:
-                result.log.append(f"checklist problem left: {p}")
-        result.checklists, result.unsupported = runnable, unsupported
-        if not runnable:
-            raise ValueError("no runnable checklists")
-        checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
-        result.log.append(f"{len(runnable)} checklists, {len(unsupported)} test case(s) not supported")
+            if problems:
+                result.log.append("checklists needed a second attempt: " + "; ".join(problems[:5]))
+                step(1, "second attempt")
+                retry = checklist_prompt + "\n\nYour previous attempt had these problems - fix every one:\n" + "\n".join(f"- {p}" for p in problems)
+                retried = llm_service._parse_json_response(call(retry, _CHECKLIST_TOKENS))
+                raw = merge_checklist_retry(raw, runnable, retried)
+                runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
+                for p in problems:
+                    result.log.append(f"checklist problem left: {p}")
+            result.checklists, result.unsupported = runnable, unsupported
+            if not runnable:
+                raise ValueError("no runnable checklists")
+            checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
+            result.log.append(f"{len(runnable)} checklists, {len(unsupported)} test case(s) not supported")
 
-        # 3. Python, checked and fixed on its own first
-        step(2)
-        python = _code(call(_render(
-            llm_service._load_prompt("practice_app_write_python.txt"),
-            plan=plan_text, checklists=checklists_text, example=llm_service._load_prompt(_EXAMPLE_FILES["python"]),
-        ), _CODE_TOKENS))
-        for round_no in range(MAX_FIX_ROUNDS + 1):
-            step(3, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
-            report = checker.inspect({"python": python}, runnable)
-            problems = _problems_for("python", report)
-            result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
-            if not problems or round_no == MAX_FIX_ROUNDS:
-                break
-            if round_no == 1:
-                # A code fix didn't clear everything: check the checklists too.
-                step(3, "re-checking the failing checklists")
-                runnable, rewritten = repair_checklists(runnable, report)
+            # 3. Python, checked and fixed on its own first
+            step(2)
+            python = _code(call(_render(
+                llm_service._load_prompt("practice_app_write_python.txt"),
+                plan=plan_text, checklists=checklists_text, example=llm_service._load_prompt(_EXAMPLE_FILES["python"]),
+            ), _CODE_TOKENS))
+            # The best version seen: a fix can make things worse (the Beneficiary
+            # build went 18/19 -> 16/19 on its last fix), and the build must
+            # never end on a worse app than it already had.
+            best = {}
+
+            def remember() -> None:
+                passed = report.languages["python"].passed
+                if not best or passed > best["passed"]:
+                    best.update(passed=passed, python=python, report=report, problems=problems, runnable=runnable)
+
+            for round_no in range(MAX_FIX_ROUNDS + 1):
+                step(3, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
+                report = checker.inspect({"python": python}, runnable)
+                problems = _problems_for("python", report)
+                remember()
+                result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
+                if not problems or round_no == MAX_FIX_ROUNDS:
+                    break
+                if round_no == 1:
+                    # A code fix didn't clear everything: check the checklists too.
+                    step(3, "re-checking the failing checklists")
+                    runnable, rewritten = repair_checklists(runnable, report)
+                    result.checklists = runnable
+                    checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
+                    result.log.append(f"rewrote {len(rewritten)} failing checklist(s): {', '.join(rewritten)}" if rewritten
+                                      else "the failing checklists match the design - kept as they were")
+                    if rewritten:
+                        report = checker.inspect({"python": python}, runnable)
+                        problems = _problems_for("python", report)
+                        remember()
+                        result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
+                        if not problems:
+                            break
+                step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {round_no + 1} of {MAX_FIX_ROUNDS})")
+                python = fix("python", python, problems)
+            if problems and best["passed"] > report.languages["python"].passed:
+                python, report, problems, runnable = best["python"], best["report"], best["problems"], best["runnable"]
                 result.checklists = runnable
                 checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
-                result.log.append(f"rewrote {len(rewritten)} failing checklist(s): {', '.join(rewritten)}" if rewritten
-                                  else "the failing checklists match the design - kept as they were")
-                if rewritten:
-                    report = checker.inspect({"python": python}, runnable)
-                    problems = _problems_for("python", report)
-                    result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
-                    if not problems:
-                        break
-            step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {round_no + 1} of {MAX_FIX_ROUNDS})")
-            python = fix("python", python, problems)
-        if problems:
-            # Translating an app that doesn't work would only pay to copy its
-            # mistakes - stop here and show HR what failed.
-            result.env_code_by_language, result.report = {"python": python}, report
-            result.log.append("stopped: the Python app still fails after the allowed fixes - not translated")
-            return result
+                result.log.append(f"kept the best version ({best['passed']}/{len(runnable)} pass) - the last fix made it worse")
+            if problems:
+                # Translating an app that doesn't work would only pay to copy its
+                # mistakes - stop here and show HR what failed.
+                result.env_code_by_language, result.report = {"python": python}, report
+                result.log.append("stopped: the Python app still fails after the allowed fixes - not translated")
+                return result
 
         # 4. JavaScript and Java, translated from the checked Python
         def translate(language: str) -> str:

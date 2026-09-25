@@ -16,6 +16,7 @@ it's approved - HR's scenario list returns config_json for every scenario,
 and a build is ~100 KB. Approval copies it onto the Round 2 scenario, which
 is where every Round 2 code path already reads its environment from.
 """
+import hashlib
 import json
 import logging
 import time
@@ -104,7 +105,7 @@ def run_build(scenario_id: int) -> None:
 
         try:
             result = generator.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
-                                        progress=progress)
+                                        progress=progress, reuse=_reusable_build(scenario))
         except Exception as e:  # generator.generate already catches; this is a last resort
             result = generator.PracticeAppResult(error=f"{type(e).__name__}: {e}")
         rows = result.coverage()
@@ -129,6 +130,8 @@ def run_build(scenario_id: int) -> None:
                 "ok": result.ok,
                 "plan": result.plan,
                 "checklists": result.checklists,
+                "unsupported": result.unsupported,
+                "reference_hash": _reference_hash(scenario),
                 "env_code_by_language": result.env_code_by_language,
                 "ground_truth": generator.ground_truth(result.plan),
             }, ensure_ascii=False), encoding="utf-8")
@@ -140,6 +143,36 @@ def run_build(scenario_id: int) -> None:
         db.rollback()
     finally:
         db.close()
+
+
+def _reference_hash(scenario: Scenario) -> str:
+    return hashlib.sha256(json.dumps(scenario.reference_json, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def _reusable_build(scenario: Scenario) -> dict | None:
+    """The last build's design, checklists and Python app, for the factory to
+    reuse if that Python still passes (see generator.generate) - but only if
+    it was built from the same Round 1 test cases. A build saved before the
+    hash was recorded counts only for a published scenario, whose test cases
+    can no longer change."""
+    path = _build_file(scenario.id)
+    if not path.exists():
+        return None
+    try:
+        build = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    saved_hash = build.get("reference_hash")
+    if saved_hash != _reference_hash(scenario) and not (saved_hash is None and scenario.status == ScenarioStatus.published):
+        return None
+    python = (build.get("env_code_by_language") or {}).get("python")
+    if not (build.get("plan") and build.get("checklists") and python):
+        return None
+    unsupported = build.get("unsupported")
+    if unsupported is None:  # older builds kept these only in the summary
+        unsupported = [{"title": r["title"], "reason": (r.get("details") or [""])[0]}
+                       for r in summary(scenario).get("coverage") or [] if r.get("status") == "not supported"]
+    return {"plan": build["plan"], "checklists": build["checklists"], "unsupported": unsupported, "python": python}
 
 
 def _paired_round2_facts(round1: Scenario, db: Session) -> dict | None:
