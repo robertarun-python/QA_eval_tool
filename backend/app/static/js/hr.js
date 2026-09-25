@@ -581,6 +581,7 @@ async function openScenarioDetail(id) {
         <tbody>${refRows || `<tr><td colspan="${isCodingReference ? 4 : showPriorityType ? 8 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
       </table>
     </div>
+    ${scenario.round_number === 1 ? `<div id="practice-app-panel" data-scenario-id="${scenario.id}"></div>` : ""}
     ${isCodingReference && scenario.reference_json ? `<p class="muted"><strong>Expected approach:</strong> ${escapeHtml(scenario.reference_json.expected_approach || "")}</p>` : ""}
     ${isCodingReference && scenario.reference_json && scenario.reference_json.required_constructs && scenario.reference_json.required_constructs.length
       ? `<p class="muted"><strong>Required concepts:</strong> ${escapeHtml(scenario.reference_json.required_constructs.join(", "))}</p>`
@@ -612,9 +613,103 @@ async function openScenarioDetail(id) {
     ` : ""}
     <p id="scenario-detail-status" class="muted"></p>
   `;
+  if (scenario.round_number === 1) loadPracticeAppPanel(scenario.id);
   } catch (e) {
     box.innerHTML = `<p class="muted">Couldn't render this scenario's detail view: ${escapeHtml(e.message)}. Check the browser console for more, and try a hard refresh (Ctrl+Shift+R) in case this page is running an old cached version.</p>`;
   }
+}
+
+// ---- Round 2 practice app for a Round 1 scenario (see services/practice_app) ----
+// In Round 2 candidates automate their own Round 1 test cases against a small
+// pretend version of this application. HR builds it here (paid AI, a few
+// minutes), sees which test cases work in every language, and approves it.
+
+let practiceAppPollTimer = null;
+
+async function loadPracticeAppPanel(id) {
+  clearTimeout(practiceAppPollTimer);
+  const box = document.getElementById("practice-app-panel");
+  if (!box || Number(box.dataset.scenarioId) !== id) return; // HR opened a different scenario
+  let data;
+  try {
+    data = await api(`/hr/scenarios/${id}/practice-app`);
+  } catch (e) {
+    box.innerHTML = `<h4>Round 2 practice app</h4><p class="muted">${escapeHtml(e.message)}</p>`;
+    return;
+  }
+  box.innerHTML = renderPracticeAppPanel(id, data);
+  if (data.status === "building") practiceAppPollTimer = setTimeout(() => loadPracticeAppPanel(id), 15000);
+}
+
+function practiceAppCoverageTable(rows) {
+  if (!rows || !rows.length) return "";
+  const icon = { works: "✅", fails: "❌", "not supported": "➖" };
+  return `
+    <details ${rows.some((r) => r.status !== "works") ? "open" : ""}>
+      <summary>Every Round 1 test case (${rows.length})</summary>
+      <div class="table-scroll"><table>
+        <thead><tr><th></th><th>Test case</th><th>Details</th></tr></thead>
+        <tbody>${rows.map((r) => `
+          <tr><td>${icon[r.status] || ""}</td><td>${escapeHtml(r.title)}</td>
+          <td class="muted">${r.status === "works" ? "Works in Python, JavaScript and Java" : escapeHtml((r.details || []).join("; "))}</td></tr>`).join("")}
+        </tbody>
+      </table></div>
+    </details>`;
+}
+
+function renderPracticeAppPanel(id, d) {
+  const intro = `<p class="muted">In Round 2, candidates automate the test cases they designed in Round 1, against a small pretend version of this application. Build it here: it is checked automatically against every reference test case in Python, JavaScript and Java before you can approve it.</p>`;
+  const buildButton = (label) => d.cannot_start
+    ? `<p class="muted">${escapeHtml(d.cannot_start)}</p>`
+    : `<button onclick="buildPracticeApp(${id})">${label}</button> <span class="muted">Uses the AI: ${escapeHtml(d.estimate)}.</span>`;
+  const approved = d.approved_round2_scenario_id
+    ? `<p>✅ Approved - Round 2 scenario #${d.approved_round2_scenario_id} uses it, and goes live whenever this Round 1 scenario is live.</p>` : "";
+  const stats = d.total ? `${d.working} of ${d.total} test cases work in every language` : "";
+  const cost = d.ai_calls ? ` <span class="muted">(${d.ai_calls} AI calls, ${d.minutes} min)</span>` : "";
+  let body;
+  if (d.status === "building") {
+    body = `<p>⏳ Building - started ${escapeHtml(d.started_at || "")} UTC. This usually takes 5-10 minutes; you can leave this page and come back.</p>`;
+  } else if (d.status === "ready") {
+    body = `<p>✅ Ready - ${stats}.${cost}</p>${practiceAppCoverageTable(d.coverage)}
+      ${approved || `<button class="btn-primary" onclick="approvePracticeApp(${id})">Approve for Round 2</button>`}
+      <p>${buildButton(approved ? "Rebuild" : "Build again")}</p>`;
+  } else if (d.status === "not_ready") {
+    body = `<p class="error-text">❌ Not ready - ${stats}. It can't be used until every test case works; building again often fixes it, or adjust the Round 1 reference test cases listed below.${cost}</p>
+      ${practiceAppCoverageTable(d.coverage)}${approved}<p>${buildButton("Build again")}</p>`;
+  } else if (d.status === "failed") {
+    body = `<p class="error-text">The build stopped: ${escapeHtml(d.error || "unknown error")}</p>${approved}<p>${buildButton("Try again")}</p>`;
+  } else {
+    body = `${approved}<p>${buildButton("Build practice app")}</p>`;
+  }
+  return `<h4>Round 2 practice app</h4>${intro}${body}<p id="practice-app-status" class="muted"></p>`;
+}
+
+async function buildPracticeApp(id) {
+  if (!confirm("Build the Round 2 practice app for this scenario? It uses the AI (about $1) and takes 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
+  try {
+    await api(`/hr/scenarios/${id}/practice-app`, { method: "POST" });
+  } catch (e) {
+    const status = document.getElementById("practice-app-status");
+    if (status) status.textContent = e.message;
+    return;
+  }
+  loadPracticeAppPanel(id);
+}
+
+async function approvePracticeApp(id) {
+  if (!confirm("Approve this practice app for Round 2? Candidates doing this Round 1 scenario will automate their test cases against it.")) return;
+  const status = document.getElementById("practice-app-status");
+  try {
+    const result = await api(`/hr/scenarios/${id}/practice-app/approve`, { method: "POST" });
+    if (status) status.textContent = result.round2_is_live
+      ? "Approved - it's live for Round 2 now."
+      : "Approved - it will go live for Round 2 when this Round 1 scenario is live.";
+  } catch (e) {
+    if (status) status.textContent = e.message;
+    return;
+  }
+  loadPracticeAppPanel(id);
+  if (typeof loadScenarios === "function") loadScenarios();
 }
 
 // Undoes the panel-hiding openScenarioDetail does above - restores

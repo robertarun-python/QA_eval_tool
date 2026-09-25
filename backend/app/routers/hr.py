@@ -46,6 +46,7 @@ from ..schemas import (
 from ..dependencies import require_hr
 from ..services import llm_service
 from ..services import candidate_upload_service
+from ..services.practice_app import service as practice_app_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions, close_expired_assessment_windows, fail_interrupted_scoring
 
 router = APIRouter(prefix="/hr", tags=["hr"])
@@ -593,6 +594,8 @@ def publish_scenario(scenario_id: int, db: Session = Depends(get_db), hr: User =
     if has_live is None:
         scenario.is_live = True
 
+    if scenario.is_live:
+        practice_app_service.activate_paired_round2(scenario, db)
     db.commit()
     db.refresh(scenario)
     if scenario.is_live:
@@ -621,10 +624,51 @@ def move_to_screening(scenario_id: int, db: Session = Depends(get_db), hr: User 
     ).update({"is_live": False})
 
     scenario.is_live = True
+    # A Round 1 scenario's approved practice app goes live with it.
+    practice_app_service.activate_paired_round2(scenario, db)
     db.commit()
     db.refresh(scenario)
     _resync_round2_automation_reference_for_band(scenario, db)
     return scenario
+
+
+# ---- Round 2 practice app, built from a Round 1 scenario (see services/practice_app) ----
+
+@router.get("/scenarios/{scenario_id}/practice-app")
+def practice_app_status(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    return {**practice_app_service.summary(scenario), "cannot_start": practice_app_service.can_start(scenario),
+            "estimate": practice_app_service.ESTIMATE}
+
+
+@router.post("/scenarios/{scenario_id}/practice-app", status_code=202)
+def build_practice_app(scenario_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Starts building the Round 2 practice app for this Round 1 scenario.
+    Makes paid AI calls (see practice_app_service.ESTIMATE) - the HR screen
+    asks for confirmation first."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    reason = practice_app_service.can_start(scenario)
+    if reason:
+        raise HTTPException(400, reason)
+    data = practice_app_service.start_build(scenario, db)
+    background_tasks.add_task(practice_app_service.run_build, scenario_id)
+    return data
+
+
+@router.post("/scenarios/{scenario_id}/practice-app/approve")
+def approve_practice_app(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    try:
+        round2 = practice_app_service.approve(scenario, db)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"round2_scenario_id": round2.id, "round2_is_live": round2.is_live, **practice_app_service.summary(scenario)}
 
 
 def _get_draft_scenario_or_404(scenario_id: int, db: Session) -> Scenario:
