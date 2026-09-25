@@ -44,6 +44,7 @@ What is checked, where, and what is still open. Everything here runs offline
 | R2: invent test cases, data, assertions; extra tests | negative | `redteam` (R2: 14), `test_round2_changed_values.py` |
 | Values the candidate gave reach the code unchanged | acceptance | `test_round2_changed_values.py` |
 | Real candidates not blocked by the checks | acceptance | `app.audit_guards` (89 messages, 19 code turns) |
+| Same 44 attempts against the **real** model (**live**, Sep 24, $0.70) | negative | 0 leaked: 17 blocked before the AI, 40 refused, 2 clarifying questions, 1 correct partial edit that ignored an instruction hidden in the code, 1 malformed reply (a base64 request) shown as the generic "trouble responding" message |
 
 ## HR
 
@@ -64,11 +65,11 @@ What is checked, where, and what is still open. Everything here runs offline
 
 ## Open items
 
-1. **Round 3 score not tied to the real test results.** The hidden tests run and a pass
-   rate is stored, but correctness and final score come from the AI. Needs an HR
-   decision (how far a score may differ from the pass rate).
-2. **Live runs pending approval:** the saved Round 3 cases (`tests/replay`), and the
-   red-team set against the real model (about $2.50 for 44 attempts).
+1. **Live run pending:** the saved Round 3 cases (`tests/replay`, about $1-2). The
+   red-team set has been run live (above). Round 3 correctness is now capped at the
+   real hidden-test pass rate (`scoring_service._anchor_round3_correctness`).
+2. **A malformed AI reply** (seen once, for a base64-encoded request) reaches the
+   candidate as the generic "trouble responding" message rather than a refusal.
 3. **HR console on a phone** scrolls sideways; it is built for a desktop.
 4. **Sandbox is macOS-only** (`sandbox-exec`); other hosts refuse to run code until a
    Linux sandbox (e.g. bubblewrap) is added.

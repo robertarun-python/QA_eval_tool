@@ -260,18 +260,52 @@ def score_round3_submission(db: Session, submission: Submission) -> Score:
     passed_count = sum(1 for r in test_results if r["passed"])
     score.coverage_score = round(passed_count / len(test_results) * 100) if test_results else 0
     score.test_results_json = test_results
-    score.correctness_score = result.get("correctness_score")
+    anchor = _anchor_round3_correctness(result, test_results, conversation_payload)
+    score.correctness_score = anchor["correctness_score"] if anchor else result.get("correctness_score")
     score.precision_score = result.get("precision_score")
     score.efficiency_score = result.get("efficiency_score")
     score.independent_judgment_score = result.get("independent_judgment_score")
     score.misses_json = result.get("misses", []) + [f"Guardrail: {g}" for g in result.get("guardrail_violations", [])]
-    score.final_score = result.get("final_score")
+    if anchor:
+        score.misses_json.append(f"Score check: {anchor['note']}")
+    score.final_score = anchor["final_score"] if anchor else result.get("final_score")
     score.feedback_text = result.get("feedback_text")
-    score.raw_llm_response_json = {"test_results": test_results, "conversation": conversation_payload, "scoring": result}
+    score.raw_llm_response_json = {"test_results": test_results, "conversation": conversation_payload, "scoring": result,
+                                   "correctness_anchor": anchor}
     submission.status = RoundStatus.scored
     db.commit()
     db.refresh(score)
     return score
+
+
+# Round 3's hidden tests really run, but correctness and the final score came
+# only from the AI - a candidate passing 0 of 15 could still score high if the
+# scorer was lenient or talked round. Correctness may not exceed the real pass
+# rate, and the final score drops by CORRECTNESS_WEIGHT of the difference
+# (the rubric weights correctness first). Not applied when the AI itself
+# dropped the candidate's requirement: those failures aren't the candidate's
+# (see the scoring prompt's "Dropped requirements"), so HR judges that case.
+CORRECTNESS_WEIGHT = 0.5
+
+
+def _anchor_round3_correctness(result: dict, test_results: list[dict], conversation_payload: list[dict]) -> dict | None:
+    """The adjusted scores and an HR-facing note, or None when nothing changes."""
+    ai_correctness, ai_final = result.get("correctness_score"), result.get("final_score")
+    if not test_results or not all(isinstance(v, (int, float)) for v in (ai_correctness, ai_final)):
+        return None
+    if any(turn.get("dropped_requirement") for turn in conversation_payload):
+        return None
+    passed = sum(1 for r in test_results if r["passed"])
+    pass_rate = round(passed / len(test_results) * 100)
+    if ai_correctness <= pass_rate:
+        return None
+    final = max(0, round(ai_final - (ai_correctness - pass_rate) * CORRECTNESS_WEIGHT))
+    return {
+        "ai_correctness_score": ai_correctness, "ai_final_score": ai_final, "pass_rate": pass_rate,
+        "correctness_score": pass_rate, "final_score": final,
+        "note": (f"the AI rated correctness {ai_correctness}, but {passed} of {len(test_results)} hidden tests passed - "
+                 f"correctness set to {pass_rate} and the overall score lowered from {ai_final} to {final}."),
+    }
 
 
 def _round2_automation_findings_to_misses(
