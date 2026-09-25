@@ -27,6 +27,16 @@ from .. import llm_service
 from . import checker
 
 MAX_FIX_ROUNDS = 2
+
+# The steps HR sees while a build runs (see service.run_build).
+STEPS = [
+    "Designing the practice app",
+    "Writing a checklist for each test case",
+    "Building the Python version",
+    "Checking the Python version",
+    "Building the JavaScript and Java versions",
+    "Checking all three languages",
+]
 _PLAN_TOKENS = 8192
 _CHECKLIST_TOKENS = 16384
 _CODE_TOKENS = 16384
@@ -180,9 +190,18 @@ def _problems_for(language: str, report: checker.InspectionReport) -> list[str]:
     return problems
 
 
-def generate(title: str, description: str, reference_cases: list[dict], known_facts: dict | None = None) -> PracticeAppResult:
+def generate(title: str, description: str, reference_cases: list[dict], known_facts: dict | None = None,
+             progress=None) -> PracticeAppResult:
+    """progress(step_index, detail) is called as each of STEPS starts or advances."""
     result = PracticeAppResult(reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")])
     cases_text = _format_cases(reference_cases)
+
+    def step(index: int, detail: str = "") -> None:
+        if progress:
+            try:
+                progress(index, detail)
+            except Exception:  # progress reporting must never break a build
+                pass
 
     def call(prompt: str, max_tokens: int) -> str:
         result.ai_calls += 1
@@ -199,6 +218,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
 
     try:
         # 1. Plan
+        step(0)
         plan = llm_service._parse_json_response(call(_render(
             llm_service._load_prompt("practice_app_plan.txt"),
             title=title, description=description, reference_cases=cases_text,
@@ -211,11 +231,13 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         result.log.append(f"designed {plan.get('app_name', title)!r} with {len(plan['helpers'])} helpers")
 
         # 2. Checklists (one retry if they don't match the design)
+        step(1)
         checklist_prompt = _render(llm_service._load_prompt("practice_app_checklists.txt"), plan=plan_text, reference_cases=cases_text)
         raw = llm_service._parse_json_response(call(checklist_prompt, _CHECKLIST_TOKENS))
         runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
         if problems:
             result.log.append("checklists needed a second attempt: " + "; ".join(problems[:5]))
+            step(1, "second attempt")
             retry = checklist_prompt + "\n\nYour previous attempt had these problems - fix every one:\n" + "\n".join(f"- {p}" for p in problems)
             raw = llm_service._parse_json_response(call(retry, _CHECKLIST_TOKENS))
             runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
@@ -228,16 +250,19 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         result.log.append(f"{len(runnable)} checklists, {len(unsupported)} test case(s) not supported")
 
         # 3. Python, checked and fixed on its own first
+        step(2)
         python = _code(call(_render(
             llm_service._load_prompt("practice_app_write_python.txt"),
             plan=plan_text, checklists=checklists_text, example=llm_service._load_prompt(_EXAMPLE_FILES["python"]),
         ), _CODE_TOKENS))
         for round_no in range(MAX_FIX_ROUNDS + 1):
+            step(3, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
             report = checker.inspect({"python": python}, runnable)
             problems = _problems_for("python", report)
             result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
             if not problems or round_no == MAX_FIX_ROUNDS:
                 break
+            step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {round_no + 1} of {MAX_FIX_ROUNDS})")
             python = fix("python", python, problems)
         if problems:
             # Translating an app that doesn't work would only pay to copy its
@@ -254,17 +279,20 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 example=llm_service._load_prompt(_EXAMPLE_FILES[language]), language_rules=_LANGUAGE_RULES[language],
             ), _CODE_TOKENS))
 
+        step(4)
         with ThreadPoolExecutor(max_workers=2) as pool:
             code = {"python": python, **dict(zip(("javascript", "java"), pool.map(translate, ("javascript", "java"))))}
 
         # 5. All three together; fix whichever translation disagrees
         for round_no in range(MAX_FIX_ROUNDS + 1):
+            step(5, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
             report = checker.inspect(code, runnable)
             result.log.append("all languages: " + report.summary())
             failing = {lang: _problems_for(lang, report) for lang in ("javascript", "java")}
             failing = {lang: p for lang, p in failing.items() if p}
             if not failing or round_no == MAX_FIX_ROUNDS:
                 break
+            step(5, f"fixing {' and '.join(LANGUAGE_NAMES[l] for l in failing)} (round {round_no + 1} of {MAX_FIX_ROUNDS})")
             with ThreadPoolExecutor(max_workers=2) as pool:
                 fixed = dict(zip(failing, pool.map(lambda lang: fix(lang, code[lang], failing[lang]), failing)))
             code.update(fixed)

@@ -640,14 +640,14 @@ def practice_app_status(scenario_id: int, db: Session = Depends(get_db), hr: Use
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
     return {**practice_app_service.summary(scenario), "cannot_start": practice_app_service.can_start(scenario),
-            "estimate": practice_app_service.ESTIMATE}
+            "steps": practice_app_service.generator.STEPS}
 
 
 @router.post("/scenarios/{scenario_id}/practice-app", status_code=202)
 def build_practice_app(scenario_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Starts building the Round 2 practice app for this Round 1 scenario.
-    Makes paid AI calls (see practice_app_service.ESTIMATE) - the HR screen
-    asks for confirmation first."""
+    Makes paid AI calls (about 5, at most ~11) - the HR screen asks for
+    confirmation first. Runs in the background; poll GET for its progress."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")

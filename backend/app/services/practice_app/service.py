@@ -35,7 +35,6 @@ BUILDS_DIR = Path(__file__).resolve().parents[3] / "practice_app_builds"
 # A build normally takes 5-10 minutes; one still marked "building" after this
 # was interrupted (e.g. the server restarted) and may be started again.
 STALE_AFTER = timedelta(minutes=30)
-ESTIMATE = "about $1 and 5-10 minutes"
 
 VALIDATION_NOTES = (
     "The practice app was generated from the Round 1 scenario and checked automatically: every reference test "
@@ -76,7 +75,7 @@ def can_start(scenario: Scenario) -> str | None:
 
 
 def start_build(scenario: Scenario, db: Session) -> dict:
-    data = {"status": "building", "started_at": datetime.utcnow().isoformat(timespec="seconds")}
+    data = {"status": "building", "started_at": datetime.utcnow().isoformat(timespec="seconds"), "step": 0, "step_detail": ""}
     previous = summary(scenario)
     if previous.get("approved_round2_scenario_id"):
         data["approved_round2_scenario_id"] = previous["approved_round2_scenario_id"]
@@ -95,8 +94,17 @@ def run_build(scenario_id: int) -> None:
             return
         known_facts = _paired_round2_facts(scenario, db)
         started = time.monotonic()
+
+        def progress(step: int, detail: str = "") -> None:
+            # Saved as the build goes, so HR's screen can show which step it's on.
+            data = summary(scenario)
+            data.update({"step": step, "step_detail": detail, "updated_at": datetime.utcnow().isoformat(timespec="seconds")})
+            _set_summary(scenario, data)
+            db.commit()
+
         try:
-            result = generator.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts)
+            result = generator.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
+                                        progress=progress)
         except Exception as e:  # generator.generate already catches; this is a last resort
             result = generator.PracticeAppResult(error=f"{type(e).__name__}: {e}")
         rows = result.coverage()

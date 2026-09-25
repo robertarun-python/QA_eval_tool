@@ -638,7 +638,7 @@ async function loadPracticeAppPanel(id) {
     return;
   }
   box.innerHTML = renderPracticeAppPanel(id, data);
-  if (data.status === "building") practiceAppPollTimer = setTimeout(() => loadPracticeAppPanel(id), 15000);
+  if (data.status === "building") practiceAppPollTimer = setTimeout(() => loadPracticeAppPanel(id), 5000);
 }
 
 function practiceAppCoverageTable(rows) {
@@ -661,14 +661,14 @@ function renderPracticeAppPanel(id, d) {
   const intro = `<p class="muted">In Round 2, candidates automate the test cases they designed in Round 1, against a small pretend version of this application. Build it here: it is checked automatically against every reference test case in Python, JavaScript and Java before you can approve it.</p>`;
   const buildButton = (label) => d.cannot_start
     ? `<p class="muted">${escapeHtml(d.cannot_start)}</p>`
-    : `<button onclick="buildPracticeApp(${id})">${label}</button> <span class="muted">Uses the AI: ${escapeHtml(d.estimate)}.</span>`;
+    : `<button onclick="buildPracticeApp(${id})">${label}</button>`;
   const approved = d.approved_round2_scenario_id
     ? `<p>✅ Approved - Round 2 scenario #${d.approved_round2_scenario_id} uses it, and goes live whenever this Round 1 scenario is live.</p>` : "";
   const stats = d.total ? `${d.working} of ${d.total} test cases work in every language` : "";
   const cost = d.ai_calls ? ` <span class="muted">(${d.ai_calls} AI calls, ${d.minutes} min)</span>` : "";
   let body;
   if (d.status === "building") {
-    body = `<p>⏳ Building - started ${escapeHtml(d.started_at || "")} UTC. This usually takes 5-10 minutes; you can leave this page and come back.</p>`;
+    body = practiceAppProgressHtml(d) + `<p class="muted">You can leave this page - you'll get a notification when it's ready.</p>`;
   } else if (d.status === "ready") {
     body = `<p>✅ Ready - ${stats}.${cost}</p>${practiceAppCoverageTable(d.coverage)}
       ${approved || `<button class="btn-primary" onclick="approvePracticeApp(${id})">Approve for Round 2</button>`}
@@ -694,8 +694,8 @@ function practiceAppMismatchNotice(pairedTitle, liveRound1) {
   const title = escapeHtml(liveRound1.title);
   const head = `<p class="error-text" role="alert">The live Round 1 scenario is <strong>${title}</strong>, but this practice app was built for <strong>${escapeHtml(pairedTitle)}</strong> - candidates would design tests it can't run. Don't send candidates the test until this is fixed.</p>`;
   if (status === "building") {
-    return head + `<p>⏳ A practice app for ${title} is being built now (5-10 minutes). Once it's ready, approve it here or in Round 1 → ${title} → Review.</p>
-      <button onclick="loadRound2AutomationSettings()">Check again</button>`;
+    return head + `<p>A practice app for ${title} is being built:</p>${practiceAppProgressHtml((liveRound1.config_json || {}).practice_app || {})}
+      <p class="muted">This updates by itself, and you'll get a notification when it's ready.</p>`;
   }
   if (status === "ready") {
     return head + `<p>✅ A practice app for ${title} is ready and passed every check.</p>
@@ -705,12 +705,11 @@ function practiceAppMismatchNotice(pairedTitle, liveRound1) {
   const again = status === "not_ready" || status === "failed";
   return head + `<p>${again ? `The last build for ${title} didn't pass every check - see Round 1 → ${title} → Review for details, or build it again.` : `Build a practice app for ${title}: it's checked automatically against every Round 1 test case, and you approve it before candidates see it.`}</p>
     <button class="btn-primary" onclick="buildPracticeAppFromRound2(${liveRound1.id})">${again ? "Build again" : "Build practice app"} for ${title}</button>
-    <span class="muted">Uses the AI: about $1 and 5-10 minutes.</span>
     <p id="practice-app-r2-status" class="muted"></p>`;
 }
 
 async function buildPracticeAppFromRound2(round1Id) {
-  if (!confirm("Build the Round 2 practice app for the live Round 1 scenario? It uses the AI (about $1) and takes 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
+  if (!confirm("Build the Round 2 practice app for the live Round 1 scenario? Nothing changes for candidates until you approve it.")) return;
   try {
     await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
   } catch (e) {
@@ -718,6 +717,7 @@ async function buildPracticeAppFromRound2(round1Id) {
     if (status) status.textContent = e.message;
     return;
   }
+  watchPracticeAppBuild(round1Id);
   if (typeof loadScenarios === "function") await loadScenarios();
   loadRound2AutomationSettings();
 }
@@ -735,8 +735,143 @@ async function approvePracticeAppFromRound2(round1Id) {
   loadRound2AutomationSettings();
 }
 
+// The build's steps, ticked off as it goes (step numbers come from
+// generator.STEPS via the status endpoint; the Round 2 card, which reads the
+// scenario list, falls back to the same names).
+const PRACTICE_APP_STEPS = [
+  "Designing the practice app", "Writing a checklist for each test case", "Building the Python version",
+  "Checking the Python version", "Building the JavaScript and Java versions", "Checking all three languages",
+];
+
+function practiceAppProgressHtml(d) {
+  const steps = d.steps || PRACTICE_APP_STEPS;
+  const current = Number.isInteger(d.step) ? d.step : 0;
+  const started = d.started_at ? new Date(d.started_at + "Z") : null;
+  const seconds = started ? Math.max(0, Math.round((Date.now() - started) / 1000)) : null;
+  const elapsed = seconds === null ? "" : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+  return `<p>⏳ In progress${elapsed ? ` - running for ${elapsed}` : ""} (step ${current + 1} of ${steps.length})</p>
+    <ol class="practice-steps">${steps.map((name, i) => `
+      <li class="${i < current ? "done" : i === current ? "current" : ""}">${i < current ? "✅" : i === current ? "⏳" : "▫️"} ${escapeHtml(name)}${i === current && d.step_detail ? ` - ${escapeHtml(d.step_detail)}` : ""}</li>`).join("")}
+    </ol>`;
+}
+
+// ---- "Your practice app is ready" notifications ----
+// Builds HR started are remembered in this browser, checked every 10 seconds
+// wherever HR is in the app, and announced with a pop-up (and a desktop
+// notification if the browser allows it) as soon as they finish.
+
+const PRACTICE_APP_WATCH_KEY = "practiceAppBuildsWatched";
+let practiceAppWatchTimer = null;
+
+function watchedPracticeAppBuilds() {
+  try { return JSON.parse(localStorage.getItem(PRACTICE_APP_WATCH_KEY) || "[]"); } catch (e) { return []; }
+}
+
+function setWatchedPracticeAppBuilds(ids) {
+  try { localStorage.setItem(PRACTICE_APP_WATCH_KEY, JSON.stringify(ids)); } catch (e) { /* private mode - watch just this page */ }
+}
+
+function watchPracticeAppBuild(id) {
+  const ids = watchedPracticeAppBuilds();
+  if (!ids.includes(id)) setWatchedPracticeAppBuilds([...ids, id]);
+  if (typeof Notification !== "undefined" && Notification.permission === "default") {
+    try { Notification.requestPermission(); } catch (e) { /* not available */ }
+  }
+  startPracticeAppWatch();
+}
+
+function startPracticeAppWatch() {
+  if (practiceAppWatchTimer || !watchedPracticeAppBuilds().length) return;
+  practiceAppWatchTimer = setInterval(checkWatchedPracticeAppBuilds, 10000);
+}
+
+async function checkWatchedPracticeAppBuilds() {
+  const ids = watchedPracticeAppBuilds();
+  if (!ids.length) {
+    clearInterval(practiceAppWatchTimer);
+    practiceAppWatchTimer = null;
+    return;
+  }
+  const still = [];
+  for (const id of ids) {
+    let d;
+    try {
+      d = await api(`/hr/scenarios/${id}/practice-app`);
+    } catch (e) {
+      if (/log(ged)? in|401|403/i.test(e.message)) return; // signed out - try again later
+      continue; // e.g. the scenario was deleted - stop watching it
+    }
+    if (d.status === "building") { still.push(id); continue; }
+    announcePracticeAppResult(id, d);
+  }
+  setWatchedPracticeAppBuilds(still);
+}
+
+function announcePracticeAppResult(id, d) {
+  const scenario = (typeof allScenarios !== "undefined" && Array.isArray(allScenarios) ? allScenarios : []).find((s) => s.id === id);
+  const name = scenario ? scenario.title : `scenario #${id}`;
+  const ready = d.status === "ready";
+  const text = ready
+    ? `Practice app for ${name} is ready - ${d.working} of ${d.total} test cases work in every language. Approve it to use it in Round 2.`
+    : d.status === "not_ready"
+      ? `Practice app for ${name} finished but isn't ready - ${d.working} of ${d.total} test cases work. Open it to see which.`
+      : `Practice app for ${name} stopped: ${d.error || "unknown error"}.`;
+  showToast(text, ready ? "success" : "error", { label: "Open", onClick: () => openPracticeAppFor(id) });
+  if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+    try { new Notification("QA Eval - Round 2 practice app", { body: text }); } catch (e) { /* not available */ }
+  }
+  // Refresh whichever practice-app view is open.
+  const panel = document.getElementById("practice-app-panel");
+  if (panel && Number(panel.dataset.scenarioId) === id) loadPracticeAppPanel(id);
+  const round2Panel = document.getElementById("round4-settings-panel");
+  if (round2Panel && round2Panel.offsetParent !== null) loadRound2AutomationSettings();
+}
+
+function openPracticeAppFor(id) {
+  const detail = document.getElementById("scenario-detail");
+  if (detail) {
+    openScenarioDetail(id).then(() => document.getElementById("practice-app-panel")?.scrollIntoView({ behavior: "smooth" }));
+  }
+}
+
+function showToast(message, kind = "info", action = null) {
+  let area = document.getElementById("toast-area");
+  if (!area) {
+    area = document.createElement("div");
+    area.id = "toast-area";
+    area.className = "toast-area";
+    area.setAttribute("role", "status");
+    area.setAttribute("aria-live", "polite");
+    document.body.appendChild(area);
+  }
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${kind}`;
+  const text = document.createElement("div");
+  text.textContent = message;
+  toast.appendChild(text);
+  const actions = document.createElement("div");
+  actions.className = "toast-actions";
+  if (action) {
+    const go = document.createElement("button");
+    go.className = "btn-primary btn-sm";
+    go.textContent = action.label;
+    go.onclick = () => { toast.remove(); action.onClick(); };
+    actions.appendChild(go);
+  }
+  const close = document.createElement("button");
+  close.className = "btn-ghost btn-sm";
+  close.textContent = "Dismiss";
+  close.onclick = () => toast.remove();
+  actions.appendChild(close);
+  toast.appendChild(actions);
+  area.appendChild(toast);
+}
+
+// Pick up builds started before a page reload.
+startPracticeAppWatch();
+
 async function buildPracticeApp(id) {
-  if (!confirm("Build the Round 2 practice app for this scenario? It uses the AI (about $1) and takes 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
+  if (!confirm("Build the Round 2 practice app for this scenario? Nothing changes for candidates until you approve it.")) return;
   try {
     await api(`/hr/scenarios/${id}/practice-app`, { method: "POST" });
   } catch (e) {
@@ -744,6 +879,7 @@ async function buildPracticeApp(id) {
     if (status) status.textContent = e.message;
     return;
   }
+  watchPracticeAppBuild(id);
   loadPracticeAppPanel(id);
 }
 
@@ -803,7 +939,15 @@ async function loadRound2AutomationSettings() {
   }
   const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === DEFAULT_BAND && s.is_live);
   box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, liveRound1);
+  clearTimeout(round2PracticeAppTimer);
+  if (liveRound1 && ((liveRound1.config_json || {}).practice_app || {}).status === "building") {
+    round2PracticeAppTimer = setTimeout(() => {
+      if (document.getElementById("round4-settings-panel")?.offsetParent !== null) loadRound2AutomationSettings();
+    }, 5000);
+  }
 }
+
+let round2PracticeAppTimer = null;
 
 function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound1 = null) {
   const paired = scenario.config_json || {};
