@@ -80,3 +80,20 @@ def test_includes(actual, expected, includes):
 def test_numbers_compare_by_value_but_true_is_not_one():
     assert checker._same(150, 150.0)
     assert not checker._same(True, 1)
+
+
+def test_a_ref_can_pick_an_item_out_of_a_returned_list_in_every_language():
+    # "mine.0.id" - the first appointment in a returned list. Python and Java
+    # used to resolve it to null, so a checklist that returned a book picked
+    # from "My Books" failed in every language but JavaScript.
+    checklist = {"id": "list-item-ref", "title": "Pick from a list", "steps": [
+        {"call": "setup"},
+        {"call": "API.book", "args": ["qa.patient.demo@testportal.io", "D-102", "2025-01-17", "14:00"], "expect_includes": {"ok": True}},
+        {"call": "Database.appointments_for", "args": ["qa.patient.demo@testportal.io"], "save_as": "mine"},
+        {"call": "Database.find_appointment", "args": [{"ref": "mine.0.id"}], "expect_includes": {"status": "confirmed", "doctor_id": "D-102"}},
+    ]}
+    languages = _available()
+    report = checker.inspect({l: _env(l) for l in languages}, [checklist])
+    failures = [f"[{l}] {f}" for l, r in report.languages.items() for c in r.results for f in c.failures]
+    assert not failures and not report.differences, "\n".join(failures + report.differences)
+    assert set(report.languages) == set(languages) and all(r.passed == 1 for r in report.languages.values())

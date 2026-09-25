@@ -8,7 +8,7 @@ ROUND 1 REFERENCE TEST CASES - write exactly ONE checklist per test case, in thi
 
 A checklist is a list of steps. Each step calls one helper:
 - "call": "setup" / "teardown" for the global helpers, otherwise "Layer.helper_name", e.g. "UI.login", "API.book", "Database.find_order".
-- "args": positional arguments, in the helper's parameter order. Use null to skip an optional argument. To pass a value an earlier step returned, save that step with "save_as": "name" and pass {"ref": "name"} or {"ref": "name.field"}.
+- "args": positional arguments, in the helper's parameter order. Use null to skip an optional argument. To pass a value an earlier step returned, save that step with "save_as": "name" and pass {"ref": "name"} or {"ref": "name.field"}, or {"ref": "name.0.field"} for a field of the first item of a returned list (1 for the second, and so on).
 - Then at most these checks on what the step returns:
   "expect": the exact value (true/false, a string, a number, a list in the app's order, or an object with ALL its fields);
   "expect_includes": an object with some of the fields, a list with some of the items, or a substring;

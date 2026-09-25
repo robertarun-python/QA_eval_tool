@@ -30,6 +30,8 @@ def _plain(value):
 
 
 def _field(obj, name):
+    if isinstance(obj, (list, tuple)):  # "results.0.id" - an item of a returned list
+        return obj[int(name)] if name.isdigit() and int(name) < len(obj) else None
     if isinstance(obj, dict):
         if name in obj:
             return obj[name]

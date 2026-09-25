@@ -100,6 +100,11 @@ public class PracticeRunner {
 
     static Object member(Object obj, String name) throws Exception {
         if (obj == null) return null;
+        if (name.matches("\\d+")) {  // "results.0.id" - an item of a returned list
+            int index = Integer.parseInt(name);
+            if (obj instanceof List) return index < ((List<?>) obj).size() ? ((List<?>) obj).get(index) : null;
+            if (obj.getClass().isArray()) return index < Array.getLength(obj) ? Array.get(obj, index) : null;
+        }
         if (obj instanceof Map) {
             Map<?, ?> m = (Map<?, ?>) obj;
             return m.containsKey(name) ? m.get(name) : m.get(camel(name));
