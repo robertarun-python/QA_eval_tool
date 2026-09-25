@@ -40,6 +40,11 @@ Respond with ONLY a JSON object in this exact shape:
   "messages": [{"when": "...", "text": "exact visible text"}],
   "not_supported": ["anything a reference test case mentions that the app deliberately does not model, and why"],
   "reference_sheet": {"fields": {"Product URL": "...", "Test account email": "...", "...": "every fixed value a candidate needs to write tests: accounts, the data that exists, dates, limits"},
-                      "notes": "one sentence, e.g. Only these records exist in the practice app."}
+                      "notes": "one sentence, e.g. Only these records exist in the practice app."},
+  "screens": [
+    {"name": "a page name exactly as in pages",
+     "elements": [{"type": "text" | "label" | "input" | "button" | "link", "text": "exact on-screen text ('' for an empty input)"}]}
+  ]
 }
+screens: one per page, in the order a user meets them - what candidates see as a sketch of the app. Elements top to bottom, using the app's exact labels, button texts and starting data, and every message that can appear on that page followed by "(shown when ...)". A page listing records shows a few real ones from the starting data.
 setup and teardown must be listed as helpers with layer "global".
