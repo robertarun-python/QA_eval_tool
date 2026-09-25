@@ -684,6 +684,57 @@ function renderPracticeAppPanel(id, d) {
   return `<h4>Round 2 practice app</h4>${intro}${body}<p id="practice-app-status" class="muted"></p>`;
 }
 
+// Shown on the Round 2 card when the live Round 1 scenario isn't the one the
+// live practice app was built for - with the next step right there.
+function practiceAppMismatchNotice(pairedTitle, liveRound1) {
+  if (!liveRound1) {
+    return `<p class="error-text" role="alert">No Round 1 scenario is live. Make ${escapeHtml(pairedTitle)} live in Round 1, or another scenario with its own practice app.</p>`;
+  }
+  const status = ((liveRound1.config_json || {}).practice_app || {}).status || "none";
+  const title = escapeHtml(liveRound1.title);
+  const head = `<p class="error-text" role="alert">The live Round 1 scenario is <strong>${title}</strong>, but this practice app was built for <strong>${escapeHtml(pairedTitle)}</strong> - candidates would design tests it can't run. Don't send candidates the test until this is fixed.</p>`;
+  if (status === "building") {
+    return head + `<p>⏳ A practice app for ${title} is being built now (5-10 minutes). Once it's ready, approve it here or in Round 1 → ${title} → Review.</p>
+      <button onclick="loadRound2AutomationSettings()">Check again</button>`;
+  }
+  if (status === "ready") {
+    return head + `<p>✅ A practice app for ${title} is ready and passed every check.</p>
+      <button class="btn-primary" onclick="approvePracticeAppFromRound2(${liveRound1.id})">Approve it - switch Round 2 to ${title}</button>
+      <p id="practice-app-r2-status" class="muted"></p>`;
+  }
+  const again = status === "not_ready" || status === "failed";
+  return head + `<p>${again ? `The last build for ${title} didn't pass every check - see Round 1 → ${title} → Review for details, or build it again.` : `Build a practice app for ${title}: it's checked automatically against every Round 1 test case, and you approve it before candidates see it.`}</p>
+    <button class="btn-primary" onclick="buildPracticeAppFromRound2(${liveRound1.id})">${again ? "Build again" : "Build practice app"} for ${title}</button>
+    <span class="muted">Uses the AI: about $1 and 5-10 minutes.</span>
+    <p id="practice-app-r2-status" class="muted"></p>`;
+}
+
+async function buildPracticeAppFromRound2(round1Id) {
+  if (!confirm("Build the Round 2 practice app for the live Round 1 scenario? It uses the AI (about $1) and takes 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
+  try {
+    await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
+  } catch (e) {
+    const status = document.getElementById("practice-app-r2-status");
+    if (status) status.textContent = e.message;
+    return;
+  }
+  if (typeof loadScenarios === "function") await loadScenarios();
+  loadRound2AutomationSettings();
+}
+
+async function approvePracticeAppFromRound2(round1Id) {
+  if (!confirm("Approve this practice app? Round 2 switches to it now (unless candidates are mid-way through Round 2).")) return;
+  try {
+    await api(`/hr/scenarios/${round1Id}/practice-app/approve`, { method: "POST" });
+  } catch (e) {
+    const status = document.getElementById("practice-app-r2-status");
+    if (status) status.textContent = e.message;
+    return;
+  }
+  if (typeof loadScenarios === "function") await loadScenarios();
+  loadRound2AutomationSettings();
+}
+
 async function buildPracticeApp(id) {
   if (!confirm("Build the Round 2 practice app for this scenario? It uses the AI (about $1) and takes 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
   try {
@@ -751,10 +802,12 @@ async function loadRound2AutomationSettings() {
     return;
   }
   const liveRound1 = allScenarios.find((s) => s.round_number === 1 && s.experience_band === DEFAULT_BAND && s.is_live);
-  box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null);
+  box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, liveRound1);
 }
 
-function renderRound2AutomationSettingsCard(scenario, groundedInTitle) {
+function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound1 = null) {
+  const paired = scenario.config_json || {};
+  const isPaired = Boolean(paired.paired_round1_title || paired.paired_round1_scenario_id);
   return `
     <div class="panel card" style="margin-bottom:1.5rem">
       <h3>Round 2 <span class="badge badge-published">LIVE</span></h3>
@@ -778,15 +831,15 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle) {
         <button onclick="saveRound2AutomationTimeLimit(${scenario.id})">Save</button>
       </div>`}
 
-      ${scenario.config_json && scenario.config_json.paired_round1_title ? `
-        <h4>Paired Round 1 scenario</h4>
-        <p class="muted">This round's practice environment was built for <strong>${escapeHtml(scenario.config_json.paired_round1_title)}</strong> - candidates can automate what they designed for it.</p>
-        ${groundedInTitle !== scenario.config_json.paired_round1_title ? `<p class="error-text" role="alert">The live Round 1 scenario is ${groundedInTitle ? `<strong>${escapeHtml(groundedInTitle)}</strong>` : "not set"}, not ${escapeHtml(scenario.config_json.paired_round1_title)}. Candidates will design tests this environment can't run - make the paired Round 1 scenario live, or pair a matching Round 2 environment.</p>` : ""}` : ""}
+      ${isPaired ? `
+        <h4>Practice app</h4>
+        <p class="muted">Candidates automate their Round 1 test cases against a practice app built for <strong>${escapeHtml(paired.paired_round1_title || "")}</strong>.</p>
+        ${groundedInTitle !== paired.paired_round1_title ? practiceAppMismatchNotice(paired.paired_round1_title, liveRound1) : ""}` : ""}
 
-      <h4>Grounded in</h4>
-      <p class="muted">${groundedInTitle
-        ? `This round's test environment &amp; reference screens are auto-generated from <strong>${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live. They resync automatically whenever a different round 1 scenario goes live here.`
-        : `No round 1 scenario is currently live - the environment/screens below fell back to this scenario's own description instead. They'll resync automatically once one is published.`}</p>
+      ${isPaired ? "" : `      <h4>Grounded in</h4>
+      <p class="muted">\${groundedInTitle
+        ? \`This round's test environment &amp; reference screens are auto-generated from <strong>\${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live. They resync automatically whenever a different round 1 scenario goes live here.\`
+        : \`No round 1 scenario is currently live - the environment/screens below fell back to this scenario's own description instead. They'll resync automatically once one is published.\`}</p>`}
 
       <details>
         <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>
