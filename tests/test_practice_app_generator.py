@@ -227,3 +227,39 @@ def test_a_helper_the_design_says_returns_true_false_cannot_be_used_as_an_id():
         {"call": "setup"}, {"call": "UI.click_borrow", "save_as": "borrowed"},
         {"call": "UI.click_return", "args": [{"ref": "borrowed"}]}]}
     assert "true/false result of UI.click_borrow" in generator._ref_problem(checklist, generator._true_false_helpers(plan))
+
+
+_BENEFICIARY_PLAN = {
+    "data": "1. id=BEN001, name='Rajesh Kumar', account_number='1234567890123456', user='testuser@bank.test'",
+    "helpers": [
+        {"layer": "UI", "name": "submit", "returns": "Boolean", "changes_data": True},
+        {"layer": "Database", "name": "delete", "returns": "Boolean", "changes_data": True},
+        {"layer": "Database", "name": "exists", "returns": "Boolean", "changes_data": False},
+    ],
+}
+
+
+def _missing_start_record(steps):
+    plan = _BENEFICIARY_PLAN
+    return generator._missing_start_record_problem({"id": "c", "steps": steps}, plan, generator._data_changing_helpers(plan))
+
+
+def test_a_check_that_a_starting_record_is_missing_is_sent_back():
+    """The Beneficiary build: a refused add was checked as 'not stored' using
+    an account number the design had pre-loaded - it can never pass."""
+    problem = _missing_start_record([{"call": "setup"}, {"call": "UI.submit", "expect": False},
+                                     {"call": "Database.exists", "args": ["1234567890123456", "testuser@bank.test"], "expect": False}])
+    assert "'1234567890123456' is in the design's starting data" in problem
+
+
+@pytest.mark.parametrize("steps", [
+    # removed first - by id, so the account number never appears in that step
+    [{"call": "Database.delete", "args": ["BEN001"], "expect": True},
+     {"call": "Database.exists", "args": ["1234567890123456", "testuser@bank.test"], "expect": False}],
+    # a value that isn't in the starting data, with the owner (who is) second
+    [{"call": "Database.exists", "args": ["5555666677778888", "testuser@bank.test"], "expect": False}],
+    # only part of a starting value
+    [{"call": "Database.exists", "args": ["12345678", "testuser@bank.test"], "expect": False}],
+])
+def test_legitimate_missing_record_checks_are_not_flagged(steps):
+    assert _missing_start_record(steps) is None

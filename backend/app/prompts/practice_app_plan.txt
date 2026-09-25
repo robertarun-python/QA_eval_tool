@@ -18,6 +18,7 @@ FACTS CANDIDATES ARE ALREADY SHOWN FOR THIS APPLICATION (URLs, test accounts, da
 Design the app. Decide everything concretely - never leave a value for later:
 - Exactly one working test account (login + password), plus anything else the test cases need (e.g. a second account, a locked account) - realistic but clearly fake values.
 - The exact fixed data the app starts with: every record, with every field value. Enough variety that every test case has something to find, and something to NOT find.
+- Every test case starts from this same starting data (setup resets it). So the starting data must NOT contain a record that any test case adds as new: check each test case's test data, and make sure nothing it creates (an account number, an email, a code, a name) already exists at the start - or the app would rightly refuse it as a duplicate. A test case whose preconditions say such a record "already exists" creates it itself in its first steps; don't pre-load it.
 - Every helper, with snake_case name, parameters, exactly what it returns (in plain data: strings, numbers, true/false, lists, and objects with named fields), and exactly how it behaves, including every refusal path.
 - Every rule (validation, limits, what happens to data) and every message a user can see, word for word.
 - Invalid or refused actions must never change stored data, and must never raise an error - they return false / an {"ok": false, "error": ...} result and set the visible message.
