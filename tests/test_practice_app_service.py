@@ -23,6 +23,11 @@ PLAN = {
     "test_accounts": [{"login": "qa.patient.demo@testportal.io", "password": "Px!7mK@2024Test"}],
     "helpers": [{"layer": "UI", "name": "login", "params": ["email", "password"], "returns": "true/false", "behaviour": "logs in"}],
     "reference_sheet": {"fields": {"Test account email": "qa.patient.demo@testportal.io"}, "notes": "Only these doctors exist."},
+    "screens": [
+        {"name": "Login", "elements": [{"type": "label", "text": "Email Address"}, {"type": "input", "text": ""},
+                                       {"type": "button", "text": "Log In"}, {"type": "sparkles", "text": "dropped"}]},
+        {"name": "", "elements": [{"type": "text", "text": "a nameless screen is dropped"}]},
+    ],
 }
 
 
@@ -111,6 +116,13 @@ def test_approving_creates_the_paired_round2_scenario_and_puts_it_live(client, m
     assert round2.config_json["environment_code_by_language"] == APP
     assert "qa.patient.demo@testportal.io" in round2.reference_json["ground_truth"]
     assert round2.environment_json["fields"] == {"Test account email": "qa.patient.demo@testportal.io"}
+    assert round2.ui_mockup_json == {"screens": [{"name": "Login", "elements": [
+        {"type": "label", "text": "Email Address"}, {"type": "input", "text": ""}, {"type": "button", "text": "Log In"}]}]}
+
+
+def test_a_design_without_usable_screens_shows_none():
+    assert service.screens_for({"screens": [{"name": "X", "elements": [{"type": "video", "text": "?"}]}]}) is None
+    assert service.screens_for({}) is None
 
 
 def test_round2_goes_live_when_its_round1_does(client, monkeypatch, builds_dir):
