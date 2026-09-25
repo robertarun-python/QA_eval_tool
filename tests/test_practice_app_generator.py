@@ -42,10 +42,11 @@ def _plan():
 class FakeAI:
     """Answers each factory step by recognising its prompt."""
 
-    def __init__(self, python=None, javascript=None, java=None, fixes=None, checklists=None):
+    def __init__(self, python=None, javascript=None, java=None, fixes=None, checklists=None, repairs=None):
         self.code = {"python": python or APP["python"], "javascript": javascript or APP["javascript"], "java": java or APP["java"]}
         self.fixes = fixes or {}                  # language -> list of replies, one per fix request
         self.checklists = checklists or [CHECKLISTS]
+        self.repairs = repairs or []              # replies to "these checklists keep failing", in order
         self.prompts = []
 
     def __call__(self, prompt, max_tokens=4096):
@@ -54,6 +55,8 @@ class FakeAI:
             return json.dumps(_plan())
         if "writing machine-checkable CHECKLISTS" in prompt:
             return json.dumps(self.checklists.pop(0) if len(self.checklists) > 1 else self.checklists[0])
+        if "fixing the app's code hasn't helped" in prompt:
+            return json.dumps(self.repairs.pop(0)) if self.repairs else "[]"
         if "failed its automatic inspection" in prompt:
             language = next(l for l, name in generator.LANGUAGE_NAMES.items() if prompt.startswith(f"This {name} "))
             return f"```{language}\n{self.fixes[language].pop(0)}\n```"
@@ -107,7 +110,8 @@ def test_an_app_that_is_never_fixed_is_refused_and_not_paid_to_translate(monkeyp
     fake = FakeAI(python=broken, fixes={"python": [broken, broken]})
     result = _run(monkeypatch, fake)
     assert not result.ok and result.error is None
-    assert result.ai_calls == 3 + generator.MAX_FIX_ROUNDS  # plan, checklists, python, fixes - no translations
+    # plan, checklists, python, the fixes and one look at the checklists - no translations
+    assert result.ai_calls == 3 + generator.MAX_FIX_ROUNDS + 1
     assert not any("from Python to" in p for p in fake.prompts)
     failing = [row for row in result.coverage() if row["status"] == "fails"]
     assert any(row["title"] == "Book an available slot and see the confirmation" for row in failing)
@@ -263,3 +267,51 @@ def test_a_check_that_a_starting_record_is_missing_is_sent_back():
 ])
 def test_legitimate_missing_record_checks_are_not_flagged(steps):
     assert _missing_start_record(steps) is None
+
+
+def _with_wrong_message():
+    """The checklists with one that contradicts the design: it expects
+    "Booked!" where the design (and the correct app) says "Appointment confirmed"."""
+    wrong = json.loads(json.dumps(CHECKLISTS))
+    booking = next(c for c in wrong if c["id"] == "book-free-slot")
+    booking["steps"] = json.loads(json.dumps(booking["steps"]).replace("Appointment confirmed", "Booked!"))
+    return wrong, next(c for c in CHECKLISTS if c["id"] == "book-free-slot")
+
+
+def test_a_checklist_that_contradicts_the_design_is_rewritten_not_fought(monkeypatch):
+    """Every stuck build today was a wrong checklist: fixing the (correct)
+    code can never pass it. After one code fix it goes back to be checked."""
+    wrong, right = _with_wrong_message()
+    fake = FakeAI(checklists=[wrong], fixes={"python": [APP["python"], APP["python"]]}, repairs=[[right]])
+    result = _run(monkeypatch, fake)
+    assert result.ok, result.log
+    assert "rewrote 1 failing checklist(s): book-free-slot" in result.log
+    repair_prompt = next(p for p in fake.prompts if "fixing the app's code hasn't helped" in p)
+    assert "Booked!" in repair_prompt and "book-free-slot" in repair_prompt
+    assert '"id": "api-booking"' not in repair_prompt  # only the failing checklists are sent back
+    assert next(c for c in result.checklists if c["id"] == "book-free-slot") == right
+
+
+def test_a_rewrite_that_checks_less_is_refused(monkeypatch):
+    """The AI can't make a checklist pass by dropping what it checks."""
+    wrong, _ = _with_wrong_message()
+    weakened = json.loads(json.dumps(next(c for c in wrong if c["id"] == "book-free-slot")))
+    weakened["steps"] = [s for s in weakened["steps"] if "Booked!" not in json.dumps(s)]
+    fake = FakeAI(checklists=[wrong], fixes={"python": [APP["python"], APP["python"]]}, repairs=[[weakened]])
+    result = _run(monkeypatch, fake)
+    assert not result.ok
+    assert "the failing checklists match the design - kept as they were" in result.log
+
+
+def test_a_rewrite_must_keep_its_id_and_title_and_be_valid():
+    plan = _plan()
+    original = next(c for c in CHECKLISTS if c["id"] == "book-free-slot")
+    retitled = {**original, "title": "Something easier"}
+    unknown_helper = {**original, "steps": original["steps"] + [{"call": "UI.print_receipt", "expect": True}]}
+    for bad in (retitled, unknown_helper):
+        kept, replaced = generator.accept_repairs(plan, CHECKLISTS, [bad], {"book-free-slot"})
+        assert replaced == [] and kept == CHECKLISTS
+    # and only checklists that actually failed can be replaced
+    other = next(c for c in CHECKLISTS if c["id"] != "book-free-slot")
+    changed_other = {**other, "steps": other["steps"] + [{"call": "setup"}]}
+    assert generator.accept_repairs(plan, CHECKLISTS, [changed_other], {"book-free-slot"})[1] == []
