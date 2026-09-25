@@ -14,7 +14,7 @@ from app.models import Scenario
 from app.services import llm_service
 from app.services.practice_app import checker, generator, service
 
-from .conftest import HR_EMAIL, HR_PASSWORD, _auth, _login, _publish_scenario
+from .conftest import HR_EMAIL, HR_PASSWORD, _auth, _login, _publish_round4_scenario, _publish_scenario
 
 APP = {lang: llm_service._load_prompt(f"round2_automation_helpers_appointments_{lang}.txt") for lang in checker.LANGUAGES}
 CHECKLISTS = json.loads((Path(__file__).parent / "fixtures" / "practice_app" / "doctor_appointments.json").read_text())
@@ -193,3 +193,23 @@ def test_a_second_build_cannot_start_while_one_is_running(client, monkeypatch, b
     assert client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).status_code == 202
     res = client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     assert res.status_code == 400 and "already being built" in res.json()["detail"]
+
+
+def test_round2_switch_turns_the_old_one_off_before_the_new_one_on(client, monkeypatch, builds_dir):
+    # The paired Round 2 is OLDER (lower id) than the live one it replaces -
+    # saved in id order in one flush, the database's one-live rule would
+    # see two live Round 2s for a moment and refuse (see models.py).
+    token = _hr(client)
+    _r1(client, token, monkeypatch, title="Live one")
+    other_r1 = _r1(client, token, monkeypatch, title="Hotel Booking")
+    _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{other_r1['id']}/practice-app", cookies=_auth(token))
+    paired_id = client.post(f"/hr/scenarios/{other_r1['id']}/practice-app/approve", cookies=_auth(token)).json()["round2_scenario_id"]
+    newer_live = _publish_round4_scenario(client, token, monkeypatch, title="Generic automation")
+    assert newer_live["id"] > paired_id and _db_scenario(newer_live["id"]).is_live
+
+    res = client.post(f"/hr/scenarios/{other_r1['id']}/move-to-screening", cookies=_auth(token))
+
+    assert res.status_code == 200, res.text
+    assert _db_scenario(paired_id).is_live
+    assert not _db_scenario(newer_live["id"]).is_live

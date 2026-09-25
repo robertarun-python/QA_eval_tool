@@ -270,5 +270,6 @@ def activate_paired_round2(round1: Scenario, db: Session) -> Scenario | None:
         return None
     if current is not None:
         current.is_live = False
+        db.flush()  # the old one off before the new one on - one live per round and band (see models.py)
     paired.is_live = True
     return paired
