@@ -703,8 +703,12 @@ function practiceAppNoRound1Notice(pairedTitle) {
   return `<p class="error-text" role="alert">No Round 1 scenario is live. Make ${escapeHtml(pairedTitle)} live in Round 1, or another scenario with its own practice app.</p>`;
 }
 
+// What a practice-app build costs, shown before HR confirms one (paid AI calls).
+const PRACTICE_APP_BUILD_COST = "It uses the paid AI: about $1.50-2 and 10 minutes for a full build, "
+  + "or about $0.30-0.50 and a few minutes when the last build's Python app already works.";
+
 async function buildPracticeAppFromRound2(round1Id) {
-  if (!confirm("Generate Round 2 for the live Round 1 scenario? It takes about 5-10 minutes. Nothing changes for candidates until you approve it.")) return;
+  if (!confirm(`Generate Round 2 for the live Round 1 scenario? ${PRACTICE_APP_BUILD_COST} Nothing changes for candidates until you approve it.`)) return;
   const buttons = [...document.querySelectorAll("#round4-settings-panel button")];
   buttons.forEach((b) => { b.disabled = true; });
   const status = document.getElementById("practice-app-r2-status");
@@ -870,7 +874,7 @@ function showToast(message, kind = "info", action = null) {
 startPracticeAppWatch();
 
 async function buildPracticeApp(id) {
-  if (!confirm("Build the Round 2 practice app for this scenario? Nothing changes for candidates until you approve it.")) return;
+  if (!confirm(`Build the Round 2 practice app for this scenario? ${PRACTICE_APP_BUILD_COST} Nothing changes for candidates until you approve it.`)) return;
   try {
     await api(`/hr/scenarios/${id}/practice-app`, { method: "POST" });
   } catch (e) {
