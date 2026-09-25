@@ -77,11 +77,13 @@ def test_round3_coding_turn_rejects_code_edit_without_code(monkeypatch):
     monkeypatch.setattr(llm_service, "_call_claude", lambda prompt, max_tokens=4096: json.dumps({
         "response_kind": "code_edit", "response_message": "done", "code_after": None,
     }))
-    with pytest.raises(ValueError):
-        llm_service.round3_coding_turn(
-            scenario_description="x", language="python", conversation_so_far=[],
-            current_code=None, candidate_prompt="do it", turn_number=1,
-        )
+    # Never accepted as a code edit (empty code would overwrite the candidate's
+    # work): after one retry the candidate is asked to restate the step.
+    result = llm_service.round3_coding_turn(
+        scenario_description="x", language="python", conversation_so_far=[],
+        current_code=None, candidate_prompt="do it", turn_number=1,
+    )
+    assert result["response_kind"] == "clarify" and not result.get("code_after")
 
 
 def test_round3_coding_turn_response_accepts_category_status():

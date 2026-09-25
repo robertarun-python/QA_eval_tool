@@ -557,6 +557,34 @@ _R3_STOP_ASKING_NOTE = (
 R3_FINAL_PROMPT = "Tell me the exact next step or line you want, and I'll write exactly that."
 
 
+# A reply that is valid JSON but not a usable turn (seen live: an empty {}
+# for a base64-encoded request) used to reach the candidate as the generic
+# "trouble responding" error. It gets one retry with the shape spelled out;
+# if that fails too, the candidate is asked to restate the step - never code,
+# so nothing can leak - and the reply is logged for HR's AI health page.
+_TURN_SHAPE_NOTE = (
+    "\n\nIMPORTANT - your previous reply was not a usable turn. Reply with exactly one JSON object "
+    "with response_kind, response_message and (only for a code edit) code_after, as specified above."
+)
+UNUSABLE_REPLY_MESSAGE = "I couldn't act on that message - tell me the exact next step you want, in plain words."
+
+
+def _validated_turn(call, model, what: str):
+    """`call(note)` returns the model's parsed JSON; returns a validated `model`."""
+    last_problem = ""
+    for note in ("", _TURN_SHAPE_NOTE):
+        result = call(note)
+        if isinstance(result, dict):
+            try:
+                return model.model_validate(result)
+            except ValidationError as e:
+                last_problem = f"{e.error_count()} field problem(s)"
+        else:
+            last_problem = f"not a JSON object ({type(result).__name__})"
+        _record_call("invalid_reply", detail=f"{what}: {last_problem}")
+    return model.model_validate({"response_kind": "clarify", "response_message": UNUSABLE_REPLY_MESSAGE})
+
+
 def round3_coding_turn(
     scenario_description: str,
     language: str,
@@ -687,13 +715,10 @@ def _round3_coding_turn_once(
         # 4096, not the 2048 used before this feature - the response now
         # carries a full code snapshot AND a category_status block (one
         # neutral_question per open category) in the same JSON object.
-        result = _call_claude_json(prompt, max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN)
-        if not isinstance(result, dict):
-            raise ValueError(f"Expected a JSON object for the assistant's turn, got: {type(result)}")
-        try:
-            return Round3CodingTurnResponse.model_validate(result)
-        except ValidationError as e:
-            raise ValueError(f"Assistant's turn response didn't match the expected shape: {e}") from e
+        return _validated_turn(
+            lambda note="": _call_claude_json(prompt + note, max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN),
+            Round3CodingTurnResponse, "Round 3 turn",
+        )
 
     parsed = _raw_turn()
 
@@ -1044,11 +1069,17 @@ def round2_automation_turn(
     )
 
     def _generate(note: str = "") -> tuple[dict, str | None]:
-        result = _call_claude_json(base_prompt + (f"\n\n{note}" if note else ""), max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN)
-        if not isinstance(result, dict):
-            raise ValueError(f"Expected a JSON object for the automation turn, got: {type(result)}")
-        planted = result.pop("planted_flaw", None)
-        out = Round4PilotTurnResponse.model_validate(result).model_dump()
+        planted_box: list = []
+
+        def _call(shape_note: str = ""):
+            result = _call_claude_json(base_prompt + (f"\n\n{note}" if note else "") + shape_note,
+                                       max_tokens=_CODE_REPLY_TOKENS, schema=SCHEMA_CODE_TURN)
+            if isinstance(result, dict):
+                planted_box.append(result.pop("planted_flaw", None))
+            return result
+
+        out = _validated_turn(_call, Round4PilotTurnResponse, "Round 2 turn").model_dump()
+        planted = planted_box[-1] if planted_box else None
         out["code_after"] = _repair_escaped_code(out.get("code_after"))
         return out, planted
 

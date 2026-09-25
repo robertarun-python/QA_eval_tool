@@ -68,8 +68,9 @@ What is checked, where, and what is still open. Everything here runs offline
 1. **Live run pending:** the saved Round 3 cases (`tests/replay`, about $1-2). The
    red-team set has been run live (above). Round 3 correctness is now capped at the
    real hidden-test pass rate (`scoring_service._anchor_round3_correctness`).
-2. **A malformed AI reply** (seen once, for a base64-encoded request) reaches the
-   candidate as the generic "trouble responding" message rather than a refusal.
+2. ~~A malformed AI reply reaches the candidate as "trouble responding"~~ - fixed:
+   one retry, then a plain "restate your step" (`llm_service._validated_turn`,
+   `tests/test_unusable_ai_reply.py`).
 3. **HR console on a phone** scrolls sideways; it is built for a desktop.
 4. **Sandbox is macOS-only** (`sandbox-exec`); other hosts refuse to run code until a
    Linux sandbox (e.g. bubblewrap) is added.
