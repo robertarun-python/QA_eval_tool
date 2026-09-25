@@ -1,0 +1,565 @@
+[
+ {
+  "id": "login-valid",
+  "title": "Login with valid credentials",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.open",
+    "args": [
+     "/login"
+    ]
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.current_page",
+    "expect": "Doctor Search"
+   },
+   {
+    "call": "UI.visible_message",
+    "expect": "Welcome back, Alex"
+   }
+  ]
+ },
+ {
+  "id": "login-wrong-password",
+  "title": "Login with incorrect password",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "WrongPass!1"
+    ],
+    "expect": false
+   },
+   {
+    "call": "UI.visible_message",
+    "expect": "Invalid email or password"
+   },
+   {
+    "call": "UI.current_page",
+    "expect": "Login"
+   }
+  ]
+ },
+ {
+  "id": "login-unregistered",
+  "title": "Login with unregistered email",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "nobody@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": false
+   }
+  ]
+ },
+ {
+  "id": "login-empty",
+  "title": "Login with empty credentials",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "",
+     ""
+    ],
+    "expect": false
+   }
+  ]
+ },
+ {
+  "id": "search-specialty",
+  "title": "Search doctor by valid specialty",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.search_doctors",
+    "args": [
+     "Cardiology",
+     null
+    ],
+    "expect": [
+     "Dr. Sarah Johnson",
+     "Dr. Michael Chen"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "search-specialty-any-case",
+  "title": "Specialty search ignores letter case",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.search_doctors",
+    "args": [
+     "cardiology",
+     null
+    ],
+    "expect": [
+     "Dr. Sarah Johnson",
+     "Dr. Michael Chen"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "search-name",
+  "title": "Search doctor by name",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.search_doctors",
+    "args": [
+     null,
+     "Johnson"
+    ],
+    "expect": [
+     "Dr. Sarah Johnson"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "search-unknown",
+  "title": "Search with a specialty that has no doctors",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.search_doctors",
+    "args": [
+     "Neurology",
+     null
+    ],
+    "expect": []
+   },
+   {
+    "call": "UI.visible_message",
+    "expect": "No doctors found"
+   }
+  ]
+ },
+ {
+  "id": "doctor-profile",
+  "title": "View a doctor's profile",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.open_doctor",
+    "args": [
+     "Dr. Sarah Johnson"
+    ],
+    "expect": {
+     "name": "Dr. Sarah Johnson",
+     "specialty": "Cardiology",
+     "experience": "12 years",
+     "consultation_fee": "$150"
+    }
+   },
+   {
+    "call": "UI.current_page",
+    "expect": "Doctor Profile"
+   }
+  ]
+ },
+ {
+  "id": "dates-and-slots",
+  "title": "View available dates and slots (a taken slot is not offered)",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.open_doctor",
+    "args": [
+     "Dr. Sarah Johnson"
+    ]
+   },
+   {
+    "call": "UI.available_dates",
+    "expect": [
+     "2025-01-15",
+     "2025-01-16",
+     "2025-01-17"
+    ]
+   },
+   {
+    "call": "UI.available_slots",
+    "args": [
+     "2025-01-15"
+    ],
+    "expect": [
+     "09:00",
+     "10:30",
+     "14:00",
+     "15:30"
+    ]
+   },
+   {
+    "call": "UI.available_slots",
+    "args": [
+     "2025-01-16"
+    ],
+    "expect": [
+     "10:30",
+     "14:00",
+     "15:30"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "book-free-slot",
+  "title": "Book an available slot and see the confirmation",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.open_doctor",
+    "args": [
+     "Dr. Sarah Johnson"
+    ]
+   },
+   {
+    "call": "UI.book",
+    "args": [
+     "2025-01-15",
+     "09:00"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.current_page",
+    "expect": "Confirmation"
+   },
+   {
+    "call": "UI.visible_message",
+    "expect": "Appointment confirmed"
+   },
+   {
+    "call": "UI.confirmation",
+    "save_as": "conf",
+    "expect_includes": {
+     "doctor_name": "Dr. Sarah Johnson",
+     "specialty": "Cardiology",
+     "date": "2025-01-15",
+     "time": "09:00",
+     "fee": 150,
+     "status": "confirmed"
+    }
+   },
+   {
+    "call": "Database.find_appointment",
+    "args": [
+     {
+      "ref": "conf.id"
+     }
+    ],
+    "expect_includes": {
+     "status": "confirmed",
+     "patient_email": "qa.patient.demo@testportal.io"
+    }
+   },
+   {
+    "call": "Database.slot_is_booked",
+    "args": [
+     "D-101",
+     "2025-01-15",
+     "09:00"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.available_slots",
+    "args": [
+     "2025-01-15"
+    ],
+    "expect_excludes": [
+     "09:00"
+    ]
+   }
+  ]
+ },
+ {
+  "id": "book-taken-slot",
+  "title": "Booking an already-taken slot is refused and saves nothing",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.open_doctor",
+    "args": [
+     "Dr. Sarah Johnson"
+    ]
+   },
+   {
+    "call": "UI.book",
+    "args": [
+     "2025-01-16",
+     "09:00"
+    ],
+    "expect": false
+   },
+   {
+    "call": "UI.visible_message",
+    "expect": "This slot is no longer available"
+   },
+   {
+    "call": "Database.appointments_for",
+    "args": [
+     "qa.patient.demo@testportal.io"
+    ],
+    "expect": []
+   }
+  ]
+ },
+ {
+  "id": "book-logged-out",
+  "title": "Booking without logging in is refused and saves nothing",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.open_doctor",
+    "args": [
+     "Dr. Sarah Johnson"
+    ]
+   },
+   {
+    "call": "UI.book",
+    "args": [
+     "2025-01-15",
+     "10:30"
+    ],
+    "expect": false
+   },
+   {
+    "call": "UI.visible_message",
+    "expect": "Please log in to book"
+   },
+   {
+    "call": "Database.slot_is_booked",
+    "args": [
+     "D-101",
+     "2025-01-15",
+     "10:30"
+    ],
+    "expect": false
+   }
+  ]
+ },
+ {
+  "id": "teardown-cancels",
+  "title": "Cleaning up cancels the booking and frees the slot",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "UI.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.open_doctor",
+    "args": [
+     "Dr. Sarah Johnson"
+    ]
+   },
+   {
+    "call": "UI.book",
+    "args": [
+     "2025-01-17",
+     "14:00"
+    ],
+    "expect": true
+   },
+   {
+    "call": "UI.confirmation",
+    "save_as": "conf"
+   },
+   {
+    "call": "teardown",
+    "args": [
+     {
+      "ref": "conf.id"
+     }
+    ]
+   },
+   {
+    "call": "Database.find_appointment",
+    "args": [
+     {
+      "ref": "conf.id"
+     }
+    ],
+    "expect": null
+   },
+   {
+    "call": "Database.slot_is_booked",
+    "args": [
+     "D-101",
+     "2025-01-17",
+     "14:00"
+    ],
+    "expect": false
+   }
+  ]
+ },
+ {
+  "id": "api-booking",
+  "title": "Book through the API and read it back",
+  "steps": [
+   {
+    "call": "setup"
+   },
+   {
+    "call": "API.login",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "Px!7mK@2024Test"
+    ]
+   },
+   {
+    "call": "API.book",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "D-102",
+     "2025-01-17",
+     "14:00"
+    ],
+    "save_as": "booked",
+    "expect_includes": {
+     "ok": true
+    }
+   },
+   {
+    "call": "API.get_appointment",
+    "args": [
+     {
+      "ref": "booked.appointment_id"
+     }
+    ],
+    "expect_includes": {
+     "doctor_name": "Dr. Michael Chen",
+     "status": "confirmed"
+    }
+   },
+   {
+    "call": "API.book",
+    "args": [
+     "qa.patient.demo@testportal.io",
+     "D-102",
+     "2025-01-17",
+     "14:00"
+    ],
+    "expect_includes": {
+     "ok": false,
+     "error": "This slot is no longer available"
+    }
+   }
+  ]
+ }
+]
