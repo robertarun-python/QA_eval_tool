@@ -2127,3 +2127,21 @@ span.cdd-mini-label { margin-right: 0.35rem; }
   .rail-footer { flex-direction: row; flex-wrap: wrap; align-items: center; width: 100%; }
   .rail-footer .btn-label { display: inline; }
 }
+
+/* Pop-up messages (e.g. "Practice app ready") - bottom-right, stacked. */
+.toast-area {
+  position: fixed; right: var(--space-page); bottom: var(--space-page); z-index: 1000;
+  display: flex; flex-direction: column; gap: var(--space-tight); max-width: min(26rem, calc(100vw - 2 * var(--space-page)));
+}
+.toast {
+  background: var(--surface-elevated); color: var(--text-primary); border: 1px solid var(--border-strong);
+  border-left: 4px solid var(--accent); border-radius: var(--radius); box-shadow: var(--shadow-elevated);
+  padding: var(--space-default); font-size: var(--text-sm);
+}
+.toast.toast-success { border-left-color: var(--success); }
+.toast.toast-error { border-left-color: var(--error); }
+.toast-actions { display: flex; gap: var(--space-tight); margin-top: var(--space-tight); }
+.practice-steps { list-style: none; padding: 0; margin: var(--space-tight) 0; }
+.practice-steps li { padding: 2px 0; }
+.practice-steps li.done { color: var(--text-muted); }
+.practice-steps li.current { font-weight: 600; }

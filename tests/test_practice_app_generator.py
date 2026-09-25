@@ -183,3 +183,18 @@ def test_facts_candidates_already_see_are_given_to_the_planner(monkeypatch):
     generator.generate("Doctor Appointment System", "...", REFERENCE_CASES,
                        known_facts={"fields": {"Test account email": "qa.patient.demo@testportal.io"}})
     assert "qa.patient.demo@testportal.io" in fake.prompts[0]
+
+
+def test_progress_is_reported_through_every_step_in_order(monkeypatch):
+    steps = []
+    monkeypatch.setattr(llm_service, "_call_claude", FakeAI())
+    result = generator.generate("Doctor Appointment System", "...", REFERENCE_CASES, progress=lambda i, d: steps.append(i))
+    assert result.ok
+    assert steps == list(range(len(generator.STEPS)))
+
+
+def test_a_broken_progress_callback_never_breaks_a_build(monkeypatch):
+    def boom(i, d):
+        raise RuntimeError("screen went away")
+    monkeypatch.setattr(llm_service, "_call_claude", FakeAI())
+    assert generator.generate("Doctor Appointment System", "...", REFERENCE_CASES, progress=boom).ok

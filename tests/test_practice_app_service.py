@@ -40,7 +40,7 @@ def builds_dir(tmp_path, monkeypatch):
 def _fake_factory(monkeypatch, ok=True):
     calls = []
 
-    def generate(title, description, cases, known_facts=None):
+    def generate(title, description, cases, known_facts=None, progress=None):
         calls.append({"title": title, "cases": cases, "known_facts": known_facts})
         result = generator.PracticeAppResult(ok=ok, plan=PLAN, checklists=CHECKLISTS, env_code_by_language=dict(APP),
                                              ai_calls=5, reference_titles=[c["title"] for c in CHECKLISTS])
@@ -69,12 +69,36 @@ def _db_scenario(scenario_id):
         db.close()
 
 
-def test_status_starts_empty_and_shows_the_cost(client, monkeypatch, builds_dir):
+def test_status_starts_empty_and_lists_the_build_steps(client, monkeypatch, builds_dir):
     token = _hr(client)
     r1 = _r1(client, token, monkeypatch)
     data = client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()
     assert data["status"] == "none" and data["cannot_start"] is None
-    assert "$1" in data["estimate"]
+    assert data["steps"] == generator.STEPS
+    assert "$" not in json.dumps(data)  # HR isn't shown the cost
+
+
+def test_progress_is_saved_step_by_step_while_building(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    seen = []
+
+    def generate(title, description, cases, known_facts=None, progress=None):
+        for step, detail in [(0, ""), (3, "27 of 28 pass - fixing (round 1 of 2)")]:
+            progress(step, detail)
+            db = database_module.SessionLocal()
+            try:
+                seen.append(dict(db.get(Scenario, r1["id"]).config_json["practice_app"]))
+            finally:
+                db.close()
+        return generator.PracticeAppResult(ok=False, error="stopped for the test")
+
+    monkeypatch.setattr(generator, "generate", generate)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    assert [(d["status"], d["step"], d["step_detail"]) for d in seen] == [
+        ("building", 0, ""), ("building", 3, "27 of 28 pass - fixing (round 1 of 2)")]
+    final = client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()
+    assert final["status"] == "failed" and final["error"] == "stopped for the test"
 
 
 def test_build_runs_the_factory_and_reports_every_test_case(client, monkeypatch, builds_dir):
