@@ -48,12 +48,23 @@ _FENCES = {"python": "python", "javascript": "javascript", "java": "java"}
 # copies its structure, not its content.
 _EXAMPLE_FILES = {lang: f"round2_automation_helpers_appointments_{lang}.txt" for lang in checker.LANGUAGES}
 
+# The Beneficiary build's JavaScript renamed its internal fields to camelCase,
+# so get_field_value("account_number") - the field name the checklist passes,
+# as a string - found nothing; both fix rounds kept the rename, since the rule
+# they were given asked for camelCase.
+_SAME_STRING_VALUES = (
+    "The camelCase/naming rule is only for the property names of returned objects. Every string VALUE - field "
+    "names passed as arguments (e.g. \"account_number\"), keys looked up from them, statuses, page names, "
+    "messages - must be exactly the same string as in the Python version, so internal data that is looked up "
+    "by a string argument keeps the Python key."
+)
+
 _LANGUAGE_RULES = {
     "python": "Standard library only.",
     "javascript": (
         "Plain Node.js script: no imports, no exports, no async, no classes needed. Declare const UI = {...}, "
         "const API = {...}, const Database = {...}, and top-level function setup() and function teardown(id = null). "
-        "Return plain objects and arrays, with camelCase field names."
+        "Return plain objects and arrays, with camelCase field names. " + _SAME_STRING_VALUES
     ),
     "java": (
         "One file. The public class must be named Main, with every helper group as a nested static class "
@@ -61,7 +72,7 @@ _LANGUAGE_RULES = {
         "static void teardown(String id) directly on Main. Only java.util imports. Keep an empty "
         "public static void main(String[] args). Return java.util types or small static nested classes with "
         "plain fields (no getters). Use nullable types (String, Integer, Boolean) wherever the Python version can "
-        "return None, and accept null for optional parameters."
+        "return None, and accept null for optional parameters. " + _SAME_STRING_VALUES
     ),
 }
 

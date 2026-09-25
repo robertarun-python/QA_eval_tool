@@ -315,3 +315,17 @@ def test_a_rewrite_must_keep_its_id_and_title_and_be_valid():
     other = next(c for c in CHECKLISTS if c["id"] != "book-free-slot")
     changed_other = {**other, "steps": other["steps"] + [{"call": "setup"}]}
     assert generator.accept_repairs(plan, CHECKLISTS, [changed_other], {"book-free-slot"})[1] == []
+
+
+def test_translations_keep_string_values_like_field_names_as_in_python(monkeypatch):
+    """The Beneficiary JavaScript renamed its fields to camelCase, so a field
+    name passed as a string ("account_number") matched nothing - and the fix
+    rounds, told to use camelCase, kept it. Translate and fix prompts both
+    carry the rule now."""
+    bad_js = APP["javascript"].replace('"Appointment confirmed"', '"Booked!"')
+    fake = FakeAI(javascript=bad_js, fixes={"javascript": [APP["javascript"]]})
+    _run(monkeypatch, fake)
+    rule = "must be exactly the same string as in the Python version"
+    translations = [p for p in fake.prompts if "from Python to" in p]
+    js_fix = next(p for p in fake.prompts if p.startswith("This JavaScript "))
+    assert len(translations) == 2 and all(rule in p for p in translations) and rule in js_fix
