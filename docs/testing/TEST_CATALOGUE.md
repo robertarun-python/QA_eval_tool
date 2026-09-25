@@ -56,6 +56,24 @@ What is checked, where, and what is still open. Everything here runs offline
 | Retry / override scoring; scoring interrupted by a restart becomes retryable | edge | `test_score_override.py`, `test_interrupted_scoring.py` |
 | First-run race creating the settings row | edge | `test_api_robustness.py` |
 
+## Scoring (calibration)
+
+`tests/calibration`: one practice scenario per round, three hand-written answers of
+known quality, each scored twice through the real scorers. Live run Sep 24 ($0.37):
+
+| Round | Strong | Average | Weak |
+|---|---|---|---|
+| R1 manual test cases | 92, 90 | 35, 35 | 8, 8 |
+| R2 AI-assisted automation | 78, 78 | 52, 52 | 22, 30 |
+| R3 AI-prompted coding | 98, 98 | 45, 45 | 5, 5 |
+| R4 debugging | 98, 98 | 20, 20 | 8, 8 |
+
+All checks pass: clear ranking in every round, strong passes, weak fails, the same answer
+scores within 8 points. Limits: the answers are deliberately clear-cut and there is one
+scenario per round, so this shows the scorers separate good from bad - not how they
+place borderline candidates near the pass mark. The R2 strong answer passes by only
+8 points.
+
 ## Integration and scale
 
 | Case | Result (fake AI) |
