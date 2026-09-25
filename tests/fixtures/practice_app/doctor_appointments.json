@@ -548,6 +548,18 @@
     }
    },
    {
+    "call": "Database.find_appointment",
+    "args": [
+     {
+      "ref": "booked.appointment_id"
+     }
+    ],
+    "expect_includes": {
+     "status": "confirmed",
+     "doctor_id": "D-102"
+    }
+   },
+   {
     "call": "API.book",
     "args": [
      "qa.patient.demo@testportal.io",

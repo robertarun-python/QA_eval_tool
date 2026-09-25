@@ -27,7 +27,8 @@ def _plan():
     helpers = []
     for call in sorted({s["call"] for c in CHECKLISTS for s in c["steps"]}):
         layer, _, name = call.rpartition(".")
-        helpers.append({"layer": layer or "global", "name": name, "params": [], "returns": "...", "behaviour": "..."})
+        helpers.append({"layer": layer or "global", "name": name, "params": [], "returns": "...", "behaviour": "...",
+                        "changes_data": call in ("UI.book", "API.book")})
     return {
         "app_name": "Doctor Appointment System", "summary": "Patients book doctor appointments.",
         "base_url": "https://healthconnect-staging.qa.mediportal.io/patient",
@@ -153,3 +154,32 @@ def test_ground_truth_comes_from_the_same_design():
     assert "qa.patient.demo@testportal.io / Px!7mK@2024Test" in text
     assert "'Appointment confirmed'" in text
     assert "A taken slot can't be booked." in text
+
+
+def test_a_checklist_that_books_without_checking_the_database_is_regenerated(monkeypatch):
+    """The first real trial proved only 3 of 28 checklists against what was really stored."""
+    lazy = json.loads(json.dumps(CHECKLISTS))
+    booking = next(c for c in lazy if c["id"] == "book-taken-slot")
+    booking["steps"] = [s for s in booking["steps"] if not s["call"].startswith("Database.")]
+    fake = FakeAI(checklists=[lazy, CHECKLISTS])
+    result = _run(monkeypatch, fake)
+    assert result.ok, result.log
+    retry = [p for p in fake.prompts if "writing machine-checkable CHECKLISTS" in p][1]
+    assert "book-taken-slot" in retry and "never checks the Database" in retry
+
+
+def test_a_test_case_left_without_a_valid_checklist_still_shows_in_the_report(monkeypatch):
+    bad = [c for c in json.loads(json.dumps(CHECKLISTS)) if c["id"] != "search-name"]
+    fake = FakeAI(checklists=[bad, bad])
+    result = _run(monkeypatch, fake)
+    assert not result.ok
+    row = next(r for r in result.coverage() if r["title"] == "Search doctor by name")
+    assert row["status"] == "fails"
+
+
+def test_facts_candidates_already_see_are_given_to_the_planner(monkeypatch):
+    fake = FakeAI()
+    monkeypatch.setattr(llm_service, "_call_claude", fake)
+    generator.generate("Doctor Appointment System", "...", REFERENCE_CASES,
+                       known_facts={"fields": {"Test account email": "qa.patient.demo@testportal.io"}})
+    assert "qa.patient.demo@testportal.io" in fake.prompts[0]

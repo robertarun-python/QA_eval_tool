@@ -12,6 +12,9 @@ APPLICATION (Round 1 scenario): <<TITLE>>
 ROUND 1 REFERENCE TEST CASES (the practice app must make every one of these automatable):
 <<REFERENCE_CASES>>
 
+FACTS CANDIDATES ARE ALREADY SHOWN FOR THIS APPLICATION (URLs, test accounts, data) - where present, use exactly these values; never contradict them:
+<<KNOWN_FACTS>>
+
 Design the app. Decide everything concretely - never leave a value for later:
 - Exactly one working test account (login + password), plus anything else the test cases need (e.g. a second account, a locked account) - realistic but clearly fake values.
 - The exact fixed data the app starts with: every record, with every field value. Enough variety that every test case has something to find, and something to NOT find.
@@ -30,10 +33,13 @@ Respond with ONLY a JSON object in this exact shape:
   "pages": ["page names exactly as current_page() returns them"],
   "helpers": [
     {"layer": "UI" | "API" | "Database" | "global", "name": "snake_case_name", "params": ["param", ...],
-     "returns": "exactly what it returns", "behaviour": "exactly what it does, including refusals and messages"}
+     "returns": "exactly what it returns", "behaviour": "exactly what it does, including refusals and messages",
+     "changes_data": true if it can create, change or delete stored data (even when it then refuses), else false}
   ],
   "rules": ["..."],
   "messages": [{"when": "...", "text": "exact visible text"}],
-  "not_supported": ["anything a reference test case mentions that the app deliberately does not model, and why"]
+  "not_supported": ["anything a reference test case mentions that the app deliberately does not model, and why"],
+  "reference_sheet": {"fields": {"Product URL": "...", "Test account email": "...", "...": "every fixed value a candidate needs to write tests: accounts, the data that exists, dates, limits"},
+                      "notes": "one sentence, e.g. Only these records exist in the practice app."}
 }
 setup and teardown must be listed as helpers with layer "global".

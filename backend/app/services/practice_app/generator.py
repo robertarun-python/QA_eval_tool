@@ -67,6 +67,7 @@ class PracticeAppResult:
     log: list = field(default_factory=list)                 # what happened, step by step, for HR/support
     ai_calls: int = 0
     error: str | None = None
+    reference_titles: list = field(default_factory=list)   # every Round 1 test case, so none can go missing from the report
 
     def coverage(self) -> list[dict]:
         """One row per reference test case: works / fails / not supported."""
@@ -83,6 +84,10 @@ class PracticeAppResult:
             rows.append({"title": c.get("title", c["id"]), "status": "works" if works else "fails", "details": failures[:3]})
         for u in self.unsupported:
             rows.append({"title": u["title"], "status": "not supported", "details": [u["reason"]]})
+        listed = {r["title"].strip().lower() for r in rows}
+        for title in self.reference_titles:
+            if title.strip().lower() not in listed:
+                rows.append({"title": title, "status": "fails", "details": ["the factory couldn't write a valid checklist for it"]})
         return rows
 
 
@@ -119,11 +124,22 @@ def _helper_names(plan: dict) -> set[str]:
     return names | {"setup", "teardown"}
 
 
+def _data_changing_helpers(plan: dict) -> set[str]:
+    names = set()
+    for h in plan.get("helpers") or []:
+        if h.get("changes_data") and (h.get("layer") or "").lower() != "global":
+            names.add(f"{h.get('layer')}.{h.get('name')}")
+    return names
+
+
 def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict]) -> tuple[list, list, list[str]]:
     """Splits the AI's checklists into runnable ones and unsupported cases,
     and lists problems: a call to a helper the plan doesn't have, a missing
-    or duplicate id, or a reference case with no checklist."""
+    or duplicate id, a reference case with no checklist, or a checklist that
+    changes data without checking the Database (the first trial run proved
+    only 3 of 28 bookings/refusals against what was really stored)."""
     helpers = _helper_names(plan)
+    changing = _data_changing_helpers(plan)
     runnable, unsupported, problems, seen = [], [], [], set()
     for c in checklists if isinstance(checklists, list) else []:
         if not isinstance(c, dict) or not c.get("id"):
@@ -141,6 +157,9 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
             problems.append(f"checklist {c['id']!r} has no steps")
         elif unknown:
             problems.append(f"checklist {c['id']!r} calls helpers the design doesn't have: {', '.join(unknown)}")
+        elif any(s.get("call") in changing for s in c["steps"]) and not any(
+                (s.get("call") or "").startswith("Database.") for s in c["steps"]):
+            problems.append(f"checklist {c['id']!r} changes data but never checks the Database layer")
         else:
             runnable.append(c)
     covered = {(c.get("title") or "").strip().lower() for c in runnable} | {u["title"].strip().lower() for u in unsupported}
@@ -161,8 +180,8 @@ def _problems_for(language: str, report: checker.InspectionReport) -> list[str]:
     return problems
 
 
-def generate(title: str, description: str, reference_cases: list[dict]) -> PracticeAppResult:
-    result = PracticeAppResult()
+def generate(title: str, description: str, reference_cases: list[dict], known_facts: dict | None = None) -> PracticeAppResult:
+    result = PracticeAppResult(reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")])
     cases_text = _format_cases(reference_cases)
 
     def call(prompt: str, max_tokens: int) -> str:
@@ -183,6 +202,7 @@ def generate(title: str, description: str, reference_cases: list[dict]) -> Pract
         plan = llm_service._parse_json_response(call(_render(
             llm_service._load_prompt("practice_app_plan.txt"),
             title=title, description=description, reference_cases=cases_text,
+            known_facts=json.dumps(known_facts, indent=1, ensure_ascii=False) if known_facts else "(none)",
         ), _PLAN_TOKENS))
         if not isinstance(plan, dict) or not plan.get("helpers"):
             raise ValueError("the AI's design had no helpers")
@@ -251,7 +271,7 @@ def generate(title: str, description: str, reference_cases: list[dict]) -> Pract
 
         result.env_code_by_language = code
         result.report = report
-        result.ok = report.all_passed
+        result.ok = report.all_passed and all(row["status"] != "fails" for row in result.coverage())
     except Exception as e:  # the caller shows HR a clear message; nothing is saved
         result.error = f"{type(e).__name__}: {e}"
         result.log.append(f"stopped: {result.error}")
