@@ -35,4 +35,12 @@ jobs:
       - name: Offline test suite (unit + browser tests, fake AI - no API calls)
         env:
           ANTHROPIC_API_KEY: ""   # never call the real API from CI
+          # The app refuses to start without these (see config.py) and CI has
+          # no .env - throwaway values for the tests' own in-memory database.
+          JWT_SECRET_KEY: ci-only-not-a-secret
+          HR_PASSWORD: ci-hr
+          CANDIDATE1_PASSWORD: ci-c1
+          CANDIDATE2_PASSWORD: ci-c2
+          CANDIDATE3_PASSWORD: ci-c3
+          CANDIDATE5_PASSWORD: ci-c5
         run: python -m pytest -q -p no:warnings tests

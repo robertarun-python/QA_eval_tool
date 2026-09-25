@@ -142,14 +142,49 @@ def _data_changing_helpers(plan: dict) -> set[str]:
     return names
 
 
+def _true_false_helpers(plan: dict) -> set[str]:
+    names = set()
+    for h in plan.get("helpers") or []:
+        returns = str(h.get("returns") or "").strip().lower()
+        if returns.startswith(("boolean", "bool", "true/false", "true or false")):
+            layer, name = (h.get("layer") or "").strip(), (h.get("name") or "").strip()
+            names.add(name if layer.lower() == "global" else f"{layer}.{name}")
+    return names
+
+
+def _ref_problem(checklist: dict, true_false: set[str]) -> str | None:
+    """A ref to nothing saved yet, or one that passes a step's true/false
+    result on as if it were a value such as an id. The second can't pass in
+    any app: the Library build's checklists expected Borrow to return true
+    AND used what it returned as the borrowing id, so each fix of one broke
+    the other."""
+    saved = {}
+    for step in checklist["steps"]:
+        for arg in step.get("args") or []:
+            if not (isinstance(arg, dict) and "ref" in arg):
+                continue
+            root = str(arg["ref"]).split(".")[0]
+            source = saved.get(root)
+            if source is None:
+                return f"checklist {checklist['id']!r} uses {{\"ref\": \"{arg['ref']}\"}} but no earlier step saved {root!r}"
+            if isinstance(source.get("expect"), bool) or source.get("call") in true_false:
+                return (f"checklist {checklist['id']!r} passes the true/false result of {source.get('call')} ({root!r}) to "
+                        f"{step.get('call')} as if it were a value such as an id - save a step that returns that value instead")
+        if step.get("save_as"):
+            saved[step["save_as"]] = step
+    return None
+
+
 def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict]) -> tuple[list, list, list[str]]:
     """Splits the AI's checklists into runnable ones and unsupported cases,
     and lists problems: a call to a helper the plan doesn't have, a missing
-    or duplicate id, a reference case with no checklist, or a checklist that
+    or duplicate id, a reference case with no checklist, a ref that can't
+    hold the value it's used as, or a checklist that
     changes data without checking the Database (the first trial run proved
     only 3 of 28 bookings/refusals against what was really stored)."""
     helpers = _helper_names(plan)
     changing = _data_changing_helpers(plan)
+    true_false = _true_false_helpers(plan)
     runnable, unsupported, problems, seen = [], [], [], set()
     for c in checklists if isinstance(checklists, list) else []:
         if not isinstance(c, dict) or not c.get("id"):
@@ -170,6 +205,8 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
         elif any(s.get("call") in changing for s in c["steps"]) and not any(
                 (s.get("call") or "").startswith("Database.") for s in c["steps"]):
             problems.append(f"checklist {c['id']!r} changes data but never checks the Database layer")
+        elif ref_problem := _ref_problem(c, true_false):
+            problems.append(ref_problem)
         else:
             runnable.append(c)
     covered = {(c.get("title") or "").strip().lower() for c in runnable} | {u["title"].strip().lower() for u in unsupported}

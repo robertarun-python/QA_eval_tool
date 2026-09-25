@@ -19,6 +19,7 @@ Rules:
 - Start every checklist with {"call": "setup"}. Use exact values from the design - never invent data the design doesn't have.
 - Check what the test case's expected result says, through what the user sees (UI.current_page, UI.visible_message, returned lists/details) AND, where data should (or should not) be stored, through the Database layer.
 - Whenever a checklist calls a helper marked "changes_data": true, it MUST also check the Database layer afterwards - that the data was really stored or changed, or, for a refused action, that nothing was stored. What the screen says is the system reporting on itself; only the Database proves it.
+- Only pass on a value the saved step really returns. A step that returns true/false can't also supply an id: to get the id a UI action created, read it from a helper that returns it (a list, a confirmation, a Database lookup).
 - If a test case genuinely cannot be expressed with the design's helpers, still include it as {"id": ..., "title": ..., "unsupported": "which part is missing"} - never fake it.
 
 Respond with ONLY a JSON array:
