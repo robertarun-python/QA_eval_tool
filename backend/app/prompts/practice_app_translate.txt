@@ -1,0 +1,17 @@
+Translate this PRACTICE APP from Python to <<LANGUAGE_NAME>>. Candidates in a QA hiring assessment choose their language, so the <<LANGUAGE_NAME>> version must behave EXACTLY like the Python one: same data, same order of results, same messages word for word, same refusals, and results with the same fields.
+
+THE PYTHON PRACTICE APP (the source of truth):
+```python
+<<PYTHON_CODE>>
+```
+
+Follow the structure and style of this example <<LANGUAGE_NAME>> practice app for a different application EXACTLY:
+```<<FENCE>>
+<<EXAMPLE>>
+```
+
+<<LANGUAGE_RULES>>
+
+Naming: use the language's usual style for the same names (search_doctors -> searchDoctors, doctor_name -> doctorName); keep the layer names UI, API, Database and the functions setup and teardown.
+
+Respond with ONLY the complete file inside one ```<<FENCE>> code block.
