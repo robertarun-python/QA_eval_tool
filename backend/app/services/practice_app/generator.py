@@ -254,6 +254,33 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
     return runnable, unsupported, problems
 
 
+def _title_key(item) -> str:
+    return (item.get("title") or "").strip().lower() if isinstance(item, dict) else ""
+
+
+def merge_checklist_retry(first: list, first_valid: list[dict], retried) -> list:
+    """The first attempt's valid checklists (and its "unsupported" entries),
+    plus the retry's checklists only for test cases the first attempt got
+    wrong or missed. A full retry used to replace everything - the Beneficiary
+    build's first attempt had one bad checklist, its retry broke six good ones
+    (an invented "assert" step) and those test cases were dropped."""
+    valid_ids = {c["id"] for c in first_valid}
+    good = lambda c: isinstance(c, dict) and (c.get("id") in valid_ids or c.get("unsupported"))  # noqa: E731
+    covered = {_title_key(c) for c in first if good(c)}
+    used_ids = {c.get("id") for c in first if good(c)}
+    replacements = {}
+    for c in retried if isinstance(retried, list) else []:
+        if isinstance(c, dict) and _title_key(c) not in covered and c.get("id") not in used_ids:
+            replacements.setdefault(_title_key(c), c)
+    merged = []
+    for c in first:  # in the first attempt's order, each bad one swapped for its retry
+        if good(c):
+            merged.append(c)
+        elif _title_key(c) in replacements:
+            merged.append(replacements.pop(_title_key(c)))
+    return merged + list(replacements.values())  # test cases the first attempt missed
+
+
 def _check_counts(checklist: dict) -> tuple[int, int]:
     """(checks, Database checks) - a rewritten checklist must keep both."""
     checks = [s for s in checklist.get("steps") or [] if any(k in s for k in ("expect", "expect_includes", "expect_excludes"))]
@@ -380,7 +407,8 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 result.log.append("checklists needed a second attempt: " + "; ".join(problems[:5]))
                 step(1, "second attempt")
                 retry = checklist_prompt + "\n\nYour previous attempt had these problems - fix every one:\n" + "\n".join(f"- {p}" for p in problems)
-                raw = llm_service._parse_json_response(call(retry, _CHECKLIST_TOKENS))
+                retried = llm_service._parse_json_response(call(retry, _CHECKLIST_TOKENS))
+                raw = merge_checklist_retry(raw, runnable, retried)
                 runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
                 for p in problems:
                     result.log.append(f"checklist problem left: {p}")
@@ -396,10 +424,21 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 llm_service._load_prompt("practice_app_write_python.txt"),
                 plan=plan_text, checklists=checklists_text, example=llm_service._load_prompt(_EXAMPLE_FILES["python"]),
             ), _CODE_TOKENS))
+            # The best version seen: a fix can make things worse (the Beneficiary
+            # build went 18/19 -> 16/19 on its last fix), and the build must
+            # never end on a worse app than it already had.
+            best = {}
+
+            def remember() -> None:
+                passed = report.languages["python"].passed
+                if not best or passed > best["passed"]:
+                    best.update(passed=passed, python=python, report=report, problems=problems, runnable=runnable)
+
             for round_no in range(MAX_FIX_ROUNDS + 1):
                 step(3, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
                 report = checker.inspect({"python": python}, runnable)
                 problems = _problems_for("python", report)
+                remember()
                 result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
                 if not problems or round_no == MAX_FIX_ROUNDS:
                     break
@@ -414,11 +453,17 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                     if rewritten:
                         report = checker.inspect({"python": python}, runnable)
                         problems = _problems_for("python", report)
+                        remember()
                         result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
                         if not problems:
                             break
                 step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {round_no + 1} of {MAX_FIX_ROUNDS})")
                 python = fix("python", python, problems)
+            if problems and best["passed"] > report.languages["python"].passed:
+                python, report, problems, runnable = best["python"], best["report"], best["problems"], best["runnable"]
+                result.checklists = runnable
+                checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
+                result.log.append(f"kept the best version ({best['passed']}/{len(runnable)} pass) - the last fix made it worse")
             if problems:
                 # Translating an app that doesn't work would only pay to copy its
                 # mistakes - stop here and show HR what failed.
