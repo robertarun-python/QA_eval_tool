@@ -1,0 +1,201 @@
+/*
+ * Automation environment (Java) - Doctor Appointment System - provided for
+ * you, already working.
+ *
+ * This is a SMALL controlled environment, not a framework you need to
+ * build or extend. It simulates the patient portal's UI, its API and its
+ * database in-process so your automation runs deterministically with no
+ * real network calls. The data matches the reference sheet: test account
+ * qa.patient.demo@testportal.io / Px!7mK@2024Test, Dr. Sarah Johnson
+ * (Cardiology) and the other doctors below, dates 2025-01-15 to 2025-01-17.
+ *
+ * Write your automated test(s) inside Main (under the TODO marker) and
+ * call them from main(). Do not rewrite the helpers. Everything must stay
+ * in this one file - the public class must remain named Main.
+ */
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+public class Main {
+
+    static final String BASE_URL = "https://healthconnect-staging.qa.mediportal.io/patient";
+
+    static class Doctor {
+        String id; String name; String specialty; int experienceYears; int consultationFee;
+        Doctor(String id, String name, String specialty, int experienceYears, int consultationFee) {
+            this.id = id; this.name = name; this.specialty = specialty; this.experienceYears = experienceYears; this.consultationFee = consultationFee;
+        }
+    }
+
+    static class Profile {
+        String name; String specialty; String experience; String consultationFee;
+        Profile(Doctor d) {
+            name = d.name; specialty = d.specialty; experience = d.experienceYears + " years"; consultationFee = "$" + d.consultationFee;
+        }
+    }
+
+    static class Appointment {
+        String id; String patientEmail; String doctorId; String doctorName; String specialty; String date; String time; int fee; String status;
+        Appointment copy() {
+            Appointment a = new Appointment();
+            a.id = id; a.patientEmail = patientEmail; a.doctorId = doctorId; a.doctorName = doctorName; a.specialty = specialty;
+            a.date = date; a.time = time; a.fee = fee; a.status = status;
+            return a;
+        }
+    }
+
+    static class BookResponse {
+        boolean ok; String error; String appointmentId;
+        BookResponse(boolean ok, String error, String appointmentId) { this.ok = ok; this.error = error; this.appointmentId = appointmentId; }
+    }
+
+    // In-memory stand-in for the application's database.
+    static Map<String, String> PASSWORDS = new LinkedHashMap<>();
+    static Map<String, String> FIRST_NAMES = new LinkedHashMap<>();
+    static Map<String, Doctor> DOCTORS = new LinkedHashMap<>();
+    static List<String> DATES = Arrays.asList("2025-01-15", "2025-01-16", "2025-01-17");
+    static List<String> TIMES = Arrays.asList("09:00", "10:30", "14:00", "15:30");
+    static Set<String> BOOKED = new HashSet<>();
+    static Map<String, Appointment> APPOINTMENTS = new LinkedHashMap<>();
+    static int NEXT_ID = 1;
+
+    // What the patient's browser session currently shows.
+    static String SESSION_EMAIL = null;
+    static String PAGE = "Login";
+    static String MESSAGE = "";
+    static String OPEN_DOCTOR_ID = null;
+    static Appointment CONFIRMATION = null;
+
+    static {
+        PASSWORDS.put("qa.patient.demo@testportal.io", "Px!7mK@2024Test");
+        FIRST_NAMES.put("qa.patient.demo@testportal.io", "Alex");
+        for (Doctor d : new Doctor[] {
+                new Doctor("D-101", "Dr. Sarah Johnson", "Cardiology", 12, 150),
+                new Doctor("D-102", "Dr. Michael Chen", "Cardiology", 8, 120),
+                new Doctor("D-201", "Dr. Priya Patel", "Dermatology", 10, 130),
+                new Doctor("D-301", "Dr. James Wilson", "Orthopedics", 15, 180),
+                new Doctor("D-401", "Dr. Emily Brown", "Pediatrics", 6, 100)}) {
+            DOCTORS.put(d.id, d);
+        }
+        BOOKED.add("D-101|2025-01-16|09:00"); // already taken by another patient
+    }
+
+    static List<String> freeSlots(String doctorId, String date) {
+        List<String> free = new ArrayList<>();
+        if (doctorId == null || !DOCTORS.containsKey(doctorId) || !DATES.contains(date)) return free;
+        for (String t : TIMES) if (!BOOKED.contains(doctorId + "|" + date + "|" + t)) free.add(t);
+        return free;
+    }
+
+    static List<Doctor> findDoctors(String specialty, String name) {
+        List<Doctor> found = new ArrayList<>();
+        for (Doctor d : DOCTORS.values()) {
+            if (specialty != null && !d.specialty.equalsIgnoreCase(specialty.trim())) continue;
+            if (name != null && !d.name.toLowerCase().contains(name.trim().toLowerCase())) continue;
+            found.add(d);
+        }
+        return found;
+    }
+
+    // UI-layer actions - what the patient does and sees in the portal.
+    static class UI {
+        static String open(String path) { return BASE_URL + path; }
+        // Returns true on success (opens Doctor Search), false on bad credentials.
+        static boolean login(String email, String password) {
+            if (password != null && password.equals(PASSWORDS.get(email))) {
+                SESSION_EMAIL = email; PAGE = "Doctor Search"; MESSAGE = "Welcome back, " + FIRST_NAMES.get(email);
+                return true;
+            }
+            MESSAGE = "Invalid email or password";
+            return false;
+        }
+        // Searches by specialty and/or doctor name (either may be null). Returns the doctor names shown.
+        static List<String> searchDoctors(String specialty, String name) {
+            List<String> names = new ArrayList<>();
+            for (Doctor d : findDoctors(specialty, name)) names.add(d.name);
+            PAGE = "Doctor Search"; MESSAGE = names.isEmpty() ? "No doctors found" : "";
+            return names;
+        }
+        // Opens a doctor's profile. Returns the profile shown, or null if not found.
+        static Profile openDoctor(String name) {
+            for (Doctor d : DOCTORS.values()) {
+                if (d.name.equals(name)) { PAGE = "Doctor Profile"; OPEN_DOCTOR_ID = d.id; MESSAGE = ""; return new Profile(d); }
+            }
+            return null;
+        }
+        // Dates offered on the open doctor's profile.
+        static List<String> availableDates() { return OPEN_DOCTOR_ID == null ? new ArrayList<>() : new ArrayList<>(DATES); }
+        // Free time slots shown for the open doctor on that date.
+        static List<String> availableSlots(String date) { return freeSlots(OPEN_DOCTOR_ID, date); }
+        // Selects a slot and confirms. Returns true when the confirmation page opens.
+        static boolean book(String date, String time) {
+            BookResponse r = API.book(SESSION_EMAIL, OPEN_DOCTOR_ID, date, time);
+            if (r.ok) { PAGE = "Confirmation"; CONFIRMATION = API.getAppointment(r.appointmentId); }
+            return r.ok;
+        }
+        // The appointment details shown on the confirmation page, or null.
+        static Appointment confirmation() { return CONFIRMATION == null ? null : CONFIRMATION.copy(); }
+        static String currentPage() { return PAGE; }
+        // The message currently shown to the patient, or "" if none.
+        static String visibleMessage() { return MESSAGE; }
+    }
+
+    // API-layer actions.
+    static class API {
+        static boolean login(String email, String password) { return password != null && password.equals(PASSWORDS.get(email)); }
+        static List<Doctor> searchDoctors(String specialty, String name) { return findDoctors(specialty, name); }
+        static Doctor doctorProfile(String doctorId) { return DOCTORS.get(doctorId); }
+        static List<String> availability(String doctorId, String date) { return freeSlots(doctorId, date); }
+        // Books a free slot for a logged-in patient; otherwise refuses and writes nothing.
+        static BookResponse book(String patientEmail, String doctorId, String date, String time) {
+            String error = null;
+            if (patientEmail == null || !PASSWORDS.containsKey(patientEmail)) error = "Please log in to book";
+            else if (doctorId == null || !DOCTORS.containsKey(doctorId)) error = "Doctor not found";
+            else if (!freeSlots(doctorId, date).contains(time)) error = "This slot is no longer available";
+            if (error != null) { MESSAGE = error; return new BookResponse(false, error, null); }
+            Doctor d = DOCTORS.get(doctorId);
+            Appointment a = new Appointment();
+            a.id = String.format("APT-%04d", NEXT_ID++); a.patientEmail = patientEmail; a.doctorId = doctorId; a.doctorName = d.name;
+            a.specialty = d.specialty; a.date = date; a.time = time; a.fee = d.consultationFee; a.status = "confirmed";
+            APPOINTMENTS.put(a.id, a);
+            BOOKED.add(doctorId + "|" + date + "|" + time);
+            MESSAGE = "Appointment confirmed";
+            return new BookResponse(true, null, a.id);
+        }
+        static Appointment getAppointment(String id) { Appointment a = APPOINTMENTS.get(id); return a == null ? null : a.copy(); }
+    }
+
+    // Direct DB-layer access, for verifying what was really stored.
+    static class Database {
+        static Appointment findAppointment(String id) { Appointment a = APPOINTMENTS.get(id); return a == null ? null : a.copy(); }
+        static List<Appointment> appointmentsFor(String patientEmail) {
+            List<Appointment> out = new ArrayList<>();
+            for (Appointment a : APPOINTMENTS.values()) if (a.patientEmail.equals(patientEmail)) out.add(a.copy());
+            return out;
+        }
+        static boolean slotIsBooked(String doctorId, String date, String time) { return BOOKED.contains(doctorId + "|" + date + "|" + time); }
+        static void deleteAppointment(String id) {
+            Appointment a = APPOINTMENTS.remove(id);
+            if (a != null) BOOKED.remove(a.doctorId + "|" + a.date + "|" + a.time);
+        }
+    }
+
+    // Runs before your test. Logs out and clears the page state.
+    static void setup() { SESSION_EMAIL = null; PAGE = "Login"; MESSAGE = ""; OPEN_DOCTOR_ID = null; CONFIRMATION = null; }
+
+    // Runs after your test. Pass an appointment id to cancel it and free its slot.
+    static void teardown(String appointmentId) { if (appointmentId != null) Database.deleteAppointment(appointmentId); }
+
+    // -----------------------------------------------------------------------
+    // TODO: write your automated test(s) below, then call them from main().
+    // -----------------------------------------------------------------------
+
+    public static void main(String[] args) {
+    }
+}

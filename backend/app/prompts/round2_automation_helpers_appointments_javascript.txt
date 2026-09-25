@@ -1,0 +1,142 @@
+/*
+ * Automation environment (JavaScript) - Doctor Appointment System -
+ * provided for you, already working.
+ *
+ * This is a SMALL controlled environment, not a framework you need to
+ * build or extend. It simulates the patient portal's UI, its API and its
+ * database in-process so your automation runs deterministically with no
+ * real network calls. The data matches the reference sheet: test account
+ * qa.patient.demo@testportal.io / Px!7mK@2024Test, Dr. Sarah Johnson
+ * (Cardiology) and the other doctors below, dates 2025-01-15 to 2025-01-17.
+ *
+ * Write your automated test(s) at the bottom, under the TODO marker,
+ * using the helpers below. Do not rewrite the helpers.
+ */
+
+const CONFIG = { baseUrl: "https://healthconnect-staging.qa.mediportal.io/patient", timeoutSeconds: 5 };
+
+// In-memory stand-in for the application's database.
+const DB = {
+  patients: { "qa.patient.demo@testportal.io": { password: "Px!7mK@2024Test", firstName: "Alex", status: "active" } },
+  doctors: {
+    "D-101": { id: "D-101", name: "Dr. Sarah Johnson", specialty: "Cardiology", experienceYears: 12, consultationFee: 150 },
+    "D-102": { id: "D-102", name: "Dr. Michael Chen", specialty: "Cardiology", experienceYears: 8, consultationFee: 120 },
+    "D-201": { id: "D-201", name: "Dr. Priya Patel", specialty: "Dermatology", experienceYears: 10, consultationFee: 130 },
+    "D-301": { id: "D-301", name: "Dr. James Wilson", specialty: "Orthopedics", experienceYears: 15, consultationFee: 180 },
+    "D-401": { id: "D-401", name: "Dr. Emily Brown", specialty: "Pediatrics", experienceYears: 6, consultationFee: 100 },
+  },
+  dates: ["2025-01-15", "2025-01-16", "2025-01-17"],
+  times: ["09:00", "10:30", "14:00", "15:30"],
+  booked: new Set(["D-101|2025-01-16|09:00"]), // already taken by another patient
+  appointments: {},
+  _nextId: 1,
+  freeSlots(doctorId, date) {
+    if (!this.doctors[doctorId] || !this.dates.includes(date)) return [];
+    return this.times.filter((t) => !this.booked.has(`${doctorId}|${date}|${t}`));
+  },
+  insertAppointment(patientEmail, doctorId, date, time) {
+    const id = `APT-${String(this._nextId++).padStart(4, "0")}`;
+    const d = this.doctors[doctorId];
+    this.appointments[id] = { id, patientEmail, doctorId, doctorName: d.name, specialty: d.specialty, date, time, fee: d.consultationFee, status: "confirmed" };
+    this.booked.add(`${doctorId}|${date}|${time}`);
+    return id;
+  },
+  deleteAppointment(id) {
+    const a = this.appointments[id];
+    if (a) { this.booked.delete(`${a.doctorId}|${a.date}|${a.time}`); delete this.appointments[id]; }
+  },
+};
+
+const SESSION = { email: null, page: "Login", message: "", doctorId: null, confirmation: null };
+
+function findDoctors(specialty = null, name = null) {
+  return Object.values(DB.doctors)
+    .filter((d) => !specialty || d.specialty.toLowerCase() === specialty.trim().toLowerCase())
+    .filter((d) => !name || d.name.toLowerCase().includes(name.trim().toLowerCase()))
+    .map((d) => ({ ...d }));
+}
+
+// UI-layer actions - what the patient does and sees in the portal.
+const UI = {
+  open(path = "/") { return { url: CONFIG.baseUrl + path, status: 200 }; },
+  // Returns true on success (opens Doctor Search), false on bad credentials.
+  login(email, password) {
+    const p = DB.patients[email];
+    if (p && p.password === password && p.status === "active") {
+      Object.assign(SESSION, { email, page: "Doctor Search", message: `Welcome back, ${p.firstName}` });
+      return true;
+    }
+    SESSION.message = "Invalid email or password";
+    return false;
+  },
+  // Searches by specialty and/or doctor name. Returns the doctor names shown.
+  searchDoctors(specialty = null, name = null) {
+    const found = findDoctors(specialty, name);
+    Object.assign(SESSION, { page: "Doctor Search", message: found.length ? "" : "No doctors found" });
+    return found.map((d) => d.name);
+  },
+  // Opens a doctor's profile. Returns the profile shown, or null if not found.
+  openDoctor(name) {
+    const d = Object.values(DB.doctors).find((x) => x.name === name);
+    if (!d) return null;
+    Object.assign(SESSION, { page: "Doctor Profile", doctorId: d.id, message: "" });
+    return { name: d.name, specialty: d.specialty, experience: `${d.experienceYears} years`, consultationFee: `$${d.consultationFee}` };
+  },
+  // Dates offered on the open doctor's profile.
+  availableDates() { return SESSION.doctorId ? [...DB.dates] : []; },
+  // Free time slots shown for the open doctor on that date.
+  availableSlots(date) { return SESSION.doctorId ? DB.freeSlots(SESSION.doctorId, date) : []; },
+  // Selects a slot and confirms. Returns true when the confirmation page opens.
+  book(date, time) {
+    const r = API.book(SESSION.email, SESSION.doctorId, date, time);
+    if (r.ok) Object.assign(SESSION, { page: "Confirmation", confirmation: API.getAppointment(r.appointmentId) });
+    return r.ok;
+  },
+  // The appointment details shown on the confirmation page, or null.
+  confirmation() { return SESSION.confirmation ? { ...SESSION.confirmation } : null; },
+  currentPage() { return SESSION.page; },
+  // The message currently shown to the patient, or "" if none.
+  visibleMessage() { return SESSION.message; },
+};
+
+// API-layer actions.
+const API = {
+  login(email, password) {
+    const p = DB.patients[email];
+    const ok = Boolean(p && p.password === password && p.status === "active");
+    return { ok, error: ok ? null : "Invalid email or password" };
+  },
+  searchDoctors(specialty = null, name = null) { return findDoctors(specialty, name); },
+  doctorProfile(doctorId) { return DB.doctors[doctorId] ? { ...DB.doctors[doctorId] } : null; },
+  availability(doctorId, date) { return DB.freeSlots(doctorId, date); },
+  // Books a free slot for a logged-in patient; otherwise refuses and writes nothing.
+  book(patientEmail, doctorId, date, time) {
+    let error = null;
+    if (!DB.patients[patientEmail]) error = "Please log in to book";
+    else if (!DB.doctors[doctorId]) error = "Doctor not found";
+    else if (!DB.freeSlots(doctorId, date).includes(time)) error = "This slot is no longer available";
+    if (error) { SESSION.message = error; return { ok: false, error, appointmentId: null }; }
+    const appointmentId = DB.insertAppointment(patientEmail, doctorId, date, time);
+    SESSION.message = "Appointment confirmed";
+    return { ok: true, error: null, appointmentId };
+  },
+  getAppointment(id) { return DB.appointments[id] ? { ...DB.appointments[id] } : null; },
+};
+
+// Direct DB-layer access, for verifying what was really stored.
+const Database = {
+  findAppointment(id) { return DB.appointments[id] ? { ...DB.appointments[id] } : null; },
+  appointmentsFor(patientEmail) { return Object.values(DB.appointments).filter((a) => a.patientEmail === patientEmail).map((a) => ({ ...a })); },
+  slotIsBooked(doctorId, date, time) { return DB.booked.has(`${doctorId}|${date}|${time}`); },
+  deleteAppointment(id) { DB.deleteAppointment(id); },
+};
+
+// Runs before your test. Logs out and clears the page state.
+function setup() { Object.assign(SESSION, { email: null, page: "Login", message: "", doctorId: null, confirmation: null }); }
+
+// Runs after your test. Pass an appointment id to cancel it and free its slot.
+function teardown(appointmentId = null) { if (appointmentId !== null) Database.deleteAppointment(appointmentId); }
+
+// ---------------------------------------------------------------------------
+// TODO: write your automated test(s) below, then call them.
+// ---------------------------------------------------------------------------

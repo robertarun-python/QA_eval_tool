@@ -1,0 +1,224 @@
+"""
+Automation environment (Python) - Doctor Appointment System - provided for
+you, already working.
+
+This is a SMALL controlled environment, not a framework you need to build
+or extend. It simulates the patient portal's UI, its API and its database
+in-process so your automation runs deterministically with no real network
+calls. The data matches the reference sheet: test account
+qa.patient.demo@testportal.io / Px!7mK@2024Test, Dr. Sarah Johnson
+(Cardiology) and the other doctors below, dates 2025-01-15 to 2025-01-17.
+
+Write your automated test(s) at the bottom, under the TODO marker, using
+the helpers below. Do not rewrite the helpers.
+"""
+
+CONFIG = {"base_url": "https://healthconnect-staging.qa.mediportal.io/patient", "timeout_seconds": 5}
+
+
+class _Store:
+    """In-memory stand-in for the application's database."""
+
+    def __init__(self):
+        self.patients = {"qa.patient.demo@testportal.io": {"password": "Px!7mK@2024Test", "first_name": "Alex", "status": "active"}}
+        self.doctors = {
+            "D-101": {"id": "D-101", "name": "Dr. Sarah Johnson", "specialty": "Cardiology", "experience_years": 12, "consultation_fee": 150},
+            "D-102": {"id": "D-102", "name": "Dr. Michael Chen", "specialty": "Cardiology", "experience_years": 8, "consultation_fee": 120},
+            "D-201": {"id": "D-201", "name": "Dr. Priya Patel", "specialty": "Dermatology", "experience_years": 10, "consultation_fee": 130},
+            "D-301": {"id": "D-301", "name": "Dr. James Wilson", "specialty": "Orthopedics", "experience_years": 15, "consultation_fee": 180},
+            "D-401": {"id": "D-401", "name": "Dr. Emily Brown", "specialty": "Pediatrics", "experience_years": 6, "consultation_fee": 100},
+        }
+        self.dates = ["2025-01-15", "2025-01-16", "2025-01-17"]
+        self.times = ["09:00", "10:30", "14:00", "15:30"]
+        # Already taken by another patient.
+        self.booked = {("D-101", "2025-01-16", "09:00")}
+        self.appointments = {}
+        self._next_id = 1
+
+    def free_slots(self, doctor_id, date):
+        if doctor_id not in self.doctors or date not in self.dates:
+            return []
+        return [t for t in self.times if (doctor_id, date, t) not in self.booked]
+
+    def insert_appointment(self, patient_email, doctor_id, date, time):
+        appointment_id = f"APT-{self._next_id:04d}"
+        self._next_id += 1
+        doctor = self.doctors[doctor_id]
+        self.appointments[appointment_id] = {
+            "id": appointment_id, "patient_email": patient_email, "doctor_id": doctor_id, "doctor_name": doctor["name"],
+            "specialty": doctor["specialty"], "date": date, "time": time, "fee": doctor["consultation_fee"], "status": "confirmed",
+        }
+        self.booked.add((doctor_id, date, time))
+        return appointment_id
+
+    def delete_appointment(self, appointment_id):
+        appointment = self.appointments.pop(appointment_id, None)
+        if appointment:
+            self.booked.discard((appointment["doctor_id"], appointment["date"], appointment["time"]))
+
+
+DB = _Store()
+_SESSION = {"email": None, "page": "Login", "message": "", "doctor_id": None, "confirmation": None}
+
+
+def _find_doctors(specialty=None, name=None):
+    found = []
+    for doctor in DB.doctors.values():
+        if specialty and doctor["specialty"].lower() != specialty.strip().lower():
+            continue
+        if name and name.strip().lower() not in doctor["name"].lower():
+            continue
+        found.append(dict(doctor))
+    return found
+
+
+class UI:
+    """UI-layer actions - what the patient does and sees in the portal."""
+
+    @staticmethod
+    def open(path="/"):
+        return {"url": CONFIG["base_url"] + path, "status": 200}
+
+    @staticmethod
+    def login(email, password):
+        """Returns True on success (opens Doctor Search), False on bad credentials."""
+        patient = DB.patients.get(email)
+        if patient and patient["password"] == password and patient["status"] == "active":
+            _SESSION.update(email=email, page="Doctor Search", message=f"Welcome back, {patient['first_name']}")
+            return True
+        _SESSION.update(message="Invalid email or password")
+        return False
+
+    @staticmethod
+    def search_doctors(specialty=None, name=None):
+        """Searches by specialty and/or doctor name. Returns the doctor names shown."""
+        doctors = _find_doctors(specialty, name)
+        _SESSION.update(page="Doctor Search", message="" if doctors else "No doctors found")
+        return [d["name"] for d in doctors]
+
+    @staticmethod
+    def open_doctor(name):
+        """Opens a doctor's profile. Returns the profile shown, or None if not found."""
+        doctor = next((d for d in DB.doctors.values() if d["name"] == name), None)
+        if doctor is None:
+            return None
+        _SESSION.update(page="Doctor Profile", doctor_id=doctor["id"], message="")
+        return {"name": doctor["name"], "specialty": doctor["specialty"],
+                "experience": f"{doctor['experience_years']} years", "consultation_fee": f"${doctor['consultation_fee']}"}
+
+    @staticmethod
+    def available_dates():
+        """Dates offered on the open doctor's profile."""
+        return list(DB.dates) if _SESSION["doctor_id"] else []
+
+    @staticmethod
+    def available_slots(date):
+        """Free time slots shown for the open doctor on that date."""
+        return DB.free_slots(_SESSION["doctor_id"], date) if _SESSION["doctor_id"] else []
+
+    @staticmethod
+    def book(date, time):
+        """Selects a slot and confirms. Returns True when the confirmation page opens."""
+        response = API.book(_SESSION["email"], _SESSION["doctor_id"], date, time)
+        if response["ok"]:
+            _SESSION.update(page="Confirmation", confirmation=API.get_appointment(response["appointment_id"]))
+        return response["ok"]
+
+    @staticmethod
+    def confirmation():
+        """The appointment details shown on the confirmation page, or None."""
+        return dict(_SESSION["confirmation"]) if _SESSION["confirmation"] else None
+
+    @staticmethod
+    def current_page():
+        return _SESSION["page"]
+
+    @staticmethod
+    def visible_message():
+        """The message currently shown to the patient, or '' if none."""
+        return _SESSION["message"]
+
+
+class API:
+    """API-layer actions."""
+
+    @staticmethod
+    def login(email, password):
+        patient = DB.patients.get(email)
+        ok = bool(patient and patient["password"] == password and patient["status"] == "active")
+        return {"ok": ok, "error": None if ok else "Invalid email or password"}
+
+    @staticmethod
+    def search_doctors(specialty=None, name=None):
+        return _find_doctors(specialty, name)
+
+    @staticmethod
+    def doctor_profile(doctor_id):
+        doctor = DB.doctors.get(doctor_id)
+        return dict(doctor) if doctor else None
+
+    @staticmethod
+    def availability(doctor_id, date):
+        return DB.free_slots(doctor_id, date)
+
+    @staticmethod
+    def book(patient_email, doctor_id, date, time):
+        """Books a free slot for a logged-in patient; otherwise refuses and writes nothing."""
+        if patient_email not in DB.patients:
+            error = "Please log in to book"
+        elif doctor_id not in DB.doctors:
+            error = "Doctor not found"
+        elif time not in DB.free_slots(doctor_id, date):
+            error = "This slot is no longer available"
+        else:
+            appointment_id = DB.insert_appointment(patient_email, doctor_id, date, time)
+            _SESSION["message"] = "Appointment confirmed"
+            return {"ok": True, "error": None, "appointment_id": appointment_id}
+        _SESSION["message"] = error
+        return {"ok": False, "error": error, "appointment_id": None}
+
+    @staticmethod
+    def get_appointment(appointment_id):
+        appointment = DB.appointments.get(appointment_id)
+        return dict(appointment) if appointment else None
+
+
+class Database:
+    """Direct DB-layer access, for verifying what was really stored."""
+
+    @staticmethod
+    def find_appointment(appointment_id):
+        appointment = DB.appointments.get(appointment_id)
+        return dict(appointment) if appointment else None
+
+    @staticmethod
+    def appointments_for(patient_email):
+        return [dict(a) for a in DB.appointments.values() if a["patient_email"] == patient_email]
+
+    @staticmethod
+    def slot_is_booked(doctor_id, date, time):
+        return (doctor_id, date, time) in DB.booked
+
+    @staticmethod
+    def delete_appointment(appointment_id):
+        DB.delete_appointment(appointment_id)
+
+
+def setup():
+    """Runs before your test. Logs out and clears the page state."""
+    _SESSION.update(email=None, page="Login", message="", doctor_id=None, confirmation=None)
+
+
+def teardown(appointment_id=None):
+    """Runs after your test. Pass an appointment id to cancel it and free its slot."""
+    if appointment_id is not None:
+        Database.delete_appointment(appointment_id)
+
+
+# ---------------------------------------------------------------------------
+# TODO: write your automated test(s) below, then call them from __main__.
+# ---------------------------------------------------------------------------
+
+
+if __name__ == "__main__":
+    pass
