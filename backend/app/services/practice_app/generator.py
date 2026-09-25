@@ -27,6 +27,12 @@ from .. import llm_service
 from . import checker
 
 MAX_FIX_ROUNDS = 2
+# HR may approve a practice app when at least this share of the Round 1 test
+# cases is verified in every language; the rest are listed for HR and for the
+# scorer. Measured on 3 real builds (2026-09-25): the factory verifies 92-96%
+# of test cases but rarely all of them, so requiring 100% meant HR never got
+# an app, even one with a single unverified case.
+APPROVE_AT = 0.9
 
 # The steps HR sees while a build runs (see service.run_build).
 STEPS = [
@@ -89,6 +95,13 @@ class PracticeAppResult:
     ai_calls: int = 0
     error: str | None = None
     reference_titles: list = field(default_factory=list)   # every Round 1 test case, so none can go missing from the report
+    approvable: bool = False  # every language built and at least APPROVE_AT of the test cases verified (see verified())
+
+    def verified(self) -> tuple[int, int]:
+        """(test cases that work in every language, test cases that could) -
+        "not supported" ones are left out: the app deliberately doesn't model them."""
+        rows = [r for r in self.coverage() if r["status"] != "not supported"]
+        return sum(r["status"] == "works" for r in rows), len(rows)
 
     def coverage(self) -> list[dict]:
         """One row per reference test case: works / fails / not supported."""
@@ -434,42 +447,50 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 if not best or passed > best["passed"]:
                     best.update(passed=passed, python=python, report=report, problems=problems, runnable=runnable)
 
-            for round_no in range(MAX_FIX_ROUNDS + 1):
-                step(3, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
+            def inspect_python() -> None:
+                nonlocal report, problems
                 report = checker.inspect({"python": python}, runnable)
                 problems = _problems_for("python", report)
                 remember()
                 result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
-                if not problems or round_no == MAX_FIX_ROUNDS:
+
+            report = problems = None
+            step(3)
+            inspect_python()
+            if problems:
+                # The checklists first: on the 3 measured builds, rewriting the
+                # failing checklists fixed +5 to +8 test cases, while a code fix
+                # changed nothing twice and once made it worse.
+                step(3, "re-checking the failing checklists")
+                runnable, rewritten = repair_checklists(runnable, report)
+                result.checklists = runnable
+                checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
+                result.log.append(f"rewrote {len(rewritten)} failing checklist(s): {', '.join(rewritten)}" if rewritten
+                                  else "the failing checklists match the design - kept as they were")
+                if rewritten:
+                    inspect_python()
+            for fix_no in range(1, MAX_FIX_ROUNDS + 1):
+                if not problems:
                     break
-                if round_no == 1:
-                    # A code fix didn't clear everything: check the checklists too.
-                    step(3, "re-checking the failing checklists")
-                    runnable, rewritten = repair_checklists(runnable, report)
-                    result.checklists = runnable
-                    checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
-                    result.log.append(f"rewrote {len(rewritten)} failing checklist(s): {', '.join(rewritten)}" if rewritten
-                                      else "the failing checklists match the design - kept as they were")
-                    if rewritten:
-                        report = checker.inspect({"python": python}, runnable)
-                        problems = _problems_for("python", report)
-                        remember()
-                        result.log.append(f"python: {report.languages['python'].passed}/{len(runnable)} checklists pass")
-                        if not problems:
-                            break
-                step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {round_no + 1} of {MAX_FIX_ROUNDS})")
+                step(3, f"{report.languages['python'].passed} of {len(runnable)} pass - fixing (round {fix_no} of {MAX_FIX_ROUNDS})")
                 python = fix("python", python, problems)
+                inspect_python()
             if problems and best["passed"] > report.languages["python"].passed:
                 python, report, problems, runnable = best["python"], best["report"], best["problems"], best["runnable"]
                 result.checklists = runnable
                 checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
                 result.log.append(f"kept the best version ({best['passed']}/{len(runnable)} pass) - the last fix made it worse")
             if problems:
-                # Translating an app that doesn't work would only pay to copy its
-                # mistakes - stop here and show HR what failed.
                 result.env_code_by_language, result.report = {"python": python}, report
-                result.log.append("stopped: the Python app still fails after the allowed fixes - not translated")
-                return result
+                works, countable = result.verified()
+                if not countable or works / countable < APPROVE_AT:
+                    # Translating an app this far off would only pay to copy its
+                    # mistakes - stop here and show HR what failed.
+                    result.log.append(f"stopped: {works} of {countable} test cases verified in Python, below "
+                                      f"{APPROVE_AT:.0%} - not translated")
+                    return result
+                result.log.append(f"{works} of {countable} test cases verified in Python - translating; the rest "
+                                  "will be listed for HR")
 
         # 4. JavaScript and Java, translated from the checked Python
         def translate(language: str) -> str:
@@ -488,7 +509,11 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
             step(5, f"fix round {round_no} of {MAX_FIX_ROUNDS}" if round_no else "")
             report = checker.inspect(code, runnable)
             result.log.append("all languages: " + report.summary())
-            failing = {lang: _problems_for(lang, report) for lang in ("javascript", "java")}
+            # Only what Python itself passes: a checklist no language can pass
+            # would send the translations chasing it every round.
+            python_failing = {r.id for r in report.languages["python"].results if not r.passed} if "python" in report.languages else set()
+            failing = {lang: [p for p in _problems_for(lang, report) if re.split(r"[: ]", p, maxsplit=1)[0] not in python_failing]
+                       for lang in ("javascript", "java")}
             failing = {lang: p for lang, p in failing.items() if p}
             if not failing or round_no == MAX_FIX_ROUNDS:
                 break
@@ -500,6 +525,9 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         result.env_code_by_language = code
         result.report = report
         result.ok = report.all_passed and all(row["status"] != "fails" for row in result.coverage())
+        works, countable = result.verified()
+        result.approvable = result.ok or (all(lang in code for lang in LANGUAGE_NAMES) and bool(countable)
+                                          and works / countable >= APPROVE_AT)
     except Exception as e:  # the caller shows HR a clear message; nothing is saved
         result.error = f"{type(e).__name__}: {e}"
         result.log.append(f"stopped: {result.error}")

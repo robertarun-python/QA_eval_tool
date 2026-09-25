@@ -99,6 +99,16 @@ def test_round_2_shows_only_the_generate_flow_when_round_1_changed(app_page, e2e
         expect(card).to_contain_text("1 of 1 test cases work")
         expect(card).to_contain_text("Valid login")
         expect(card.get_by_role("button", name="Approve - use it for Round 2")).to_be_visible()
+
+        # Mostly verified: still approvable, with the unverified test case named.
+        _set_live_round1_build(e2e_server, {"status": "ready", "working": 1, "total": 2, "coverage": [
+            {"title": "Valid login", "status": "works", "details": []},
+            {"title": "Locked account", "status": "fails", "details": ["step 3 returned true, expected false"]}],
+            "unverified": [{"title": "Locked account", "status": "fails", "details": ["step 3 returned true, expected false"]}]})
+        page.reload()
+        expect(card).to_contain_text("1 test case could not be verified")
+        expect(card).to_contain_text("Locked account")
+        expect(card.get_by_role("button", name="Approve - use it for Round 2")).to_be_visible()
     finally:
         _set_live_round1_build(e2e_server, None)
 

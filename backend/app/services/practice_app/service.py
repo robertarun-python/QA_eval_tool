@@ -45,6 +45,18 @@ VALIDATION_NOTES = (
 )
 
 
+def validation_notes(unverified: list[dict]) -> str:
+    """What the Round 2 scorer is told about the practice app - including any
+    Round 1 test case that couldn't be verified against it, so a candidate who
+    automates one of those isn't marked down for the app's gap."""
+    if not unverified:
+        return VALIDATION_NOTES
+    lines = [f"- {r['title']}" + (f" ({'; '.join(r.get('details') or [])[:200]})" if r.get("details") else "") for r in unverified]
+    return (VALIDATION_NOTES + "\n\nThese Round 1 test cases could NOT be verified against the practice app - it may "
+            "not behave as they expect. If the candidate automates one of them and the app misbehaves, that is the "
+            "app's gap, not the candidate's:\n" + "\n".join(lines))
+
+
 def _build_file(scenario_id: int) -> Path:
     return BUILDS_DIR / f"scenario_{scenario_id}" / "latest.json"
 
@@ -109,7 +121,9 @@ def run_build(scenario_id: int) -> None:
         except Exception as e:  # generator.generate already catches; this is a last resort
             result = generator.PracticeAppResult(error=f"{type(e).__name__}: {e}")
         rows = result.coverage()
-        status = "failed" if result.error else "ready" if result.ok else "not_ready"
+        # "ready" also when not every test case could be verified but at least
+        # generator.APPROVE_AT were: HR sees which weren't ("unverified") and decides.
+        status = "failed" if result.error else "ready" if (result.ok or result.approvable) else "not_ready"
         data = summary(scenario)
         data.update({
             "status": status,
@@ -120,6 +134,7 @@ def run_build(scenario_id: int) -> None:
             "working": sum(r["status"] == "works" for r in rows),
             "total": len(rows),
             "coverage": rows,
+            "unverified": [r for r in rows if r["status"] == "fails"] if status == "ready" else [],
             "log": result.log[-20:],
         })
         if result.plan:
@@ -128,6 +143,7 @@ def run_build(scenario_id: int) -> None:
             saved = json.dumps({
                 "built_at": data["finished_at"],
                 "ok": result.ok,
+                "approvable": result.ok or result.approvable,
                 "plan": result.plan,
                 "checklists": result.checklists,
                 "unsupported": result.unsupported,
@@ -198,14 +214,17 @@ def _paired_round2_facts(round1: Scenario, db: Session) -> dict | None:
 def approve(round1: Scenario, db: Session) -> Scenario:
     """Turns the latest ready build into this Round 1 scenario's paired
     Round 2 scenario. Raises ValueError with an HR-readable reason."""
+    not_ready = (f"Only a practice app with at least {generator.APPROVE_AT:.0%} of the test cases verified in every "
+                 "language can be approved.")
     if summary(round1).get("status") != "ready":
-        raise ValueError("Only a practice app that passed every check can be approved.")
+        raise ValueError(not_ready)
     path = _build_file(round1.id)
     if not path.exists():
         raise ValueError("The build's files are missing - build it again.")
     build = json.loads(path.read_text(encoding="utf-8"))
-    if not build.get("ok"):
-        raise ValueError("Only a practice app that passed every check can be approved.")
+    if not (build.get("ok") or build.get("approvable")):
+        raise ValueError(not_ready)
+    unverified = [r for r in build.get("coverage") or [] if r.get("status") == "fails"]
 
     round2 = next(
         (s for s in db.query(Scenario).filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band).all()
@@ -225,7 +244,7 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         "practice_app_checklists": build["checklists"],
         "practice_app_built_at": build["built_at"],
     }
-    reference = {"ground_truth": build["ground_truth"], "validation_notes": VALIDATION_NOTES}
+    reference = {"ground_truth": build["ground_truth"], "validation_notes": validation_notes(unverified)}
     environment = {"fields": {str(k): str(v) for k, v in (sheet.get("fields") or {}).items()},
                    "notes": str(sheet.get("notes") or "Only this data exists in the practice app.")}
     if round2 is None:

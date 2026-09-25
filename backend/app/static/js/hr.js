@@ -670,6 +670,16 @@ function practiceAppCoverageTable(rows) {
     </details>`;
 }
 
+// A build HR may approve though not every test case could be verified (at
+// least 90% were - see generator.APPROVE_AT): say which, plainly.
+function practiceAppReadyLine(d, stats) {
+  const unverified = d.unverified || [];
+  if (!unverified.length) return `<p>✅ Ready - ${stats}.</p>`;
+  return `<p>⚠️ Ready to approve - ${stats}. ${unverified.length === 1 ? "1 test case" : `${unverified.length} test cases`} could not be verified:</p>
+    <ul>${unverified.map((r) => `<li><strong>${escapeHtml(r.title)}</strong>${(r.details || []).length ? ` <span class="muted">- ${escapeHtml(r.details[0])}</span>` : ""}</li>`).join("")}</ul>
+    <p class="muted">The app may not behave as ${unverified.length === 1 ? "that test case expects" : "those test cases expect"}. If a candidate automates one and the app misbehaves, the scorer is told it's the app's gap, not theirs. Generating again may verify ${unverified.length === 1 ? "it" : "them"}.</p>`;
+}
+
 function renderPracticeAppPanel(id, d) {
   const intro = `<p class="muted">In Round 2, candidates automate the test cases they designed in Round 1, against a small pretend version of this application. Build it here: it is checked automatically against every reference test case in Python, JavaScript and Java before you can approve it.</p>`;
   const buildButton = (label) => d.cannot_start
@@ -683,7 +693,7 @@ function renderPracticeAppPanel(id, d) {
   if (d.status === "building") {
     body = practiceAppProgressHtml(d) + `<p class="muted">You can leave this page - you'll get a notification when it's ready.</p>`;
   } else if (d.status === "ready") {
-    body = `<p>✅ Ready - ${stats}.${cost}</p>${practiceAppCoverageTable(d.coverage)}
+    body = `${practiceAppReadyLine(d, stats)}${cost ? `<p>${cost}</p>` : ""}${practiceAppCoverageTable(d.coverage)}
       ${approved || `<button class="btn-primary" onclick="approvePracticeApp(${id})">Approve for Round 2</button>`}
       <p>${buildButton(approved ? "Rebuild" : "Build again")}</p>`;
   } else if (d.status === "not_ready") {
@@ -815,7 +825,7 @@ function announcePracticeAppResult(id, d) {
   const name = scenario ? scenario.title : `scenario #${id}`;
   const ready = d.status === "ready";
   const text = ready
-    ? `Practice app for ${name} is ready - ${d.working} of ${d.total} test cases work in every language. Approve it to use it in Round 2.`
+    ? `Practice app for ${name} is ready - ${d.working} of ${d.total} test cases work in every language${(d.unverified || []).length ? ` (${d.unverified.length} could not be verified - see the card)` : ""}. Approve it to use it in Round 2.`
     : d.status === "not_ready"
       ? `Practice app for ${name} finished but isn't ready - ${d.working} of ${d.total} test cases work. Open it to see which.`
       : `Practice app for ${name} stopped: ${d.error || "unknown error"}.`;
@@ -982,7 +992,7 @@ function renderRound2NeedsPracticeApp(round1) {
       <p class="muted">This updates by itself - you can leave the page and you'll get a notification when it's done.</p>`;
   } else if (d.status === "ready") {
     badge = `<span class="badge badge-published">READY TO APPROVE</span>`;
-    body = `<p>✅ Done - ${stats}.</p>${practiceAppCoverageTable(d.coverage)}
+    body = `${practiceAppReadyLine(d, stats)}${practiceAppCoverageTable(d.coverage)}
       <div class="row"><button class="btn-primary" onclick="approvePracticeAppFromRound2(${round1.id})">Approve - use it for Round 2</button>
       <button class="btn-secondary" onclick="buildPracticeAppFromRound2(${round1.id})">Generate again</button></div>`;
   } else if (d.status === "not_ready") {
