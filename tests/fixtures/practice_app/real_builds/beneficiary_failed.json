@@ -1,0 +1,2901 @@
+{
+ "scenario": {
+  "title": "Beneficiary Management",
+  "description": "Test the bank application's beneficiary management feature.\n\nThe user should be able to:\n\nAdd a new beneficiary\nValidate mandatory beneficiary details\nValidate account number and IFSC format\nPrevent duplicate beneficiaries\nEdit beneficiary details\nDelete an existing beneficiary\nHandle OTP verification\nPrevent transactions to an unapproved beneficiary\nHandle invalid/expired OTP\nHandle API/network failure during beneficiary operations\nVerify beneficiary status and transaction eligibility\n\nExpected focus: Functional, positive, negative, boundary, validation, security, and error-handling test cases."
+ },
+ "reference_cases": [
+  {
+   "title": "Add a new beneficiary with all valid details",
+   "preconditions": "User is logged in and on the beneficiary management page",
+   "steps": "1. Click 'Add Beneficiary' button\n2. Enter beneficiary name\n3. Enter account number\n4. Enter IFSC code\n5. Select account type\n6. Click 'Submit'\n7. Enter OTP received\n8. Click 'Verify'",
+   "test_data": "name = 'Rajesh Kumar'; account_number = '1234567890123456'; ifsc = 'SBIN0001234'; account_type = 'Savings'; otp = '123456'",
+   "expected_result": "Beneficiary is added successfully, confirmation message displayed 'Beneficiary added successfully', beneficiary appears in the list with status 'Pending Approval' or 'Active'",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Add beneficiary without entering mandatory beneficiary name",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Leave beneficiary name field empty\n2. Enter account number\n3. Enter IFSC code\n4. Click 'Submit'",
+   "test_data": "name = ''; account_number = '9876543210987654'; ifsc = 'HDFC0001122'",
+   "expected_result": "Error message displayed 'Beneficiary name is required' or similar, form is not submitted",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Add beneficiary with invalid account number format - less than minimum digits",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter account number with only 8 digits\n3. Enter valid IFSC\n4. Click 'Submit'",
+   "test_data": "name = 'Priya Sharma'; account_number = '12345678'; ifsc = 'ICIC0001234'",
+   "expected_result": "Validation error displayed 'Account number must be between 9-18 digits' or similar, form not submitted",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Add beneficiary with invalid account number - contains alphabets",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter account number with alphabetic characters\n3. Enter valid IFSC\n4. Click 'Submit'",
+   "test_data": "name = 'Amit Patel'; account_number = '12345ABC67890'; ifsc = 'SBIN0005678'",
+   "expected_result": "Validation error 'Account number must contain only digits' displayed, form not submitted",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Add beneficiary with invalid IFSC code format",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter valid account number\n3. Enter IFSC with incorrect format (less than 11 characters)\n4. Click 'Submit'",
+   "test_data": "name = 'Sneha Reddy'; account_number = '5566778899001122'; ifsc = 'HDFC001'",
+   "expected_result": "Error message 'Invalid IFSC code format. IFSC must be 11 characters' displayed, form not submitted",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Attempt to add duplicate beneficiary with same account number",
+   "preconditions": "User is logged in, beneficiary with account number '1234567890123456' already exists",
+   "steps": "1. Click 'Add Beneficiary'\n2. Enter beneficiary details with existing account number\n3. Click 'Submit'",
+   "test_data": "name = 'Rajesh Kumar'; account_number = '1234567890123456'; ifsc = 'SBIN0001234'",
+   "expected_result": "Error message 'Beneficiary with this account number already exists' displayed, duplicate not added",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Edit existing beneficiary name",
+   "preconditions": "User is logged in, beneficiary 'Rajesh Kumar' with account '1234567890123456' exists",
+   "steps": "1. Navigate to beneficiary list\n2. Click 'Edit' for the beneficiary\n3. Change beneficiary name\n4. Click 'Save'\n5. Enter OTP\n6. Click 'Verify'",
+   "test_data": "old_name = 'Rajesh Kumar'; new_name = 'Rajesh K Kumar'; otp = '654321'",
+   "expected_result": "Beneficiary name updated successfully, confirmation message displayed, updated name visible in beneficiary list",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Delete an existing beneficiary",
+   "preconditions": "User is logged in, beneficiary 'Test User' with account '9999888877776666' exists",
+   "steps": "1. Navigate to beneficiary list\n2. Click 'Delete' for the beneficiary\n3. Confirm deletion in popup\n4. Enter OTP\n5. Click 'Verify'",
+   "test_data": "beneficiary_name = 'Test User'; account_number = '9999888877776666'; otp = '789012'",
+   "expected_result": "Beneficiary deleted successfully, confirmation message 'Beneficiary deleted' displayed, beneficiary no longer appears in list",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Add beneficiary with incorrect OTP",
+   "preconditions": "User is logged in and has submitted beneficiary details",
+   "steps": "1. Fill all beneficiary details correctly\n2. Click 'Submit'\n3. Enter incorrect OTP\n4. Click 'Verify'",
+   "test_data": "name = 'Vikram Singh'; account_number = '4455667788990011'; ifsc = 'AXIS0001234'; otp = '000000' (incorrect)",
+   "expected_result": "Error message 'Invalid OTP. Please try again' displayed, beneficiary not added, option to resend OTP available",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Add beneficiary with expired OTP",
+   "preconditions": "User is logged in, has submitted beneficiary details, OTP was sent 10 minutes ago",
+   "steps": "1. Fill beneficiary details\n2. Click 'Submit'\n3. Wait for OTP to expire (typically 5-10 minutes)\n4. Enter the expired OTP\n5. Click 'Verify'",
+   "test_data": "name = 'Meera Joshi'; account_number = '7788990011223344'; ifsc = 'KOTAK001234'; otp = '456789' (expired)",
+   "expected_result": "Error message 'OTP has expired. Please request a new OTP' displayed, beneficiary not added",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Attempt transaction to unapproved beneficiary",
+   "preconditions": "User is logged in, beneficiary exists with status 'Pending Approval'",
+   "steps": "1. Navigate to fund transfer page\n2. Select unapproved beneficiary\n3. Enter amount\n4. Click 'Transfer'",
+   "test_data": "beneficiary = 'Pending User' (status: Pending Approval); amount = '5000.00'",
+   "expected_result": "Error message 'Cannot transfer to unapproved beneficiary. Please wait for approval' displayed, transaction blocked",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Handle network failure during beneficiary addition",
+   "preconditions": "User is logged in, network connection will be interrupted during submission",
+   "steps": "1. Fill all beneficiary details\n2. Click 'Submit'\n3. Simulate network disconnection before response\n4. Observe behavior",
+   "test_data": "name = 'Network Test'; account_number = '1122334455667788'; ifsc = 'PUNB0012345'",
+   "expected_result": "Error message 'Network error. Please check your connection and try again' displayed, or timeout message shown, beneficiary not added",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Handle API failure during beneficiary deletion",
+   "preconditions": "User is logged in, backend API returns 500 error",
+   "steps": "1. Navigate to beneficiary list\n2. Click 'Delete' for a beneficiary\n3. Confirm deletion\n4. Enter OTP\n5. API returns error",
+   "test_data": "beneficiary = 'API Test User'; otp = '111222'",
+   "expected_result": "Error message 'Unable to delete beneficiary. Please try again later' or 'Service temporarily unavailable' displayed, beneficiary remains in list",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Verify beneficiary status after successful addition",
+   "preconditions": "User has just added a new beneficiary successfully",
+   "steps": "1. Navigate to beneficiary list\n2. Locate the newly added beneficiary\n3. Check status field",
+   "test_data": "beneficiary_name = 'Status Check User'; account_number = '2233445566778899'",
+   "expected_result": "Beneficiary status shows 'Active' or 'Pending Approval' based on bank policy, status is clearly visible",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Add beneficiary with maximum length account number",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter 18-digit account number (maximum allowed)\n3. Enter valid IFSC\n4. Click 'Submit'\n5. Enter OTP and verify",
+   "test_data": "name = 'Max Length Test'; account_number = '123456789012345678' (18 digits); ifsc = 'BARB0001234'; otp = '333444'",
+   "expected_result": "Beneficiary added successfully with 18-digit account number, no validation error",
+   "priority": "Medium",
+   "type": "Boundary"
+  },
+  {
+   "title": "Add beneficiary with minimum length account number",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter 9-digit account number (minimum allowed)\n3. Enter valid IFSC\n4. Click 'Submit'\n5. Enter OTP and verify",
+   "test_data": "name = 'Min Length Test'; account_number = '123456789' (9 digits); ifsc = 'UTIB0001234'; otp = '555666'",
+   "expected_result": "Beneficiary added successfully with 9-digit account number, no validation error",
+   "priority": "Medium",
+   "type": "Boundary"
+  },
+  {
+   "title": "Add beneficiary with account number exceeding maximum length",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter 19-digit account number (exceeds maximum)\n3. Enter valid IFSC\n4. Click 'Submit'",
+   "test_data": "name = 'Exceed Max Test'; account_number = '1234567890123456789' (19 digits); ifsc = 'CNRB0001234'",
+   "expected_result": "Validation error 'Account number cannot exceed 18 digits' displayed, form not submitted",
+   "priority": "Medium",
+   "type": "Boundary"
+  },
+  {
+   "title": "Add beneficiary with special characters in name",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name with special characters\n2. Enter valid account number\n3. Enter valid IFSC\n4. Click 'Submit'",
+   "test_data": "name = 'Test@User#123'; account_number = '6677889900112233'; ifsc = 'IDFB0001234'",
+   "expected_result": "Either validation error 'Name can only contain letters and spaces' displayed, or special characters are stripped/sanitized and beneficiary added",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Verify transaction eligibility for active beneficiary",
+   "preconditions": "User is logged in, beneficiary with 'Active' status exists",
+   "steps": "1. Navigate to fund transfer page\n2. Select active beneficiary from dropdown\n3. Verify beneficiary is selectable and transaction can proceed",
+   "test_data": "beneficiary = 'Active User' (status: Active); account_number = '5544332211009988'",
+   "expected_result": "Active beneficiary is available in dropdown, can be selected, transaction form allows proceeding to next step",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Add beneficiary with IFSC code containing lowercase letters",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name\n2. Enter valid account number\n3. Enter IFSC code in lowercase\n4. Click 'Submit'",
+   "test_data": "name = 'Case Test User'; account_number = '9988776655443322'; ifsc = 'sbin0001234' (lowercase)",
+   "expected_result": "Either IFSC is auto-converted to uppercase and accepted, or validation error 'IFSC must be in uppercase' displayed",
+   "priority": "Low",
+   "type": "Edge"
+  },
+  {
+   "title": "Cancel beneficiary addition after entering details",
+   "preconditions": "User is logged in and on Add Beneficiary page with partially filled form",
+   "steps": "1. Enter beneficiary name\n2. Enter account number\n3. Click 'Cancel' or 'Back' button\n4. Verify no data is saved",
+   "test_data": "name = 'Cancel Test'; account_number = '1111222233334444'; ifsc = 'KKBK0001234'",
+   "expected_result": "User returned to beneficiary list page, no new beneficiary added, form data discarded",
+   "priority": "Low",
+   "type": "Positive"
+  },
+  {
+   "title": "Resend OTP during beneficiary addition",
+   "preconditions": "User is logged in, has submitted beneficiary details and is on OTP verification screen",
+   "steps": "1. Fill beneficiary details and submit\n2. On OTP screen, click 'Resend OTP'\n3. Wait for new OTP\n4. Enter new OTP\n5. Click 'Verify'",
+   "test_data": "name = 'Resend OTP Test'; account_number = '3344556677889900'; ifsc = 'YESB0001234'; new_otp = '999888'",
+   "expected_result": "New OTP sent successfully, message 'OTP resent successfully' displayed, beneficiary added with new OTP",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Add beneficiary with very long name at boundary",
+   "preconditions": "User is logged in and on Add Beneficiary page",
+   "steps": "1. Enter beneficiary name with maximum allowed characters (e.g., 100 chars)\n2. Enter valid account number\n3. Enter valid IFSC\n4. Click 'Submit'",
+   "test_data": "name = 'Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrstuvwxyz Abcdefghijklmnopqrst' (100 chars); account_number = '7766554433221100'; ifsc = 'FDRL0001234'",
+   "expected_result": "Beneficiary added successfully with full name, or validation error if exceeds limit with specific character count mentioned",
+   "priority": "Low",
+   "type": "Boundary"
+  },
+  {
+   "title": "Edit beneficiary account number should be restricted",
+   "preconditions": "User is logged in, beneficiary exists",
+   "steps": "1. Navigate to beneficiary list\n2. Click 'Edit' for a beneficiary\n3. Attempt to modify account number field",
+   "test_data": "existing_account = '1234567890123456'; attempted_new_account = '9999999999999999'",
+   "expected_result": "Account number field is disabled/read-only, cannot be edited, or error message 'Account number cannot be modified' displayed",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Multiple OTP retry attempts should be limited",
+   "preconditions": "User is logged in and on OTP verification screen",
+   "steps": "1. Submit beneficiary details\n2. Enter incorrect OTP\n3. Repeat 3-5 times based on limit\n4. Observe behavior after limit exceeded",
+   "test_data": "otp_attempts = ['111111', '222222', '333333', '444444', '555555'] (all incorrect)",
+   "expected_result": "After maximum attempts (e.g., 3 or 5), error message 'Maximum OTP attempts exceeded. Please try after some time' displayed, further attempts blocked temporarily",
+   "priority": "High",
+   "type": "Negative"
+  }
+ ],
+ "summary": {
+  "status": "not_ready",
+  "working": 16,
+  "total": 25
+ },
+ "unsupported": [],
+ "build": {
+  "built_at": "2026-09-25T16:03:50",
+  "ok": false,
+  "plan": {
+   "app_name": "Beneficiary Management",
+   "summary": "A bank application for managing beneficiaries with validation, OTP verification, and transaction eligibility checks.",
+   "base_url": "https://bank.example.test/beneficiary",
+   "test_accounts": [
+    {
+     "login": "testuser@bank.test",
+     "password": "Test@1234",
+     "notes": "Primary test account with existing beneficiaries"
+    }
+   ],
+   "data": "Beneficiaries:\n1. ID: BEN001, Name: 'Suresh Iyer', Account: '4455667788990012', IFSC: 'HDFC0002345', Type: 'Savings', Status: 'Active', Added: '2024-01-15'\n2. ID: BEN002, Name: 'Anita Desai', Account: '5544332211009988', IFSC: 'ICIC0003456', Type: 'Current', Status: 'Active', Added: '2024-01-20'\n3. ID: BEN003, Name: 'Pending User', Account: '6655443322110099', IFSC: 'SBIN0004567', Type: 'Savings', Status: 'Pending Approval', Added: '2024-02-01'\n4. ID: BEN004, Name: 'Active User', Account: '5544332211009988', IFSC: 'ICIC0003456', Type: 'Savings', Status: 'Active', Added: '2024-01-25'\n\nOTP Sessions: (none at start)\n\nUser Account: testuser@bank.test, Balance: 50000.00",
+   "pages": [
+    "Login",
+    "Beneficiary List",
+    "Add Beneficiary",
+    "OTP Verification",
+    "Edit Beneficiary",
+    "Fund Transfer"
+   ],
+   "helpers": [
+    {
+     "layer": "global",
+     "name": "setup",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Resets app to initial state: logged out, no current page, no visible message, restores starting beneficiary data (BEN001-BEN004), clears all OTP sessions, resets OTP attempt counters",
+     "changes_data": true
+    },
+    {
+     "layer": "global",
+     "name": "teardown",
+     "params": [
+      "id"
+     ],
+     "returns": "None",
+     "behaviour": "If id provided, deletes the beneficiary with that ID. If id is None, does nothing. Used to clean up test-created data",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "open_page",
+     "params": [
+      "page_name"
+     ],
+     "returns": "true if page opened, false if not allowed (e.g. not logged in)",
+     "behaviour": "Opens the specified page. If not logged in and page is not 'Login', returns false and sets message 'Please log in to continue'. Otherwise sets current page and returns true",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "current_page",
+     "params": [],
+     "returns": "string: current page name or empty string if none",
+     "behaviour": "Returns the name of the currently displayed page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "visible_message",
+     "params": [],
+     "returns": "string: current message or empty string if none",
+     "behaviour": "Returns the currently displayed message to the user",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "login",
+     "params": [
+      "email",
+      "password"
+     ],
+     "returns": "true if login successful, false otherwise",
+     "behaviour": "Attempts login with provided credentials. If email='testuser@bank.test' and password='Test@1234', logs in, opens Beneficiary List page, clears message, returns true. Otherwise sets message 'Invalid credentials' and returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_button",
+     "params": [
+      "button_text"
+     ],
+     "returns": "true if button exists and action performed, false otherwise",
+     "behaviour": "Clicks the button with specified text on current page. 'Add Beneficiary' opens Add Beneficiary page. 'Submit' on Add Beneficiary validates and creates OTP session. 'Verify' on OTP Verification validates OTP. 'Save' on Edit Beneficiary validates and creates OTP session. 'Delete' creates OTP session for deletion. 'Cancel' returns to Beneficiary List. 'Resend OTP' generates new OTP. 'Transfer' on Fund Transfer validates beneficiary status. Returns false if button doesn't exist on current page",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "fill_field",
+     "params": [
+      "field_name",
+      "value"
+     ],
+     "returns": "true if field exists, false otherwise",
+     "behaviour": "Fills the specified field with value on current page. Fields: 'beneficiary_name', 'account_number', 'ifsc_code', 'account_type', 'otp', 'amount'. Returns false if field doesn't exist on current page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "select_beneficiary",
+     "params": [
+      "beneficiary_name"
+     ],
+     "returns": "true if beneficiary exists and selected, false otherwise",
+     "behaviour": "On Fund Transfer page, selects beneficiary from dropdown. Returns false if beneficiary doesn't exist",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_edit",
+     "params": [
+      "beneficiary_name"
+     ],
+     "returns": "true if beneficiary found and edit page opened, false otherwise",
+     "behaviour": "On Beneficiary List page, clicks Edit for specified beneficiary. Opens Edit Beneficiary page with beneficiary data pre-filled. Account number field is read-only. Returns false if beneficiary not found",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_delete",
+     "params": [
+      "beneficiary_name"
+     ],
+     "returns": "true if beneficiary found and delete initiated, false otherwise",
+     "behaviour": "On Beneficiary List page, clicks Delete for specified beneficiary. Shows confirmation popup. If confirmed, creates OTP session for deletion and opens OTP Verification page with operation='delete'. Returns false if beneficiary not found",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "confirm_popup",
+     "params": [],
+     "returns": "true",
+     "behaviour": "Confirms the current popup dialog (e.g., delete confirmation)",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "get_beneficiary_list",
+     "params": [],
+     "returns": "list of objects: [{name, account_number, ifsc, type, status}, ...]",
+     "behaviour": "Returns list of all beneficiaries visible on Beneficiary List page. Only available when on Beneficiary List page, otherwise returns empty list",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "get_beneficiary_details",
+     "params": [
+      "beneficiary_name"
+     ],
+     "returns": "object: {name, account_number, ifsc, type, status} or None if not found",
+     "behaviour": "Returns details of specified beneficiary from the list on current page. Returns None if beneficiary not found or not on Beneficiary List page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "simulate_network_failure",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Sets a flag that causes the next API operation to fail with network error. Next submit/verify will set message 'Network error. Please check your connection and try again' and return false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "simulate_api_failure",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Sets a flag that causes the next API operation to fail with server error. Next operation will set message 'Unable to complete operation. Please try again later' and return false",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "add_beneficiary",
+     "params": [
+      "name",
+      "account_number",
+      "ifsc",
+      "account_type"
+     ],
+     "returns": "object: {ok: true, beneficiary_id, otp} or {ok: false, error}",
+     "behaviour": "Validates inputs: name required (not empty), account_number must be 9-18 digits (only numbers), ifsc must be 11 characters (4 letters + 7 alphanumeric, uppercase), account_type must be 'Savings' or 'Current'. Checks for duplicate account_number. If valid and not duplicate, creates OTP session with otp='123456', operation='add', returns {ok: true, beneficiary_id: 'BENXXX', otp: '123456'}. If validation fails, returns {ok: false, error: 'specific error message'}. Beneficiary not actually added until OTP verified",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "verify_otp",
+     "params": [
+      "beneficiary_id",
+      "otp",
+      "operation"
+     ],
+     "returns": "object: {ok: true} or {ok: false, error}",
+     "behaviour": "Validates OTP for pending operation. Checks if OTP session exists for beneficiary_id and operation. If OTP matches and not expired (within 10 minutes) and attempts < 5, completes operation (adds/updates/deletes beneficiary with status 'Active'), clears OTP session, returns {ok: true}. If OTP incorrect, increments attempt counter, returns {ok: false, error: 'Invalid OTP. Please try again'}. If expired, returns {ok: false, error: 'OTP has expired. Please request a new OTP'}. If max attempts exceeded (5), returns {ok: false, error: 'Maximum OTP attempts exceeded. Please try after some time'}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "update_beneficiary",
+     "params": [
+      "beneficiary_id",
+      "name"
+     ],
+     "returns": "object: {ok: true, otp} or {ok: false, error}",
+     "behaviour": "Validates name (required, not empty). Creates OTP session with otp='654321', operation='update', stores new name. Returns {ok: true, otp: '654321'}. Name not actually updated until OTP verified. Account number cannot be changed",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "delete_beneficiary",
+     "params": [
+      "beneficiary_id"
+     ],
+     "returns": "object: {ok: true, otp} or {ok: false, error}",
+     "behaviour": "Creates OTP session with otp='789012', operation='delete'. Returns {ok: true, otp: '789012'}. Beneficiary not actually deleted until OTP verified",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "resend_otp",
+     "params": [
+      "beneficiary_id"
+     ],
+     "returns": "object: {ok: true, otp} or {ok: false, error}",
+     "behaviour": "Generates new OTP for existing session. New otp='999888', resets expiry time and attempt counter. Returns {ok: true, otp: '999888'}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "check_transaction_eligibility",
+     "params": [
+      "beneficiary_id",
+      "amount"
+     ],
+     "returns": "object: {ok: true, eligible: true/false, reason} or {ok: false, error}",
+     "behaviour": "Checks if beneficiary can receive transfer. If status is 'Active', returns {ok: true, eligible: true}. If status is 'Pending Approval', returns {ok: true, eligible: false, reason: 'Cannot transfer to unapproved beneficiary. Please wait for approval'}. If beneficiary not found, returns {ok: false, error: 'Beneficiary not found'}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "get_beneficiaries",
+     "params": [],
+     "returns": "object: {ok: true, beneficiaries: [{id, name, account_number, ifsc, type, status}, ...]}",
+     "behaviour": "Returns list of all beneficiaries for logged-in user",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "get_beneficiary",
+     "params": [
+      "beneficiary_id"
+     ],
+     "returns": "object: {ok: true, beneficiary: {id, name, account_number, ifsc, type, status}} or {ok: false, error}",
+     "behaviour": "Returns details of specified beneficiary. Returns {ok: false, error: 'Beneficiary not found'} if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_beneficiary",
+     "params": [
+      "beneficiary_id"
+     ],
+     "returns": "object: {id, name, account_number, ifsc, type, status, added_date} or None",
+     "behaviour": "Returns beneficiary record from database by ID, or None if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_beneficiary_by_account",
+     "params": [
+      "account_number"
+     ],
+     "returns": "object: {id, name, account_number, ifsc, type, status, added_date} or None",
+     "behaviour": "Returns beneficiary record from database by account number, or None if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_all_beneficiaries",
+     "params": [],
+     "returns": "list of objects: [{id, name, account_number, ifsc, type, status, added_date}, ...]",
+     "behaviour": "Returns all beneficiary records from database",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_beneficiary_exists",
+     "params": [
+      "account_number"
+     ],
+     "returns": "boolean: true if exists, false otherwise",
+     "behaviour": "Checks if beneficiary with given account number exists in database",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_otp_session",
+     "params": [
+      "beneficiary_id"
+     ],
+     "returns": "object: {beneficiary_id, otp, operation, created_time, attempts, data} or None",
+     "behaviour": "Returns OTP session details from database, or None if no active session",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_count_beneficiaries",
+     "params": [],
+     "returns": "integer: count of beneficiaries",
+     "behaviour": "Returns total number of beneficiaries in database",
+     "changes_data": false
+    }
+   ],
+   "rules": [
+    "Beneficiary name is required (cannot be empty)",
+    "Account number must be 9-18 digits, containing only numeric characters",
+    "IFSC code must be exactly 11 characters: 4 uppercase letters followed by 7 alphanumeric characters",
+    "IFSC code in lowercase is rejected with validation error",
+    "Account type must be 'Savings' or 'Current'",
+    "Duplicate beneficiaries (same account number) are not allowed",
+    "Account number field is read-only during edit (cannot be modified)",
+    "All add/edit/delete operations require OTP verification",
+    "OTP is valid for 10 minutes from generation",
+    "Maximum 5 OTP verification attempts allowed per session",
+    "Incorrect OTP increments attempt counter but doesn't consume the OTP",
+    "After 5 failed attempts, user must wait before trying again",
+    "Resend OTP generates new OTP and resets attempt counter and expiry time",
+    "Beneficiaries can have status 'Active' or 'Pending Approval'",
+    "Transactions can only be made to beneficiaries with 'Active' status",
+    "Transactions to 'Pending Approval' beneficiaries are blocked",
+    "Network failures prevent operation completion and show error message",
+    "API failures prevent operation completion and show error message",
+    "Beneficiary name can contain letters, spaces, and periods, maximum 100 characters",
+    "Special characters in name (except spaces and periods) trigger validation error",
+    "Cancel operation discards all entered data and returns to beneficiary list"
+   ],
+   "messages": [
+    {
+     "when": "Beneficiary added successfully after OTP verification",
+     "text": "Beneficiary added successfully"
+    },
+    {
+     "when": "Beneficiary name field is empty on submit",
+     "text": "Beneficiary name is required"
+    },
+    {
+     "when": "Account number has less than 9 digits",
+     "text": "Account number must be between 9-18 digits"
+    },
+    {
+     "when": "Account number has more than 18 digits",
+     "text": "Account number cannot exceed 18 digits"
+    },
+    {
+     "when": "Account number contains non-numeric characters",
+     "text": "Account number must contain only digits"
+    },
+    {
+     "when": "IFSC code is not 11 characters",
+     "text": "Invalid IFSC code format. IFSC must be 11 characters"
+    },
+    {
+     "when": "IFSC code is in lowercase",
+     "text": "IFSC must be in uppercase"
+    },
+    {
+     "when": "IFSC code format is invalid (not 4 letters + 7 alphanumeric)",
+     "text": "Invalid IFSC code format. IFSC must be 11 characters"
+    },
+    {
+     "when": "Attempting to add duplicate account number",
+     "text": "Beneficiary with this account number already exists"
+    },
+    {
+     "when": "Beneficiary updated successfully after OTP verification",
+     "text": "Beneficiary updated successfully"
+    },
+    {
+     "when": "Beneficiary deleted successfully after OTP verification",
+     "text": "Beneficiary deleted successfully"
+    },
+    {
+     "when": "OTP entered is incorrect",
+     "text": "Invalid OTP. Please try again"
+    },
+    {
+     "when": "OTP has expired (more than 10 minutes old)",
+     "text": "OTP has expired. Please request a new OTP"
+    },
+    {
+     "when": "Maximum OTP attempts (5) exceeded",
+     "text": "Maximum OTP attempts exceeded. Please try after some time"
+    },
+    {
+     "when": "Attempting transaction to unapproved beneficiary",
+     "text": "Cannot transfer to unapproved beneficiary. Please wait for approval"
+    },
+    {
+     "when": "Network error during operation",
+     "text": "Network error. Please check your connection and try again"
+    },
+    {
+     "when": "API/server error during operation",
+     "text": "Unable to complete operation. Please try again later"
+    },
+    {
+     "when": "API error specifically during deletion",
+     "text": "Unable to delete beneficiary. Please try again later"
+    },
+    {
+     "when": "OTP resent successfully",
+     "text": "OTP resent successfully"
+    },
+    {
+     "when": "Attempting to access page without login",
+     "text": "Please log in to continue"
+    },
+    {
+     "when": "Invalid login credentials",
+     "text": "Invalid credentials"
+    },
+    {
+     "when": "Beneficiary name contains invalid special characters",
+     "text": "Name can only contain letters, spaces and periods"
+    },
+    {
+     "when": "Attempting to edit account number",
+     "text": "Account number cannot be modified"
+    },
+    {
+     "when": "Beneficiary name exceeds 100 characters",
+     "text": "Name cannot exceed 100 characters"
+    }
+   ],
+   "not_supported": [
+    "Actual time-based OTP expiry: OTP expiry is simulated with a fixed timestamp check, not real-time clock",
+    "Actual OTP delivery mechanism: OTPs are returned directly in API responses for testing purposes",
+    "Real network calls: Network and API failures are simulated via test helper functions",
+    "Actual waiting period after max attempts: The blocking is immediate and permanent within a test session",
+    "Multiple user accounts: Only one test user account exists; beneficiaries are per-user but only one user is modeled"
+   ],
+   "reference_sheet": {
+    "fields": {
+     "Product URL": "https://bank.example.test/beneficiary",
+     "Test account email": "testuser@bank.test",
+     "Test account password": "Test@1234",
+     "Starting beneficiaries": "4 beneficiaries exist: Suresh Iyer (4455667788990012, Active), Anita Desai (5544332211009988, Active), Pending User (6655443322110099, Pending Approval), Active User (5544332211009988, Active)",
+     "Account number length": "9-18 digits",
+     "IFSC code format": "11 characters: 4 uppercase letters + 7 alphanumeric",
+     "OTP validity": "10 minutes",
+     "Max OTP attempts": "5",
+     "Default OTP for add": "123456",
+     "Default OTP for edit": "654321",
+     "Default OTP for delete": "789012",
+     "Default OTP for resend": "999888",
+     "Beneficiary statuses": "Active, Pending Approval",
+     "Account types": "Savings, Current",
+     "Max name length": "100 characters"
+    },
+    "notes": "Only the 4 listed beneficiaries exist at start; tests create additional ones as needed."
+   },
+   "screens": [
+    {
+     "name": "Login",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Email"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Password"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Login"
+      },
+      {
+       "type": "text",
+       "text": "Invalid credentials (shown when login fails)"
+      }
+     ]
+    },
+    {
+     "name": "Beneficiary List",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Beneficiary Management"
+      },
+      {
+       "type": "button",
+       "text": "Add Beneficiary"
+      },
+      {
+       "type": "label",
+       "text": "Your Beneficiaries"
+      },
+      {
+       "type": "text",
+       "text": "Suresh Iyer - 4455667788990012 - HDFC0002345 - Savings - Active"
+      },
+      {
+       "type": "button",
+       "text": "Edit"
+      },
+      {
+       "type": "button",
+       "text": "Delete"
+      },
+      {
+       "type": "text",
+       "text": "Anita Desai - 5544332211009988 - ICIC0003456 - Current - Active"
+      },
+      {
+       "type": "button",
+       "text": "Edit"
+      },
+      {
+       "type": "button",
+       "text": "Delete"
+      },
+      {
+       "type": "text",
+       "text": "Pending User - 6655443322110099 - SBIN0004567 - Savings - Pending Approval"
+      },
+      {
+       "type": "button",
+       "text": "Edit"
+      },
+      {
+       "type": "button",
+       "text": "Delete"
+      },
+      {
+       "type": "text",
+       "text": "Active User - 5544332211009988 - ICIC0003456 - Savings - Active"
+      },
+      {
+       "type": "button",
+       "text": "Edit"
+      },
+      {
+       "type": "button",
+       "text": "Delete"
+      },
+      {
+       "type": "link",
+       "text": "Fund Transfer"
+      },
+      {
+       "type": "text",
+       "text": "Beneficiary added successfully (shown when beneficiary added)"
+      },
+      {
+       "type": "text",
+       "text": "Beneficiary updated successfully (shown when beneficiary updated)"
+      },
+      {
+       "type": "text",
+       "text": "Beneficiary deleted successfully (shown when beneficiary deleted)"
+      }
+     ]
+    },
+    {
+     "name": "Add Beneficiary",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Add New Beneficiary"
+      },
+      {
+       "type": "label",
+       "text": "Beneficiary Name"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Account Number"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "IFSC Code"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Account Type"
+      },
+      {
+       "type": "input",
+       "text": "Savings"
+      },
+      {
+       "type": "button",
+       "text": "Submit"
+      },
+      {
+       "type": "button",
+       "text": "Cancel"
+      },
+      {
+       "type": "text",
+       "text": "Beneficiary name is required (shown when name is empty)"
+      },
+      {
+       "type": "text",
+       "text": "Account number must be between 9-18 digits (shown when account number invalid length)"
+      },
+      {
+       "type": "text",
+       "text": "Account number cannot exceed 18 digits (shown when account number too long)"
+      },
+      {
+       "type": "text",
+       "text": "Account number must contain only digits (shown when account number has non-digits)"
+      },
+      {
+       "type": "text",
+       "text": "Invalid IFSC code format. IFSC must be 11 characters (shown when IFSC invalid)"
+      },
+      {
+       "type": "text",
+       "text": "IFSC must be in uppercase (shown when IFSC is lowercase)"
+      },
+      {
+       "type": "text",
+       "text": "Beneficiary with this account number already exists (shown when duplicate)"
+      },
+      {
+       "type": "text",
+       "text": "Name can only contain letters, spaces and periods (shown when name has special characters)"
+      },
+      {
+       "type": "text",
+       "text": "Name cannot exceed 100 characters (shown when name too long)"
+      },
+      {
+       "type": "text",
+       "text": "Network error. Please check your connection and try again (shown when network fails)"
+      }
+     ]
+    },
+    {
+     "name": "OTP Verification",
+     "elements": [
+      {
+       "type": "label",
+       "text": "OTP Verification"
+      },
+      {
+       "type": "label",
+       "text": "Enter OTP"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Verify"
+      },
+      {
+       "type": "button",
+       "text": "Resend OTP"
+      },
+      {
+       "type": "text",
+       "text": "Invalid OTP. Please try again (shown when OTP incorrect)"
+      },
+      {
+       "type": "text",
+       "text": "OTP has expired. Please request a new OTP (shown when OTP expired)"
+      },
+      {
+       "type": "text",
+       "text": "Maximum OTP attempts exceeded. Please try after some time (shown when max attempts exceeded)"
+      },
+      {
+       "type": "text",
+       "text": "OTP resent successfully (shown when OTP resent)"
+      },
+      {
+       "type": "text",
+       "text": "Network error. Please check your connection and try again (shown when network fails)"
+      },
+      {
+       "type": "text",
+       "text": "Unable to complete operation. Please try again later (shown when API fails)"
+      }
+     ]
+    },
+    {
+     "name": "Edit Beneficiary",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Edit Beneficiary"
+      },
+      {
+       "type": "label",
+       "text": "Beneficiary Name"
+      },
+      {
+       "type": "input",
+       "text": "Suresh Iyer"
+      },
+      {
+       "type": "label",
+       "text": "Account Number"
+      },
+      {
+       "type": "input",
+       "text": "4455667788990012"
+      },
+      {
+       "type": "text",
+       "text": "(read-only)"
+      },
+      {
+       "type": "label",
+       "text": "IFSC Code"
+      },
+      {
+       "type": "input",
+       "text": "HDFC0002345"
+      },
+      {
+       "type": "label",
+       "text": "Account Type"
+      },
+      {
+       "type": "input",
+       "text": "Savings"
+      },
+      {
+       "type": "button",
+       "text": "Save"
+      },
+      {
+       "type": "button",
+       "text": "Cancel"
+      },
+      {
+       "type": "text",
+       "text": "Beneficiary name is required (shown when name is empty)"
+      },
+      {
+       "type": "text",
+       "text": "Account number cannot be modified (shown when attempting to edit account number)"
+      }
+     ]
+    },
+    {
+     "name": "Fund Transfer",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Fund Transfer"
+      },
+      {
+       "type": "label",
+       "text": "Select Beneficiary"
+      },
+      {
+       "type": "input",
+       "text": "Suresh Iyer - 4455667788990012"
+      },
+      {
+       "type": "input",
+       "text": "Anita Desai - 5544332211009988"
+      },
+      {
+       "type": "input",
+       "text": "Pending User - 6655443322110099"
+      },
+      {
+       "type": "input",
+       "text": "Active User - 5544332211009988"
+      },
+      {
+       "type": "label",
+       "text": "Amount"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Transfer"
+      },
+      {
+       "type": "text",
+       "text": "Cannot transfer to unapproved beneficiary. Please wait for approval (shown when beneficiary not active)"
+      }
+     ]
+    }
+   ]
+  },
+  "checklists": [
+   {
+    "id": "add-without-name",
+    "title": "Add beneficiary without entering mandatory beneficiary name",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       ""
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "9876543210987654"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "HDFC0001122"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Beneficiary name is required"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "9876543210987654"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "invalid-account-short",
+    "title": "Add beneficiary with invalid account number format - less than minimum digits",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Priya Sharma"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "12345678"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "ICIC0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Account number must be between 9-18 digits"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "12345678"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "invalid-account-alphabets",
+    "title": "Add beneficiary with invalid account number - contains alphabets",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Amit Patel"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "12345ABC67890"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0005678"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Account number must contain only digits"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "12345ABC67890"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "invalid-ifsc-format",
+    "title": "Add beneficiary with invalid IFSC code format",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Sneha Reddy"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "5566778899001122"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "HDFC001"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid IFSC code format. IFSC must be 11 characters"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "5566778899001122"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "duplicate-account",
+    "title": "Attempt to add duplicate beneficiary with same account number",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Rajesh Kumar"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1234567890123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Beneficiary List"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "1234567890123456"
+      ],
+      "save_as": "first_ben"
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Rajesh Kumar"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1234567890123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Beneficiary with this account number already exists"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_count_beneficiaries",
+      "expect": 5
+     },
+     {
+      "call": "teardown",
+      "args": [
+       {
+        "ref": "first_ben.id"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "edit-beneficiary-name",
+    "title": "Edit existing beneficiary name",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Rajesh Kumar"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1234567890123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "1234567890123456"
+      ],
+      "save_as": "ben"
+     },
+     {
+      "call": "UI.click_edit",
+      "args": [
+       "Rajesh Kumar"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Edit Beneficiary"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Rajesh K Kumar"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Save"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "654321"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Beneficiary List"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Beneficiary updated successfully"
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ],
+      "expect_includes": {
+       "name": "Rajesh K Kumar",
+       "account_number": "1234567890123456"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "delete-beneficiary",
+    "title": "Delete an existing beneficiary",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Test User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "9999888877776666"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "9999888877776666"
+      ],
+      "save_as": "ben"
+     },
+     {
+      "call": "UI.click_delete",
+      "args": [
+       "Test User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.confirm_popup",
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "789012"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Beneficiary List"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Beneficiary deleted successfully"
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ],
+      "expect": null
+     },
+     {
+      "call": "UI.get_beneficiary_details",
+      "args": [
+       "Test User"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "incorrect-otp",
+    "title": "Add beneficiary with incorrect OTP",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Vikram Singh"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "4455667788990011"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "AXIS0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "000000"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid OTP. Please try again"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "4455667788990011"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "expired-otp",
+    "title": "Add beneficiary with expired OTP",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Meera Joshi"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "7788990011223344"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "KOTA0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "OTP has expired. Please request a new OTP"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "7788990011223344"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "transaction-unapproved-beneficiary",
+    "title": "Attempt transaction to unapproved beneficiary",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       "BEN003"
+      ],
+      "expect_includes": {
+       "name": "Pending User",
+       "status": "Pending Approval"
+      }
+     },
+     {
+      "call": "UI.open_page",
+      "args": [
+       "Fund Transfer"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Fund Transfer"
+     },
+     {
+      "call": "UI.select_beneficiary",
+      "args": [
+       "Pending User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "amount",
+       "5000.00"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Transfer"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Cannot transfer to unapproved beneficiary. Please wait for approval"
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       "BEN003"
+      ],
+      "expect_includes": {
+       "status": "Pending Approval"
+      }
+     }
+    ]
+   },
+   {
+    "id": "network-failure-addition",
+    "title": "Handle network failure during beneficiary addition",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Network Test"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1122334455667788"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "PUNB0012345"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.simulate_network_failure"
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Network error. Please check your connection and try again"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "1122334455667788"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "api-failure-deletion",
+    "title": "Handle API failure during beneficiary deletion",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "API Test User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "2222333344445555"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "2222333344445555"
+      ],
+      "save_as": "ben"
+     },
+     {
+      "call": "UI.click_delete",
+      "args": [
+       "API Test User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.confirm_popup",
+      "expect": true
+     },
+     {
+      "call": "UI.simulate_api_failure"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "789012"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Unable to complete operation. Please try again later"
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ],
+      "expect_includes": {
+       "name": "API Test User"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "exceed-max-length-account",
+    "title": "Add beneficiary with account number exceeding maximum length",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Exceed Max Test"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1234567890123456789"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "CNRB0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Account number cannot exceed 18 digits"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "1234567890123456789"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "special-chars-in-name",
+    "title": "Add beneficiary with special characters in name",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Test@User#123"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "6677889900112233"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "IDFB0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Name can only contain letters, spaces and periods"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "6677889900112233"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "transaction-active-beneficiary",
+    "title": "Verify transaction eligibility for active beneficiary",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       "BEN004"
+      ],
+      "expect_includes": {
+       "name": "Active User",
+       "status": "Active"
+      }
+     },
+     {
+      "call": "UI.open_page",
+      "args": [
+       "Fund Transfer"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Fund Transfer"
+     },
+     {
+      "call": "UI.select_beneficiary",
+      "args": [
+       "Active User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "API.check_transaction_eligibility",
+      "args": [
+       "BEN004",
+       "1000"
+      ],
+      "expect": {
+       "ok": true,
+       "eligible": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "lowercase-ifsc",
+    "title": "Add beneficiary with IFSC code containing lowercase letters",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Case Test User"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "9988776655443322"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "sbin0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "IFSC must be in uppercase"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Add Beneficiary"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "9988776655443322"
+      ],
+      "expect": null
+     }
+    ]
+   },
+   {
+    "id": "cancel-addition",
+    "title": "Cancel beneficiary addition after entering details",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_count_beneficiaries",
+      "save_as": "initial_count"
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Cancel Test"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1111222233334444"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "KKBK0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Cancel"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Beneficiary List"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "1111222233334444"
+      ],
+      "expect": null
+     },
+     {
+      "call": "Database.db_count_beneficiaries",
+      "expect": 4
+     }
+    ]
+   },
+   {
+    "id": "edit-account-restricted",
+    "title": "Edit beneficiary account number should be restricted",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "Edit Test"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "1234567890123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "123456"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "1234567890123456"
+      ],
+      "save_as": "ben"
+     },
+     {
+      "call": "UI.click_edit",
+      "args": [
+       "Edit Test"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Edit Beneficiary"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "9999999999999999"
+      ],
+      "expect": false
+     },
+     {
+      "call": "Database.db_get_beneficiary",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ],
+      "expect_includes": {
+       "account_number": "1234567890123456"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       {
+        "ref": "ben.id"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "max-otp-attempts",
+    "title": "Multiple OTP retry attempts should be limited",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@bank.test",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Add Beneficiary"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "beneficiary_name",
+       "OTP Limit Test"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_number",
+       "8877665544332211"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "ifsc_code",
+       "SBIN0001234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "account_type",
+       "Savings"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Submit"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "OTP Verification"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "111111"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid OTP. Please try again"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "222222"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid OTP. Please try again"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "333333"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid OTP. Please try again"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "444444"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid OTP. Please try again"
+     },
+     {
+      "call": "UI.fill_field",
+      "args": [
+       "otp",
+       "555555"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.click_button",
+      "args": [
+       "Verify"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Maximum OTP attempts exceeded. Please try after some time"
+     },
+     {
+      "call": "Database.db_get_beneficiary_by_account",
+      "args": [
+       "8877665544332211"
+      ],
+      "expect": null
+     }
+    ]
+   }
+  ],
+  "env_code_by_language": {
+   "python": "\"\"\"\nAutomation environment (Python) - Beneficiary Management - provided for\nyou, already working.\n\nThis is a SMALL controlled environment, not a framework you need to build\nor extend. It simulates the bank's beneficiary portal UI, its API and its\ndatabase in-process so your automation runs deterministically with no real\nnetwork calls. The data matches the reference sheet: test account\ntestuser@bank.test / Test@1234, 4 starting beneficiaries (Suresh Iyer,\nAnita Desai, Pending User, Active User), OTP validity 10 minutes, max 5\nattempts.\n\nWrite your automated test(s) at the bottom, under the TODO marker, using\nthe helpers below. Do not rewrite the helpers.\n\"\"\"\n\nimport re\nfrom datetime import datetime, timedelta\n\nCONFIG = {\"base_url\": \"https://bank.example.test/beneficiary\", \"otp_validity_minutes\": 10, \"max_otp_attempts\": 5}\n\n\nclass _Store:\n    \"\"\"In-memory stand-in for the application's database.\"\"\"\n\n    def __init__(self):\n        self.users = {\n            \"testuser@bank.test\": {\"password\": \"Test@1234\", \"balance\": 50000.00}\n        }\n        self.beneficiaries = {\n            \"BEN001\": {\n                \"id\": \"BEN001\",\n                \"name\": \"Suresh Iyer\",\n                \"account_number\": \"4455667788990012\",\n                \"ifsc\": \"HDFC0002345\",\n                \"type\": \"Savings\",\n                \"status\": \"Active\",\n                \"added_date\": \"2024-01-15\"\n            },\n            \"BEN002\": {\n                \"id\": \"BEN002\",\n                \"name\": \"Anita Desai\",\n                \"account_number\": \"5544332211009988\",\n                \"ifsc\": \"ICIC0003456\",\n                \"type\": \"Current\",\n                \"status\": \"Active\",\n                \"added_date\": \"2024-01-20\"\n            },\n            \"BEN003\": {\n                \"id\": \"BEN003\",\n                \"name\": \"Pending User\",\n                \"account_number\": \"6655443322110099\",\n                \"ifsc\": \"SBIN0004567\",\n                \"type\": \"Savings\",\n                \"status\": \"Pending Approval\",\n                \"added_date\": \"2024-02-01\"\n            },\n            \"BEN004\": {\n                \"id\": \"BEN004\",\n                \"name\": \"Active User\",\n                \"account_number\": \"5544332211009988\",\n                \"ifsc\": \"ICIC0003456\",\n                \"type\": \"Savings\",\n                \"status\": \"Active\",\n                \"added_date\": \"2024-01-25\"\n            }\n        }\n        self.otp_sessions = {}\n        self._next_id = 5\n\n    def get_next_id(self):\n        ben_id = f\"BEN{self._next_id:03d}\"\n        self._next_id += 1\n        return ben_id\n\n    def reset(self):\n        self._next_id = 5\n        self.beneficiaries = {\n            \"BEN001\": {\n                \"id\": \"BEN001\",\n                \"name\": \"Suresh Iyer\",\n                \"account_number\": \"4455667788990012\",\n                \"ifsc\": \"HDFC0002345\",\n                \"type\": \"Savings\",\n                \"status\": \"Active\",\n                \"added_date\": \"2024-01-15\"\n            },\n            \"BEN002\": {\n                \"id\": \"BEN002\",\n                \"name\": \"Anita Desai\",\n                \"account_number\": \"5544332211009988\",\n                \"ifsc\": \"ICIC0003456\",\n                \"type\": \"Current\",\n                \"status\": \"Active\",\n                \"added_date\": \"2024-01-20\"\n            },\n            \"BEN003\": {\n                \"id\": \"BEN003\",\n                \"name\": \"Pending User\",\n                \"account_number\": \"6655443322110099\",\n                \"ifsc\": \"SBIN0004567\",\n                \"type\": \"Savings\",\n                \"status\": \"Pending Approval\",\n                \"added_date\": \"2024-02-01\"\n            },\n            \"BEN004\": {\n                \"id\": \"BEN004\",\n                \"name\": \"Active User\",\n                \"account_number\": \"5544332211009988\",\n                \"ifsc\": \"ICIC0003456\",\n                \"type\": \"Savings\",\n                \"status\": \"Active\",\n                \"added_date\": \"2024-01-25\"\n            }\n        }\n        self.otp_sessions = {}\n\n\nDB = _Store()\n_SESSION = {\n    \"logged_in\": False,\n    \"email\": None,\n    \"page\": \"\",\n    \"message\": \"\",\n    \"current_beneficiary_id\": None,\n    \"pending_operation\": None,\n    \"form_data\": {},\n    \"network_failure\": False,\n    \"api_failure\": False,\n    \"popup_active\": False,\n    \"simulate_expired_otp\": False\n}\n\n\ndef _validate_name(name):\n    \"\"\"Validate beneficiary name.\"\"\"\n    if not name or not name.strip():\n        return \"Beneficiary name is required\"\n    if len(name) > 100:\n        return \"Name cannot exceed 100 characters\"\n    # Only letters, spaces, and periods allowed\n    if not re.match(r'^[A-Za-z\\s.]+$', name):\n        return \"Name can only contain letters, spaces and periods\"\n    return None\n\n\ndef _validate_account_number(account_number):\n    \"\"\"Validate account number.\"\"\"\n    if not re.match(r'^\\d+$', account_number):\n        return \"Account number must contain only digits\"\n    if len(account_number) < 9:\n        return \"Account number must be between 9-18 digits\"\n    if len(account_number) > 18:\n        return \"Account number cannot exceed 18 digits\"\n    return None\n\n\ndef _validate_ifsc(ifsc):\n    \"\"\"Validate IFSC code.\"\"\"\n    if len(ifsc) != 11:\n        return \"Invalid IFSC code format. IFSC must be 11 characters\"\n    # Check if first 4 are uppercase letters\n    if not re.match(r'^[A-Z]{4}[A-Z0-9]{7}$', ifsc):\n        # Check if it's lowercase\n        if re.match(r'^[a-z]{4}', ifsc):\n            return \"IFSC must be in uppercase\"\n        return \"Invalid IFSC code format. IFSC must be 11 characters\"\n    return None\n\n\ndef _validate_account_type(account_type):\n    \"\"\"Validate account type.\"\"\"\n    if account_type not in [\"Savings\", \"Current\"]:\n        return \"Invalid account type\"\n    return None\n\n\nclass UI:\n    \"\"\"UI-layer actions - what the user does and sees in the portal.\"\"\"\n\n    @staticmethod\n    def open_page(page_name):\n        \"\"\"Opens the specified page.\"\"\"\n        if not _SESSION[\"logged_in\"] and page_name != \"Login\":\n            _SESSION[\"message\"] = \"Please log in to continue\"\n            return False\n        _SESSION[\"page\"] = page_name\n        _SESSION[\"message\"] = \"\"\n        return True\n\n    @staticmethod\n    def current_page():\n        \"\"\"Returns the name of the currently displayed page.\"\"\"\n        return _SESSION[\"page\"]\n\n    @staticmethod\n    def visible_message():\n        \"\"\"Returns the currently displayed message to the user.\"\"\"\n        return _SESSION[\"message\"]\n\n    @staticmethod\n    def login(email, password):\n        \"\"\"Attempts login with provided credentials.\"\"\"\n        user = DB.users.get(email)\n        if user and user[\"password\"] == password:\n            _SESSION[\"logged_in\"] = True\n            _SESSION[\"email\"] = email\n            _SESSION[\"page\"] = \"Beneficiary List\"\n            _SESSION[\"message\"] = \"\"\n            return True\n        _SESSION[\"message\"] = \"Invalid credentials\"\n        return False\n\n    @staticmethod\n    def click_button(button_text):\n        \"\"\"Clicks the button with specified text on current page.\"\"\"\n        if button_text == \"Add Beneficiary\" and _SESSION[\"page\"] == \"Beneficiary List\":\n            _SESSION[\"page\"] = \"Add Beneficiary\"\n            _SESSION[\"form_data\"] = {}\n            _SESSION[\"message\"] = \"\"\n            return True\n        \n        elif button_text == \"Submit\" and _SESSION[\"page\"] == \"Add Beneficiary\":\n            if _SESSION[\"network_failure\"]:\n                _SESSION[\"network_failure\"] = False\n                _SESSION[\"message\"] = \"Network error. Please check your connection and try again\"\n                return False\n            \n            name = _SESSION[\"form_data\"].get(\"beneficiary_name\", \"\")\n            account_number = _SESSION[\"form_data\"].get(\"account_number\", \"\")\n            ifsc = _SESSION[\"form_data\"].get(\"ifsc_code\", \"\")\n            account_type = _SESSION[\"form_data\"].get(\"account_type\", \"Savings\")\n            \n            result = API.add_beneficiary(name, account_number, ifsc, account_type)\n            if result[\"ok\"]:\n                _SESSION[\"page\"] = \"OTP Verification\"\n                _SESSION[\"pending_operation\"] = {\n                    \"beneficiary_id\": result[\"beneficiary_id\"],\n                    \"operation\": \"add\"\n                }\n                _SESSION[\"message\"] = \"\"\n                return True\n            else:\n                _SESSION[\"message\"] = result[\"error\"]\n                return True\n        \n        elif button_text == \"Verify\" and _SESSION[\"page\"] == \"OTP Verification\":\n            if _SESSION[\"network_failure\"]:\n                _SESSION[\"network_failure\"] = False\n                _SESSION[\"message\"] = \"Network error. Please check your connection and try again\"\n                return False\n            \n            if _SESSION[\"api_failure\"]:\n                _SESSION[\"api_failure\"] = False\n                _SESSION[\"message\"] = \"Unable to complete operation. Please try again later\"\n                return False\n            \n            otp = _SESSION[\"form_data\"].get(\"otp\", \"\")\n            pending = _SESSION[\"pending_operation\"]\n            if pending:\n                result = API.verify_otp(pending[\"beneficiary_id\"], otp, pending[\"operation\"])\n                if result[\"ok\"]:\n                    _SESSION[\"page\"] = \"Beneficiary List\"\n                    operation = pending[\"operation\"]\n                    if operation == \"add\":\n                        _SESSION[\"message\"] = \"Beneficiary added successfully\"\n                    elif operation == \"update\":\n                        _SESSION[\"message\"] = \"Beneficiary updated successfully\"\n                    elif operation == \"delete\":\n                        _SESSION[\"message\"] = \"Beneficiary deleted successfully\"\n                    _SESSION[\"pending_operation\"] = None\n                    _SESSION[\"form_data\"] = {}\n                    return True\n                else:\n                    _SESSION[\"message\"] = result[\"error\"]\n                    return False\n            return False\n        \n        elif button_text == \"Save\" and _SESSION[\"page\"] == \"Edit Beneficiary\":\n            name = _SESSION[\"form_data\"].get(\"beneficiary_name\", \"\")\n            beneficiary_id = _SESSION[\"current_beneficiary_id\"]\n            \n            result = API.update_beneficiary(beneficiary_id, name)\n            if result[\"ok\"]:\n                _SESSION[\"page\"] = \"OTP Verification\"\n                _SESSION[\"pending_operation\"] = {\n                    \"beneficiary_id\": beneficiary_id,\n                    \"operation\": \"update\"\n                }\n                _SESSION[\"message\"] = \"\"\n                return True\n            else:\n                _SESSION[\"message\"] = result[\"error\"]\n                return True\n        \n        elif button_text == \"Cancel\":\n            _SESSION[\"page\"] = \"Beneficiary List\"\n            _SESSION[\"form_data\"] = {}\n            _SESSION[\"message\"] = \"\"\n            _SESSION[\"current_beneficiary_id\"] = None\n            return True\n        \n        elif button_text == \"Resend OTP\" and _SESSION[\"page\"] == \"OTP Verification\":\n            pending = _SESSION[\"pending_operation\"]\n            if pending:\n                result = API.resend_otp(pending[\"beneficiary_id\"])\n                if result[\"ok\"]:\n                    _SESSION[\"message\"] = \"OTP resent successfully\"\n                    return True\n            return False\n        \n        elif button_text == \"Transfer\" and _SESSION[\"page\"] == \"Fund Transfer\":\n            selected_ben = _SESSION[\"form_data\"].get(\"selected_beneficiary\")\n            if selected_ben:\n                # Find beneficiary by name\n                ben = None\n                for b in DB.beneficiaries.values():\n                    if b[\"name\"] == selected_ben:\n                        ben = b\n                        break\n                \n                if ben:\n                    result = API.check_transaction_eligibility(ben[\"id\"], 0)\n                    if result[\"ok\"] and not result[\"eligible\"]:\n                        _SESSION[\"message\"] = result[\"reason\"]\n                    return True\n            return False\n        \n        return False\n\n    @staticmethod\n    def fill_field(field_name, value):\n        \"\"\"Fills the specified field with value on current page.\"\"\"\n        valid_fields = {\n            \"Add Beneficiary\": [\"beneficiary_name\", \"account_number\", \"ifsc_code\", \"account_type\"],\n            \"OTP Verification\": [\"otp\"],\n            \"Edit Beneficiary\": [\"beneficiary_name\"],\n            \"Fund Transfer\": [\"amount\"]\n        }\n        \n        page = _SESSION[\"page\"]\n        if page in valid_fields and field_name in valid_fields[page]:\n            _SESSION[\"form_data\"][field_name] = value\n            return True\n        \n        # Account number is read-only in edit\n        if page == \"Edit Beneficiary\" and field_name == \"account_number\":\n            return False\n        \n        return False\n\n    @staticmethod\n    def select_beneficiary(beneficiary_name):\n        \"\"\"On Fund Transfer page, selects beneficiary from dropdown.\"\"\"\n        if _SESSION[\"page\"] != \"Fund Transfer\":\n            return False\n        \n        for ben in DB.beneficiaries.values():\n            if ben[\"name\"] == beneficiary_name:\n                _SESSION[\"form_data\"][\"selected_beneficiary\"] = beneficiary_name\n                return True\n        return False\n\n    @staticmethod\n    def click_edit(beneficiary_name):\n        \"\"\"On Beneficiary List page, clicks Edit for specified beneficiary.\"\"\"\n        if _SESSION[\"page\"] != \"Beneficiary List\":\n            return False\n        \n        for ben in DB.beneficiaries.values():\n            if ben[\"name\"] == beneficiary_name:\n                _SESSION[\"page\"] = \"Edit Beneficiary\"\n                _SESSION[\"current_beneficiary_id\"] = ben[\"id\"]\n                _SESSION[\"form_data\"] = {\n                    \"beneficiary_name\": ben[\"name\"],\n                    \"account_number\": ben[\"account_number\"],\n                    \"ifsc_code\": ben[\"ifsc\"],\n                    \"account_type\": ben[\"type\"]\n                }\n                _SESSION[\"message\"] = \"\"\n                return True\n        return False\n\n    @staticmethod\n    def click_delete(beneficiary_name):\n        \"\"\"On Beneficiary List page, clicks Delete for specified beneficiary.\"\"\"\n        if _SESSION[\"page\"] != \"Beneficiary List\":\n            return False\n        \n        for ben in DB.beneficiaries.values():\n            if ben[\"name\"] == beneficiary_name:\n                _SESSION[\"popup_active\"] = True\n                _SESSION[\"current_beneficiary_id\"] = ben[\"id\"]\n                return True\n        return False\n\n    @staticmethod\n    def confirm_popup():\n        \"\"\"Confirms the current popup dialog.\"\"\"\n        if _SESSION[\"popup_active\"]:\n            _SESSION[\"popup_active\"] = False\n            beneficiary_id = _SESSION[\"current_beneficiary_id\"]\n            result = API.delete_beneficiary(beneficiary_id)\n            if result[\"ok\"]:\n                _SESSION[\"page\"] = \"OTP Verification\"\n                _SESSION[\"pending_operation\"] = {\n                    \"beneficiary_id\": beneficiary_id,\n                    \"operation\": \"delete\"\n                }\n                _SESSION[\"message\"] = \"\"\n            return True\n        return True\n\n    @staticmethod\n    def get_beneficiary_list():\n        \"\"\"Returns list of all beneficiaries visible on Beneficiary List page.\"\"\"\n        if _SESSION[\"page\"] != \"Beneficiary List\":\n            return []\n        \n        result = []\n        for ben in DB.beneficiaries.values():\n            result.append({\n                \"name\": ben[\"name\"],\n                \"account_number\": ben[\"account_number\"],\n                \"ifsc\": ben[\"ifsc\"],\n                \"type\": ben[\"type\"],\n                \"status\": ben[\"status\"]\n            })\n        return result\n\n    @staticmethod\n    def get_beneficiary_details(beneficiary_name):\n        \"\"\"Returns details of specified beneficiary from the list on current page.\"\"\"\n        if _SESSION[\"page\"] != \"Beneficiary List\":\n            return None\n        \n        for ben in DB.beneficiaries.values():\n            if ben[\"name\"] == beneficiary_name:\n                return {\n                    \"name\": ben[\"name\"],\n                    \"account_number\": ben[\"account_number\"],\n                    \"ifsc\": ben[\"ifsc\"],\n                    \"type\": ben[\"type\"],\n                    \"status\": ben[\"status\"]\n                }\n        return None\n\n    @staticmethod\n    def simulate_network_failure():\n        \"\"\"Sets a flag that causes the next API operation to fail with network error.\"\"\"\n        _SESSION[\"network_failure\"] = True\n\n    @staticmethod\n    def simulate_api_failure():\n        \"\"\"Sets a flag that causes the next API operation to fail with server error.\"\"\"\n        _SESSION[\"api_failure\"] = True\n\n\nclass API:\n    \"\"\"API-layer actions.\"\"\"\n\n    @staticmethod\n    def add_beneficiary(name, account_number, ifsc, account_type):\n        \"\"\"Validates inputs and creates OTP session for adding beneficiary.\"\"\"\n        # Validate name\n        error = _validate_name(name)\n        if error:\n            return {\"ok\": False, \"error\": error}\n        \n        # Validate account number\n        error = _validate_account_number(account_number)\n        if error:\n            return {\"ok\": False, \"error\": error}\n        \n        # Validate IFSC\n        error = _validate_ifsc(ifsc)\n        if error:\n            return {\"ok\": False, \"error\": error}\n        \n        # Validate account type\n        error = _validate_account_type(account_type)\n        if error:\n            return {\"ok\": False, \"error\": error}\n        \n        # Check for duplicate\n        for ben in DB.beneficiaries.values():\n            if ben[\"account_number\"] == account_number:\n                return {\"ok\": False, \"error\": \"Beneficiary with this account number already exists\"}\n        \n        # Create OTP session\n        beneficiary_id = DB.get_next_id()\n        \n        # Check if we should simulate expired OTP\n        if _SESSION.get(\"simulate_expired_otp\", False):\n            created_time = datetime.now() - timedelta(minutes=CONFIG[\"otp_validity_minutes\"] + 1)\n            _SESSION[\"simulate_expired_otp\"] = False\n        else:\n            created_time = datetime.now()\n        \n        DB.otp_sessions[beneficiary_id] = {\n            \"beneficiary_id\": beneficiary_id,\n            \"otp\": \"123456\",\n            \"operation\": \"add\",\n            \"created_time\": created_time,\n            \"attempts\": 0,\n            \"data\": {\n                \"name\": name,\n                \"account_number\": account_number,\n                \"ifsc\": ifsc,\n                \"type\": account_type\n            }\n        }\n        \n        return {\"ok\": True, \"beneficiary_id\": beneficiary_id, \"otp\": \"123456\"}\n\n    @staticmethod\n    def verify_otp(beneficiary_id, otp, operation):\n        \"\"\"Validates OTP for pending operation.\"\"\"\n        session = DB.otp_sessions.get(beneficiary_id)\n        if not session:\n            return {\"ok\": False, \"error\": \"Invalid OTP session\"}\n        \n        # Check if expired (simulated - we'll use a flag in the session)\n        if hasattr(session.get(\"created_time\"), \"year\"):\n            elapsed = datetime.now() - session[\"created_time\"]\n            if elapsed > timedelta(minutes=CONFIG[\"otp_validity_minutes\"]):\n                return {\"ok\": False, \"error\": \"OTP has expired. Please request a new OTP\"}\n        else:\n            # For expired OTP test case - check if created_time is None or special marker\n            if session.get(\"created_time\") is None or session.get(\"expired\", False):\n                return {\"ok\": False, \"error\": \"OTP has expired. Please request a new OTP\"}\n        \n        # Check if max attempts exceeded first\n        if session[\"attempts\"] >= CONFIG[\"max_otp_attempts\"]:\n            return {\"ok\": False, \"error\": \"Maximum OTP attempts exceeded. Please try after some time\"}\n        \n        # Check OTP\n        if session[\"otp\"] != otp:\n            session[\"attempts\"] += 1\n            # Check if max attempts reached after incrementing\n            if session[\"attempts\"] >= CONFIG[\"max_otp_attempts\"]:\n                return {\"ok\": False, \"error\": \"Maximum OTP attempts exceeded. Please try after some time\"}\n            return {\"ok\": False, \"error\": \"Invalid OTP. Please try again\"}\n        \n        # OTP is correct - complete operation\n        if operation == \"add\":\n            data = session[\"data\"]\n            DB.beneficiaries[beneficiary_id] = {\n                \"id\": beneficiary_id,\n                \"name\": data[\"name\"],\n                \"account_number\": data[\"account_number\"],\n                \"ifsc\": data[\"ifsc\"],\n                \"type\": data[\"type\"],\n                \"status\": \"Active\",\n                \"added_date\": datetime.now().strftime(\"%Y-%m-%d\")\n            }\n        elif operation == \"update\":\n            if beneficiary_id in DB.beneficiaries:\n                DB.beneficiaries[beneficiary_id][\"name\"] = session[\"data\"][\"name\"]\n        elif operation == \"delete\":\n            if beneficiary_id in DB.beneficiaries:\n                del DB.beneficiaries[beneficiary_id]\n        \n        # Clear OTP session\n        del DB.otp_sessions[beneficiary_id]\n        \n        return {\"ok\": True}\n\n    @staticmethod\n    def update_beneficiary(beneficiary_id, name):\n        \"\"\"Validates name and creates OTP session for updating beneficiary.\"\"\"\n        error = _validate_name(name)\n        if error:\n            return {\"ok\": False, \"error\": error}\n        \n        if beneficiary_id not in DB.beneficiaries:\n            return {\"ok\": False, \"error\": \"Beneficiary not found\"}\n        \n        # Create OTP session\n        DB.otp_sessions[beneficiary_id] = {\n            \"beneficiary_id\": beneficiary_id,\n            \"otp\": \"654321\",\n            \"operation\": \"update\",\n            \"created_time\": datetime.now(),\n            \"attempts\": 0,\n            \"data\": {\"name\": name}\n        }\n        \n        return {\"ok\": True, \"otp\": \"654321\"}\n\n    @staticmethod\n    def delete_beneficiary(beneficiary_id):\n        \"\"\"Creates OTP session for deleting beneficiary.\"\"\"\n        if beneficiary_id not in DB.beneficiaries:\n            return {\"ok\": False, \"error\": \"Beneficiary not found\"}\n        \n        # Create OTP session\n        DB.otp_sessions[beneficiary_id] = {\n            \"beneficiary_id\": beneficiary_id,\n            \"otp\": \"789012\",\n            \"operation\": \"delete\",\n            \"created_time\": datetime.now(),\n            \"attempts\": 0,\n            \"data\": {}\n        }\n        \n        return {\"ok\": True, \"otp\": \"789012\"}\n\n    @staticmethod\n    def resend_otp(beneficiary_id):\n        \"\"\"Generates new OTP for existing session.\"\"\"\n        session = DB.otp_sessions.get(beneficiary_id)\n        if not session:\n            return {\"ok\": False, \"error\": \"No active OTP session\"}\n        \n        session[\"otp\"] = \"999888\"\n        session[\"created_time\"] = datetime.now()\n        session[\"attempts\"] = 0\n        \n        return {\"ok\": True, \"otp\": \"999888\"}\n\n    @staticmethod\n    def check_transaction_eligibility(beneficiary_id, amount):\n        \"\"\"Checks if beneficiary can receive transfer.\"\"\"\n        ben = DB.beneficiaries.get(beneficiary_id)\n        if not ben:\n            return {\"ok\": False, \"error\": \"Beneficiary not found\"}\n        \n        if ben[\"status\"] == \"Active\":\n            return {\"ok\": True, \"eligible\": True}\n        elif ben[\"status\"] == \"Pending Approval\":\n            return {\"ok\": True, \"eligible\": False, \"reason\": \"Cannot transfer to unapproved beneficiary. Please wait for approval\"}\n        \n        return {\"ok\": True, \"eligible\": False, \"reason\": \"Beneficiary not eligible\"}\n\n    @staticmethod\n    def get_beneficiaries():\n        \"\"\"Returns list of all beneficiaries for logged-in user.\"\"\"\n        beneficiaries = []\n        for ben in DB.beneficiaries.values():\n            beneficiaries.append({\n                \"id\": ben[\"id\"],\n                \"name\": ben[\"name\"],\n                \"account_number\": ben[\"account_number\"],\n                \"ifsc\": ben[\"ifsc\"],\n                \"type\": ben[\"type\"],\n                \"status\": ben[\"status\"]\n            })\n        return {\"ok\": True, \"beneficiaries\": beneficiaries}\n\n    @staticmethod\n    def get_beneficiary(beneficiary_id):\n        \"\"\"Returns details of specified beneficiary.\"\"\"\n        ben = DB.beneficiaries.get(beneficiary_id)\n        if not ben:\n            return {\"ok\": False, \"error\": \"Beneficiary not found\"}\n        \n        return {\n            \"ok\": True,\n            \"beneficiary\": {\n                \"id\": ben[\"id\"],\n                \"name\": ben[\"name\"],\n                \"account_number\": ben[\"account_number\"],\n                \"ifsc\": ben[\"ifsc\"],\n                \"type\": ben[\"type\"],\n                \"status\": ben[\"status\"]\n            }\n        }\n\n\nclass Database:\n    \"\"\"Direct DB-layer access, for verifying what was really stored.\"\"\"\n\n    @staticmethod\n    def db_get_beneficiary(beneficiary_id):\n        \"\"\"Returns beneficiary record from database by ID, or None if not found.\"\"\"\n        ben = DB.beneficiaries.get(beneficiary_id)\n        if ben:\n            return dict(ben)\n        return None\n\n    @staticmethod\n    def db_get_beneficiary_by_account(account_number):\n        \"\"\"Returns beneficiary record from database by account number, or None if not found.\"\"\"\n        for ben in DB.beneficiaries.values():\n            if ben[\"account_number\"] == account_number:\n                return dict(ben)\n        return None\n\n    @staticmethod\n    def db_get_all_beneficiaries():\n        \"\"\"Returns all beneficiary records from database.\"\"\"\n        return [dict(ben) for ben in DB.beneficiaries.values()]\n\n    @staticmethod\n    def db_beneficiary_exists(account_number):\n        \"\"\"Checks if beneficiary with given account number exists in database.\"\"\"\n        for ben in DB.beneficiaries.values():\n            if ben[\"account_number\"] == account_number:\n                return True\n        return False\n\n    @staticmethod\n    def db_get_otp_session(beneficiary_id):\n        \"\"\"Returns OTP session details from database, or None if no active session.\"\"\"\n        session = DB.otp_sessions.get(beneficiary_id)\n        if session:\n            return dict(session)\n        return None\n\n    @staticmethod\n    def db_count_beneficiaries():\n        \"\"\"Returns total number of beneficiaries in database.\"\"\"\n        return len(DB.beneficiaries)\n\n\ndef setup():\n    \"\"\"Runs before your test. Resets app to initial state.\"\"\"\n    _SESSION.update({\n        \"logged_in\": False,\n        \"email\": None,\n        \"page\": \"\",\n        \"message\": \"\",\n        \"current_beneficiary_id\": None,\n        \"pending_operation\": None,\n        \"form_data\": {},\n        \"network_failure\": False,\n        \"api_failure\": False,\n        \"popup_active\": False,\n        \"simulate_expired_otp\": False\n    })\n    DB.reset()\n\n\ndef teardown(id=None):\n    \"\"\"Runs after your test. If id provided, deletes the beneficiary with that ID.\"\"\"\n    if id is not None:\n        if id in DB.beneficiaries:\n            del DB.beneficiaries[id]\n        if id in DB.otp_sessions:\n            del DB.otp_sessions[id]\n\n\n# ---------------------------------------------------------------------------\n# TODO: write your automated test(s) below, then call them from __main__.\n# ---------------------------------------------------------------------------\n\ndef test_expired_otp():\n    \"\"\"Test that expired OTP is rejected.\"\"\"\n    setup()\n    \n    # Login\n    UI.login(\"testuser@bank.test\", \"Test@1234\")\n    \n    # Navigate to Add Beneficiary\n    UI.click_button(\"Add Beneficiary\")\n    \n    # Fill in beneficiary details\n    UI.fill_field(\"beneficiary_name\", \"Meera Joshi\")\n    UI.fill_field(\"account_number\", \"7788990011223344\")\n    UI.fill_field(\"ifsc_code\", \"KOTA0001234\")\n    UI.fill_field(\"account_type\", \"Savings\")\n    \n    # Set flag to simulate expired OTP\n    _SESSION[\"simulate_expired_otp\"] = True\n    \n    # Submit to create OTP session (will be created as expired)\n    UI.click_button(\"Submit\")\n    \n    # Try to verify with correct OTP\n    UI.fill_field(\"otp\", \"123456\")\n    result = UI.click_button(\"Verify\")\n    \n    # Verify the results\n    assert result == False, f\"Expected False, got {result}\"\n    assert UI.visible_message() == \"OTP has expired. Please request a new OTP\", f\"Wrong message: {UI.visible_message()}\"\n    assert Database.db_get_beneficiary_by_account(\"7788990011223344\") is None, \"Beneficiary should not be added\"\n    \n    print(\"✓ test_expired_otp passed\")\n\n\nif __name__ == \"__main__\":\n    test_expired_otp()\n"
+  }
+ }
+}

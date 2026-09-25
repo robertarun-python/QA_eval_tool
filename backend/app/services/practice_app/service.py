@@ -125,7 +125,7 @@ def run_build(scenario_id: int) -> None:
         if result.plan:
             path = _build_file(scenario_id)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps({
+            saved = json.dumps({
                 "built_at": data["finished_at"],
                 "ok": result.ok,
                 "plan": result.plan,
@@ -134,7 +134,16 @@ def run_build(scenario_id: int) -> None:
                 "reference_hash": _reference_hash(scenario),
                 "env_code_by_language": result.env_code_by_language,
                 "ground_truth": generator.ground_truth(result.plan),
-            }, ensure_ascii=False), encoding="utf-8")
+                "log": result.log,
+                "coverage": rows,
+            }, ensure_ascii=False)
+            path.write_text(saved, encoding="utf-8")
+            # Every build kept, not just the latest: the failed ones are what the
+            # factory is tested against (tests/test_practice_app_real_builds.py),
+            # and a Beneficiary build that had got to 24/25 was lost by overwriting.
+            archive = path.parent / "history" / f"{data['finished_at'].replace(':', '')}.json"
+            archive.parent.mkdir(exist_ok=True)
+            archive.write_text(saved, encoding="utf-8")
         db.refresh(scenario)
         _set_summary(scenario, data)
         db.commit()
