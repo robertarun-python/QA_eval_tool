@@ -10,7 +10,7 @@ import enum
 from datetime import datetime
 
 from sqlalchemy import (
-    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Enum, Boolean
+    Column, Integer, String, Text, DateTime, ForeignKey, JSON, Enum, Boolean, Index
 )
 from sqlalchemy.orm import object_session, relationship, validates
 
@@ -157,7 +157,8 @@ class Scenario(Base):
     # for the same (round_number, experience_band) can be `published`
     # at once (that's just "approved, in the library") - `is_live` is
     # the separate flag that says which single one of them candidates
-    # actually get served, enforced in the "move to screening" endpoint.
+    # actually get served, enforced in the "move to screening" endpoint
+    # and, underneath it, by the one-live index below the class.
     status = Column(Enum(ScenarioStatus), default=ScenarioStatus.draft, nullable=False)
     is_live = Column(Boolean, default=False, nullable=False)
     reference_json = Column(JSON, nullable=True)  # HR-approved "superhuman" reference answer
@@ -188,6 +189,22 @@ class Scenario(Base):
     published_at = Column(DateTime, nullable=True)
 
     submissions = relationship("Submission", back_populates="scenario")
+
+
+# At most one live scenario per (round, band): candidates are served
+# "the" live one (candidate._live_scenario), so a second would make which
+# scenario they get arbitrary. The app already switches the old one off
+# first; this makes the database refuse anything that doesn't. Partial -
+# any number of non-live rows per (round, band) is fine. Existing
+# databases get it from migrate_one_live_scenario.py.
+Index(
+    "uq_scenarios_one_live_per_round_band",
+    Scenario.round_number,
+    Scenario.experience_band,
+    unique=True,
+    sqlite_where=Scenario.is_live.is_(True),
+    postgresql_where=Scenario.is_live.is_(True),
+)
 
 
 class Submission(Base):
