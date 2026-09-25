@@ -1,0 +1,38 @@
+# Runs the offline test suite on every push and pull request. Offline means
+# no Claude API calls: the model is faked in every test, and the live replay
+# tests (tests/replay) skip themselves unless RUN_LLM_REPLAY=1, which CI
+# never sets - so this costs no API credit.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  offline-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # Round 3 runs candidate code in Java and JavaScript as well as Python.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies (app + test tooling)
+        run: |
+          pip install -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: Check app.js parses
+        run: for f in backend/app/static/js/*.js; do node --check "$f"; done
+      - name: Offline test suite (unit + browser tests, fake AI - no API calls)
+        env:
+          ANTHROPIC_API_KEY: ""   # never call the real API from CI
+        run: python -m pytest -q -p no:warnings tests
