@@ -43,4 +43,10 @@ jobs:
           CANDIDATE2_PASSWORD: ci-c2
           CANDIDATE3_PASSWORD: ci-c3
           CANDIDATE5_PASSWORD: ci-c5
+          # Candidate code only runs inside macOS's sandbox-exec; anywhere else
+          # the app refuses to run it (execution_service._sandboxed) unless
+          # this is "off". Safe here: a throwaway runner that holds no secrets,
+          # running only the tests' own code. tests/test_execution_sandbox.py
+          # (macOS-only) is what proves the sandbox itself.
+          EXECUTION_SANDBOX: "off"
         run: python -m pytest -q -p no:warnings tests
