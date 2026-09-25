@@ -50,6 +50,16 @@ public class Main {
         }
     }
 
+    static class PageResponse {
+        String url; int status;
+        PageResponse(String url, int status) { this.url = url; this.status = status; }
+    }
+
+    static class LoginResponse {
+        boolean ok; String error;
+        LoginResponse(boolean ok, String error) { this.ok = ok; this.error = error; }
+    }
+
     static class BookResponse {
         boolean ok; String error; String appointmentId;
         BookResponse(boolean ok, String error, String appointmentId) { this.ok = ok; this.error = error; this.appointmentId = appointmentId; }
@@ -105,7 +115,7 @@ public class Main {
 
     // UI-layer actions - what the patient does and sees in the portal.
     static class UI {
-        static String open(String path) { return BASE_URL + path; }
+        static PageResponse open(String path) { return new PageResponse(BASE_URL + path, 200); }
         // Returns true on success (opens Doctor Search), false on bad credentials.
         static boolean login(String email, String password) {
             if (password != null && password.equals(PASSWORDS.get(email))) {
@@ -148,7 +158,10 @@ public class Main {
 
     // API-layer actions.
     static class API {
-        static boolean login(String email, String password) { return password != null && password.equals(PASSWORDS.get(email)); }
+        static LoginResponse login(String email, String password) {
+            boolean ok = password != null && password.equals(PASSWORDS.get(email));
+            return new LoginResponse(ok, ok ? null : "Invalid email or password");
+        }
         static List<Doctor> searchDoctors(String specialty, String name) { return findDoctors(specialty, name); }
         static Doctor doctorProfile(String doctorId) { return DOCTORS.get(doctorId); }
         static List<String> availability(String doctorId, String date) { return freeSlots(doctorId, date); }

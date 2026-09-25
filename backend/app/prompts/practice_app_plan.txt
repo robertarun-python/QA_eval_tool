@@ -1,0 +1,45 @@
+You are designing a small PRACTICE APP for a QA hiring assessment. It is a pretend, in-memory version of the application described below. In Round 2, candidates write automated tests against it for the test cases they designed in Round 1, so it must support EVERY Round 1 reference test case listed below - every screen, action, rule and message those test cases touch.
+
+The practice app will be written as code with three layers of helper functions the candidate's test can call:
+- UI: what a user does and sees (open a page, log in, fill in and submit, read what's shown: the current page, the visible message, lists and details on screen).
+- API: the same operations called directly, returning structured results (e.g. {"ok": false, "error": "..."}).
+- Database: direct reads of what was really stored, for verification, plus cleanup.
+Plus setup() (reset to logged out, starting page, no message) and teardown(id=None) (undo anything a test created, given its id).
+
+APPLICATION (Round 1 scenario): <<TITLE>>
+<<DESCRIPTION>>
+
+ROUND 1 REFERENCE TEST CASES (the practice app must make every one of these automatable):
+<<REFERENCE_CASES>>
+
+FACTS CANDIDATES ARE ALREADY SHOWN FOR THIS APPLICATION (URLs, test accounts, data) - where present, use exactly these values; never contradict them:
+<<KNOWN_FACTS>>
+
+Design the app. Decide everything concretely - never leave a value for later:
+- Exactly one working test account (login + password), plus anything else the test cases need (e.g. a second account, a locked account) - realistic but clearly fake values.
+- The exact fixed data the app starts with: every record, with every field value. Enough variety that every test case has something to find, and something to NOT find.
+- Every helper, with snake_case name, parameters, exactly what it returns (in plain data: strings, numbers, true/false, lists, and objects with named fields), and exactly how it behaves, including every refusal path.
+- Every rule (validation, limits, what happens to data) and every message a user can see, word for word.
+- Invalid or refused actions must never change stored data, and must never raise an error - they return false / an {"ok": false, "error": ...} result and set the visible message.
+- Keep it small: only what the test cases need. It must be deterministic: no randomness, no real dates or clocks (use fixed dates), no network.
+
+Respond with ONLY a JSON object in this exact shape:
+{
+  "app_name": "...",
+  "summary": "one sentence",
+  "base_url": "https://....example.test/...",
+  "test_accounts": [{"login": "...", "password": "...", "notes": "..."}],
+  "data": "Every fixed record the app starts with, with all field values, as plain text",
+  "pages": ["page names exactly as current_page() returns them"],
+  "helpers": [
+    {"layer": "UI" | "API" | "Database" | "global", "name": "snake_case_name", "params": ["param", ...],
+     "returns": "exactly what it returns", "behaviour": "exactly what it does, including refusals and messages",
+     "changes_data": true if it can create, change or delete stored data (even when it then refuses), else false}
+  ],
+  "rules": ["..."],
+  "messages": [{"when": "...", "text": "exact visible text"}],
+  "not_supported": ["anything a reference test case mentions that the app deliberately does not model, and why"],
+  "reference_sheet": {"fields": {"Product URL": "...", "Test account email": "...", "...": "every fixed value a candidate needs to write tests: accounts, the data that exists, dates, limits"},
+                      "notes": "one sentence, e.g. Only these records exist in the practice app."}
+}
+setup and teardown must be listed as helpers with layer "global".

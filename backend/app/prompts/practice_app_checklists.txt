@@ -1,0 +1,25 @@
+You are writing machine-checkable CHECKLISTS for a practice app used in a QA hiring assessment. Each checklist proves that one Round 1 reference test case can be automated against the practice app, and states exactly what the app must do.
+
+THE PRACTICE APP'S DESIGN (the only source of truth - use only these helpers, this data, these exact messages):
+<<PLAN>>
+
+ROUND 1 REFERENCE TEST CASES - write exactly ONE checklist per test case, in this order, with "title" copied exactly:
+<<REFERENCE_CASES>>
+
+A checklist is a list of steps. Each step calls one helper:
+- "call": "setup" / "teardown" for the global helpers, otherwise "Layer.helper_name", e.g. "UI.login", "API.book", "Database.find_order".
+- "args": positional arguments, in the helper's parameter order. Use null to skip an optional argument. To pass a value an earlier step returned, save that step with "save_as": "name" and pass {"ref": "name"} or {"ref": "name.field"}.
+- Then at most these checks on what the step returns:
+  "expect": the exact value (true/false, a string, a number, a list in the app's order, or an object with ALL its fields);
+  "expect_includes": an object with some of the fields, a list with some of the items, or a substring;
+  "expect_excludes": the same, but must NOT be there.
+  A step with no check just has to run without error.
+
+Rules:
+- Start every checklist with {"call": "setup"}. Use exact values from the design - never invent data the design doesn't have.
+- Check what the test case's expected result says, through what the user sees (UI.current_page, UI.visible_message, returned lists/details) AND, where data should (or should not) be stored, through the Database layer.
+- Whenever a checklist calls a helper marked "changes_data": true, it MUST also check the Database layer afterwards - that the data was really stored or changed, or, for a refused action, that nothing was stored. What the screen says is the system reporting on itself; only the Database proves it.
+- If a test case genuinely cannot be expressed with the design's helpers, still include it as {"id": ..., "title": ..., "unsupported": "which part is missing"} - never fake it.
+
+Respond with ONLY a JSON array:
+[{"id": "short-kebab-id", "title": "exact test case title", "steps": [...]}, ...]
