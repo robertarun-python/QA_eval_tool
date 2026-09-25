@@ -152,6 +152,7 @@ def value_traces_to_candidate(value: str | None, selected_design: list[dict], co
 def build_clarify_response(
     status: str, question: str | None = None,
     prior_value: str | None = None, current_value: str | None = None,
+    fallback: str | None = None,
 ) -> dict:
     """The deterministic decision rule: turns the LLM's bounded
     classification (see schemas.Round2AutomationClarifyLLMResponse) into what
@@ -182,7 +183,7 @@ def build_clarify_response(
 
     # status == "insufficient"
     if contains_forbidden_vocab(question):
-        question = FALLBACK_QUESTION
+        question = fallback or FALLBACK_QUESTION
     return {"response_kind": "clarify", "response_message": question}
 
 
@@ -215,3 +216,42 @@ def should_stop_clarifying(conversation_so_far: list[dict], candidate_prompt: st
     return clarify_loop.should_stop_clarifying(
         conversation_so_far, candidate_prompt, next_question, max_streak=MAX_CONSECUTIVE_CLARIFIES,
     )
+
+
+# ---- The candidate's own design is the specification (Sep 2026) ----------
+# Transcripts showed candidates asked "what should prove it worked?" again
+# and again while their own Round 1 design already said it ("redirected to
+# /dashboard and the header shows 'Welcome, Jordan'"), and a fixed fallback
+# question sent word for word whatever they typed. Now:
+#   - a design with its steps, test data and expected result filled in
+#     needs no questions at all - generation encodes it (no AI call here);
+#   - at most ONE clarifying question per test case; after that, proceed;
+#   - any question names what is actually missing from the design instead
+#     of one generic sentence.
+# Scoring still judges whether what the candidate specified was enough.
+_DESIGN_QUESTIONS = (
+    ("steps", "Which steps should the test perform, in order?"),
+    ("test_data", "Which test data should the test use?"),
+    ("expected_result", "What result should the test check to prove it passed?"),
+)
+
+
+def missing_design_fields(selected_design: list[dict]) -> list[str]:
+    """Design fields (steps, test data, expected result) left empty or near-empty."""
+    row = (selected_design or [{}])[0] or {}
+    return [field for field, _ in _DESIGN_QUESTIONS if len(str(row.get(field) or "").split()) < 2]
+
+
+def design_is_complete(selected_design: list[dict]) -> bool:
+    return not missing_design_fields(selected_design)
+
+
+def question_for_design(selected_design: list[dict]) -> str:
+    """The question for the first missing design field - the generic one only when nothing is missing."""
+    missing = missing_design_fields(selected_design)
+    return next((q for field, q in _DESIGN_QUESTIONS if field in missing), FALLBACK_QUESTION)
+
+
+def already_asked(conversation_so_far: list[dict]) -> bool:
+    """Whether a clarifying question has been asked for this test case already."""
+    return any((t or {}).get("response_kind") == "clarify" for t in conversation_so_far or [])

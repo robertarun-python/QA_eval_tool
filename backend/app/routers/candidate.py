@@ -7,6 +7,9 @@ freed up by the Round 3 -> Round 2 renumbering and has since been reused
 for a new round (AI-prompted coding), unrelated to the manual-testing
 round that used to live at that number.
 """
+import hashlib
+import json
+import threading
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -942,8 +945,48 @@ def round2_automation_update_test_data(payload: Round2AutomationTestDataUpdate, 
     return _build_auto_state(scenario, submission, candidate, db)
 
 
+# One assistant turn at a time per test case: a double-click or a retry that
+# lands while the first request is still waiting on the model used to pay
+# for (and record) the same turn twice.
+_turn_locks: dict[tuple[int, int], threading.Lock] = {}
+_turn_locks_guard = threading.Lock()
+REPEAT_MESSAGE = ("You've sent the same message again and nothing has changed since my last reply, so it still "
+                  "stands (see above). Tell me what you'd like changed, or run the code to check it.")
+
+
+def _turn_lock(submission_id: int, row_index: int) -> threading.Lock:
+    with _turn_locks_guard:
+        return _turn_locks.setdefault((submission_id, row_index), threading.Lock())
+
+
+def _state_fingerprint(row: dict) -> str:
+    """What the candidate can see changing between messages: the code and the last run."""
+    last_run = row.get("last_run") or {}
+    raw = json.dumps([row.get("code") or "", last_run.get("ran_at"), last_run.get("exit_code"), last_run.get("stdout")], default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _same_message(a: str | None, b: str | None) -> bool:
+    def norm(t: str | None) -> str:
+        return " ".join((t or "").lower().split()).strip(" .!?")
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
 @router.post("/round/2/auto/turn", response_model=Round2AutomationTurnOut, status_code=201)
 def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = Depends(get_db), candidate: User = Depends(require_candidate)):
+    """See _round2_automation_turn - this wrapper allows one turn at a time per test case."""
+    _require_round_unlocked(2, db, candidate)
+    scenario, submission = _auto_in_progress(candidate, db)
+    lock = _turn_lock(submission.id, payload.row_index)
+    if not lock.acquire(blocking=False):
+        raise HTTPException(409, "The assistant is still answering your previous message for this test case - wait for that reply.")
+    try:
+        return _round2_automation_turn(payload, db, candidate)
+    finally:
+        lock.release()
+
+
+def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, candidate: User):
     """Before this test case's first ever code_edit, every instruction
     goes through the specification-sufficiency check (llm_service.
     round2_automation_clarify) first - insufficient/contradicts_prior comes
@@ -959,7 +1002,6 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
     content = _ensure_auto_content(scenario, submission, candidate, db)
     selected = _require_selection(content)
     row = _resolve_tc_row(selected, payload.row_index)
-    row_index = row["index"]
 
     turns = list(row.get("turns") or [])
     conversation_so_far = [
@@ -968,6 +1010,16 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
     language = content.get("language", "python")
     environment_code = _auto_environment_code(scenario, language)
     is_first_generation = not _tc_is_unlocked(row)
+
+    # The same message again with nothing changed since (no edit, no run):
+    # answered without an AI call - the earlier reply still stands, and a
+    # model at temperature 0 would only repeat it word for word. Not after a
+    # clarifying question: that case proceeds (the gate asks only once).
+    last = turns[-1] if turns else None
+    if (last and last.get("response_kind") != "clarify" and _same_message(last.get("candidate_prompt"), payload.candidate_prompt)
+            and last.get("state_seen") == _state_fingerprint(row)):
+        return _record_round2_turn(submission, content, selected, row, turns, payload.candidate_prompt, db,
+                                   {"response_kind": "explain", "response_message": REPEAT_MESSAGE, "code_after": None})
 
     # Synchronous, same reasoning as every other round's turn endpoint -
     # nothing is persisted until the call succeeds and validates.
@@ -1015,10 +1067,13 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+    return _record_round2_turn(submission, content, selected, row, turns, payload.candidate_prompt, db, response)
 
+
+def _record_round2_turn(submission, content, selected, row, turns, candidate_prompt, db, response) -> Round2AutomationTurnOut:
     turn_record = {
         "turn_number": len(turns) + 1,
-        "candidate_prompt": payload.candidate_prompt,
+        "candidate_prompt": candidate_prompt,
         "response_kind": response["response_kind"],
         "response_message": response["response_message"],
         "code_after": response.get("code_after"),
@@ -1026,17 +1081,17 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
     for key in ("planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"):  # assessor-only - see schemas.SubmissionOut
         if response.get(key):
             turn_record[key] = response[key]
-    turns.append(turn_record)
     new_row = dict(row)
-    new_row["turns"] = turns
+    new_row["turns"] = [*turns, turn_record]
     if response.get("code_after"):
         new_row["code"] = response["code_after"]
-    updated_selected = [new_row if r["index"] == row_index else r for r in selected]
+    # What the candidate saw once this reply landed - the repeat check above compares against it.
+    turn_record["state_seen"] = _state_fingerprint(new_row)
     updated = dict(content)
-    updated["selected"] = updated_selected
+    updated["selected"] = [new_row if r["index"] == row["index"] else r for r in selected]
     submission.content = updated
     db.commit()
-    return Round2AutomationTurnOut(row_index=row_index, **turn_record)
+    return Round2AutomationTurnOut(row_index=row["index"], **turn_record)
 
 
 @router.post("/round/2/auto/clarify", response_model=Round2AutomationTurnOut, status_code=201)
