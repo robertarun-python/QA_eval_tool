@@ -284,7 +284,7 @@ async function createScenario() {
   createBtn.disabled = true;
   const originalBtnText = createBtn.textContent;
   createBtn.textContent = "Generating...";
-  statusEl.textContent = "Generating reference answer (a few seconds)...";
+  statusEl.textContent = "Generating the reference test cases - this usually takes 1-2 minutes...";
   try {
     const scenario = await api("/hr/scenarios", {
       method: "POST",
@@ -624,6 +624,9 @@ async function openScenarioDetail(id) {
     <p id="scenario-detail-status" class="muted"></p>
   `;
   if (scenario.round_number === 1) loadPracticeAppPanel(scenario.id);
+  // The panel sits below the scenario list, often off-screen - without this,
+  // Review (or Create) looked like it did nothing.
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) {
     box.innerHTML = `<p class="muted">Couldn't render this scenario's detail view: ${escapeHtml(e.message)}. Check the browser console for more, and try a hard refresh (Ctrl+Shift+R) in case this page is running an old cached version.</p>`;
   }
