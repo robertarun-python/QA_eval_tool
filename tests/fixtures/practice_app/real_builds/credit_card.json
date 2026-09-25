@@ -1,0 +1,1924 @@
+{
+ "scenario": {
+  "title": "Credit Card Management App",
+  "description": "A customer logs into the credit card application, selects an active credit card, temporarily blocks the card due to suspected loss or unauthorized use, verifies that the card status changes to blocked, and later unblocks the card.\n\nFeatures to test\nFeature\tWhat to verify\nLogin\tValid/invalid login\nCard Selection\tSelect the correct credit card\nCard Status\tActive/Blocked status\nTemporary Block\tBlock card successfully\nUnblock Card\tRestore card to active status\nTransactions\tTransactions affected while card is blocked\nConfirmation\tStatus and confirmation message"
+ },
+ "reference_cases": [
+  {
+   "title": "Login with valid credentials",
+   "preconditions": "User has a registered account with valid username and password",
+   "steps": "1. Navigate to login page\n2. Enter valid username\n3. Enter valid password\n4. Click Login button",
+   "expected_result": "User is successfully logged in and redirected to dashboard/home page",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Login with invalid password",
+   "preconditions": "User has a registered account",
+   "steps": "1. Navigate to login page\n2. Enter valid username\n3. Enter incorrect password\n4. Click Login button",
+   "expected_result": "Login fails with error message 'Invalid username or password' or similar. User remains on login page",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Login with empty credentials",
+   "preconditions": "None",
+   "steps": "1. Navigate to login page\n2. Leave username field blank\n3. Leave password field blank\n4. Click Login button",
+   "expected_result": "Validation error displayed, login button disabled or form validation prevents submission",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Select active credit card from card list",
+   "preconditions": "User is logged in and has at least one active credit card",
+   "steps": "1. Navigate to credit cards section\n2. View list of available credit cards\n3. Click/select an active credit card",
+   "expected_result": "Card details are displayed showing card number (masked), current status as 'Active', and available actions",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Temporarily block an active credit card",
+   "preconditions": "User is logged in and has selected an active credit card",
+   "steps": "1. Click on 'Block Card' or 'Temporarily Block' option\n2. Confirm the blocking action if confirmation dialog appears\n3. Submit the block request",
+   "expected_result": "Card status changes to 'Blocked' or 'Temporarily Blocked', success confirmation message displayed",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Verify card status displays as blocked after blocking",
+   "preconditions": "User has just blocked a credit card",
+   "steps": "1. Check the card status on the card details page\n2. Navigate away and return to the card selection page\n3. Check that the blocked card shows blocked status in the list",
+   "expected_result": "Card status consistently shows as 'Blocked' or 'Temporarily Blocked' across all views",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Unblock a temporarily blocked card",
+   "preconditions": "User is logged in and has a credit card in temporarily blocked status",
+   "steps": "1. Select the blocked credit card\n2. Click on 'Unblock Card' option\n3. Confirm the unblock action if prompted\n4. Submit the request",
+   "expected_result": "Card status changes back to 'Active', confirmation message displayed indicating successful unblock",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Attempt transaction on a blocked card",
+   "preconditions": "Credit card is in blocked status",
+   "steps": "1. Attempt to make a purchase or transaction using the blocked card\n2. Complete the transaction flow",
+   "expected_result": "Transaction is declined with appropriate message indicating card is blocked",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Try to block an already blocked card",
+   "preconditions": "User is logged in and has a card already in blocked status",
+   "steps": "1. Select the blocked card\n2. Look for 'Block Card' option or try to access it",
+   "expected_result": "Block option should be disabled/grayed out or not available. If available, should show message that card is already blocked",
+   "priority": "Medium",
+   "type": "Edge"
+  },
+  {
+   "title": "Try to unblock a card that is already active",
+   "preconditions": "User is logged in and has selected an active credit card",
+   "steps": "1. Look for 'Unblock Card' option on an active card\n2. Attempt to access unblock functionality",
+   "expected_result": "Unblock option should not be visible or should be disabled for active cards",
+   "priority": "Medium",
+   "type": "Edge"
+  },
+  {
+   "title": "Block card without confirmation",
+   "preconditions": "User is logged in and viewing an active card with block option available",
+   "steps": "1. Click 'Block Card' button\n2. If confirmation dialog appears, click Cancel or close the dialog\n3. Check card status",
+   "expected_result": "Card remains in Active status, blocking action is cancelled",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Verify confirmation message after successful block",
+   "preconditions": "User is about to block an active card",
+   "steps": "1. Select active card\n2. Click Block Card\n3. Confirm the action\n4. Observe the confirmation message",
+   "expected_result": "Clear confirmation message displayed (e.g., 'Your card ending in XXXX has been temporarily blocked') with relevant details",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Verify confirmation message after successful unblock",
+   "preconditions": "User has a blocked card ready to unblock",
+   "steps": "1. Select blocked card\n2. Click Unblock Card\n3. Confirm the action\n4. Read the confirmation message",
+   "expected_result": "Confirmation message indicates card is now active again with card details shown",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Select correct card when multiple cards exist",
+   "preconditions": "User is logged in and has multiple credit cards (at least 3)",
+   "steps": "1. Navigate to cards list\n2. Identify cards by last 4 digits or card name\n3. Select a specific card\n4. Verify the card details match the selection",
+   "expected_result": "The correct card is displayed with matching last 4 digits, expiry date, and card type",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Session timeout during block operation",
+   "preconditions": "User is logged in with a session timeout setting",
+   "steps": "1. Select an active card\n2. Wait for session to timeout or manually expire session\n3. Try to block the card",
+   "expected_result": "User is redirected to login page or shown session expired message. Block operation should not complete",
+   "priority": "Medium",
+   "type": "Edge"
+  },
+  {
+   "title": "Check blocked card persistence after logout and login",
+   "preconditions": "User has blocked a card in current session",
+   "steps": "1. Block a credit card successfully\n2. Logout from the application\n3. Login again with same credentials\n4. Navigate to credit cards and check the previously blocked card status",
+   "expected_result": "Card status remains 'Blocked' and persists across sessions",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Rapid block and unblock actions",
+   "preconditions": "User is logged in with an active card",
+   "steps": "1. Block the card\n2. Immediately unblock the card\n3. Block again\n4. Unblock again\n5. Check final status",
+   "expected_result": "System handles rapid state changes correctly, final status is Active, no errors or inconsistent states",
+   "priority": "Low",
+   "type": "Edge"
+  },
+  {
+   "title": "User with no credit cards",
+   "preconditions": "User account exists but has no credit cards linked",
+   "steps": "1. Login successfully\n2. Navigate to credit cards section",
+   "expected_result": "Appropriate message displayed like 'No credit cards found' or 'Add a credit card', no errors",
+   "priority": "Low",
+   "type": "Boundary"
+  },
+  {
+   "title": "Login with SQL injection attempt",
+   "preconditions": "None",
+   "steps": "1. Navigate to login page\n2. Enter SQL injection string in username (e.g., ' OR '1'='1)\n3. Enter any password\n4. Attempt login",
+   "expected_result": "Login fails, no SQL error exposed, input is sanitized or rejected",
+   "priority": "High",
+   "type": "Negative"
+  }
+ ],
+ "summary": {
+  "status": "ready",
+  "working": 19,
+  "total": 19
+ },
+ "unsupported": [],
+ "build": {
+  "built_at": "2026-09-25T09:59:32",
+  "ok": true,
+  "plan": {
+   "app_name": "Credit Card Management App",
+   "summary": "A practice app for managing credit cards with block/unblock functionality and transaction attempts.",
+   "base_url": "https://creditcard.example.test",
+   "test_accounts": [
+    {
+     "login": "john.doe@example.test",
+     "password": "SecurePass123!",
+     "notes": "Main test account with 3 credit cards"
+    },
+    {
+     "login": "jane.smith@example.test",
+     "password": "TestPass456!",
+     "notes": "Account with no credit cards"
+    }
+   ],
+   "data": "Users:\n- id: 1, email: john.doe@example.test, password: SecurePass123!, name: John Doe\n- id: 2, email: jane.smith@example.test, password: TestPass456!, name: Jane Smith\n\nCredit Cards:\n- id: 101, user_id: 1, card_number: 4532123456789012, last_four: 9012, card_type: Visa, expiry_date: 12/2026, status: Active\n- id: 102, user_id: 1, card_number: 5412345678901234, last_four: 1234, card_type: Mastercard, expiry_date: 06/2025, status: Active\n- id: 103, user_id: 1, card_number: 378282246310005, last_four: 0005, card_type: American Express, expiry_date: 09/2027, status: Blocked\n\nTransactions:\n(none at start - created during tests)",
+   "pages": [
+    "Login",
+    "Dashboard",
+    "Card List",
+    "Card Details"
+   ],
+   "helpers": [
+    {
+     "layer": "global",
+     "name": "setup",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Resets session to logged out state, clears current page to Login, clears any visible message, resets all card statuses to their initial values (cards 101 and 102 to Active, card 103 to Blocked), deletes all transactions created during tests",
+     "changes_data": true
+    },
+    {
+     "layer": "global",
+     "name": "teardown",
+     "params": [
+      "id"
+     ],
+     "returns": "None",
+     "behaviour": "If id is provided and is a transaction id, deletes that transaction. If id is a card id, resets that card's status to its initial value. If id is None, does nothing (setup handles full cleanup)",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "current_page",
+     "params": [],
+     "returns": "String: current page name ('Login', 'Dashboard', 'Card List', or 'Card Details')",
+     "behaviour": "Returns the name of the page currently displayed to the user",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "visible_message",
+     "params": [],
+     "returns": "String: the current message shown to user, or empty string if no message",
+     "behaviour": "Returns the most recent feedback message displayed on screen (success, error, or info message)",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "navigate_to_login",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Opens the Login page, clears any session, clears visible message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "fill_login_form",
+     "params": [
+      "username",
+      "password"
+     ],
+     "returns": "None",
+     "behaviour": "Fills the username and password fields on the Login page. Does nothing if not on Login page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_login",
+     "params": [],
+     "returns": "Boolean: true if login succeeded, false otherwise",
+     "behaviour": "Submits login form. If both fields empty, sets message 'Username and password are required' and returns false. If credentials match a user, logs in, navigates to Dashboard, clears message, returns true. Otherwise sets message 'Invalid username or password' and returns false. Must be on Login page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_logout",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Logs out current user, navigates to Login page, clears message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "navigate_to_cards",
+     "params": [],
+     "returns": "Boolean: true if navigation succeeded, false if not logged in",
+     "behaviour": "If logged in, navigates to Card List page and returns true. If not logged in, sets message 'Session expired. Please login again.', navigates to Login page, returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "get_card_list",
+     "params": [],
+     "returns": "List of objects: [{'id': int, 'last_four': string, 'card_type': string, 'status': string}, ...] or empty list",
+     "behaviour": "Returns list of cards for logged-in user visible on Card List page. Each object has id, last_four, card_type, and status. Returns empty list if not logged in or user has no cards. Must be on Card List page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "select_card",
+     "params": [
+      "card_id"
+     ],
+     "returns": "Boolean: true if card selected successfully, false otherwise",
+     "behaviour": "Selects card by id from Card List. If not logged in, sets message 'Session expired. Please login again.', navigates to Login, returns false. If card doesn't belong to user, sets message 'Card not found', returns false. Otherwise navigates to Card Details page for that card, clears message, returns true. Must be on Card List page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "get_card_details",
+     "params": [],
+     "returns": "Object: {'id': int, 'last_four': string, 'card_type': string, 'expiry_date': string, 'status': string} or None",
+     "behaviour": "Returns details of currently selected card shown on Card Details page. Returns None if not on Card Details page or no card selected",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "is_block_button_visible",
+     "params": [],
+     "returns": "Boolean: true if Block Card button is visible and enabled",
+     "behaviour": "Returns true if on Card Details page and current card status is Active. Returns false otherwise",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "is_unblock_button_visible",
+     "params": [],
+     "returns": "Boolean: true if Unblock Card button is visible and enabled",
+     "behaviour": "Returns true if on Card Details page and current card status is Blocked. Returns false otherwise",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_block_card",
+     "params": [],
+     "returns": "Boolean: true if block dialog opened, false otherwise",
+     "behaviour": "If on Card Details page and card is Active, opens confirmation dialog and returns true. If card is already Blocked, sets message 'Card is already blocked' and returns false. If not logged in, sets message 'Session expired. Please login again.', navigates to Login, returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "confirm_block",
+     "params": [],
+     "returns": "Boolean: true if block succeeded",
+     "behaviour": "Confirms block action in dialog. Changes card status to Blocked, sets message 'Your card ending in XXXX has been temporarily blocked' (with actual last 4 digits), closes dialog, returns true. Must have block dialog open",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "cancel_block",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Cancels block action, closes dialog without changing card status, clears message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_unblock_card",
+     "params": [],
+     "returns": "Boolean: true if unblock dialog opened, false otherwise",
+     "behaviour": "If on Card Details page and card is Blocked, opens confirmation dialog and returns true. If card is already Active, sets message 'Card is already active' and returns false. If not logged in, sets message 'Session expired. Please login again.', navigates to Login, returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "confirm_unblock",
+     "params": [],
+     "returns": "Boolean: true if unblock succeeded",
+     "behaviour": "Confirms unblock action in dialog. Changes card status to Active, sets message 'Your card ending in XXXX is now active' (with actual last 4 digits), closes dialog, returns true. Must have unblock dialog open",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "cancel_unblock",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Cancels unblock action, closes dialog without changing card status, clears message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "attempt_transaction",
+     "params": [
+      "card_id",
+      "amount"
+     ],
+     "returns": "Object: {'success': boolean, 'message': string, 'transaction_id': int or None}",
+     "behaviour": "Simulates a transaction attempt. If card status is Blocked, returns {'success': false, 'message': 'Transaction declined - card is blocked', 'transaction_id': None} and sets visible message to same. If card status is Active, creates transaction record, returns {'success': true, 'message': 'Transaction approved', 'transaction_id': <new_id>} and sets visible message. If card not found, returns {'success': false, 'message': 'Card not found', 'transaction_id': None}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "api_login",
+     "params": [
+      "username",
+      "password"
+     ],
+     "returns": "Object: {'ok': boolean, 'error': string or None, 'user_id': int or None}",
+     "behaviour": "Authenticates user. If both fields empty, returns {'ok': false, 'error': 'Username and password are required', 'user_id': None}. If credentials match, returns {'ok': true, 'error': None, 'user_id': <id>} and establishes session. Otherwise returns {'ok': false, 'error': 'Invalid username or password', 'user_id': None}. Input is sanitized against SQL injection",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_logout",
+     "params": [],
+     "returns": "Object: {'ok': boolean}",
+     "behaviour": "Logs out current user, clears session. Always returns {'ok': true}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_get_cards",
+     "params": [
+      "user_id"
+     ],
+     "returns": "Object: {'ok': boolean, 'error': string or None, 'cards': list}",
+     "behaviour": "Returns cards for user. If user_id is None or user not found, returns {'ok': false, 'error': 'User not found', 'cards': []}. Otherwise returns {'ok': true, 'error': None, 'cards': [{'id': int, 'last_four': string, 'card_type': string, 'expiry_date': string, 'status': string}, ...]}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_get_card",
+     "params": [
+      "card_id",
+      "user_id"
+     ],
+     "returns": "Object: {'ok': boolean, 'error': string or None, 'card': object or None}",
+     "behaviour": "Returns single card details. If card not found or doesn't belong to user, returns {'ok': false, 'error': 'Card not found', 'card': None}. Otherwise returns {'ok': true, 'error': None, 'card': {'id': int, 'last_four': string, 'card_type': string, 'expiry_date': string, 'status': string}}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_block_card",
+     "params": [
+      "card_id",
+      "user_id"
+     ],
+     "returns": "Object: {'ok': boolean, 'error': string or None, 'message': string or None}",
+     "behaviour": "Blocks a card. If card not found or doesn't belong to user, returns {'ok': false, 'error': 'Card not found', 'message': None}. If card already Blocked, returns {'ok': false, 'error': 'Card is already blocked', 'message': None}. Otherwise changes status to Blocked and returns {'ok': true, 'error': None, 'message': 'Your card ending in XXXX has been temporarily blocked'}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "api_unblock_card",
+     "params": [
+      "card_id",
+      "user_id"
+     ],
+     "returns": "Object: {'ok': boolean, 'error': string or None, 'message': string or None}",
+     "behaviour": "Unblocks a card. If card not found or doesn't belong to user, returns {'ok': false, 'error': 'Card not found', 'message': None}. If card already Active, returns {'ok': false, 'error': 'Card is already active', 'message': None}. Otherwise changes status to Active and returns {'ok': true, 'error': None, 'message': 'Your card ending in XXXX is now active'}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "api_process_transaction",
+     "params": [
+      "card_id",
+      "amount"
+     ],
+     "returns": "Object: {'ok': boolean, 'error': string or None, 'transaction_id': int or None}",
+     "behaviour": "Processes a transaction. If card not found, returns {'ok': false, 'error': 'Card not found', 'transaction_id': None}. If card is Blocked, returns {'ok': false, 'error': 'Transaction declined - card is blocked', 'transaction_id': None}. If card is Active, creates transaction record and returns {'ok': true, 'error': None, 'transaction_id': <new_id>}",
+     "changes_data": true
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_user",
+     "params": [
+      "email"
+     ],
+     "returns": "Object: {'id': int, 'email': string, 'name': string} or None",
+     "behaviour": "Returns user record by email, or None if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_card",
+     "params": [
+      "card_id"
+     ],
+     "returns": "Object: {'id': int, 'user_id': int, 'card_number': string, 'last_four': string, 'card_type': string, 'expiry_date': string, 'status': string} or None",
+     "behaviour": "Returns card record by id, or None if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_cards_for_user",
+     "params": [
+      "user_id"
+     ],
+     "returns": "List of objects: [{'id': int, 'user_id': int, 'card_number': string, 'last_four': string, 'card_type': string, 'expiry_date': string, 'status': string}, ...]",
+     "behaviour": "Returns all card records for a user, or empty list if none found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_update_card_status",
+     "params": [
+      "card_id",
+      "status"
+     ],
+     "returns": "Boolean: true if updated, false if card not found",
+     "behaviour": "Updates card status to 'Active' or 'Blocked'. Returns true if card exists and was updated, false otherwise",
+     "changes_data": true
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_transaction",
+     "params": [
+      "transaction_id"
+     ],
+     "returns": "Object: {'id': int, 'card_id': int, 'amount': float, 'status': string, 'timestamp': string} or None",
+     "behaviour": "Returns transaction record by id, or None if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_transactions_for_card",
+     "params": [
+      "card_id"
+     ],
+     "returns": "List of objects: [{'id': int, 'card_id': int, 'amount': float, 'status': string, 'timestamp': string}, ...]",
+     "behaviour": "Returns all transaction records for a card, or empty list if none found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_create_transaction",
+     "params": [
+      "card_id",
+      "amount",
+      "status"
+     ],
+     "returns": "Integer: new transaction id",
+     "behaviour": "Creates a new transaction record with timestamp '2024-01-15 10:30:00' (fixed), returns the new id",
+     "changes_data": true
+    },
+    {
+     "layer": "Database",
+     "name": "db_delete_transaction",
+     "params": [
+      "transaction_id"
+     ],
+     "returns": "Boolean: true if deleted, false if not found",
+     "behaviour": "Deletes transaction record by id. Returns true if existed and was deleted, false otherwise",
+     "changes_data": true
+    },
+    {
+     "layer": "Database",
+     "name": "db_reset_card_status",
+     "params": [
+      "card_id",
+      "initial_status"
+     ],
+     "returns": "Boolean: true if reset, false if card not found",
+     "behaviour": "Resets card status to its initial value (Active for cards 101 and 102, Blocked for card 103). Returns true if card exists, false otherwise",
+     "changes_data": true
+    },
+    {
+     "layer": "Database",
+     "name": "db_delete_all_transactions",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Deletes all transaction records from the database",
+     "changes_data": true
+    }
+   ],
+   "rules": [
+    "Users must log in with valid email and password to access the application",
+    "Empty username or password fields prevent login with validation message",
+    "Invalid credentials show 'Invalid username or password' message",
+    "SQL injection attempts in login are sanitized and treated as invalid credentials",
+    "Only logged-in users can view their credit cards",
+    "Users can only see and manage their own credit cards",
+    "Card status can be either 'Active' or 'Blocked'",
+    "Block Card button is only visible and enabled when card status is Active",
+    "Unblock Card button is only visible and enabled when card status is Blocked",
+    "Blocking a card requires confirmation via dialog",
+    "Unblocking a card requires confirmation via dialog",
+    "Canceling block or unblock dialog leaves card status unchanged",
+    "Attempting to block an already blocked card shows error message without opening dialog",
+    "Attempting to unblock an already active card shows error message without opening dialog",
+    "Transactions on blocked cards are declined with specific message",
+    "Transactions on active cards are approved and recorded",
+    "Card status persists across logout and login sessions",
+    "Session expiration during operations redirects to login page",
+    "Users with no credit cards see empty card list",
+    "Card details show masked card number via last 4 digits, card type, expiry date, and status",
+    "All timestamps for transactions use fixed date 2024-01-15 10:30:00"
+   ],
+   "messages": [
+    {
+     "when": "Login with empty username and password",
+     "text": "Username and password are required"
+    },
+    {
+     "when": "Login with invalid credentials",
+     "text": "Invalid username or password"
+    },
+    {
+     "when": "Session expires during operation",
+     "text": "Session expired. Please login again."
+    },
+    {
+     "when": "User tries to access card that doesn't belong to them",
+     "text": "Card not found"
+    },
+    {
+     "when": "Successfully block a card",
+     "text": "Your card ending in 9012 has been temporarily blocked"
+    },
+    {
+     "when": "Successfully unblock a card",
+     "text": "Your card ending in 0005 is now active"
+    },
+    {
+     "when": "Try to block already blocked card",
+     "text": "Card is already blocked"
+    },
+    {
+     "when": "Try to unblock already active card",
+     "text": "Card is already active"
+    },
+    {
+     "when": "Transaction declined on blocked card",
+     "text": "Transaction declined - card is blocked"
+    },
+    {
+     "when": "Transaction approved on active card",
+     "text": "Transaction approved"
+    },
+    {
+     "when": "User with no cards views card list",
+     "text": "No credit cards found"
+    }
+   ],
+   "not_supported": [
+    "Real session timeout mechanism - tests must manually simulate session expiration by calling logout or checking session state",
+    "Actual network calls or external payment processing - transactions are simulated in-memory",
+    "Real-time clock - all timestamps use fixed date 2024-01-15 10:30:00",
+    "Password hashing - passwords stored and compared as plain text for simplicity",
+    "Card number masking in display - full card numbers stored but only last_four shown in UI",
+    "Multiple simultaneous sessions - single session state tracked"
+   ],
+   "reference_sheet": {
+    "fields": {
+     "Base URL": "https://creditcard.example.test",
+     "Test account 1 email": "john.doe@example.test",
+     "Test account 1 password": "SecurePass123!",
+     "Test account 1 cards": "3 cards (last 4: 9012 Visa Active, 1234 Mastercard Active, 0005 Amex Blocked)",
+     "Test account 2 email": "jane.smith@example.test",
+     "Test account 2 password": "TestPass456!",
+     "Test account 2 cards": "0 cards",
+     "Card 101": "Visa ending in 9012, expires 12/2026, initially Active",
+     "Card 102": "Mastercard ending in 1234, expires 06/2025, initially Active",
+     "Card 103": "American Express ending in 0005, expires 09/2027, initially Blocked",
+     "Fixed timestamp": "2024-01-15 10:30:00"
+    },
+    "notes": "Only these 2 users and 3 cards exist in the practice app."
+   },
+   "screens": [
+    {
+     "name": "Login",
+     "elements": [
+      {
+       "type": "text",
+       "text": "Credit Card Management"
+      },
+      {
+       "type": "text",
+       "text": "Login"
+      },
+      {
+       "type": "label",
+       "text": "Username"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Password"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Login"
+      },
+      {
+       "type": "text",
+       "text": "Username and password are required (shown when both fields empty)"
+      },
+      {
+       "type": "text",
+       "text": "Invalid username or password (shown when credentials don't match)"
+      }
+     ]
+    },
+    {
+     "name": "Dashboard",
+     "elements": [
+      {
+       "type": "text",
+       "text": "Welcome, John Doe"
+      },
+      {
+       "type": "link",
+       "text": "My Credit Cards"
+      },
+      {
+       "type": "button",
+       "text": "Logout"
+      }
+     ]
+    },
+    {
+     "name": "Card List",
+     "elements": [
+      {
+       "type": "text",
+       "text": "My Credit Cards"
+      },
+      {
+       "type": "text",
+       "text": "Visa ending in 9012 - Active"
+      },
+      {
+       "type": "text",
+       "text": "Mastercard ending in 1234 - Active"
+      },
+      {
+       "type": "text",
+       "text": "American Express ending in 0005 - Blocked"
+      },
+      {
+       "type": "text",
+       "text": "No credit cards found (shown when user has no cards)"
+      },
+      {
+       "type": "button",
+       "text": "Logout"
+      }
+     ]
+    },
+    {
+     "name": "Card Details",
+     "elements": [
+      {
+       "type": "text",
+       "text": "Card Details"
+      },
+      {
+       "type": "text",
+       "text": "Card Type: Visa"
+      },
+      {
+       "type": "text",
+       "text": "Card Number: **** **** **** 9012"
+      },
+      {
+       "type": "text",
+       "text": "Expiry Date: 12/2026"
+      },
+      {
+       "type": "text",
+       "text": "Status: Active"
+      },
+      {
+       "type": "button",
+       "text": "Block Card (visible when status is Active)"
+      },
+      {
+       "type": "button",
+       "text": "Unblock Card (visible when status is Blocked)"
+      },
+      {
+       "type": "button",
+       "text": "Back to Card List"
+      },
+      {
+       "type": "text",
+       "text": "Your card ending in 9012 has been temporarily blocked (shown after successful block)"
+      },
+      {
+       "type": "text",
+       "text": "Your card ending in 0005 is now active (shown after successful unblock)"
+      },
+      {
+       "type": "text",
+       "text": "Card is already blocked (shown when trying to block already blocked card)"
+      },
+      {
+       "type": "text",
+       "text": "Card is already active (shown when trying to unblock already active card)"
+      },
+      {
+       "type": "text",
+       "text": "Transaction declined - card is blocked (shown when transaction attempted on blocked card)"
+      },
+      {
+       "type": "text",
+       "text": "Transaction approved (shown when transaction succeeds on active card)"
+      }
+     ]
+    }
+   ]
+  },
+  "checklists": [
+   {
+    "id": "login-valid-credentials",
+    "title": "Login with valid credentials",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login",
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Dashboard"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": ""
+     }
+    ]
+   },
+   {
+    "id": "login-invalid-password",
+    "title": "Login with invalid password",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "WrongPassword"
+      ]
+     },
+     {
+      "call": "UI.click_login",
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid username or password"
+     }
+    ]
+   },
+   {
+    "id": "login-empty-credentials",
+    "title": "Login with empty credentials",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "",
+       ""
+      ]
+     },
+     {
+      "call": "UI.click_login",
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Username and password are required"
+     }
+    ]
+   },
+   {
+    "id": "select-active-card",
+    "title": "Select active credit card from card list",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards",
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Card List"
+     },
+     {
+      "call": "UI.get_card_list",
+      "expect_includes": [
+       {
+        "id": 101,
+        "last_four": "9012",
+        "card_type": "Visa",
+        "status": "Active"
+       }
+      ]
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Card Details"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect": {
+       "id": 101,
+       "last_four": "9012",
+       "card_type": "Visa",
+       "expiry_date": "12/2026",
+       "status": "Active"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "id": 101,
+       "status": "Active"
+      }
+     }
+    ]
+   },
+   {
+    "id": "block-active-card",
+    "title": "Temporarily block an active credit card",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.is_block_button_visible",
+      "expect": true
+     },
+     {
+      "call": "UI.click_block_card",
+      "expect": true
+     },
+     {
+      "call": "UI.confirm_block",
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Your card ending in 9012 has been temporarily blocked"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "id": 101,
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       101
+      ]
+     }
+    ]
+   },
+   {
+    "id": "verify-blocked-status-persistence",
+    "title": "Verify card status displays as blocked after blocking",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.click_block_card"
+     },
+     {
+      "call": "UI.confirm_block"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.get_card_list",
+      "expect_includes": [
+       {
+        "id": 101,
+        "status": "Blocked"
+       }
+      ]
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       101
+      ]
+     }
+    ]
+   },
+   {
+    "id": "unblock-blocked-card",
+    "title": "Unblock a temporarily blocked card",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       103
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.is_unblock_button_visible",
+      "expect": true
+     },
+     {
+      "call": "UI.click_unblock_card",
+      "expect": true
+     },
+     {
+      "call": "UI.confirm_unblock",
+      "expect": true
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Your card ending in 0005 is now active"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       103
+      ],
+      "expect_includes": {
+       "id": 103,
+       "status": "Active"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       103
+      ]
+     }
+    ]
+   },
+   {
+    "id": "transaction-blocked-card",
+    "title": "Attempt transaction on a blocked card",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       103
+      ],
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.attempt_transaction",
+      "args": [
+       103,
+       100.0
+      ],
+      "expect": {
+       "success": false,
+       "message": "Transaction declined - card is blocked",
+       "transaction_id": null
+      }
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Transaction declined - card is blocked"
+     },
+     {
+      "call": "Database.db_get_transactions_for_card",
+      "args": [
+       103
+      ],
+      "expect": []
+     }
+    ]
+   },
+   {
+    "id": "block-already-blocked-card",
+    "title": "Try to block an already blocked card",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       103
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.is_block_button_visible",
+      "expect": false
+     },
+     {
+      "call": "UI.click_block_card",
+      "expect": false
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Card is already blocked"
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       103
+      ],
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     }
+    ]
+   },
+   {
+    "id": "unblock-already-active-card",
+    "title": "Try to unblock a card that is already active",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "UI.is_unblock_button_visible",
+      "expect": false
+     },
+     {
+      "call": "UI.click_unblock_card",
+      "expect": false
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Card is already active"
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Active"
+      }
+     }
+    ]
+   },
+   {
+    "id": "block-card-cancel-confirmation",
+    "title": "Block card without confirmation",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "UI.click_block_card",
+      "expect": true
+     },
+     {
+      "call": "UI.cancel_block"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": ""
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Active"
+      }
+     }
+    ]
+   },
+   {
+    "id": "verify-block-confirmation-message",
+    "title": "Verify confirmation message after successful block",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.click_block_card"
+     },
+     {
+      "call": "UI.confirm_block"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Your card ending in 9012 has been temporarily blocked"
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       101
+      ]
+     }
+    ]
+   },
+   {
+    "id": "verify-unblock-confirmation-message",
+    "title": "Verify confirmation message after successful unblock",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       103
+      ]
+     },
+     {
+      "call": "UI.click_unblock_card"
+     },
+     {
+      "call": "UI.confirm_unblock"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Your card ending in 0005 is now active"
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       103
+      ],
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       103
+      ]
+     }
+    ]
+   },
+   {
+    "id": "select-correct-card-multiple",
+    "title": "Select correct card when multiple cards exist",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.get_card_list",
+      "expect": [
+       {
+        "id": 101,
+        "last_four": "9012",
+        "card_type": "Visa",
+        "status": "Active"
+       },
+       {
+        "id": 102,
+        "last_four": "1234",
+        "card_type": "Mastercard",
+        "status": "Active"
+       },
+       {
+        "id": 103,
+        "last_four": "0005",
+        "card_type": "American Express",
+        "status": "Blocked"
+       }
+      ]
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       102
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect": {
+       "id": 102,
+       "last_four": "1234",
+       "card_type": "Mastercard",
+       "expiry_date": "06/2025",
+       "status": "Active"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       102
+      ],
+      "expect_includes": {
+       "id": 102,
+       "last_four": "1234",
+       "card_type": "Mastercard"
+      }
+     }
+    ]
+   },
+   {
+    "id": "session-timeout-block-operation",
+    "title": "Session timeout during block operation",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.click_logout"
+     },
+     {
+      "call": "UI.click_block_card",
+      "expect": false
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Session expired. Please login again."
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Active"
+      }
+     }
+    ]
+   },
+   {
+    "id": "blocked-card-persistence-across-sessions",
+    "title": "Check blocked card persistence after logout and login",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.click_block_card"
+     },
+     {
+      "call": "UI.confirm_block"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.click_logout"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       101
+      ]
+     }
+    ]
+   },
+   {
+    "id": "rapid-block-unblock-actions",
+    "title": "Rapid block and unblock actions",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "john.doe@example.test",
+       "SecurePass123!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.select_card",
+      "args": [
+       101
+      ]
+     },
+     {
+      "call": "UI.click_block_card"
+     },
+     {
+      "call": "UI.confirm_block"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.click_unblock_card"
+     },
+     {
+      "call": "UI.confirm_unblock"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "UI.click_block_card"
+     },
+     {
+      "call": "UI.confirm_block"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Blocked"
+      }
+     },
+     {
+      "call": "UI.click_unblock_card"
+     },
+     {
+      "call": "UI.confirm_unblock"
+     },
+     {
+      "call": "UI.get_card_details",
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "Database.db_get_card",
+      "args": [
+       101
+      ],
+      "expect_includes": {
+       "status": "Active"
+      }
+     },
+     {
+      "call": "teardown",
+      "args": [
+       101
+      ]
+     }
+    ]
+   },
+   {
+    "id": "user-no-credit-cards",
+    "title": "User with no credit cards",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "jane.smith@example.test",
+       "TestPass456!"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Dashboard"
+     },
+     {
+      "call": "UI.navigate_to_cards"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Card List"
+     },
+     {
+      "call": "UI.get_card_list",
+      "expect": []
+     },
+     {
+      "call": "Database.db_get_cards_for_user",
+      "args": [
+       2
+      ],
+      "expect": []
+     }
+    ]
+   },
+   {
+    "id": "login-sql-injection-attempt",
+    "title": "Login with SQL injection attempt",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.fill_login_form",
+      "args": [
+       "' OR '1'='1",
+       "anything"
+      ]
+     },
+     {
+      "call": "UI.click_login",
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid username or password"
+     }
+    ]
+   }
+  ],
+  "env_code_by_language": {
+   "python": "\"\"\"\nAutomation environment (Python) - Credit Card Management App - provided for\nyou, already working.\n\nThis is a SMALL controlled environment, not a framework you need to build\nor extend. It simulates the credit card portal's UI, its API and its database\nin-process so your automation runs deterministically with no real network\ncalls. The data matches the reference sheet: test accounts\njohn.doe@example.test / SecurePass123! (3 cards: Visa 9012 Active, Mastercard\n1234 Active, Amex 0005 Blocked) and jane.smith@example.test / TestPass456!\n(no cards).\n\nWrite your automated test(s) at the bottom, under the TODO marker, using\nthe helpers below. Do not rewrite the helpers.\n\"\"\"\n\nCONFIG = {\"base_url\": \"https://creditcard.example.test\", \"timeout_seconds\": 5}\n\n\nclass _Store:\n    \"\"\"In-memory stand-in for the application's database.\"\"\"\n\n    def __init__(self):\n        self.users = {\n            1: {\"id\": 1, \"email\": \"john.doe@example.test\", \"password\": \"SecurePass123!\", \"name\": \"John Doe\"},\n            2: {\"id\": 2, \"email\": \"jane.smith@example.test\", \"password\": \"TestPass456!\", \"name\": \"Jane Smith\"},\n        }\n        self.cards = {\n            101: {\"id\": 101, \"user_id\": 1, \"card_number\": \"4532123456789012\", \"last_four\": \"9012\", \"card_type\": \"Visa\", \"expiry_date\": \"12/2026\", \"status\": \"Active\", \"initial_status\": \"Active\"},\n            102: {\"id\": 102, \"user_id\": 1, \"card_number\": \"5412345678901234\", \"last_four\": \"1234\", \"card_type\": \"Mastercard\", \"expiry_date\": \"06/2025\", \"status\": \"Active\", \"initial_status\": \"Active\"},\n            103: {\"id\": 103, \"user_id\": 1, \"card_number\": \"378282246310005\", \"last_four\": \"0005\", \"card_type\": \"American Express\", \"expiry_date\": \"09/2027\", \"status\": \"Blocked\", \"initial_status\": \"Blocked\"},\n        }\n        self.transactions = {}\n        self._next_transaction_id = 1\n\n    def get_user_by_email(self, email):\n        for user in self.users.values():\n            if user[\"email\"] == email:\n                return dict(user)\n        return None\n\n    def get_card(self, card_id):\n        card = self.cards.get(card_id)\n        return dict(card) if card else None\n\n    def get_cards_for_user(self, user_id):\n        return [dict(c) for c in self.cards.values() if c[\"user_id\"] == user_id]\n\n    def update_card_status(self, card_id, status):\n        if card_id in self.cards:\n            self.cards[card_id][\"status\"] = status\n            return True\n        return False\n\n    def reset_card_status(self, card_id):\n        if card_id in self.cards:\n            self.cards[card_id][\"status\"] = self.cards[card_id][\"initial_status\"]\n            return True\n        return False\n\n    def create_transaction(self, card_id, amount, status):\n        transaction_id = self._next_transaction_id\n        self._next_transaction_id += 1\n        self.transactions[transaction_id] = {\n            \"id\": transaction_id,\n            \"card_id\": card_id,\n            \"amount\": amount,\n            \"status\": status,\n            \"timestamp\": \"2024-01-15 10:30:00\"\n        }\n        return transaction_id\n\n    def get_transaction(self, transaction_id):\n        transaction = self.transactions.get(transaction_id)\n        return dict(transaction) if transaction else None\n\n    def get_transactions_for_card(self, card_id):\n        return [dict(t) for t in self.transactions.values() if t[\"card_id\"] == card_id]\n\n    def delete_transaction(self, transaction_id):\n        if transaction_id in self.transactions:\n            del self.transactions[transaction_id]\n            return True\n        return False\n\n    def delete_all_transactions(self):\n        self.transactions.clear()\n        self._next_transaction_id = 1\n\n\nDB = _Store()\n_SESSION = {\"user_id\": None, \"page\": \"Login\", \"message\": \"\", \"selected_card_id\": None, \"dialog_open\": None}\n\n\ndef _sanitize_input(text):\n    \"\"\"Basic SQL injection protection - treat suspicious input as literal string.\"\"\"\n    if text and (\"'\" in text or \"--\" in text or \"OR\" in text.upper()):\n        return None\n    return text\n\n\nclass UI:\n    \"\"\"UI-layer actions - what the user does and sees in the portal.\"\"\"\n\n    @staticmethod\n    def current_page():\n        \"\"\"Returns the name of the page currently displayed to the user.\"\"\"\n        return _SESSION[\"page\"]\n\n    @staticmethod\n    def visible_message():\n        \"\"\"Returns the most recent feedback message displayed on screen.\"\"\"\n        return _SESSION[\"message\"]\n\n    @staticmethod\n    def navigate_to_login():\n        \"\"\"Opens the Login page, clears any session, clears visible message.\"\"\"\n        _SESSION.update(user_id=None, page=\"Login\", message=\"\", selected_card_id=None, dialog_open=None)\n\n    @staticmethod\n    def fill_login_form(username, password):\n        \"\"\"Fills the username and password fields on the Login page.\"\"\"\n        if _SESSION[\"page\"] == \"Login\":\n            _SESSION[\"_username\"] = username\n            _SESSION[\"_password\"] = password\n\n    @staticmethod\n    def click_login():\n        \"\"\"Submits login form.\"\"\"\n        if _SESSION[\"page\"] != \"Login\":\n            return False\n        \n        username = _SESSION.get(\"_username\", \"\")\n        password = _SESSION.get(\"_password\", \"\")\n        \n        if not username and not password:\n            _SESSION[\"message\"] = \"Username and password are required\"\n            return False\n        \n        # Sanitize input\n        clean_username = _sanitize_input(username)\n        if clean_username is None:\n            _SESSION[\"message\"] = \"Invalid username or password\"\n            return False\n        \n        user = DB.get_user_by_email(username)\n        if user and user[\"password\"] == password:\n            _SESSION.update(user_id=user[\"id\"], page=\"Dashboard\", message=\"\")\n            return True\n        \n        _SESSION[\"message\"] = \"Invalid username or password\"\n        return False\n\n    @staticmethod\n    def click_logout():\n        \"\"\"Logs out current user, navigates to Login page, clears message.\"\"\"\n        _SESSION.update(user_id=None, page=\"Login\", message=\"\", selected_card_id=None, dialog_open=None)\n\n    @staticmethod\n    def navigate_to_cards():\n        \"\"\"Navigates to Card List page if logged in.\"\"\"\n        if _SESSION[\"user_id\"] is None:\n            _SESSION.update(page=\"Login\", message=\"Session expired. Please login again.\")\n            return False\n        _SESSION.update(page=\"Card List\", message=\"\")\n        return True\n\n    @staticmethod\n    def get_card_list():\n        \"\"\"Returns list of cards for logged-in user visible on Card List page.\"\"\"\n        if _SESSION[\"page\"] != \"Card List\" or _SESSION[\"user_id\"] is None:\n            return []\n        \n        cards = DB.get_cards_for_user(_SESSION[\"user_id\"])\n        return [{\"id\": c[\"id\"], \"last_four\": c[\"last_four\"], \"card_type\": c[\"card_type\"], \"status\": c[\"status\"]} for c in cards]\n\n    @staticmethod\n    def select_card(card_id):\n        \"\"\"Selects card by id from Card List.\"\"\"\n        if _SESSION[\"page\"] != \"Card List\":\n            return False\n        \n        if _SESSION[\"user_id\"] is None:\n            _SESSION.update(page=\"Login\", message=\"Session expired. Please login again.\")\n            return False\n        \n        card = DB.get_card(card_id)\n        if not card or card[\"user_id\"] != _SESSION[\"user_id\"]:\n            _SESSION[\"message\"] = \"Card not found\"\n            return False\n        \n        _SESSION.update(page=\"Card Details\", selected_card_id=card_id, message=\"\")\n        return True\n\n    @staticmethod\n    def get_card_details():\n        \"\"\"Returns details of currently selected card shown on Card Details page.\"\"\"\n        if _SESSION[\"page\"] != \"Card Details\" or _SESSION[\"selected_card_id\"] is None:\n            return None\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        if not card:\n            return None\n        \n        return {\n            \"id\": card[\"id\"],\n            \"last_four\": card[\"last_four\"],\n            \"card_type\": card[\"card_type\"],\n            \"expiry_date\": card[\"expiry_date\"],\n            \"status\": card[\"status\"]\n        }\n\n    @staticmethod\n    def is_block_button_visible():\n        \"\"\"Returns true if Block Card button is visible and enabled.\"\"\"\n        if _SESSION[\"page\"] != \"Card Details\" or _SESSION[\"selected_card_id\"] is None:\n            return False\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        return card is not None and card[\"status\"] == \"Active\"\n\n    @staticmethod\n    def is_unblock_button_visible():\n        \"\"\"Returns true if Unblock Card button is visible and enabled.\"\"\"\n        if _SESSION[\"page\"] != \"Card Details\" or _SESSION[\"selected_card_id\"] is None:\n            return False\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        return card is not None and card[\"status\"] == \"Blocked\"\n\n    @staticmethod\n    def click_block_card():\n        \"\"\"Opens block confirmation dialog if card is Active.\"\"\"\n        if _SESSION[\"user_id\"] is None:\n            _SESSION.update(page=\"Login\", message=\"Session expired. Please login again.\")\n            return False\n        \n        if _SESSION[\"page\"] != \"Card Details\" or _SESSION[\"selected_card_id\"] is None:\n            return False\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        if not card:\n            return False\n        \n        if card[\"status\"] == \"Blocked\":\n            _SESSION[\"message\"] = \"Card is already blocked\"\n            return False\n        \n        if card[\"status\"] == \"Active\":\n            _SESSION[\"dialog_open\"] = \"block\"\n            return True\n        \n        return False\n\n    @staticmethod\n    def confirm_block():\n        \"\"\"Confirms block action in dialog.\"\"\"\n        if _SESSION[\"dialog_open\"] != \"block\":\n            return False\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        if not card:\n            return False\n        \n        DB.update_card_status(card[\"id\"], \"Blocked\")\n        _SESSION[\"message\"] = f\"Your card ending in {card['last_four']} has been temporarily blocked\"\n        _SESSION[\"dialog_open\"] = None\n        return True\n\n    @staticmethod\n    def cancel_block():\n        \"\"\"Cancels block action, closes dialog without changing card status.\"\"\"\n        _SESSION[\"dialog_open\"] = None\n        _SESSION[\"message\"] = \"\"\n\n    @staticmethod\n    def click_unblock_card():\n        \"\"\"Opens unblock confirmation dialog if card is Blocked.\"\"\"\n        if _SESSION[\"user_id\"] is None:\n            _SESSION.update(page=\"Login\", message=\"Session expired. Please login again.\")\n            return False\n        \n        if _SESSION[\"page\"] != \"Card Details\" or _SESSION[\"selected_card_id\"] is None:\n            return False\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        if not card:\n            return False\n        \n        if card[\"status\"] == \"Active\":\n            _SESSION[\"message\"] = \"Card is already active\"\n            return False\n        \n        if card[\"status\"] == \"Blocked\":\n            _SESSION[\"dialog_open\"] = \"unblock\"\n            return True\n        \n        return False\n\n    @staticmethod\n    def confirm_unblock():\n        \"\"\"Confirms unblock action in dialog.\"\"\"\n        if _SESSION[\"dialog_open\"] != \"unblock\":\n            return False\n        \n        card = DB.get_card(_SESSION[\"selected_card_id\"])\n        if not card:\n            return False\n        \n        DB.update_card_status(card[\"id\"], \"Active\")\n        _SESSION[\"message\"] = f\"Your card ending in {card['last_four']} is now active\"\n        _SESSION[\"dialog_open\"] = None\n        return True\n\n    @staticmethod\n    def cancel_unblock():\n        \"\"\"Cancels unblock action, closes dialog without changing card status.\"\"\"\n        _SESSION[\"dialog_open\"] = None\n        _SESSION[\"message\"] = \"\"\n\n    @staticmethod\n    def attempt_transaction(card_id, amount):\n        \"\"\"Simulates a transaction attempt.\"\"\"\n        card = DB.get_card(card_id)\n        \n        if not card:\n            return {\"success\": False, \"message\": \"Card not found\", \"transaction_id\": None}\n        \n        if card[\"status\"] == \"Blocked\":\n            message = \"Transaction declined - card is blocked\"\n            _SESSION[\"message\"] = message\n            return {\"success\": False, \"message\": message, \"transaction_id\": None}\n        \n        if card[\"status\"] == \"Active\":\n            transaction_id = DB.create_transaction(card_id, amount, \"approved\")\n            message = \"Transaction approved\"\n            _SESSION[\"message\"] = message\n            return {\"success\": True, \"message\": message, \"transaction_id\": transaction_id}\n        \n        return {\"success\": False, \"message\": \"Card not found\", \"transaction_id\": None}\n\n\nclass API:\n    \"\"\"API-layer actions.\"\"\"\n\n    @staticmethod\n    def api_login(username, password):\n        \"\"\"Authenticates user.\"\"\"\n        if not username and not password:\n            return {\"ok\": False, \"error\": \"Username and password are required\", \"user_id\": None}\n        \n        # Sanitize input\n        clean_username = _sanitize_input(username)\n        if clean_username is None:\n            return {\"ok\": False, \"error\": \"Invalid username or password\", \"user_id\": None}\n        \n        user = DB.get_user_by_email(username)\n        if user and user[\"password\"] == password:\n            _SESSION[\"user_id\"] = user[\"id\"]\n            return {\"ok\": True, \"error\": None, \"user_id\": user[\"id\"]}\n        \n        return {\"ok\": False, \"error\": \"Invalid username or password\", \"user_id\": None}\n\n    @staticmethod\n    def api_logout():\n        \"\"\"Logs out current user, clears session.\"\"\"\n        _SESSION[\"user_id\"] = None\n        return {\"ok\": True}\n\n    @staticmethod\n    def api_get_cards(user_id):\n        \"\"\"Returns cards for user.\"\"\"\n        if user_id is None:\n            return {\"ok\": False, \"error\": \"User not found\", \"cards\": []}\n        \n        if user_id not in DB.users:\n            return {\"ok\": False, \"error\": \"User not found\", \"cards\": []}\n        \n        cards = DB.get_cards_for_user(user_id)\n        card_list = [\n            {\n                \"id\": c[\"id\"],\n                \"last_four\": c[\"last_four\"],\n                \"card_type\": c[\"card_type\"],\n                \"expiry_date\": c[\"expiry_date\"],\n                \"status\": c[\"status\"]\n            }\n            for c in cards\n        ]\n        return {\"ok\": True, \"error\": None, \"cards\": card_list}\n\n    @staticmethod\n    def api_get_card(card_id, user_id):\n        \"\"\"Returns single card details.\"\"\"\n        card = DB.get_card(card_id)\n        \n        if not card or card[\"user_id\"] != user_id:\n            return {\"ok\": False, \"error\": \"Card not found\", \"card\": None}\n        \n        card_data = {\n            \"id\": card[\"id\"],\n            \"last_four\": card[\"last_four\"],\n            \"card_type\": card[\"card_type\"],\n            \"expiry_date\": card[\"expiry_date\"],\n            \"status\": card[\"status\"]\n        }\n        return {\"ok\": True, \"error\": None, \"card\": card_data}\n\n    @staticmethod\n    def api_block_card(card_id, user_id):\n        \"\"\"Blocks a card.\"\"\"\n        card = DB.get_card(card_id)\n        \n        if not card or card[\"user_id\"] != user_id:\n            return {\"ok\": False, \"error\": \"Card not found\", \"message\": None}\n        \n        if card[\"status\"] == \"Blocked\":\n            return {\"ok\": False, \"error\": \"Card is already blocked\", \"message\": None}\n        \n        DB.update_card_status(card_id, \"Blocked\")\n        message = f\"Your card ending in {card['last_four']} has been temporarily blocked\"\n        return {\"ok\": True, \"error\": None, \"message\": message}\n\n    @staticmethod\n    def api_unblock_card(card_id, user_id):\n        \"\"\"Unblocks a card.\"\"\"\n        card = DB.get_card(card_id)\n        \n        if not card or card[\"user_id\"] != user_id:\n            return {\"ok\": False, \"error\": \"Card not found\", \"message\": None}\n        \n        if card[\"status\"] == \"Active\":\n            return {\"ok\": False, \"error\": \"Card is already active\", \"message\": None}\n        \n        DB.update_card_status(card_id, \"Active\")\n        message = f\"Your card ending in {card['last_four']} is now active\"\n        return {\"ok\": True, \"error\": None, \"message\": message}\n\n    @staticmethod\n    def api_process_transaction(card_id, amount):\n        \"\"\"Processes a transaction.\"\"\"\n        card = DB.get_card(card_id)\n        \n        if not card:\n            return {\"ok\": False, \"error\": \"Card not found\", \"transaction_id\": None}\n        \n        if card[\"status\"] == \"Blocked\":\n            return {\"ok\": False, \"error\": \"Transaction declined - card is blocked\", \"transaction_id\": None}\n        \n        if card[\"status\"] == \"Active\":\n            transaction_id = DB.create_transaction(card_id, amount, \"approved\")\n            return {\"ok\": True, \"error\": None, \"transaction_id\": transaction_id}\n        \n        return {\"ok\": False, \"error\": \"Card not found\", \"transaction_id\": None}\n\n\nclass Database:\n    \"\"\"Direct DB-layer access, for verifying what was really stored.\"\"\"\n\n    @staticmethod\n    def db_get_user(email):\n        \"\"\"Returns user record by email, or None if not found.\"\"\"\n        user = DB.get_user_by_email(email)\n        if user:\n            return {\"id\": user[\"id\"], \"email\": user[\"email\"], \"name\": user[\"name\"]}\n        return None\n\n    @staticmethod\n    def db_get_card(card_id):\n        \"\"\"Returns card record by id, or None if not found.\"\"\"\n        return DB.get_card(card_id)\n\n    @staticmethod\n    def db_get_cards_for_user(user_id):\n        \"\"\"Returns all card records for a user, or empty list if none found.\"\"\"\n        return DB.get_cards_for_user(user_id)\n\n    @staticmethod\n    def db_update_card_status(card_id, status):\n        \"\"\"Updates card status to 'Active' or 'Blocked'.\"\"\"\n        return DB.update_card_status(card_id, status)\n\n    @staticmethod\n    def db_get_transaction(transaction_id):\n        \"\"\"Returns transaction record by id, or None if not found.\"\"\"\n        return DB.get_transaction(transaction_id)\n\n    @staticmethod\n    def db_get_transactions_for_card(card_id):\n        \"\"\"Returns all transaction records for a card, or empty list if none found.\"\"\"\n        return DB.get_transactions_for_card(card_id)\n\n    @staticmethod\n    def db_create_transaction(card_id, amount, status):\n        \"\"\"Creates a new transaction record with timestamp '2024-01-15 10:30:00'.\"\"\"\n        return DB.create_transaction(card_id, amount, status)\n\n    @staticmethod\n    def db_delete_transaction(transaction_id):\n        \"\"\"Deletes transaction record by id.\"\"\"\n        return DB.delete_transaction(transaction_id)\n\n    @staticmethod\n    def db_reset_card_status(card_id, initial_status):\n        \"\"\"Resets card status to its initial value.\"\"\"\n        return DB.reset_card_status(card_id)\n\n    @staticmethod\n    def db_delete_all_transactions():\n        \"\"\"Deletes all transaction records from the database.\"\"\"\n        DB.delete_all_transactions()\n\n\ndef setup():\n    \"\"\"Runs before your test. Resets session and data to initial state.\"\"\"\n    _SESSION.update(user_id=None, page=\"Login\", message=\"\", selected_card_id=None, dialog_open=None)\n    # Reset all card statuses to initial values\n    DB.reset_card_status(101)\n    DB.reset_card_status(102)\n    DB.reset_card_status(103)\n    # Delete all transactions\n    DB.delete_all_transactions()\n\n\ndef teardown(id=None):\n    \"\"\"Runs after your test. Pass an id to clean up specific data.\"\"\"\n    if id is None:\n        return\n    \n    # Check if it's a transaction id\n    transaction = DB.get_transaction(id)\n    if transaction:\n        DB.delete_transaction(id)\n        return\n    \n    # Check if it's a card id\n    card = DB.get_card(id)\n    if card:\n        DB.reset_card_status(id)\n\n\n# ---------------------------------------------------------------------------\n# TODO: write your automated test(s) below, then call them from __main__.\n# ---------------------------------------------------------------------------\n\n\nif __name__ == \"__main__\":\n    pass\n",
+   "javascript": "/*\n * Automation environment (JavaScript) - Credit Card Management App -\n * provided for you, already working.\n *\n * This is a SMALL controlled environment, not a framework you need to\n * build or extend. It simulates the credit card portal's UI, its API and its\n * database in-process so your automation runs deterministically with no\n * real network calls. The data matches the reference sheet: test accounts\n * john.doe@example.test / SecurePass123! (3 cards: Visa 9012 Active, Mastercard\n * 1234 Active, Amex 0005 Blocked) and jane.smith@example.test / TestPass456!\n * (no cards).\n *\n * Write your automated test(s) at the bottom, under the TODO marker,\n * using the helpers below. Do not rewrite the helpers.\n */\n\nconst CONFIG = { baseUrl: \"https://creditcard.example.test\", timeoutSeconds: 5 };\n\n// In-memory stand-in for the application's database.\nconst DB = {\n  users: {\n    1: { id: 1, email: \"john.doe@example.test\", password: \"SecurePass123!\", name: \"John Doe\" },\n    2: { id: 2, email: \"jane.smith@example.test\", password: \"TestPass456!\", name: \"Jane Smith\" },\n  },\n  cards: {\n    101: { id: 101, userId: 1, cardNumber: \"4532123456789012\", lastFour: \"9012\", cardType: \"Visa\", expiryDate: \"12/2026\", status: \"Active\", initialStatus: \"Active\" },\n    102: { id: 102, userId: 1, cardNumber: \"5412345678901234\", lastFour: \"1234\", cardType: \"Mastercard\", expiryDate: \"06/2025\", status: \"Active\", initialStatus: \"Active\" },\n    103: { id: 103, userId: 1, cardNumber: \"378282246310005\", lastFour: \"0005\", cardType: \"American Express\", expiryDate: \"09/2027\", status: \"Blocked\", initialStatus: \"Blocked\" },\n  },\n  transactions: {},\n  _nextTransactionId: 1,\n  getUserByEmail(email) {\n    for (const user of Object.values(this.users)) {\n      if (user.email === email) return { ...user };\n    }\n    return null;\n  },\n  getCard(cardId) {\n    const card = this.cards[cardId];\n    return card ? { ...card } : null;\n  },\n  getCardsForUser(userId) {\n    return Object.values(this.cards).filter((c) => c.userId === userId).map((c) => ({ ...c }));\n  },\n  updateCardStatus(cardId, status) {\n    if (this.cards[cardId]) {\n      this.cards[cardId].status = status;\n      return true;\n    }\n    return false;\n  },\n  resetCardStatus(cardId) {\n    if (this.cards[cardId]) {\n      this.cards[cardId].status = this.cards[cardId].initialStatus;\n      return true;\n    }\n    return false;\n  },\n  createTransaction(cardId, amount, status) {\n    const transactionId = this._nextTransactionId;\n    this._nextTransactionId += 1;\n    this.transactions[transactionId] = {\n      id: transactionId,\n      cardId: cardId,\n      amount: amount,\n      status: status,\n      timestamp: \"2024-01-15 10:30:00\"\n    };\n    return transactionId;\n  },\n  getTransaction(transactionId) {\n    const transaction = this.transactions[transactionId];\n    return transaction ? { ...transaction } : null;\n  },\n  getTransactionsForCard(cardId) {\n    return Object.values(this.transactions).filter((t) => t.cardId === cardId).map((t) => ({ ...t }));\n  },\n  deleteTransaction(transactionId) {\n    if (this.transactions[transactionId]) {\n      delete this.transactions[transactionId];\n      return true;\n    }\n    return false;\n  },\n  deleteAllTransactions() {\n    this.transactions = {};\n    this._nextTransactionId = 1;\n  },\n};\n\nconst SESSION = { userId: null, page: \"Login\", message: \"\", selectedCardId: null, dialogOpen: null };\n\nfunction sanitizeInput(text) {\n  if (text && (text.includes(\"'\") || text.includes(\"--\") || text.toUpperCase().includes(\"OR\"))) {\n    return null;\n  }\n  return text;\n}\n\n// UI-layer actions - what the user does and sees in the portal.\nconst UI = {\n  currentPage() {\n    return SESSION.page;\n  },\n  visibleMessage() {\n    return SESSION.message;\n  },\n  navigateToLogin() {\n    Object.assign(SESSION, { userId: null, page: \"Login\", message: \"\", selectedCardId: null, dialogOpen: null });\n  },\n  fillLoginForm(username, password) {\n    if (SESSION.page === \"Login\") {\n      SESSION._username = username;\n      SESSION._password = password;\n    }\n  },\n  clickLogin() {\n    if (SESSION.page !== \"Login\") {\n      return false;\n    }\n    \n    const username = SESSION._username || \"\";\n    const password = SESSION._password || \"\";\n    \n    if (!username && !password) {\n      SESSION.message = \"Username and password are required\";\n      return false;\n    }\n    \n    const cleanUsername = sanitizeInput(username);\n    if (cleanUsername === null) {\n      SESSION.message = \"Invalid username or password\";\n      return false;\n    }\n    \n    const user = DB.getUserByEmail(username);\n    if (user && user.password === password) {\n      Object.assign(SESSION, { userId: user.id, page: \"Dashboard\", message: \"\" });\n      return true;\n    }\n    \n    SESSION.message = \"Invalid username or password\";\n    return false;\n  },\n  clickLogout() {\n    Object.assign(SESSION, { userId: null, page: \"Login\", message: \"\", selectedCardId: null, dialogOpen: null });\n  },\n  navigateToCards() {\n    if (SESSION.userId === null) {\n      Object.assign(SESSION, { page: \"Login\", message: \"Session expired. Please login again.\" });\n      return false;\n    }\n    Object.assign(SESSION, { page: \"Card List\", message: \"\" });\n    return true;\n  },\n  getCardList() {\n    if (SESSION.page !== \"Card List\" || SESSION.userId === null) {\n      return [];\n    }\n    \n    const cards = DB.getCardsForUser(SESSION.userId);\n    return cards.map((c) => ({ id: c.id, lastFour: c.lastFour, cardType: c.cardType, status: c.status }));\n  },\n  selectCard(cardId) {\n    if (SESSION.page !== \"Card List\") {\n      return false;\n    }\n    \n    if (SESSION.userId === null) {\n      Object.assign(SESSION, { page: \"Login\", message: \"Session expired. Please login again.\" });\n      return false;\n    }\n    \n    const card = DB.getCard(cardId);\n    if (!card || card.userId !== SESSION.userId) {\n      SESSION.message = \"Card not found\";\n      return false;\n    }\n    \n    Object.assign(SESSION, { page: \"Card Details\", selectedCardId: cardId, message: \"\" });\n    return true;\n  },\n  getCardDetails() {\n    if (SESSION.page !== \"Card Details\" || SESSION.selectedCardId === null) {\n      return null;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    if (!card) {\n      return null;\n    }\n    \n    return {\n      id: card.id,\n      lastFour: card.lastFour,\n      cardType: card.cardType,\n      expiryDate: card.expiryDate,\n      status: card.status\n    };\n  },\n  isBlockButtonVisible() {\n    if (SESSION.page !== \"Card Details\" || SESSION.selectedCardId === null) {\n      return false;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    return card !== null && card.status === \"Active\";\n  },\n  isUnblockButtonVisible() {\n    if (SESSION.page !== \"Card Details\" || SESSION.selectedCardId === null) {\n      return false;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    return card !== null && card.status === \"Blocked\";\n  },\n  clickBlockCard() {\n    if (SESSION.userId === null) {\n      Object.assign(SESSION, { page: \"Login\", message: \"Session expired. Please login again.\" });\n      return false;\n    }\n    \n    if (SESSION.page !== \"Card Details\" || SESSION.selectedCardId === null) {\n      return false;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    if (!card) {\n      return false;\n    }\n    \n    if (card.status === \"Blocked\") {\n      SESSION.message = \"Card is already blocked\";\n      return false;\n    }\n    \n    if (card.status === \"Active\") {\n      SESSION.dialogOpen = \"block\";\n      return true;\n    }\n    \n    return false;\n  },\n  confirmBlock() {\n    if (SESSION.dialogOpen !== \"block\") {\n      return false;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    if (!card) {\n      return false;\n    }\n    \n    DB.updateCardStatus(card.id, \"Blocked\");\n    SESSION.message = `Your card ending in ${card.lastFour} has been temporarily blocked`;\n    SESSION.dialogOpen = null;\n    return true;\n  },\n  cancelBlock() {\n    SESSION.dialogOpen = null;\n    SESSION.message = \"\";\n  },\n  clickUnblockCard() {\n    if (SESSION.userId === null) {\n      Object.assign(SESSION, { page: \"Login\", message: \"Session expired. Please login again.\" });\n      return false;\n    }\n    \n    if (SESSION.page !== \"Card Details\" || SESSION.selectedCardId === null) {\n      return false;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    if (!card) {\n      return false;\n    }\n    \n    if (card.status === \"Active\") {\n      SESSION.message = \"Card is already active\";\n      return false;\n    }\n    \n    if (card.status === \"Blocked\") {\n      SESSION.dialogOpen = \"unblock\";\n      return true;\n    }\n    \n    return false;\n  },\n  confirmUnblock() {\n    if (SESSION.dialogOpen !== \"unblock\") {\n      return false;\n    }\n    \n    const card = DB.getCard(SESSION.selectedCardId);\n    if (!card) {\n      return false;\n    }\n    \n    DB.updateCardStatus(card.id, \"Active\");\n    SESSION.message = `Your card ending in ${card.lastFour} is now active`;\n    SESSION.dialogOpen = null;\n    return true;\n  },\n  cancelUnblock() {\n    SESSION.dialogOpen = null;\n    SESSION.message = \"\";\n  },\n  attemptTransaction(cardId, amount) {\n    const card = DB.getCard(cardId);\n    \n    if (!card) {\n      return { success: false, message: \"Card not found\", transactionId: null };\n    }\n    \n    if (card.status === \"Blocked\") {\n      const message = \"Transaction declined - card is blocked\";\n      SESSION.message = message;\n      return { success: false, message: message, transactionId: null };\n    }\n    \n    if (card.status === \"Active\") {\n      const transactionId = DB.createTransaction(cardId, amount, \"approved\");\n      const message = \"Transaction approved\";\n      SESSION.message = message;\n      return { success: true, message: message, transactionId: transactionId };\n    }\n    \n    return { success: false, message: \"Card not found\", transactionId: null };\n  },\n};\n\n// API-layer actions.\nconst API = {\n  apiLogin(username, password) {\n    if (!username && !password) {\n      return { ok: false, error: \"Username and password are required\", userId: null };\n    }\n    \n    const cleanUsername = sanitizeInput(username);\n    if (cleanUsername === null) {\n      return { ok: false, error: \"Invalid username or password\", userId: null };\n    }\n    \n    const user = DB.getUserByEmail(username);\n    if (user && user.password === password) {\n      SESSION.userId = user.id;\n      return { ok: true, error: null, userId: user.id };\n    }\n    \n    return { ok: false, error: \"Invalid username or password\", userId: null };\n  },\n  apiLogout() {\n    SESSION.userId = null;\n    return { ok: true };\n  },\n  apiGetCards(userId) {\n    if (userId === null) {\n      return { ok: false, error: \"User not found\", cards: [] };\n    }\n    \n    if (!DB.users[userId]) {\n      return { ok: false, error: \"User not found\", cards: [] };\n    }\n    \n    const cards = DB.getCardsForUser(userId);\n    const cardList = cards.map((c) => ({\n      id: c.id,\n      lastFour: c.lastFour,\n      cardType: c.cardType,\n      expiryDate: c.expiryDate,\n      status: c.status\n    }));\n    return { ok: true, error: null, cards: cardList };\n  },\n  apiGetCard(cardId, userId) {\n    const card = DB.getCard(cardId);\n    \n    if (!card || card.userId !== userId) {\n      return { ok: false, error: \"Card not found\", card: null };\n    }\n    \n    const cardData = {\n      id: card.id,\n      lastFour: card.lastFour,\n      cardType: card.cardType,\n      expiryDate: card.expiryDate,\n      status: card.status\n    };\n    return { ok: true, error: null, card: cardData };\n  },\n  apiBlockCard(cardId, userId) {\n    const card = DB.getCard(cardId);\n    \n    if (!card || card.userId !== userId) {\n      return { ok: false, error: \"Card not found\", message: null };\n    }\n    \n    if (card.status === \"Blocked\") {\n      return { ok: false, error: \"Card is already blocked\", message: null };\n    }\n    \n    DB.updateCardStatus(cardId, \"Blocked\");\n    const message = `Your card ending in ${card.lastFour} has been temporarily blocked`;\n    return { ok: true, error: null, message: message };\n  },\n  apiUnblockCard(cardId, userId) {\n    const card = DB.getCard(cardId);\n    \n    if (!card || card.userId !== userId) {\n      return { ok: false, error: \"Card not found\", message: null };\n    }\n    \n    if (card.status === \"Active\") {\n      return { ok: false, error: \"Card is already active\", message: null };\n    }\n    \n    DB.updateCardStatus(cardId, \"Active\");\n    const message = `Your card ending in ${card.lastFour} is now active`;\n    return { ok: true, error: null, message: message };\n  },\n  apiProcessTransaction(cardId, amount) {\n    const card = DB.getCard(cardId);\n    \n    if (!card) {\n      return { ok: false, error: \"Card not found\", transactionId: null };\n    }\n    \n    if (card.status === \"Blocked\") {\n      return { ok: false, error: \"Transaction declined - card is blocked\", transactionId: null };\n    }\n    \n    if (card.status === \"Active\") {\n      const transactionId = DB.createTransaction(cardId, amount, \"approved\");\n      return { ok: true, error: null, transactionId: transactionId };\n    }\n    \n    return { ok: false, error: \"Card not found\", transactionId: null };\n  },\n};\n\n// Direct DB-layer access, for verifying what was really stored.\nconst Database = {\n  dbGetUser(email) {\n    const user = DB.getUserByEmail(email);\n    if (user) {\n      return { id: user.id, email: user.email, name: user.name };\n    }\n    return null;\n  },\n  dbGetCard(cardId) {\n    return DB.getCard(cardId);\n  },\n  dbGetCardsForUser(userId) {\n    return DB.getCardsForUser(userId);\n  },\n  dbUpdateCardStatus(cardId, status) {\n    return DB.updateCardStatus(cardId, status);\n  },\n  dbGetTransaction(transactionId) {\n    return DB.getTransaction(transactionId);\n  },\n  dbGetTransactionsForCard(cardId) {\n    return DB.getTransactionsForCard(cardId);\n  },\n  dbCreateTransaction(cardId, amount, status) {\n    return DB.createTransaction(cardId, amount, status);\n  },\n  dbDeleteTransaction(transactionId) {\n    return DB.deleteTransaction(transactionId);\n  },\n  dbResetCardStatus(cardId, initialStatus) {\n    return DB.resetCardStatus(cardId);\n  },\n  dbDeleteAllTransactions() {\n    DB.deleteAllTransactions();\n  },\n};\n\n// Runs before your test. Resets session and data to initial state.\nfunction setup() {\n  Object.assign(SESSION, { userId: null, page: \"Login\", message: \"\", selectedCardId: null, dialogOpen: null });\n  DB.resetCardStatus(101);\n  DB.resetCardStatus(102);\n  DB.resetCardStatus(103);\n  DB.deleteAllTransactions();\n}\n\n// Runs after your test. Pass an id to clean up specific data.\nfunction teardown(id = null) {\n  if (id === null) {\n    return;\n  }\n  \n  const transaction = DB.getTransaction(id);\n  if (transaction) {\n    DB.deleteTransaction(id);\n    return;\n  }\n  \n  const card = DB.getCard(id);\n  if (card) {\n    DB.resetCardStatus(id);\n  }\n}\n\n// ---------------------------------------------------------------------------\n// TODO: write your automated test(s) below, then call them.\n// ---------------------------------------------------------------------------\n",
+   "java": "/*\n * Automation environment (Java) - Credit Card Management App - provided for\n * you, already working.\n *\n * This is a SMALL controlled environment, not a framework you need to build\n * or extend. It simulates the credit card portal's UI, its API and its database\n * in-process so your automation runs deterministically with no real network\n * calls. The data matches the reference sheet: test accounts\n * john.doe@example.test / SecurePass123! (3 cards: Visa 9012 Active, Mastercard\n * 1234 Active, Amex 0005 Blocked) and jane.smith@example.test / TestPass456!\n * (no cards).\n *\n * Write your automated test(s) inside Main (under the TODO marker) and\n * call them from main(). Do not rewrite the helpers. Everything must stay\n * in this one file - the public class must remain named Main.\n */\n\nimport java.util.ArrayList;\nimport java.util.LinkedHashMap;\nimport java.util.List;\nimport java.util.Map;\n\npublic class Main {\n\n    static final String BASE_URL = \"https://creditcard.example.test\";\n    static final int TIMEOUT_SECONDS = 5;\n\n    static class User {\n        int id; String email; String password; String name;\n        User(int id, String email, String password, String name) {\n            this.id = id; this.email = email; this.password = password; this.name = name;\n        }\n    }\n\n    static class Card {\n        int id; int userId; String cardNumber; String lastFour; String cardType; String expiryDate; String status; String initialStatus;\n        Card(int id, int userId, String cardNumber, String lastFour, String cardType, String expiryDate, String status) {\n            this.id = id; this.userId = userId; this.cardNumber = cardNumber; this.lastFour = lastFour;\n            this.cardType = cardType; this.expiryDate = expiryDate; this.status = status; this.initialStatus = status;\n        }\n        Card copy() {\n            Card c = new Card(id, userId, cardNumber, lastFour, cardType, expiryDate, status);\n            c.initialStatus = initialStatus;\n            return c;\n        }\n    }\n\n    static class Transaction {\n        int id; int cardId; double amount; String status; String timestamp;\n        Transaction(int id, int cardId, double amount, String status, String timestamp) {\n            this.id = id; this.cardId = cardId; this.amount = amount; this.status = status; this.timestamp = timestamp;\n        }\n        Transaction copy() {\n            return new Transaction(id, cardId, amount, status, timestamp);\n        }\n    }\n\n    static class CardListItem {\n        int id; String lastFour; String cardType; String status;\n        CardListItem(int id, String lastFour, String cardType, String status) {\n            this.id = id; this.lastFour = lastFour; this.cardType = cardType; this.status = status;\n        }\n    }\n\n    static class CardDetails {\n        int id; String lastFour; String cardType; String expiryDate; String status;\n        CardDetails(int id, String lastFour, String cardType, String expiryDate, String status) {\n            this.id = id; this.lastFour = lastFour; this.cardType = cardType; this.expiryDate = expiryDate; this.status = status;\n        }\n    }\n\n    static class TransactionResult {\n        boolean success; String message; Integer transactionId;\n        TransactionResult(boolean success, String message, Integer transactionId) {\n            this.success = success; this.message = message; this.transactionId = transactionId;\n        }\n    }\n\n    static class LoginResponse {\n        boolean ok; String error; Integer userId;\n        LoginResponse(boolean ok, String error, Integer userId) {\n            this.ok = ok; this.error = error; this.userId = userId;\n        }\n    }\n\n    static class LogoutResponse {\n        boolean ok;\n        LogoutResponse(boolean ok) { this.ok = ok; }\n    }\n\n    static class GetCardsResponse {\n        boolean ok; String error; List<CardDetails> cards;\n        GetCardsResponse(boolean ok, String error, List<CardDetails> cards) {\n            this.ok = ok; this.error = error; this.cards = cards;\n        }\n    }\n\n    static class GetCardResponse {\n        boolean ok; String error; CardDetails card;\n        GetCardResponse(boolean ok, String error, CardDetails card) {\n            this.ok = ok; this.error = error; this.card = card;\n        }\n    }\n\n    static class BlockCardResponse {\n        boolean ok; String error; String message;\n        BlockCardResponse(boolean ok, String error, String message) {\n            this.ok = ok; this.error = error; this.message = message;\n        }\n    }\n\n    static class UnblockCardResponse {\n        boolean ok; String error; String message;\n        UnblockCardResponse(boolean ok, String error, String message) {\n            this.ok = ok; this.error = error; this.message = message;\n        }\n    }\n\n    static class ProcessTransactionResponse {\n        boolean ok; String error; Integer transactionId;\n        ProcessTransactionResponse(boolean ok, String error, Integer transactionId) {\n            this.ok = ok; this.error = error; this.transactionId = transactionId;\n        }\n    }\n\n    // In-memory stand-in for the application's database.\n    static Map<Integer, User> USERS = new LinkedHashMap<>();\n    static Map<Integer, Card> CARDS = new LinkedHashMap<>();\n    static Map<Integer, Transaction> TRANSACTIONS = new LinkedHashMap<>();\n    static int NEXT_TRANSACTION_ID = 1;\n\n    // What the user's browser session currently shows.\n    static Integer SESSION_USER_ID = null;\n    static String PAGE = \"Login\";\n    static String MESSAGE = \"\";\n    static Integer SELECTED_CARD_ID = null;\n    static String DIALOG_OPEN = null;\n    static String TEMP_USERNAME = \"\";\n    static String TEMP_PASSWORD = \"\";\n\n    static {\n        USERS.put(1, new User(1, \"john.doe@example.test\", \"SecurePass123!\", \"John Doe\"));\n        USERS.put(2, new User(2, \"jane.smith@example.test\", \"TestPass456!\", \"Jane Smith\"));\n        CARDS.put(101, new Card(101, 1, \"4532123456789012\", \"9012\", \"Visa\", \"12/2026\", \"Active\"));\n        CARDS.put(102, new Card(102, 1, \"5412345678901234\", \"1234\", \"Mastercard\", \"06/2025\", \"Active\"));\n        CARDS.put(103, new Card(103, 1, \"378282246310005\", \"0005\", \"American Express\", \"09/2027\", \"Blocked\"));\n    }\n\n    static User getUserByEmail(String email) {\n        for (User u : USERS.values()) {\n            if (u.email.equals(email)) return u;\n        }\n        return null;\n    }\n\n    static Card getCard(int cardId) {\n        Card c = CARDS.get(cardId);\n        return c == null ? null : c.copy();\n    }\n\n    static List<Card> getCardsForUser(int userId) {\n        List<Card> result = new ArrayList<>();\n        for (Card c : CARDS.values()) {\n            if (c.userId == userId) result.add(c.copy());\n        }\n        return result;\n    }\n\n    static boolean updateCardStatus(int cardId, String status) {\n        Card c = CARDS.get(cardId);\n        if (c != null) {\n            c.status = status;\n            return true;\n        }\n        return false;\n    }\n\n    static boolean resetCardStatus(int cardId) {\n        Card c = CARDS.get(cardId);\n        if (c != null) {\n            c.status = c.initialStatus;\n            return true;\n        }\n        return false;\n    }\n\n    static int createTransaction(int cardId, double amount, String status) {\n        int transactionId = NEXT_TRANSACTION_ID++;\n        TRANSACTIONS.put(transactionId, new Transaction(transactionId, cardId, amount, status, \"2024-01-15 10:30:00\"));\n        return transactionId;\n    }\n\n    static Transaction getTransaction(int transactionId) {\n        Transaction t = TRANSACTIONS.get(transactionId);\n        return t == null ? null : t.copy();\n    }\n\n    static List<Transaction> getTransactionsForCard(int cardId) {\n        List<Transaction> result = new ArrayList<>();\n        for (Transaction t : TRANSACTIONS.values()) {\n            if (t.cardId == cardId) result.add(t.copy());\n        }\n        return result;\n    }\n\n    static boolean deleteTransaction(int transactionId) {\n        return TRANSACTIONS.remove(transactionId) != null;\n    }\n\n    static void deleteAllTransactions() {\n        TRANSACTIONS.clear();\n        NEXT_TRANSACTION_ID = 1;\n    }\n\n    static String sanitizeInput(String text) {\n        if (text != null && (text.contains(\"'\") || text.contains(\"--\") || text.toUpperCase().contains(\"OR\"))) {\n            return null;\n        }\n        return text;\n    }\n\n    // UI-layer actions - what the user does and sees in the portal.\n    static class UI {\n        static String currentPage() { return PAGE; }\n        static String visibleMessage() { return MESSAGE; }\n\n        static void navigateToLogin() {\n            SESSION_USER_ID = null;\n            PAGE = \"Login\";\n            MESSAGE = \"\";\n            SELECTED_CARD_ID = null;\n            DIALOG_OPEN = null;\n        }\n\n        static void fillLoginForm(String username, String password) {\n            if (\"Login\".equals(PAGE)) {\n                TEMP_USERNAME = username;\n                TEMP_PASSWORD = password;\n            }\n        }\n\n        static boolean clickLogin() {\n            if (!\"Login\".equals(PAGE)) return false;\n\n            String username = TEMP_USERNAME;\n            String password = TEMP_PASSWORD;\n\n            if ((username == null || username.isEmpty()) && (password == null || password.isEmpty())) {\n                MESSAGE = \"Username and password are required\";\n                return false;\n            }\n\n            String cleanUsername = sanitizeInput(username);\n            if (cleanUsername == null) {\n                MESSAGE = \"Invalid username or password\";\n                return false;\n            }\n\n            User user = getUserByEmail(username);\n            if (user != null && user.password.equals(password)) {\n                SESSION_USER_ID = user.id;\n                PAGE = \"Dashboard\";\n                MESSAGE = \"\";\n                return true;\n            }\n\n            MESSAGE = \"Invalid username or password\";\n            return false;\n        }\n\n        static void clickLogout() {\n            SESSION_USER_ID = null;\n            PAGE = \"Login\";\n            MESSAGE = \"\";\n            SELECTED_CARD_ID = null;\n            DIALOG_OPEN = null;\n        }\n\n        static boolean navigateToCards() {\n            if (SESSION_USER_ID == null) {\n                PAGE = \"Login\";\n                MESSAGE = \"Session expired. Please login again.\";\n                return false;\n            }\n            PAGE = \"Card List\";\n            MESSAGE = \"\";\n            return true;\n        }\n\n        static List<CardListItem> getCardList() {\n            if (!\"Card List\".equals(PAGE) || SESSION_USER_ID == null) {\n                return new ArrayList<>();\n            }\n\n            List<Card> cards = getCardsForUser(SESSION_USER_ID);\n            List<CardListItem> result = new ArrayList<>();\n            for (Card c : cards) {\n                result.add(new CardListItem(c.id, c.lastFour, c.cardType, c.status));\n            }\n            return result;\n        }\n\n        static boolean selectCard(int cardId) {\n            if (!\"Card List\".equals(PAGE)) return false;\n\n            if (SESSION_USER_ID == null) {\n                PAGE = \"Login\";\n                MESSAGE = \"Session expired. Please login again.\";\n                return false;\n            }\n\n            Card card = getCard(cardId);\n            if (card == null || card.userId != SESSION_USER_ID) {\n                MESSAGE = \"Card not found\";\n                return false;\n            }\n\n            PAGE = \"Card Details\";\n            SELECTED_CARD_ID = cardId;\n            MESSAGE = \"\";\n            return true;\n        }\n\n        static CardDetails getCardDetails() {\n            if (!\"Card Details\".equals(PAGE) || SELECTED_CARD_ID == null) {\n                return null;\n            }\n\n            Card card = getCard(SELECTED_CARD_ID);\n            if (card == null) return null;\n\n            return new CardDetails(card.id, card.lastFour, card.cardType, card.expiryDate, card.status);\n        }\n\n        static boolean isBlockButtonVisible() {\n            if (!\"Card Details\".equals(PAGE) || SELECTED_CARD_ID == null) {\n                return false;\n            }\n\n            Card card = getCard(SELECTED_CARD_ID);\n            return card != null && \"Active\".equals(card.status);\n        }\n\n        static boolean isUnblockButtonVisible() {\n            if (!\"Card Details\".equals(PAGE) || SELECTED_CARD_ID == null) {\n                return false;\n            }\n\n            Card card = getCard(SELECTED_CARD_ID);\n            return card != null && \"Blocked\".equals(card.status);\n        }\n\n        static boolean clickBlockCard() {\n            if (SESSION_USER_ID == null) {\n                PAGE = \"Login\";\n                MESSAGE = \"Session expired. Please login again.\";\n                return false;\n            }\n\n            if (!\"Card Details\".equals(PAGE) || SELECTED_CARD_ID == null) {\n                return false;\n            }\n\n            Card card = getCard(SELECTED_CARD_ID);\n            if (card == null) return false;\n\n            if (\"Blocked\".equals(card.status)) {\n                MESSAGE = \"Card is already blocked\";\n                return false;\n            }\n\n            if (\"Active\".equals(card.status)) {\n                DIALOG_OPEN = \"block\";\n                return true;\n            }\n\n            return false;\n        }\n\n        static boolean confirmBlock() {\n            if (!\"block\".equals(DIALOG_OPEN)) return false;\n\n            Card card = getCard(SELECTED_CARD_ID);\n            if (card == null) return false;\n\n            updateCardStatus(card.id, \"Blocked\");\n            MESSAGE = \"Your card ending in \" + card.lastFour + \" has been temporarily blocked\";\n            DIALOG_OPEN = null;\n            return true;\n        }\n\n        static void cancelBlock() {\n            DIALOG_OPEN = null;\n            MESSAGE = \"\";\n        }\n\n        static boolean clickUnblockCard() {\n            if (SESSION_USER_ID == null) {\n                PAGE = \"Login\";\n                MESSAGE = \"Session expired. Please login again.\";\n                return false;\n            }\n\n            if (!\"Card Details\".equals(PAGE) || SELECTED_CARD_ID == null) {\n                return false;\n            }\n\n            Card card = getCard(SELECTED_CARD_ID);\n            if (card == null) return false;\n\n            if (\"Active\".equals(card.status)) {\n                MESSAGE = \"Card is already active\";\n                return false;\n            }\n\n            if (\"Blocked\".equals(card.status)) {\n                DIALOG_OPEN = \"unblock\";\n                return true;\n            }\n\n            return false;\n        }\n\n        static boolean confirmUnblock() {\n            if (!\"unblock\".equals(DIALOG_OPEN)) return false;\n\n            Card card = getCard(SELECTED_CARD_ID);\n            if (card == null) return false;\n\n            updateCardStatus(card.id, \"Active\");\n            MESSAGE = \"Your card ending in \" + card.lastFour + \" is now active\";\n            DIALOG_OPEN = null;\n            return true;\n        }\n\n        static void cancelUnblock() {\n            DIALOG_OPEN = null;\n            MESSAGE = \"\";\n        }\n\n        static TransactionResult attemptTransaction(int cardId, double amount) {\n            Card card = getCard(cardId);\n\n            if (card == null) {\n                return new TransactionResult(false, \"Card not found\", null);\n            }\n\n            if (\"Blocked\".equals(card.status)) {\n                String message = \"Transaction declined - card is blocked\";\n                MESSAGE = message;\n                return new TransactionResult(false, message, null);\n            }\n\n            if (\"Active\".equals(card.status)) {\n                int transactionId = createTransaction(cardId, amount, \"approved\");\n                String message = \"Transaction approved\";\n                MESSAGE = message;\n                return new TransactionResult(true, message, transactionId);\n            }\n\n            return new TransactionResult(false, \"Card not found\", null);\n        }\n    }\n\n    // API-layer actions.\n    static class API {\n        static LoginResponse apiLogin(String username, String password) {\n            if ((username == null || username.isEmpty()) && (password == null || password.isEmpty())) {\n                return new LoginResponse(false, \"Username and password are required\", null);\n            }\n\n            String cleanUsername = sanitizeInput(username);\n            if (cleanUsername == null) {\n                return new LoginResponse(false, \"Invalid username or password\", null);\n            }\n\n            User user = getUserByEmail(username);\n            if (user != null && user.password.equals(password)) {\n                SESSION_USER_ID = user.id;\n                return new LoginResponse(true, null, user.id);\n            }\n\n            return new LoginResponse(false, \"Invalid username or password\", null);\n        }\n\n        static LogoutResponse apiLogout() {\n            SESSION_USER_ID = null;\n            return new LogoutResponse(true);\n        }\n\n        static GetCardsResponse apiGetCards(Integer userId) {\n            if (userId == null) {\n                return new GetCardsResponse(false, \"User not found\", new ArrayList<>());\n            }\n\n            if (!USERS.containsKey(userId)) {\n                return new GetCardsResponse(false, \"User not found\", new ArrayList<>());\n            }\n\n            List<Card> cards = getCardsForUser(userId);\n            List<CardDetails> cardList = new ArrayList<>();\n            for (Card c : cards) {\n                cardList.add(new CardDetails(c.id, c.lastFour, c.cardType, c.expiryDate, c.status));\n            }\n            return new GetCardsResponse(true, null, cardList);\n        }\n\n        static GetCardResponse apiGetCard(int cardId, int userId) {\n            Card card = getCard(cardId);\n\n            if (card == null || card.userId != userId) {\n                return new GetCardResponse(false, \"Card not found\", null);\n            }\n\n            CardDetails cardData = new CardDetails(card.id, card.lastFour, card.cardType, card.expiryDate, card.status);\n            return new GetCardResponse(true, null, cardData);\n        }\n\n        static BlockCardResponse apiBlockCard(int cardId, int userId) {\n            Card card = getCard(cardId);\n\n            if (card == null || card.userId != userId) {\n                return new BlockCardResponse(false, \"Card not found\", null);\n            }\n\n            if (\"Blocked\".equals(card.status)) {\n                return new BlockCardResponse(false, \"Card is already blocked\", null);\n            }\n\n            updateCardStatus(cardId, \"Blocked\");\n            String message = \"Your card ending in \" + card.lastFour + \" has been temporarily blocked\";\n            return new BlockCardResponse(true, null, message);\n        }\n\n        static UnblockCardResponse apiUnblockCard(int cardId, int userId) {\n            Card card = getCard(cardId);\n\n            if (card == null || card.userId != userId) {\n                return new UnblockCardResponse(false, \"Card not found\", null);\n            }\n\n            if (\"Active\".equals(card.status)) {\n                return new UnblockCardResponse(false, \"Card is already active\", null);\n            }\n\n            updateCardStatus(cardId, \"Active\");\n            String message = \"Your card ending in \" + card.lastFour + \" is now active\";\n            return new UnblockCardResponse(true, null, message);\n        }\n\n        static ProcessTransactionResponse apiProcessTransaction(int cardId, double amount) {\n            Card card = getCard(cardId);\n\n            if (card == null) {\n                return new ProcessTransactionResponse(false, \"Card not found\", null);\n            }\n\n            if (\"Blocked\".equals(card.status)) {\n                return new ProcessTransactionResponse(false, \"Transaction declined - card is blocked\", null);\n            }\n\n            if (\"Active\".equals(card.status)) {\n                int transactionId = createTransaction(cardId, amount, \"approved\");\n                return new ProcessTransactionResponse(true, null, transactionId);\n            }\n\n            return new ProcessTransactionResponse(false, \"Card not found\", null);\n        }\n    }\n\n    // Direct DB-layer access, for verifying what was really stored.\n    static class Database {\n        static class DbUser {\n            int id; String email; String name;\n            DbUser(int id, String email, String name) {\n                this.id = id; this.email = email; this.name = name;\n            }\n        }\n\n        static DbUser dbGetUser(String email) {\n            User user = getUserByEmail(email);\n            if (user != null) {\n                return new DbUser(user.id, user.email, user.name);\n            }\n            return null;\n        }\n\n        static Card dbGetCard(int cardId) {\n            return getCard(cardId);\n        }\n\n        static List<Card> dbGetCardsForUser(int userId) {\n            return getCardsForUser(userId);\n        }\n\n        static boolean dbUpdateCardStatus(int cardId, String status) {\n            return updateCardStatus(cardId, status);\n        }\n\n        static Transaction dbGetTransaction(int transactionId) {\n            return getTransaction(transactionId);\n        }\n\n        static List<Transaction> dbGetTransactionsForCard(int cardId) {\n            return getTransactionsForCard(cardId);\n        }\n\n        static int dbCreateTransaction(int cardId, double amount, String status) {\n            return createTransaction(cardId, amount, status);\n        }\n\n        static boolean dbDeleteTransaction(int transactionId) {\n            return deleteTransaction(transactionId);\n        }\n\n        static boolean dbResetCardStatus(int cardId) {\n            return resetCardStatus(cardId);\n        }\n\n        static void dbDeleteAllTransactions() {\n            deleteAllTransactions();\n        }\n    }\n\n    // Runs before your test. Resets session and data to initial state.\n    static void setup() {\n        SESSION_USER_ID = null;\n        PAGE = \"Login\";\n        MESSAGE = \"\";\n        SELECTED_CARD_ID = null;\n        DIALOG_OPEN = null;\n        // Reset all card statuses to initial values\n        resetCardStatus(101);\n        resetCardStatus(102);\n        resetCardStatus(103);\n        // Delete all transactions\n        deleteAllTransactions();\n    }\n\n    // Runs after your test. Pass an id to clean up specific data.\n    static void teardown(String id) {\n        if (id == null) return;\n\n        try {\n            int numId = Integer.parseInt(id);\n            \n            // Check if it's a transaction id\n            Transaction transaction = getTransaction(numId);\n            if (transaction != null) {\n                deleteTransaction(numId);\n                return;\n            }\n\n            // Check if it's a card id\n            Card card = getCard(numId);\n            if (card != null) {\n                resetCardStatus(numId);\n            }\n        } catch (NumberFormatException e) {\n            // Not a valid integer id\n        }\n    }\n\n    // -----------------------------------------------------------------------\n    // TODO: write your automated test(s) below, then call them from main().\n    // -----------------------------------------------------------------------\n\n    public static void main(String[] args) {\n    }\n}\n"
+  }
+ }
+}

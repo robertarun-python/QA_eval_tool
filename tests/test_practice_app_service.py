@@ -237,3 +237,22 @@ def test_a_build_from_different_round1_test_cases_is_not_reused(client, monkeypa
     saved.write_text(json.dumps(build))
     client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     assert calls[1]["reuse"] is None
+
+
+def test_every_build_is_kept_not_just_the_latest(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch, ok=False)
+    moments = iter(["2026-09-25T10:00:00", "2026-09-25T10:20:00"])
+
+    class _Clock(service.datetime):
+        @classmethod
+        def utcnow(cls):
+            return cls.fromisoformat(next(moments, "2026-09-25T10:40:00"))
+    monkeypatch.setattr(service, "datetime", _Clock)
+    for _ in range(2):
+        client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    history = sorted(p.name for p in (builds_dir / f"scenario_{r1['id']}" / "history").iterdir())
+    assert len(history) == 2, history
+    saved = json.loads((builds_dir / f"scenario_{r1['id']}" / "history" / history[0]).read_text())
+    assert saved["coverage"] and saved["log"] is not None and not saved["ok"]
