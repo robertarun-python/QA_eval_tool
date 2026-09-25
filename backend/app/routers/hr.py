@@ -266,6 +266,12 @@ def _resync_round2_automation_reference_for_band(round1_scenario: Scenario, db: 
     ).first()
     if live_round2_automation is None:
         return
+    if (live_round2_automation.config_json or {}).get("paired_round1_title"):
+        # A fixed practice environment paired with one Round 1 scenario (see
+        # seed_round2_appointments.py): its facts and screens match that
+        # environment's code, so they're never regenerated. HR is warned in
+        # the Round 2 settings card when the live Round 1 doesn't match.
+        return
     in_progress_count = (
         db.query(Submission)
         .filter(
@@ -306,6 +312,11 @@ def regenerate_reference(scenario_id: int, background_tasks: BackgroundTasks, db
     createRound2AutomationScenario in app.js) rather than sitting as a draft
     first, so it gets the same live-editable-but-blocked-mid-round
     treatment as its other settings instead."""
+    existing = db.get(Scenario, scenario_id)
+    paired = (existing.config_json or {}).get("paired_round1_title") if existing else None
+    if paired:
+        raise HTTPException(400, f"This Round 2 scenario uses a fixed practice environment built for \"{paired}\"; "
+                                 "its reference facts and screens match that environment and can't be regenerated.")
     scenario = db.get(Scenario, scenario_id)
     if scenario is not None and scenario.round_number == 2:
         _require_round2_automation_not_in_progress(scenario_id, db, background_tasks, "regenerate this round's environment & screens")

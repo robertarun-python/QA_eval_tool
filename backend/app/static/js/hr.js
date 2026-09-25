@@ -683,6 +683,11 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle) {
         <button onclick="saveRound2AutomationTimeLimit(${scenario.id})">Save</button>
       </div>`}
 
+      ${scenario.config_json && scenario.config_json.paired_round1_title ? `
+        <h4>Paired Round 1 scenario</h4>
+        <p class="muted">This round's practice environment was built for <strong>${escapeHtml(scenario.config_json.paired_round1_title)}</strong> - candidates can automate what they designed for it.</p>
+        ${groundedInTitle !== scenario.config_json.paired_round1_title ? `<p class="error-text" role="alert">The live Round 1 scenario is ${groundedInTitle ? `<strong>${escapeHtml(groundedInTitle)}</strong>` : "not set"}, not ${escapeHtml(scenario.config_json.paired_round1_title)}. Candidates will design tests this environment can't run - make the paired Round 1 scenario live, or pair a matching Round 2 environment.</p>` : ""}` : ""}
+
       <h4>Grounded in</h4>
       <p class="muted">${groundedInTitle
         ? `This round's test environment &amp; reference screens are auto-generated from <strong>${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live. They resync automatically whenever a different round 1 scenario goes live here.`
@@ -709,7 +714,7 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle) {
         ` : `<p class="muted">No test environment generated yet.</p>`}
         ${scenario.ui_mockup_json ? renderMockupScreens(scenario.ui_mockup_json, `hr-mockup-${scenario.id}`) : `<p class="muted">No reference screens generated yet.</p>`}
         <div class="row">
-          <button id="r4-regen-btn-${scenario.id}" onclick="regenerateRound2AutomationReference(${scenario.id})">Regenerate environment &amp; screens</button>
+          ${scenario.config_json && scenario.config_json.paired_round1_title ? "" : `<button id="r4-regen-btn-${scenario.id}" onclick="regenerateRound2AutomationReference(${scenario.id})">Regenerate environment &amp; screens</button>`}
         </div>
       </details>
 
