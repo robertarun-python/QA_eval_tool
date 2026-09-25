@@ -85,6 +85,16 @@ function selectHRRound(n) {
   currentHRRound = n;
   hrPage = "rounds";
   renderHRRoundNav();
+  showHRRoundPanels();
+}
+
+// Shows the panels that belong to currentHRRound and loads them. Also
+// called straight after login (core.js onLoggedIn), where a refresh lands
+// back on the round HR last had open - without it, a refresh on Round 2
+// showed Round 1's scenario library (Create + Review) for Round 2
+// scenarios instead of the Round 2 settings card.
+function showHRRoundPanels() {
+  const n = currentHRRound;
   // Defensive reset, same panels closeScenarioDetail restores - if a
   // scenario's detail was left open when HR switched rounds, its
   // hidden/full-width state shouldn't follow them to a round they
@@ -529,7 +539,7 @@ async function openScenarioDetail(id) {
           <td>${escapeHtml(tc.description || "")}</td>
         </tr>
       `).join("")
-    : (scenario.reference_json || []).map((r, i) => `
+    : (Array.isArray(scenario.reference_json) ? scenario.reference_json : []).map((r, i) => `
         <tr>
           <td>${i + 1}</td>
           <td>${escapeHtml(r.title)}</td>

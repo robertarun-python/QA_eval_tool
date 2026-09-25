@@ -368,9 +368,8 @@ function onLoggedIn() {
     closeCandidateDetail({ silent: true });
     restoreHRNavState();
     renderHRRoundNav();
-    loadScenarios();
+    showHRRoundPanels(); // the restored round's own panels, loaded - Round 2's differ from the rest
     loadCandidates();
-    loadHistory();
     loadAppSettings();
   } else {
     document.getElementById("candidate-panel").classList.remove("hidden");
