@@ -198,3 +198,32 @@ def test_a_broken_progress_callback_never_breaks_a_build(monkeypatch):
         raise RuntimeError("screen went away")
     monkeypatch.setattr(llm_service, "_call_claude", FakeAI())
     assert generator.generate("Doctor Appointment System", "...", REFERENCE_CASES, progress=boom).ok
+
+
+@pytest.mark.parametrize("breakage", ["true/false result", "no earlier step saved"])
+def test_a_checklist_whose_ref_cant_hold_its_value_is_regenerated(monkeypatch, breakage):
+    """The Library build's checklists expected Borrow to return true AND used
+    its result as the borrowing id - no app can pass that, so every fix undid
+    the last one. Caught before any code is written now."""
+    bad = json.loads(json.dumps(CHECKLISTS))
+    booking = next(c for c in bad if c["id"] == "api-booking")
+    saved = next(s for s in booking["steps"] if s.get("save_as") == "booked")
+    if breakage == "true/false result":
+        saved["expect"] = True
+        saved.pop("expect_includes", None)
+    else:
+        saved.pop("save_as")
+    fake = FakeAI(checklists=[bad, CHECKLISTS])
+    result = _run(monkeypatch, fake)
+    assert result.ok, result.log
+    retry = [p for p in fake.prompts if "writing machine-checkable CHECKLISTS" in p][1]
+    assert "api-booking" in retry and breakage in retry
+
+
+def test_a_helper_the_design_says_returns_true_false_cannot_be_used_as_an_id():
+    plan = {"helpers": [{"layer": "UI", "name": "click_borrow", "returns": "Boolean: true if borrow succeeded"},
+                        {"layer": "UI", "name": "click_return", "returns": "None"}]}
+    checklist = {"id": "return-book", "steps": [
+        {"call": "setup"}, {"call": "UI.click_borrow", "save_as": "borrowed"},
+        {"call": "UI.click_return", "args": [{"ref": "borrowed"}]}]}
+    assert "true/false result of UI.click_borrow" in generator._ref_problem(checklist, generator._true_false_helpers(plan))
