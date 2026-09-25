@@ -1272,10 +1272,13 @@ def round2_automation_clarify(
                 # has restated their answer. Accept it; scoring judges
                 # whether it was the right call, not this gate.
                 status = "sufficient"
+        # The design's gap is known exactly, so the question names it. The
+        # model only judges whether this message already fills it - left to
+        # word the question itself, it asked "what should prove it worked?"
+        # even with the expected result in the design (live check, Sep 2026).
         response = round2_automation_clarify_policy.build_clarify_response(
-            status=status, question=parsed.question,
+            status=status, question=design_question,
             prior_value=parsed.prior_value, current_value=parsed.current_value,
-            fallback=design_question,
         )
 
     # Loop breaker, applied to every clarifying reply whichever branch made

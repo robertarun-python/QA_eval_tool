@@ -525,7 +525,7 @@ def test_clarify_asks_a_neutral_question_and_writes_no_code(client, monkeypatch)
     assert body["response_kind"] == "clarify"
     assert body["code_after"] is None
     assert body["row_index"] == 0
-    assert "worked" in body["response_message"]
+    assert body["response_message"] == "Which test data should the test use?"  # names the gap in the design
 
     state = _state(client, cand_token)
     assert state["tc_state"][0]["code"] == baseline_code  # completely untouched
