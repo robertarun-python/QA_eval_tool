@@ -37,7 +37,7 @@ def builds_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _fake_factory(monkeypatch, ok=True):
+def _fake_factory(monkeypatch, ok=True, approvable=False):
     calls = []
 
     def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
@@ -47,6 +47,7 @@ def _fake_factory(monkeypatch, ok=True):
         result.report = checker.inspect({"python": APP["python"]}, result.checklists)  # the real inspector
         if not ok:
             result.checklists = CHECKLISTS[1:]
+        result.approvable = ok or approvable
         return result
 
     monkeypatch.setattr(generator, "generate", generate)
@@ -123,7 +124,7 @@ def test_a_build_that_is_not_ready_cannot_be_approved(client, monkeypatch, build
     client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     assert client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()["status"] == "not_ready"
     res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
-    assert res.status_code == 400 and "passed every check" in res.json()["detail"]
+    assert res.status_code == 400 and "at least 90%" in res.json()["detail"]
 
 
 def test_approving_creates_the_paired_round2_scenario_and_puts_it_live(client, monkeypatch, builds_dir):
@@ -256,3 +257,29 @@ def test_every_build_is_kept_not_just_the_latest(client, monkeypatch, builds_dir
     assert len(history) == 2, history
     saved = json.loads((builds_dir / f"scenario_{r1['id']}" / "history" / history[0]).read_text())
     assert saved["coverage"] and saved["log"] is not None and not saved["ok"]
+
+
+def test_a_mostly_verified_app_can_be_approved_and_the_scorer_is_told_what_wasnt(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch, ok=False, approvable=True)  # one test case couldn't be verified
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    status = client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()
+    assert status["status"] == "ready"
+    missing = CHECKLISTS[0]["title"]
+    assert [r["title"] for r in status["unverified"]] == [missing]
+
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    assert res.status_code == 200, res.text
+    notes = _db_scenario(res.json()["round2_scenario_id"]).reference_json["validation_notes"]
+    assert "could NOT be verified" in notes and missing in notes
+
+
+def test_a_fully_verified_app_gets_the_plain_notes(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    assert client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()["unverified"] == []
+    round2_id = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token)).json()["round2_scenario_id"]
+    assert _db_scenario(round2_id).reference_json["validation_notes"] == service.VALIDATION_NOTES

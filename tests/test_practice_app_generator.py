@@ -86,8 +86,13 @@ def test_a_python_mistake_goes_back_to_the_ai_and_the_fix_is_accepted(monkeypatc
     broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
     fake = FakeAI(python=broken, fixes={"python": [APP["python"]]})
     result = _run(monkeypatch, fake)
-    assert result.ok and result.ai_calls == 6, result.log
-    fix_prompt = next(p for p in fake.prompts if "failed its automatic inspection" in p)
+    # plan, checklists, python, a look at the failing checklist (they come first
+    # now), the fix, two translations
+    assert result.ok and result.ai_calls == 7, result.log
+    looked = next(i for i, p in enumerate(fake.prompts) if "fixing the app's code hasn't helped" in p)
+    fixed = next(i for i, p in enumerate(fake.prompts) if "failed its automatic inspection" in p)
+    assert looked < fixed
+    fix_prompt = fake.prompts[fixed]
     assert "Booked!" in fix_prompt and "Appointment confirmed" in fix_prompt
 
 
@@ -105,13 +110,15 @@ def test_a_translation_that_behaves_differently_is_sent_back_and_fixed(monkeypat
     assert "UI.open" in fix_prompt
 
 
-def test_an_app_that_is_never_fixed_is_refused_and_not_paid_to_translate(monkeypatch):
-    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
+def test_an_app_below_the_approval_line_is_refused_and_not_paid_to_translate(monkeypatch):
+    # Two of the 15 test cases wrong: 13/15 = 87%, under APPROVE_AT.
+    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"').replace(
+        '"This slot is no longer available"', '"Taken"')
     fake = FakeAI(python=broken, fixes={"python": [broken, broken]})
     result = _run(monkeypatch, fake)
-    assert not result.ok and result.error is None
-    # plan, checklists, python, the fixes and one look at the checklists - no translations
-    assert result.ai_calls == 3 + generator.MAX_FIX_ROUNDS + 1
+    assert not result.ok and not result.approvable and result.error is None
+    # plan, checklists, python, one look at the checklists, the fixes - no translations
+    assert result.ai_calls == 3 + 1 + generator.MAX_FIX_ROUNDS
     assert not any("from Python to" in p for p in fake.prompts)
     failing = [row for row in result.coverage() if row["status"] == "fails"]
     assert any(row["title"] == "Book an available slot and see the confirmation" for row in failing)
@@ -380,3 +387,19 @@ def test_a_fix_that_makes_the_app_worse_is_not_kept(monkeypatch):
     assert not result.ok
     assert result.env_code_by_language["python"] == one_wrong
     assert any(line.startswith("kept the best version") for line in result.log)
+
+
+def test_an_app_with_one_unverified_case_is_finished_and_can_be_approved(monkeypatch):
+    """14 of 15 verified (93%): every language is still built, and HR gets the
+    app with the one unverified test case named - not nothing."""
+    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
+    fake = FakeAI(python=broken, javascript=APP["javascript"].replace('"Appointment confirmed"', '"Booked!"'),
+                  java=APP["java"].replace('"Appointment confirmed"', '"Booked!"'), fixes={"python": [broken, broken]})
+    result = _run(monkeypatch, fake)
+    assert not result.ok and result.approvable, result.log
+    assert set(result.env_code_by_language) == {"python", "javascript", "java"}
+    assert result.verified() == (14, 15)
+    unverified = [r["title"] for r in result.coverage() if r["status"] == "fails"]
+    assert unverified == ["Book an available slot and see the confirmation"]
+    # the translations were never sent chasing the case Python itself fails
+    assert not any(p.startswith("This JavaScript ") or p.startswith("This Java ") for p in fake.prompts)
