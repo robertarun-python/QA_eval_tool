@@ -40,8 +40,8 @@ def builds_dir(tmp_path, monkeypatch):
 def _fake_factory(monkeypatch, ok=True):
     calls = []
 
-    def generate(title, description, cases, known_facts=None, progress=None):
-        calls.append({"title": title, "cases": cases, "known_facts": known_facts})
+    def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
+        calls.append({"title": title, "cases": cases, "known_facts": known_facts, "reuse": reuse})
         result = generator.PracticeAppResult(ok=ok, plan=PLAN, checklists=CHECKLISTS, env_code_by_language=dict(APP),
                                              ai_calls=5, reference_titles=[c["title"] for c in CHECKLISTS])
         result.report = checker.inspect({"python": APP["python"]}, result.checklists)  # the real inspector
@@ -83,7 +83,7 @@ def test_progress_is_saved_step_by_step_while_building(client, monkeypatch, buil
     r1 = _r1(client, token, monkeypatch)
     seen = []
 
-    def generate(title, description, cases, known_facts=None, progress=None):
+    def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
         for step, detail in [(0, ""), (3, "27 of 28 pass - fixing (round 1 of 2)")]:
             progress(step, detail)
             db = database_module.SessionLocal()
@@ -213,3 +213,27 @@ def test_round2_switch_turns_the_old_one_off_before_the_new_one_on(client, monke
     assert res.status_code == 200, res.text
     assert _db_scenario(paired_id).is_live
     assert not _db_scenario(newer_live["id"]).is_live
+
+
+def test_generate_again_offers_the_last_build_for_reuse(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    calls = _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    assert calls[0]["reuse"] is None  # nothing built yet
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    assert calls[1]["reuse"]["python"] == APP["python"]
+    assert calls[1]["reuse"]["plan"] == PLAN and calls[1]["reuse"]["checklists"]
+
+
+def test_a_build_from_different_round1_test_cases_is_not_reused(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    calls = _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    saved = builds_dir / f"scenario_{r1['id']}" / "latest.json"
+    build = json.loads(saved.read_text())
+    build["reference_hash"] = "different"
+    saved.write_text(json.dumps(build))
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    assert calls[1]["reuse"] is None

@@ -329,3 +329,28 @@ def test_translations_keep_string_values_like_field_names_as_in_python(monkeypat
     translations = [p for p in fake.prompts if "from Python to" in p]
     js_fix = next(p for p in fake.prompts if p.startswith("This JavaScript "))
     assert len(translations) == 2 and all(rule in p for p in translations) and rule in js_fix
+
+
+def _reuse(python):
+    return {"plan": _plan(), "checklists": CHECKLISTS, "unsupported": [], "python": python}
+
+
+def test_a_python_app_that_still_passes_is_reused_and_only_translated(monkeypatch):
+    """Generate again after only a translation failed: two AI calls, not ten."""
+    fake = FakeAI()
+    monkeypatch.setattr(llm_service, "_call_claude", fake)
+    result = generator.generate("Doctor Appointment System", "...", REFERENCE_CASES, reuse=_reuse(APP["python"]))
+    assert result.ok, result.log
+    assert result.ai_calls == 2 and all("from Python to" in p for p in fake.prompts)
+    assert any(line.startswith("reused the last build's design") for line in result.log)
+    assert result.env_code_by_language["python"] == APP["python"]
+
+
+def test_a_saved_python_app_that_fails_is_ignored_and_rebuilt(monkeypatch):
+    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
+    fake = FakeAI()
+    monkeypatch.setattr(llm_service, "_call_claude", fake)
+    result = generator.generate("Doctor Appointment System", "...", REFERENCE_CASES, reuse=_reuse(broken))
+    assert result.ok, result.log
+    assert result.ai_calls == 5  # the full build: plan, checklists, python, two translations
+    assert "the last build's Python app no longer passes every checklist - building from scratch" in result.log
