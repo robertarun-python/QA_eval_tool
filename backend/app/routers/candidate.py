@@ -9,6 +9,7 @@ round that used to live at that number.
 """
 import hashlib
 import json
+import re
 import threading
 import time
 import traceback
@@ -19,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, Submission, RoundStatus, Round4TestCase, CandidateAppearance, Round3Turn, Round3ExecutionRun
+from ..models import User, Scenario, ScenarioStatus, Submission, RoundStatus, Round4TestCase, CandidateAppearance, Round3Turn, Round3ExecutionRun
 from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
     Round1ContextOut, Round2EntryStateOut, Round4TestCaseOut, Round2AutomationEnvironmentOut,
@@ -70,6 +71,27 @@ router = APIRouter(prefix="/candidate", tags=["candidate"])
 
 
 def _live_scenario(db: Session, round_number: int, candidate: User) -> Scenario | None:
+    """The scenario this candidate takes for this round. A round they've
+    already started stays on the scenario they started, even after HR makes
+    another one live - otherwise switching scenarios would drop their work
+    and let them take a finished round again. Round 2 is also the practice
+    app built for THEIR Round 1 scenario (see _round2_for_round1), never
+    whichever Round 2 happens to be live."""
+    started = (
+        db.query(Submission)
+        .filter(Submission.user_id == candidate.id, Submission.round_number == round_number, Submission.archived.is_(False))
+        .first()
+    )
+    if started is not None:
+        return db.get(Scenario, started.scenario_id)
+    if round_number == 2:
+        round1 = (
+            db.query(Submission)
+            .filter(Submission.user_id == candidate.id, Submission.round_number == 1, Submission.archived.is_(False))
+            .first()
+        )
+        if round1 is not None:
+            return _round2_for_round1(db, db.get(Scenario, round1.scenario_id))
     return (
         db.query(Scenario)
         .filter(
@@ -79,6 +101,74 @@ def _live_scenario(db: Session, round_number: int, candidate: User) -> Scenario 
         )
         .first()
     )
+
+
+def _paired_with(round2: Scenario) -> tuple[int | None, str | None]:
+    config = round2.config_json or {}
+    return config.get("paired_round1_scenario_id"), config.get("paired_round1_title")
+
+
+def _round2_for_round1(db: Session, round1: Scenario | None) -> Scenario | None:
+    """The Round 2 scenario a candidate who answered this Round 1 scenario
+    takes: the practice app built for it (live one first), else a live
+    Round 2 that isn't built for any particular Round 1. None when the only
+    Round 2 around was built for a different scenario - automating these
+    test cases against another app would be meaningless, so Round 2 shows
+    as not available until HR approves this scenario's practice app."""
+    if round1 is None:
+        return None
+    round2s = (
+        db.query(Scenario)
+        .filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band,
+                Scenario.status == ScenarioStatus.published)
+        .all()
+    )
+
+    def built_for_this(s: Scenario) -> bool:
+        paired_id, paired_title = _paired_with(s)
+        return paired_id == round1.id if paired_id else bool(paired_title) and paired_title == round1.title
+
+    paired = [s for s in round2s if built_for_this(s)]
+    if paired:
+        return max(paired, key=lambda s: (s.is_live, s.id))
+    live = next((s for s in round2s if s.is_live), None)
+    if live is not None and _paired_with(live) == (None, None):
+        return live
+    return None
+
+
+def _round1_environment_view(round2: Scenario) -> tuple[Round2AutomationEnvironmentOut | None, Round2AutomationUiMockupOut | None]:
+    """What Round 1 shows of the Round 2 reference sheet and screens, so the
+    candidate's test data fits the app they'll automate against: the web
+    address and the main test login, and the screens without their
+    "(shown when ...)" messages. The rest - accounts set up for special
+    cases, which data is unavailable, every message the app can show - is
+    built from the Round 1 answer key, so it would list the edge cases Round
+    1 is scored on."""
+    environment = None
+    fields = (round2.environment_json or {}).get("fields") or {}
+    kept = {k: v for k, v in fields.items() if "url" in k.lower()}
+    for words in (("username", "email", "login"), ("password",)):
+        key = next((k for k in fields if "url" not in k.lower() and any(w in k.lower() for w in words)), None)
+        if key is not None:
+            kept[key] = fields[key]
+    if kept:
+        environment = Round2AutomationEnvironmentOut(fields={k: kept[k] for k in fields if k in kept})
+    ui_mockup = None
+    screens = []
+    for screen in (round2.ui_mockup_json or {}).get("screens") or []:
+        elements = [e for e in screen.get("elements") or [] if not _CONDITIONAL_MESSAGE.search(str(e.get("text") or ""))]
+        if elements:
+            screens.append({**screen, "elements": elements})
+    if screens:
+        ui_mockup = Round2AutomationUiMockupOut(screens=screens)
+    return environment, ui_mockup
+
+
+# The practice-app design marks every message a page can show with
+# "(shown when ...)" (prompts/practice_app_plan.txt); hand-written
+# environments use "(shown on ...)".
+_CONDITIONAL_MESSAGE = re.compile(r"\((shown|appears|displayed)\b", re.IGNORECASE)
 
 
 def _current_submission(db: Session, candidate: User, scenario: Scenario) -> Submission | None:
@@ -1303,15 +1393,11 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
     environment = None
     ui_mockup = None
     if round_number == 1:
-        # Same reference round 2 already generates/owns (see
-        # RoundStateOut.environment's docstring) - a read-only look, not
-        # a separate copy, so there's nothing here to keep in sync.
-        round2_scenario = _live_scenario(db, 2, candidate)
+        # A cut-down look at the Round 2 this Round 1 leads to (see
+        # _round1_environment_view), so the test data fits the app.
+        round2_scenario = _round2_for_round1(db, scenario)
         if round2_scenario is not None:
-            if round2_scenario.environment_json:
-                environment = Round2AutomationEnvironmentOut(**round2_scenario.environment_json)
-            if round2_scenario.ui_mockup_json:
-                ui_mockup = Round2AutomationUiMockupOut(**round2_scenario.ui_mockup_json)
+            environment, ui_mockup = _round1_environment_view(round2_scenario)
     return RoundStateOut(scenario=scenario, submission=submission, environment=environment, ui_mockup=ui_mockup)
 
 

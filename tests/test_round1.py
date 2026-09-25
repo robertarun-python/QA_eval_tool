@@ -23,7 +23,9 @@ def test_round1_shows_the_round2_environment_reference_read_only(client, monkeyp
     cand_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     res = client.get("/candidate/round/1", cookies=_auth(cand_token))
     assert res.status_code == 200
-    assert res.json()["environment"] == FAKE_ENVIRONMENT
+    # The web address and the test login - the notes (which describe the
+    # special-case setups) stay in Round 2, see test_round1_environment_view.
+    assert res.json()["environment"] == {"fields": FAKE_ENVIRONMENT["fields"], "notes": None}
     assert res.json()["ui_mockup"] == FAKE_UI_MOCKUP
 
 

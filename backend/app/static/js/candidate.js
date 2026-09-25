@@ -277,7 +277,7 @@ function showRoundIntro(n, timeLimitMinutes, environment) {
         <li>You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</li>
         <li>If time runs out, whatever you've written gets submitted automatically as it stands.</li>
         <li>Finished earlier? Submit yourself and move straight to the next round - no need to wait out the clock.</li>
-        ${hasEnvironment ? `<li>You'll see a test environment reference (login, sample data, ...) below - it's a starting point you can use as-is, but feel free to add your own test data and cases beyond it.</li>` : ""}
+        ${hasEnvironment ? `<li>You'll see the app's web address, a test login and its main screens below - use them in your test data, and add your own test data and cases beyond them.</li>` : ""}
       </ul>
       <div class="row">
         <button onclick="confirmStartRound(${n})">Got it - Start Round ${n}</button>
