@@ -37,21 +37,22 @@ public class Main {
         options.addArguments("--headless=new");
         WebDriver driver = new RemoteWebDriver(new URL(System.getenv("SELENIUM_GRID_URL")), options);
         WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
+        java.util.function.Function<String, WebElement> el = id -> wait.until(ExpectedConditions.visibilityOfElementLocated(By.id(id)));
         try {
             driver.get(app);
-            driver.findElement(By.id("email")).sendKeys("testuser@library.test");
-            driver.findElement(By.id("password")).sendKeys("Test@123");
-            driver.findElement(By.id("login")).click();
+            el.apply("email").sendKeys("testuser@library.test");
+            el.apply("password").sendKeys("Test@123");
+            el.apply("login").click();
             wait.until(ExpectedConditions.titleContains("Home"));
-            driver.findElement(By.id("nav-search")).click();
+            el.apply("nav-search").click();
             wait.until(ExpectedConditions.titleContains("Search"));
-            driver.findElement(By.id("book_id")).sendKeys("BK-001");
-            driver.findElement(By.id("open-book")).click();
+            el.apply("book_id").sendKeys("BK-001");
+            el.apply("open-book").click();
             wait.until(ExpectedConditions.titleContains("Book Details"));
-            driver.findElement(By.id("book_id")).sendKeys("BK-001");
-            driver.findElement(By.id("borrow-book")).click();
+            el.apply("book_id").sendKeys("BK-001");
+            el.apply("borrow-book").click();
             wait.until(ExpectedConditions.titleContains("Borrow Confirmation"));
-            System.out.println("UI: " + driver.findElement(By.id("message")).getText());
+            System.out.println("UI: " + el.apply("message").getText());
         } finally { driver.quit(); }
         HttpClient http = HttpClient.newHttpClient();
         HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(System.getenv("PRACTICE_API_URL") + "login"))
@@ -79,21 +80,27 @@ options = webdriver.ChromeOptions()
 options.add_argument("--headless=new")
 driver = webdriver.Remote(os.environ["SELENIUM_GRID_URL"], options=options)
 wait = WebDriverWait(driver, 10)
+
+
+def el(element_id):
+    return wait.until(EC.visibility_of_element_located((By.ID, element_id)))
+
+
 try:
     driver.get(os.environ["PRACTICE_APP_URL"])
-    driver.find_element(By.ID, "email").send_keys("testuser@library.test")
-    driver.find_element(By.ID, "password").send_keys("Test@123")
-    driver.find_element(By.ID, "login").click()
+    el("email").send_keys("testuser@library.test")
+    el("password").send_keys("Test@123")
+    el("login").click()
     wait.until(EC.title_contains("Home"))
-    driver.find_element(By.ID, "nav-search").click()
+    el("nav-search").click()
     wait.until(EC.title_contains("Search"))
-    driver.find_element(By.ID, "book_id").send_keys("BK-001")
-    driver.find_element(By.ID, "open-book").click()
+    el("book_id").send_keys("BK-001")
+    el("open-book").click()
     wait.until(EC.title_contains("Book Details"))
-    driver.find_element(By.ID, "book_id").send_keys("BK-001")
-    driver.find_element(By.ID, "borrow-book").click()
+    el("book_id").send_keys("BK-001")
+    el("borrow-book").click()
     wait.until(EC.title_contains("Borrow Confirmation"))
-    print("UI:", driver.find_element(By.ID, "message").text)
+    print("UI:", el("message").text)
 finally:
     driver.quit()
 req = urllib.request.Request(os.environ["PRACTICE_API_URL"] + "login", data=json.dumps({"email": "testuser@library.test", "password": "wrong"}).encode(),
@@ -112,21 +119,22 @@ const { DatabaseSync } = require("node:sqlite");
 (async () => {
   const options = new chrome.Options().addArguments("--headless=new");
   const driver = await new Builder().usingServer(process.env.SELENIUM_GRID_URL).forBrowser("chrome").setChromeOptions(options).build();
+  const el = (id) => driver.wait(until.elementIsVisible(driver.wait(until.elementLocated(By.id(id)), 10000)), 10000);
   try {
     await driver.get(process.env.PRACTICE_APP_URL);
-    await driver.findElement(By.id("email")).sendKeys("testuser@library.test");
-    await driver.findElement(By.id("password")).sendKeys("Test@123");
-    await driver.findElement(By.id("login")).click();
+    await el("email").sendKeys("testuser@library.test");
+    await el("password").sendKeys("Test@123");
+    await el("login").click();
     await driver.wait(until.titleContains("Home"), 10000);
-    await driver.findElement(By.id("nav-search")).click();
+    await el("nav-search").click();
     await driver.wait(until.titleContains("Search"), 10000);
-    await driver.findElement(By.id("book_id")).sendKeys("BK-001");
-    await driver.findElement(By.id("open-book")).click();
+    await el("book_id").sendKeys("BK-001");
+    await el("open-book").click();
     await driver.wait(until.titleContains("Book Details"), 10000);
-    await driver.findElement(By.id("book_id")).sendKeys("BK-001");
-    await driver.findElement(By.id("borrow-book")).click();
+    await el("book_id").sendKeys("BK-001");
+    await el("borrow-book").click();
     await driver.wait(until.titleContains("Borrow Confirmation"), 10000);
-    console.log("UI: " + await driver.findElement(By.id("message")).getText());
+    console.log("UI: " + await el("message").getText());
   } finally { await driver.quit(); }
   const r = await fetch(process.env.PRACTICE_API_URL + "login", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: "testuser@library.test", password: "wrong" }) });
@@ -202,3 +210,18 @@ def test_a_test_that_forgets_to_close_its_browser_leaves_nothing_open():
     result = practice_run.run("python", forgetful, SPEC)
     assert "UI: Book borrowed successfully" in result.stdout, result.stderr[-800:]
     assert _open_browser_sessions() == 0
+
+
+NO_WAIT = "\n".join(line for line in PYTHON.replace('el("', 'driver.find_element(By.ID, "').splitlines()
+                    if "wait.until(EC.title_contains" not in line)
+
+
+@needs_tools
+def test_a_browser_test_without_waits_fails_every_time_and_with_waits_passes_every_time():
+    """Handling waits is assessed, so the outcome must never be luck."""
+    assert 'el("' not in NO_WAIT and "title_contains" not in NO_WAIT
+    for _ in range(3):
+        without = practice_run.run("python", NO_WAIT, SPEC)
+        assert without.exit_code != 0 and "UI: Book borrowed" not in without.stdout
+        with_waits = practice_run.run("python", PYTHON, SPEC)
+        assert "UI: Book borrowed successfully. Due date: 24-Feb-2024" in with_waits.stdout, with_waits.stderr[-600:]
