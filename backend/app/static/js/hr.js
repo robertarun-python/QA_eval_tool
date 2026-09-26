@@ -697,7 +697,7 @@ function renderPracticeAppPanel(id, d) {
       ${approved || `<button class="btn-primary" onclick="approvePracticeApp(${id})">Approve for Round 2</button>`}
       <p>${buildButton(approved ? "Rebuild" : "Build again")}</p>`;
   } else if (d.status === "not_ready") {
-    body = `<p class="error-text">❌ Not ready - ${stats}. It can't be used until every test case works; building again often fixes it, or adjust the Round 1 reference test cases listed below.${cost}</p>
+    body = `<p class="error-text">❌ Not ready${d.approval_problem ? ` - ${escapeHtml(d.approval_problem)}` : ` - ${stats}`}. Building again often fixes it, or adjust the Round 1 reference test cases listed below.${cost}</p>
       ${practiceAppCoverageTable(d.coverage)}${approved}<p>${buildButton("Build again")}</p>`;
   } else if (d.status === "failed") {
     body = `<p class="error-text">The build stopped: ${escapeHtml(d.error || "unknown error")}</p>${approved}<p>${buildButton("Try again")}</p>`;
@@ -997,7 +997,7 @@ function renderRound2NeedsPracticeApp(round1) {
       <button class="btn-secondary" onclick="buildPracticeAppFromRound2(${round1.id})">Generate again</button></div>`;
   } else if (d.status === "not_ready") {
     badge = `<span class="badge">NOT READY</span>`;
-    body = `<p class="error-text">❌ Done, but not usable - ${stats}. Generating again often fixes it; otherwise adjust the Round 1 test cases marked below.</p>
+    body = `<p class="error-text">❌ Done, but it can't be approved${d.approval_problem ? ` - ${escapeHtml(d.approval_problem)}` : ` - ${stats}`}. Generating again often fixes it; otherwise adjust the Round 1 test cases marked below.</p>
       ${practiceAppCoverageTable(d.coverage)}${button("Generate again")}`;
   } else if (d.status === "failed") {
     badge = `<span class="badge">FAILED</span>`;

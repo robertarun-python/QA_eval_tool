@@ -134,7 +134,8 @@ def run_build(scenario_id: int) -> None:
             "working": sum(r["status"] == "works" for r in rows),
             "total": len(rows),
             "coverage": rows,
-            "unverified": [r for r in rows if r["status"] == "fails"] if status == "ready" else [],
+            "unverified": [r for r in rows if r["status"] != "works"] if status == "ready" else [],
+            "approval_problem": None if (result.error or result.ok) else result.approval_problem(),
             "log": result.log[-20:],
         })
         if result.plan:
@@ -224,7 +225,7 @@ def approve(round1: Scenario, db: Session) -> Scenario:
     build = json.loads(path.read_text(encoding="utf-8"))
     if not (build.get("ok") or build.get("approvable")):
         raise ValueError(not_ready)
-    unverified = [r for r in build.get("coverage") or [] if r.get("status") == "fails"]
+    unverified = [r for r in build.get("coverage") or [] if r.get("status") != "works"]
 
     round2 = next(
         (s for s in db.query(Scenario).filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band).all()

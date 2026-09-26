@@ -79,3 +79,29 @@ def test_a_real_retry_cannot_drop_a_real_good_checklist():
     merged = generator.merge_checklist_retry(first, valid, retried)
     runnable, _, problems = generator.validate_checklists(build["plan"], merged, [])
     assert problems == [] and runnable == build["checklists"]
+
+
+def _replay(name):
+    """The approval decision on a real build, from its saved Python app - as the
+    factory would decide it after the Python step."""
+    fixture = _load(name)
+    build = fixture["build"]
+    refs = fixture["reference_cases"]
+    result = generator.PracticeAppResult(
+        plan=build["plan"], checklists=build["checklists"], unsupported=fixture["unsupported"],
+        reference_titles=[c["title"] for c in refs],
+        high_priority_titles={c["title"].strip().lower() for c in refs if c.get("priority") == "High"},
+    )
+    result.report = checker.inspect({"python": build["env_code_by_language"]["python"]}, build["checklists"])
+    return result
+
+
+@pytest.mark.parametrize("name, verified, approvable", [
+    ("measured_bus_1", (10, 12), False),   # 83%, and two High-priority cases unverified
+    ("measured_bus_2", (11, 12), False),   # 92%, but "Cannot select already occupied seat" is High priority
+    ("measured_library", (26, 28), True),  # 93%; the unverified ones are Medium (one "not supported")
+])
+def test_the_approval_rules_judge_the_measured_builds_as_reviewed(name, verified, approvable):
+    result = _replay(name)
+    assert result.verified() == verified
+    assert (result.approval_problem() is None) == approvable, result.approval_problem()
