@@ -111,7 +111,15 @@ def ai_health(hr: User = Depends(require_hr)):
     problems = [c for c in calls if c["outcome"] not in ("ok", "fake")]
     from ..config import settings as app_config
     mode = "fake" if app_config.llm_fake_mode else ("real (tool output)" if app_config.llm_tool_output else "real")
-    return {"mode": mode, "total": len(calls), "by_outcome": by_outcome, "recent_problems": problems[:20], "recent_calls": calls[:30]}
+    # What the calls cost, from their token counts (list prices of the model in
+    # use, per million: input, output, cache read = 0.1x input, cache write = 1.25x).
+    tokens = {k: sum(c.get(k) or 0 for c in calls) for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")}
+    price_in, price_out = 3.0, 15.0
+    cost = (tokens["input_tokens"] * price_in + tokens["output_tokens"] * price_out
+            + tokens["cache_read_tokens"] * price_in * 0.1 + tokens["cache_write_tokens"] * price_in * 1.25) / 1e6
+    saved = tokens["cache_read_tokens"] * price_in * 0.9 / 1e6
+    return {"mode": mode, "total": len(calls), "by_outcome": by_outcome, "recent_problems": problems[:20], "recent_calls": calls[:30],
+            "tokens": tokens, "estimated_cost_usd": round(cost, 2), "saved_by_cache_usd": round(saved, 2)}
 
 
 @router.get("/settings", response_model=AppSettingsOut)
