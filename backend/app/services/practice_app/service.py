@@ -61,8 +61,19 @@ def _build_file(scenario_id: int) -> Path:
     return BUILDS_DIR / f"scenario_{scenario_id}" / "latest.json"
 
 
+# Builds running in THIS server process. A summary saying "building" for a
+# scenario not in here was cut off (the server restarted or crashed): it is
+# reported as failed straight away, so HR can start it again, instead of
+# showing "building" until STALE_AFTER.
+_RUNNING: set[int] = set()
+INTERRUPTED = "The build stopped because the server restarted. Please start it again."
+
+
 def summary(scenario: Scenario) -> dict:
-    return dict((scenario.config_json or {}).get("practice_app") or {"status": "none"})
+    data = dict((scenario.config_json or {}).get("practice_app") or {"status": "none"})
+    if data.get("status") == "building" and scenario.id not in _RUNNING:
+        data.update(status="failed", error=INTERRUPTED)
+    return data
 
 
 def _set_summary(scenario: Scenario, data: dict) -> None:
@@ -88,6 +99,7 @@ def can_start(scenario: Scenario) -> str | None:
 
 
 def start_build(scenario: Scenario, db: Session) -> dict:
+    _RUNNING.add(scenario.id)  # before the summary says "building" - run_build removes it when it ends
     data = {"status": "building", "started_at": datetime.utcnow().isoformat(timespec="seconds"), "step": 0, "step_detail": ""}
     previous = summary(scenario)
     if previous.get("approved_round2_scenario_id"):
@@ -104,6 +116,7 @@ def start_build(scenario: Scenario, db: Session) -> dict:
 def run_build(scenario_id: int) -> None:
     """The background job: runs the factory and records the outcome. Never
     raises - a failure is recorded for HR to see."""
+    _RUNNING.add(scenario_id)
     db = database.SessionLocal()
     try:
         scenario = db.get(Scenario, scenario_id)
@@ -173,6 +186,7 @@ def run_build(scenario_id: int) -> None:
         log.exception("practice app build for scenario %s crashed", scenario_id)
         db.rollback()
     finally:
+        _RUNNING.discard(scenario_id)
         db.close()
 
 
