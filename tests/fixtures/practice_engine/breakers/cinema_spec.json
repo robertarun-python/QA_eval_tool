@@ -1,0 +1,856 @@
+{
+ "app_name": "CineMax",
+ "base_url": "https://cinemax.example.test",
+ "now": "2024-03-15T17:00",
+ "pages": [
+  "Login",
+  "Home",
+  "Seat Selection",
+  "Payment"
+ ],
+ "home_page": "Home",
+ "entities": {
+  "Member": {
+   "key": "email",
+   "fields": {
+    "email": "string",
+    "password": "string",
+    "name": "string"
+   }
+  },
+  "Show": {
+   "key": "id",
+   "fields": {
+    "id": "string",
+    "movie": "string",
+    "starts_at": "datetime"
+   }
+  },
+  "Seat": {
+   "key": "code",
+   "fields": {
+    "code": "string",
+    "kind": "string",
+    "price": "money",
+    "status": "string",
+    "held_by": "string",
+    "held_at": "datetime"
+   }
+  },
+  "Booking": {
+   "key": "id",
+   "id_format": "BK-{n:03}",
+   "fields": {
+    "id": "string",
+    "email": "string",
+    "seat_count": "int",
+    "total": "money"
+   }
+  }
+ },
+ "data": {
+  "Member": [
+   {
+    "email": "user1@cine.test",
+    "password": "One@123",
+    "name": "User One"
+   },
+   {
+    "email": "user2@cine.test",
+    "password": "Two@123",
+    "name": "User Two"
+   }
+  ],
+  "Show": [
+   {
+    "id": "SH1",
+    "movie": "Dune Part Two",
+    "starts_at": "2024-03-15T18:30"
+   }
+  ],
+  "Seat": [
+   {
+    "code": "A1",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "A2",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "A3",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "A4",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "A5",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "A6",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "A7",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "B5",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Sold",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "C1",
+    "kind": "Regular",
+    "price": 250,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   },
+   {
+    "code": "R1",
+    "kind": "Recliner",
+    "price": 450,
+    "status": "Free",
+    "held_by": null,
+    "held_at": null
+   }
+  ],
+  "Booking": []
+ },
+ "users": {
+  "entity": "Member",
+  "login_field": "email",
+  "password_field": "password",
+  "name_field": "name",
+  "session_minutes": 60
+ },
+ "queries": [],
+ "actions": [
+  {
+   "name": "select_seats",
+   "label": "Select seats",
+   "page": "Seat Selection",
+   "inputs": [
+    {
+     "name": "seats",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Select at least one seat"
+      }
+     ]
+    }
+   ],
+   "load": [
+    {
+     "as": "show",
+     "entity": "Show",
+     "key": "SH1",
+     "missing": "Show not found"
+    }
+   ],
+   "rules": [
+    {
+     "when": {
+      "ge": [
+       {
+        "now": true
+       },
+       {
+        "field": "show.starts_at"
+       }
+      ]
+     },
+     "message": "Booking is closed for this show"
+    },
+    {
+     "when": {
+      "gt": [
+       {
+        "length": {
+         "split": [
+          {
+           "input": "seats"
+          },
+          ","
+         ]
+        }
+       },
+       6
+      ]
+     },
+     "message": "You can book at most 6 seats"
+    },
+    {
+     "for_each": {
+      "list": {
+       "split": [
+        {
+         "input": "seats"
+        },
+        ","
+       ]
+      },
+      "as": "s"
+     },
+     "unless": {
+      "exists": {
+       "entity": "Seat",
+       "where": {
+        "eq": [
+         {
+          "field": "row.code"
+         },
+         {
+          "field": "s.value"
+         }
+        ]
+       }
+      }
+     },
+     "message": {
+      "format": [
+       "Seat {s} does not exist",
+       {
+        "s": {
+         "field": "s.value"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "for_each": {
+      "list": {
+       "split": [
+        {
+         "input": "seats"
+        },
+        ","
+       ]
+      },
+      "as": "s"
+     },
+     "when": {
+      "gt": [
+       {
+        "occurrences": [
+         {
+          "split": [
+           {
+            "input": "seats"
+           },
+           ","
+          ]
+         },
+         {
+          "field": "s.value"
+         }
+        ]
+       },
+       1
+      ]
+     },
+     "message": {
+      "format": [
+       "Seat {s} selected twice",
+       {
+        "s": {
+         "field": "s.value"
+        }
+       }
+      ]
+     }
+    },
+    {
+     "for_each": {
+      "list": {
+       "split": [
+        {
+         "input": "seats"
+        },
+        ","
+       ]
+      },
+      "as": "s"
+     },
+     "when": {
+      "exists": {
+       "entity": "Seat",
+       "where": {
+        "and": [
+         {
+          "eq": [
+           {
+            "field": "row.code"
+           },
+           {
+            "field": "s.value"
+           }
+          ]
+         },
+         {
+          "or": [
+           {
+            "eq": [
+             {
+              "field": "row.status"
+             },
+             "Sold"
+            ]
+           },
+           {
+            "and": [
+             {
+              "eq": [
+               {
+                "field": "row.status"
+               },
+               "Held"
+              ]
+             },
+             {
+              "ne": [
+               {
+                "field": "row.held_by"
+               },
+               {
+                "user": "email"
+               }
+              ]
+             },
+             {
+              "le": [
+               {
+                "minutes_since": {
+                 "field": "row.held_at"
+                }
+               },
+               10
+              ]
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      }
+     },
+     "message": {
+      "format": [
+       "Seat {s} is not available",
+       {
+        "s": {
+         "field": "s.value"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "effects": [
+    {
+     "for_each": {
+      "entity": "Seat",
+      "where": {
+       "in": [
+        {
+         "field": "row.code"
+        },
+        {
+         "split": [
+          {
+           "input": "seats"
+          },
+          ","
+         ]
+        }
+       ]
+      },
+      "as": "seat",
+      "effects": [
+       {
+        "set": {
+         "record": "seat",
+         "field": "status",
+         "value": "Held"
+        }
+       },
+       {
+        "set": {
+         "record": "seat",
+         "field": "held_by",
+         "value": {
+          "user": "email"
+         }
+        }
+       },
+       {
+        "set": {
+         "record": "seat",
+         "field": "held_at",
+         "value": {
+          "now": true
+         }
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "message": "Seats held for 10 minutes",
+   "next_page": "Payment",
+   "returns": {
+    "total": {
+     "add": [
+      {
+       "add": [
+        {
+         "sum": {
+          "entity": "Seat",
+          "field": "price",
+          "where": {
+           "and": [
+            {
+             "eq": [
+              {
+               "field": "row.held_by"
+              },
+              {
+               "user": "email"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.status"
+              },
+              "Held"
+             ]
+            }
+           ]
+          }
+         }
+        },
+        {
+         "mul": [
+          {
+           "count": {
+            "entity": "Seat",
+            "where": {
+             "and": [
+              {
+               "eq": [
+                {
+                 "field": "row.held_by"
+                },
+                {
+                 "user": "email"
+                }
+               ]
+              },
+              {
+               "eq": [
+                {
+                 "field": "row.status"
+                },
+                "Held"
+               ]
+              }
+             ]
+            }
+           }
+          },
+          30
+         ]
+        }
+       ]
+      },
+      {
+       "round": [
+        {
+         "mul": [
+          {
+           "mul": [
+            {
+             "count": {
+              "entity": "Seat",
+              "where": {
+               "and": [
+                {
+                 "eq": [
+                  {
+                   "field": "row.held_by"
+                  },
+                  {
+                   "user": "email"
+                  }
+                 ]
+                },
+                {
+                 "eq": [
+                  {
+                   "field": "row.status"
+                  },
+                  "Held"
+                 ]
+                }
+               ]
+              }
+             }
+            },
+            30
+           ]
+          },
+          0.18
+         ]
+        },
+        2
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "name": "pay",
+   "label": "Pay",
+   "page": "Payment",
+   "rules": [
+    {
+     "unless": {
+      "exists": {
+       "entity": "Seat",
+       "where": {
+        "and": [
+         {
+          "eq": [
+           {
+            "field": "row.held_by"
+           },
+           {
+            "user": "email"
+           }
+          ]
+         },
+         {
+          "eq": [
+           {
+            "field": "row.status"
+           },
+           "Held"
+          ]
+         }
+        ]
+       }
+      }
+     },
+     "message": "No seats selected"
+    },
+    {
+     "when": {
+      "exists": {
+       "entity": "Seat",
+       "where": {
+        "and": [
+         {
+          "and": [
+           {
+            "eq": [
+             {
+              "field": "row.held_by"
+             },
+             {
+              "user": "email"
+             }
+            ]
+           },
+           {
+            "eq": [
+             {
+              "field": "row.status"
+             },
+             "Held"
+            ]
+           }
+          ]
+         },
+         {
+          "gt": [
+           {
+            "minutes_since": {
+             "field": "row.held_at"
+            }
+           },
+           10
+          ]
+         }
+        ]
+       }
+      }
+     },
+     "message": "Your seat hold has expired"
+    }
+   ],
+   "effects": [
+    {
+     "create": {
+      "entity": "Booking",
+      "as": "b",
+      "values": {
+       "email": {
+        "user": "email"
+       },
+       "seat_count": {
+        "count": {
+         "entity": "Seat",
+         "where": {
+          "and": [
+           {
+            "eq": [
+             {
+              "field": "row.held_by"
+             },
+             {
+              "user": "email"
+             }
+            ]
+           },
+           {
+            "eq": [
+             {
+              "field": "row.status"
+             },
+             "Held"
+            ]
+           }
+          ]
+         }
+        }
+       },
+       "total": {
+        "add": [
+         {
+          "add": [
+           {
+            "sum": {
+             "entity": "Seat",
+             "field": "price",
+             "where": {
+              "and": [
+               {
+                "eq": [
+                 {
+                  "field": "row.held_by"
+                 },
+                 {
+                  "user": "email"
+                 }
+                ]
+               },
+               {
+                "eq": [
+                 {
+                  "field": "row.status"
+                 },
+                 "Held"
+                ]
+               }
+              ]
+             }
+            }
+           },
+           {
+            "mul": [
+             {
+              "count": {
+               "entity": "Seat",
+               "where": {
+                "and": [
+                 {
+                  "eq": [
+                   {
+                    "field": "row.held_by"
+                   },
+                   {
+                    "user": "email"
+                   }
+                  ]
+                 },
+                 {
+                  "eq": [
+                   {
+                    "field": "row.status"
+                   },
+                   "Held"
+                  ]
+                 }
+                ]
+               }
+              }
+             },
+             30
+            ]
+           }
+          ]
+         },
+         {
+          "round": [
+           {
+            "mul": [
+             {
+              "mul": [
+               {
+                "count": {
+                 "entity": "Seat",
+                 "where": {
+                  "and": [
+                   {
+                    "eq": [
+                     {
+                      "field": "row.held_by"
+                     },
+                     {
+                      "user": "email"
+                     }
+                    ]
+                   },
+                   {
+                    "eq": [
+                     {
+                      "field": "row.status"
+                     },
+                     "Held"
+                    ]
+                   }
+                  ]
+                 }
+                }
+               },
+               30
+              ]
+             },
+             0.18
+            ]
+           },
+           2
+          ]
+         }
+        ]
+       }
+      }
+     }
+    },
+    {
+     "for_each": {
+      "entity": "Seat",
+      "where": {
+       "and": [
+        {
+         "eq": [
+          {
+           "field": "row.held_by"
+          },
+          {
+           "user": "email"
+          }
+         ]
+        },
+        {
+         "eq": [
+          {
+           "field": "row.status"
+          },
+          "Held"
+         ]
+        }
+       ]
+      },
+      "as": "seat",
+      "effects": [
+       {
+        "set": {
+         "record": "seat",
+         "field": "status",
+         "value": "Sold"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "message": {
+    "format": [
+     "Booked {id}. Total {t}",
+     {
+      "id": {
+       "field": "b.id"
+      },
+      "t": {
+       "format_money": [
+        {
+         "field": "b.total"
+        },
+        "INR"
+       ]
+      }
+     }
+    ]
+   },
+   "returns": {
+    "booking_id": {
+     "field": "b.id"
+    },
+    "total": {
+     "field": "b.total"
+    }
+   }
+  }
+ ],
+ "faults": [
+  {
+   "name": "gateway_timeout",
+   "applies_to": [
+    "pay"
+   ],
+   "message": "Payment failed. Please try again."
+  }
+ ]
+}

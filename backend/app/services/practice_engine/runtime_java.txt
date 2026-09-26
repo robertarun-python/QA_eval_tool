@@ -714,7 +714,7 @@
         boolean uiOpen(Object pageName) {
             List<Object> pages = spec.get("pages") == null ? List.of() : list(spec.get("pages"));
             if (!pages.contains(pageName)) { message = "Page not found: " + pageName; return false; }
-            if (users != null && !loginPage().equals(pageName)) {
+            if (users != null && !loginPage().equals(pageName) && !(spec.get("public_pages") != null && list(spec.get("public_pages")).contains(pageName))) {
                 try { checkSession(); } catch (Refused r) { if (r.page != null) page = r.page; message = r.getMessage(); return false; }
             }
             page = str(pageName); message = ""; return true;

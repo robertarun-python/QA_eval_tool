@@ -497,7 +497,7 @@ class Engine {
 
   uiOpen(page) {
     if (!(this.spec.pages || []).includes(page)) { this.message = `Page not found: ${page}`; return false; }
-    if (this.users && page !== this.loginPage()) {
+    if (this.users && page !== this.loginPage() && !(this.spec.public_pages || []).includes(page)) {
       try { this.checkSession(); } catch (e) {
         if (!(e instanceof Refused)) throw e;
         this.page = e.page || this.page; this.message = e.message; return false;

@@ -1,0 +1,298 @@
+{
+ "app_name": "Corp Portal",
+ "base_url": "https://portal.example.test",
+ "now": "2024-03-15T10:00",
+ "pages": [
+  "Login",
+  "Dashboard",
+  "Forgot Password"
+ ],
+ "home_page": "Dashboard",
+ "entities": {
+  "User": {
+   "key": "email",
+   "fields": {
+    "email": "string",
+    "password": "string",
+    "name": "string",
+    "prev1": "string",
+    "prev2": "string"
+   }
+  }
+ },
+ "data": {
+  "User": [
+   {
+    "email": "asha@corp.test",
+    "password": "Asha@2024",
+    "name": "Asha Rao",
+    "prev1": "Asha@2023",
+    "prev2": "Asha@2022"
+   },
+   {
+    "email": "ben@corp.test",
+    "password": "Ben@2024",
+    "name": "Ben Paul",
+    "prev1": null,
+    "prev2": null
+   }
+  ]
+ },
+ "users": {
+  "entity": "User",
+  "login_field": "email",
+  "password_field": "password",
+  "name_field": "name",
+  "session_minutes": 15,
+  "messages": {
+   "invalid": "Invalid email or password",
+   "required_login": "Email is required",
+   "required_password": "Password is required"
+  },
+  "lockout": {
+   "attempts": 3,
+   "minutes": 15,
+   "message": "Account locked for 15 minutes"
+  }
+ },
+ "queries": [],
+ "actions": [
+  {
+   "name": "request_reset",
+   "label": "Send code",
+   "page": "Forgot Password",
+   "requires_login": false,
+   "inputs": [
+    {
+     "name": "email",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Email is required"
+      }
+     ]
+    }
+   ],
+   "load": [
+    {
+     "as": "u",
+     "entity": "User",
+     "key": {
+      "input": "email"
+     },
+     "missing": "No account with this email"
+    }
+   ],
+   "effects": [
+    {
+     "set_session": {
+      "key": "reset_email",
+      "value": {
+       "field": "u.email"
+      }
+     }
+    },
+    {
+     "set_session": {
+      "key": "code",
+      "value": "482913"
+     }
+    },
+    {
+     "set_session": {
+      "key": "sent_at",
+      "value": {
+       "now": true
+      }
+     }
+    },
+    {
+     "send": {
+      "channel": "email",
+      "to": {
+       "field": "u.email"
+      },
+      "subject": "Your reset code",
+      "body": "Your code is 482913. It is valid for 10 minutes."
+     }
+    }
+   ],
+   "message": "A reset code has been sent to your email"
+  },
+  {
+   "name": "reset_password",
+   "label": "Reset",
+   "page": "Forgot Password",
+   "requires_login": false,
+   "inputs": [
+    {
+     "name": "code",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Enter the code"
+      }
+     ]
+    },
+    {
+     "name": "new_password",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Enter a new password"
+      },
+      {
+       "rule": "min_length",
+       "value": 8,
+       "message": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+      },
+      {
+       "rule": "max_length",
+       "value": 20,
+       "message": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+      },
+      {
+       "rule": "pattern",
+       "value": ".*[A-Z].*",
+       "message": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+      },
+      {
+       "rule": "pattern",
+       "value": ".*[0-9].*",
+       "message": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+      },
+      {
+       "rule": "pattern",
+       "value": ".*[^A-Za-z0-9].*",
+       "message": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+      }
+     ]
+    },
+    {
+     "name": "confirm_password",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Confirm the new password"
+      }
+     ]
+    }
+   ],
+   "load": [
+    {
+     "as": "u",
+     "entity": "User",
+     "key": {
+      "session": "reset_email"
+     },
+     "missing": "Request a code first"
+    }
+   ],
+   "rules": [
+    {
+     "unless": {
+      "eq": [
+       {
+        "input": "code"
+       },
+       {
+        "session": "code"
+       }
+      ]
+     },
+     "message": "Invalid code"
+    },
+    {
+     "when": {
+      "gt": [
+       {
+        "minutes_since": {
+         "session": "sent_at"
+        }
+       },
+       10
+      ]
+     },
+     "message": "Code has expired"
+    },
+    {
+     "unless": {
+      "eq": [
+       {
+        "input": "new_password"
+       },
+       {
+        "input": "confirm_password"
+       }
+      ]
+     },
+     "message": "Passwords do not match"
+    },
+    {
+     "when": {
+      "in": [
+       {
+        "input": "new_password"
+       },
+       [
+        {
+         "field": "u.password"
+        },
+        {
+         "field": "u.prev1"
+        },
+        {
+         "field": "u.prev2"
+        }
+       ]
+      ]
+     },
+     "message": "You can't reuse your last 3 passwords"
+    }
+   ],
+   "effects": [
+    {
+     "set": {
+      "record": "u",
+      "field": "prev2",
+      "value": {
+       "field": "u.prev1"
+      }
+     }
+    },
+    {
+     "set": {
+      "record": "u",
+      "field": "prev1",
+      "value": {
+       "field": "u.password"
+      }
+     }
+    },
+    {
+     "set": {
+      "record": "u",
+      "field": "password",
+      "value": {
+       "input": "new_password"
+      }
+     }
+    },
+    {
+     "clear_session": "reset_email"
+    },
+    {
+     "clear_session": "code"
+    },
+    {
+     "clear_session": "sent_at"
+    }
+   ],
+   "message": "Password changed. Please log in.",
+   "next_page": "Login"
+  }
+ ],
+ "public_pages": [
+  "Forgot Password"
+ ]
+}

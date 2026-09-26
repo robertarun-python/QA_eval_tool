@@ -87,3 +87,96 @@ UPI = [
 
 def test_upi_payments():
     _run(_spec("upi"), UPI)
+
+
+# ---------------------------------------------------------------------------- Login security and password reset
+def _login(email, password, ok):
+    return {"call": "UI.login", "args": [email, password], "expect": ok}
+
+
+START = [{"call": "setup"}]
+RESET = START + [{"call": "UI.open", "args": ["Forgot Password"], "expect": True},
+                 {"call": "UI.request_reset", "args": ["asha@corp.test"], "expect": True}]
+WEAK = "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+SECURITY = [
+    _c("Login with valid credentials", START + [_login("asha@corp.test", "Asha@2024", True), {"call": "UI.current_page", "expect": "Dashboard"},
+       {"call": "UI.signed_in_user", "expect": "Asha Rao"}]),
+    _c("Email is case-insensitive", START + [_login("ASHA@CORP.TEST", "Asha@2024", True)]),
+    _c("Password is case-sensitive", START + [_login("asha@corp.test", "asha@2024", False), _msg("Invalid email or password"),
+       {"call": "UI.signed_in_user", "expect": None}]),
+    _c("Account locked after 3 wrong passwords", START + [_login("asha@corp.test", "x", False), _msg("Invalid email or password"),
+       _login("asha@corp.test", "x", False), _login("asha@corp.test", "x", False), _msg("Account locked for 15 minutes"),
+       _login("asha@corp.test", "Asha@2024", False), _msg("Account locked for 15 minutes"),
+       _login("ben@corp.test", "Ben@2024", True)]),
+    _c("Lock lifts after 15 minutes", START + [_login("asha@corp.test", "x", False)] * 3 + [
+       {"call": "Test.advance_minutes", "args": [14]}, _login("asha@corp.test", "Asha@2024", False),
+       {"call": "Test.advance_minutes", "args": [1]}, _login("asha@corp.test", "Asha@2024", True)]),
+    _c("Wrong attempts reset after a successful login", START + [_login("asha@corp.test", "x", False), _login("asha@corp.test", "x", False),
+       _login("asha@corp.test", "Asha@2024", True), {"call": "UI.logout"}, _login("asha@corp.test", "x", False),
+       _login("asha@corp.test", "x", False), _login("asha@corp.test", "Asha@2024", True)]),
+    _c("Reset password with valid code", RESET + [
+       {"call": "Database.outbox", "expect_includes": [{"to": "asha@corp.test", "body": "Your code is 482913. It is valid for 10 minutes."}]},
+       {"call": "UI.reset_password", "args": ["482913", "Newpass@1", "Newpass@1"], "expect": True}, _msg("Password changed. Please log in."),
+       {"call": "UI.current_page", "expect": "Login"},
+       _login("asha@corp.test", "Asha@2024", False), _login("asha@corp.test", "Newpass@1", True),
+       {"call": "Database.get_user", "args": ["asha@corp.test"], "expect_includes": {"password": "Newpass@1", "prev1": "Asha@2024"}}]),
+    _c("Expired reset code", RESET + [{"call": "Test.advance_minutes", "args": [11]},
+       {"call": "UI.reset_password", "args": ["482913", "Newpass@1", "Newpass@1"], "expect": False}, _msg("Code has expired"),
+       {"call": "Database.get_user", "args": ["asha@corp.test"], "expect_includes": {"password": "Asha@2024"}}]),
+    _c("Weak new password", RESET + [{"call": "UI.reset_password", "args": ["482913", "password", "password"], "expect": False}, _msg(WEAK),
+       {"call": "UI.reset_password", "args": ["482913", "Password1", "Password1"], "expect": False}, _msg(WEAK),
+       {"call": "UI.reset_password", "args": ["482913", "Pa@1", "Pa@1"], "expect": False}, _msg(WEAK)]),
+    _c("Reuse of a recent password", RESET + [{"call": "UI.reset_password", "args": ["482913", "Asha@2024", "Asha@2024"], "expect": False},
+       _msg("You can't reuse your last 3 passwords"),
+       {"call": "UI.reset_password", "args": ["482913", "Asha@2022", "Asha@2022"], "expect": False}, _msg("You can't reuse your last 3 passwords")]),
+    _c("Confirm password mismatch", RESET + [{"call": "UI.reset_password", "args": ["482913", "Newpass@1", "Newpass@2"], "expect": False},
+       _msg("Passwords do not match")]),
+    _c("SQL injection in email field", START + [_login("' OR 1=1 --", "x", False), _msg("Invalid email or password"),
+       {"call": "UI.signed_in_user", "expect": None}]),
+]
+
+
+def test_login_security_and_password_reset():
+    _run(_spec("security"), SECURITY)
+
+
+# ---------------------------------------------------------------------------- Cinema seats
+def _cine(user="user1@cine.test", password="One@123"):
+    return [{"call": "UI.login", "args": [user, password], "expect": True}, {"call": "UI.open", "args": ["Seat Selection"], "expect": True}]
+
+
+def _select(seats, ok):
+    return {"call": "UI.select_seats", "args": [seats], "expect": ok}
+
+
+def _seat(code, status):
+    return {"call": "Database.get_seat", "args": [code], "expect_includes": {"status": status}}
+
+
+PAY = [{"call": "UI.open", "args": ["Payment"], "expect": True}]
+CINEMA = [
+    _c("Book two regular seats", START + _cine() + [_select("A1,A2", True), {"call": "UI.last_result", "expect": {"total": 570.8}}] + PAY + [
+       {"call": "UI.pay", "expect": True}, _msg("Booked BK-001. Total ₹570.80"), _seat("A1", "Sold"), _seat("A2", "Sold"),
+       {"call": "Database.get_booking", "args": ["BK-001"], "expect_includes": {"seat_count": 2, "total": 570.8}}]),
+    _c("Seven seats refused", START + _cine() + [_select("A1,A2,A3,A4,A5,A6,A7", False), _msg("You can book at most 6 seats"), _seat("A1", "Free")]),
+    _c("Already sold seat", START + _cine() + [_select("B5", False), _msg("Seat B5 is not available")]),
+    _c("Held seat can't be taken by another user", START + _cine() + [_select("C1", True), {"call": "UI.logout"}] + _cine("user2@cine.test", "Two@123") + [
+       _select("C1", False), _msg("Seat C1 is not available"),
+       {"call": "Database.get_seat", "args": ["C1"], "expect_includes": {"held_by": "user1@cine.test"}}]),
+    _c("Hold released after 10 minutes", START + _cine() + [_select("C1", True), {"call": "UI.logout"}, {"call": "Test.advance_minutes", "args": [11]}]
+       + _cine("user2@cine.test", "Two@123") + [_select("C1", True),
+       {"call": "Database.get_seat", "args": ["C1"], "expect_includes": {"status": "Held", "held_by": "user2@cine.test"}}]),
+    _c("Pay after hold expired", START + _cine() + [_select("A3", True), {"call": "Test.advance_minutes", "args": [11]}] + PAY + [
+       {"call": "UI.pay", "expect": False}, _msg("Your seat hold has expired"), {"call": "Database.count_booking", "expect": 0}]),
+    _c("Recliner pricing", START + _cine() + [_select("R1", True)] + PAY + [{"call": "UI.pay", "expect": True}, _msg("Booked BK-001. Total ₹485.40")]),
+    _c("Booking after show start", START + [{"call": "Test.advance_minutes", "args": [90]}] + _cine() + [_select("A1", False),
+       _msg("Booking is closed for this show")]),
+    _c("Invalid seat code", START + _cine() + [_select("Z99", False), _msg("Seat Z99 does not exist")]),
+    _c("Duplicate seat in selection", START + _cine() + [_select("A1,A1", False), _msg("Seat A1 selected twice"), _seat("A1", "Free")]),
+    _c("Payment gateway timeout", START + _cine() + [_select("A4", True), {"call": "Test.simulate", "args": ["gateway_timeout"]}] + PAY + [
+       {"call": "UI.pay", "expect": False}, _msg("Payment failed. Please try again."), _seat("A4", "Held"), {"call": "Database.count_booking", "expect": 0}]),
+]
+
+
+def test_cinema_seat_booking():
+    _run(_spec("cinema"), CINEMA)

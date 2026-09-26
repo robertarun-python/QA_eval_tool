@@ -12,7 +12,7 @@ FACTS CANDIDATES ARE ALREADY SHOWN FOR THIS APPLICATION (URLs, test accounts, da
 <<KNOWN_FACTS>>
 
 === THE DESCRIPTION FORMAT ===
-Top level: app_name, base_url (https://....example.test), now (the app's fixed clock start, "YYYY-MM-DDTHH:MM"), entities, data, users (omit if nobody signs in), pages, home_page, queries, actions, faults.
+Top level: app_name, base_url (https://....example.test), now (the app's fixed clock start, "YYYY-MM-DDTHH:MM"), entities, data, users (omit if nobody signs in), pages, public_pages, home_page, queries, actions, faults.
 
 entities: {"Loan": {"key": "id", "id_format": "LN-{n:03}", "fields": {"id": "string", "amount": "money", ...}}}
 - Entity names CapitalCase; field names lower_snake_case. Field types: string, int, number, money, date ("YYYY-MM-DD"), datetime ("YYYY-MM-DDTHH:MM"), bool.
@@ -27,7 +27,7 @@ users: {"entity": "Member", "login_field": "email", "password_field": "password"
 - The login page is where the app starts; a successful login goes to home_page. Login matches login_field case-insensitively; the password exactly. With users, every query and action needs a signed-in user unless it says "requires_login": false. A session idle longer than session_minutes expires (0 or omitted = never).
 - Account lockout after wrong passwords: "lockout": {"attempts": 3, "minutes": 15, "message": "..."} (omit minutes = locked until reset). The attempt that reaches the limit already shows the lock message; while locked even the right password is refused with it; a successful login resets the count. Login fields can be anything (roll number + date of birth, mobile + password).
 
-pages: every page name exactly as UI.current_page() returns it (include the login page).
+pages: every page name exactly as UI.current_page() returns it (include the login page). public_pages: pages a signed-out user can open (e.g. "Forgot Password", "Register"); every other page needs a signed-in user.
 
 queries (read-only - search, lists, details):
 {"name": "search_books", "label": "Search", "page": "Search", "entity": "Book",

@@ -657,7 +657,7 @@ class Engine:
         if page not in (self.spec.get("pages") or []):
             self.message = f"Page not found: {page}"
             return False
-        if self.users and page != self._login_page():
+        if self.users and page != self._login_page() and page not in (self.spec.get("public_pages") or []):
             try:
                 self._check_session()
             except _Refused as refused:

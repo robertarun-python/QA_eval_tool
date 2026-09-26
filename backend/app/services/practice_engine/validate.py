@@ -11,7 +11,8 @@ from .render import camel, snake
 from .runtime import Engine, EngineError
 
 FIELD_TYPES = {"string", "int", "number", "money", "date", "datetime", "bool"}
-TOP_KEYS = {"app_name", "base_url", "now", "entities", "data", "users", "pages", "home_page", "queries", "actions", "faults", "description"}
+TOP_KEYS = {"app_name", "base_url", "now", "entities", "data", "users", "pages", "home_page", "queries", "actions", "faults", "description",
+            "public_pages"}
 USER_KEYS = {"entity", "login_field", "password_field", "name_field", "session_minutes", "blocked_when", "messages", "page", "lockout"}
 USER_MESSAGES = {"required_login", "required_password", "invalid", "blocked", "expired", "need_login"}
 QUERY_KEYS = {"name", "label", "description", "page", "entity", "match", "inputs", "key_input", "missing", "where", "order_by", "show",
@@ -119,6 +120,9 @@ class _Checker:
         elif len(set(pages)) != len(pages):
             self.err("pages", "has the same page twice")
         self.pages = set(pages)
+        for p in spec.get("public_pages") or []:
+            if p not in self.pages:
+                self.err("public_pages", f"{p!r} is not one of the pages")
         if "home_page" in spec and spec["home_page"] not in self.pages:
             self.err("home_page", f"{spec['home_page']!r} is not one of the pages")
         self.entities = spec.get("entities") if isinstance(spec.get("entities"), dict) else {}
