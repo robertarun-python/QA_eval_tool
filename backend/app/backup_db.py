@@ -33,5 +33,23 @@ def backup(label: str = "manual") -> Path:
     return target
 
 
+def prune(label: str, keep: int) -> list[Path]:
+    """Deletes all but the newest `keep` snapshots with this label (e.g. the
+    automatic "startup" ones, so they don't pile up)."""
+    source = Path(sqlite_db_path())
+    snapshots = sorted(source.parent.glob(f"{source.stem}_{label}_*.db"))
+    removed = snapshots[:-keep] if keep > 0 else snapshots
+    for old in removed:
+        old.unlink()
+    return removed
+
+
 if __name__ == "__main__":
-    print(backup(sys.argv[1] if len(sys.argv) > 1 else "manual"))
+    # python -m app.backup_db <label> [--keep N]   (--keep prunes older snapshots with that label)
+    args = sys.argv[1:]
+    label = args[0] if args and not args[0].startswith("--") else "manual"
+    if not Path(sqlite_db_path()).exists() and label == "startup":
+        sys.exit(0)  # first run: nothing to back up yet
+    print(backup(label))
+    if "--keep" in args:
+        prune(re.sub(r"[^A-Za-z0-9_-]+", "_", label).strip("_") or "manual", int(args[args.index("--keep") + 1]))

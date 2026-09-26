@@ -44,7 +44,7 @@ from ..schemas import (
     Round2AutomationEnvironmentUpdate, Round2AutomationEnvironmentOut,
 )
 from ..dependencies import require_hr
-from ..services import llm_service
+from ..services import llm_service, round_scenarios
 from ..services import candidate_upload_service
 from ..services.practice_app import service as practice_app_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions, close_expired_assessment_windows, fail_interrupted_scoring
@@ -161,7 +161,16 @@ def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: 
     db.commit()
     db.refresh(scenario)
 
-    _generate_reference(scenario, db)
+    try:
+        _generate_reference(scenario, db)
+    except HTTPException as error:  # _generate_reference already logged the real cause
+        # Nothing half-made is left behind: the draft had no test cases, and
+        # HR re-clicking Create would otherwise pile up empty drafts.
+        db.rollback()
+        db.delete(db.get(Scenario, scenario.id))
+        db.commit()
+        error.detail = "Couldn't generate the reference test cases - nothing was saved. Try again."
+        raise
     return scenario
 
 
@@ -539,6 +548,14 @@ def update_round2_automation_environment(scenario_id: int, payload: Round2Automa
     round4-instructions: a candidate's test data shouldn't change under
     them mid-conversation."""
     scenario = _get_round2_automation_scenario_or_404(scenario_id, db)
+    config = scenario.config_json or {}
+    if config.get("paired_round1_scenario_id") or config.get("paired_round1_title"):
+        # The sheet describes the practice app's code exactly (and the scorer's
+        # ground truth is built from the same design): an edit here would tell
+        # candidates a login or data the app rejects.
+        raise HTTPException(400, "This Round 2 uses a practice app, and its reference sheet matches the app's code exactly - "
+                                 "it can't be edited. To change a login or data, change the Round 1 test cases and "
+                                 "generate Round 2 again.")
     _require_round2_automation_not_in_progress(scenario_id, db, background_tasks, "change this round's test environment")
 
     scenario.environment_json = Round2AutomationEnvironmentOut(fields=payload.fields, notes=payload.notes).model_dump()
@@ -640,7 +657,27 @@ def practice_app_status(scenario_id: int, db: Session = Depends(get_db), hr: Use
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
     return {**practice_app_service.summary(scenario), "cannot_start": practice_app_service.can_start(scenario),
-            "steps": practice_app_service.generator.STEPS}
+            "steps": practice_app_service.generator.STEPS,
+            "waiting_candidates": _candidates_waiting_for_round2(scenario, db) if scenario.round_number == 1 else 0}
+
+
+def _candidates_waiting_for_round2(round1: Scenario, db: Session) -> int:
+    """Candidates who finished this Round 1 scenario but can't start Round 2
+    because no practice app for it is approved yet - HR has to know, or they
+    wait unseen until their assessment window runs out."""
+    if round_scenarios.round2_for_round1(db, round1) is not None:
+        return 0
+    finished = (
+        db.query(Submission.user_id)
+        .filter(Submission.scenario_id == round1.id, Submission.round_number == 1, Submission.archived.is_(False),
+                Submission.status.in_([RoundStatus.submitted, RoundStatus.scored]))
+        .all()
+    )
+    started_round2 = {
+        uid for (uid,) in db.query(Submission.user_id)
+        .filter(Submission.round_number == 2, Submission.archived.is_(False)).all()
+    }
+    return len({uid for (uid,) in finished} - started_round2)
 
 
 @router.post("/scenarios/{scenario_id}/practice-app", status_code=202)

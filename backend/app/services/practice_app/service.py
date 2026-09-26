@@ -92,6 +92,10 @@ def start_build(scenario: Scenario, db: Session) -> dict:
     previous = summary(scenario)
     if previous.get("approved_round2_scenario_id"):
         data["approved_round2_scenario_id"] = previous["approved_round2_scenario_id"]
+    # Kept for _reusable_build: this summary is about to replace the previous
+    # one, and builds saved before "unsupported" was stored only had it here.
+    data["previous_unsupported"] = [{"title": r["title"], "reason": (r.get("details") or [""])[0]}
+                                    for r in previous.get("coverage") or [] if r.get("status") == "not supported"]
     _set_summary(scenario, data)
     db.commit()
     return data
@@ -195,16 +199,15 @@ def _reusable_build(scenario: Scenario) -> dict | None:
     if not (build.get("plan") and build.get("checklists") and python):
         return None
     unsupported = build.get("unsupported")
-    if unsupported is None:  # older builds kept these only in the summary
-        unsupported = [{"title": r["title"], "reason": (r.get("details") or [""])[0]}
-                       for r in summary(scenario).get("coverage") or [] if r.get("status") == "not supported"]
+    if unsupported is None:  # older builds kept these only in the summary start_build replaced
+        unsupported = summary(scenario).get("previous_unsupported") or []
     return {"plan": build["plan"], "checklists": build["checklists"], "unsupported": unsupported, "python": python}
 
 
 def _paired_round2_facts(round1: Scenario, db: Session) -> dict | None:
     """The reference sheet an existing paired Round 2 scenario already shows
     candidates, so a rebuild keeps the same accounts and data."""
-    for s in db.query(Scenario).filter(Scenario.round_number == 2).all():
+    for s in sorted(db.query(Scenario).filter(Scenario.round_number == 2).all(), key=lambda s: -s.id):  # newest first
         config = s.config_json or {}
         if config.get("paired_round1_scenario_id") == round1.id or config.get("paired_round1_title") == round1.title:
             if s.environment_json:
@@ -227,13 +230,21 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         raise ValueError(not_ready)
     unverified = [r for r in build.get("coverage") or [] if r.get("status") != "works"]
 
-    round2 = next(
-        (s for s in db.query(Scenario).filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band).all()
-         if (s.config_json or {}).get("paired_round1_scenario_id") == round1.id),
-        None,
-    )
-    if round2 is not None and _in_progress(round2, db):
-        raise ValueError("Candidates are in the middle of Round 2 on this practice app - approve again once they've finished.")
+    band_round2s = db.query(Scenario).filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band).all()
+    paired = [s for s in band_round2s if (s.config_json or {}).get("paired_round1_scenario_id") == round1.id]
+    round2 = max(paired, key=lambda s: s.id) if paired else None
+    live = next((s for s in band_round2s if s.is_live), None)
+    for busy in {s.id: s for s in (round2, live) if s is not None}.values():
+        # Approving switches Round 2 when this Round 1 is live - never under a
+        # candidate who's mid-way through it (it used to skip the switch
+        # silently while the card kept saying "ready to approve").
+        if (busy is round2 or round1.is_live) and _in_progress(busy, db):
+            raise ValueError("Candidates are in the middle of Round 2 right now - approve once they've finished, "
+                             "so nothing changes under them.")
+    if round2 is not None and _has_submissions(round2, db):
+        # Candidates already took this version: their results stay tied to the
+        # app they actually used. The new build becomes a new Round 2 version.
+        round2 = None
 
     plan = build["plan"]
     sheet = plan.get("reference_sheet") or {}
@@ -244,16 +255,21 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         "paired_round1_title": round1.title,
         "practice_app_checklists": build["checklists"],
         "practice_app_built_at": build["built_at"],
+        # What Round 1 shows of this app (routers/candidate._round1_environment_view):
+        # the web address and the design's main test account - nothing built
+        # from the Round 1 answer key.
+        "round1_sheet": _round1_sheet(plan),
     }
     reference = {"ground_truth": build["ground_truth"], "validation_notes": validation_notes(unverified)}
     environment = {"fields": {str(k): str(v) for k, v in (sheet.get("fields") or {}).items()},
                    "notes": str(sheet.get("notes") or "Only this data exists in the practice app.")}
     if round2 is None:
         from ...seed_round2_automation import INSTRUCTIONS  # the shared Round 2 candidate instructions
-        template = db.query(Scenario).filter(Scenario.round_number == 2, Scenario.is_live.is_(True)).first()
+        template = next((s for s in band_round2s if s.is_live), None)
+        version = f" (version {len(paired) + 1})" if paired else ""
         round2 = Scenario(
             round_number=2,
-            title=f"AI-Assisted Test Automation - {round1.title}",
+            title=f"AI-Assisted Test Automation - {round1.title}{version}",
             description=INSTRUCTIONS,
             experience_band=round1.experience_band,
             created_by=round1.created_by,
@@ -280,6 +296,18 @@ def approve(round1: Scenario, db: Session) -> Scenario:
     return round2
 
 
+def _round1_sheet(plan: dict) -> dict:
+    sheet = {}
+    if plan.get("base_url"):
+        sheet["Web address"] = str(plan["base_url"])
+    account = next(iter(plan.get("test_accounts") or []), None) or {}
+    if account.get("login"):
+        sheet["Test login"] = str(account["login"])
+    if account.get("password"):
+        sheet["Password"] = str(account["password"])
+    return sheet
+
+
 def screens_for(plan: dict) -> dict | None:
     """The sample screens candidates see in Round 2, from the same design as
     the practice app. Anything malformed is dropped rather than shown."""
@@ -303,6 +331,10 @@ def screens_for(plan: dict) -> dict | None:
         return None
 
 
+def _has_submissions(round2: Scenario, db: Session) -> bool:
+    return db.query(Submission).filter(Submission.scenario_id == round2.id, Submission.archived.is_(False)).count() > 0
+
+
 def _in_progress(round2: Scenario, db: Session) -> bool:
     return db.query(Submission).filter(
         Submission.scenario_id == round2.id,
@@ -318,11 +350,9 @@ def activate_paired_round2(round1: Scenario, db: Session) -> Scenario | None:
     Doesn't commit."""
     if round1.round_number != 1:
         return None
-    paired = next(
-        (s for s in db.query(Scenario).filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band).all()
-         if (s.config_json or {}).get("paired_round1_scenario_id") == round1.id and s.status == ScenarioStatus.published),
-        None,
-    )
+    versions = [s for s in db.query(Scenario).filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band).all()
+                if (s.config_json or {}).get("paired_round1_scenario_id") == round1.id and s.status == ScenarioStatus.published]
+    paired = max(versions, key=lambda s: s.id) if versions else None  # the newest version (see approve)
     if paired is None or paired.is_live:
         return paired
     current = db.query(Scenario).filter(

@@ -58,8 +58,20 @@ echo
 echo "Creating/checking the seeded HR + candidate accounts..."
 python -m app.seed
 echo
+echo "Backing up the database (the last 10 startup backups are kept)..."
+python -m app.backup_db startup --keep 10
+echo
+# Default: no auto-restart. With --reload, any code change restarts the
+# server, and a restart waits for a running Round 2 practice-app build -
+# freezing the whole site for candidates. Use ./run_server.sh --dev only
+# while developing, never on an assessment day.
+RELOAD=""
+if [ "${1:-}" = "--dev" ]; then
+    RELOAD="--reload"
+    echo "DEV MODE: the server restarts whenever code changes - not for real assessments."
+fi
 echo "Starting server at http://127.0.0.1:8000/"
 echo "Open that address in your browser once you see \"Application startup complete\" below."
 echo "Press Ctrl+C here to stop the server when you're done."
 echo
-exec uvicorn app.main:app --reload
+exec uvicorn app.main:app $RELOAD

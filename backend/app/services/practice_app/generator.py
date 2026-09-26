@@ -230,7 +230,10 @@ def _missing_start_record_problem(checklist: dict, plan: dict, changing: set[str
         if call in changing and step.get("expect") is not False:
             return None  # data may have changed from here on
         args = step.get("args") or []
-        if call.startswith("Database.") and step.get("expect") is False and args:
+        # Only a check that the record itself exists ("...exists..."): a false
+        # has_borrowed('MEM001', 'BK-9') or is_locked(email) is a relation or
+        # state of an existing record, and fine.
+        if call.startswith("Database.") and "exist" in call.lower() and step.get("expect") is False and args:
             # The record being looked up is the first argument (later ones are
             # e.g. its owner, who does exist); matched as a whole value, not
             # inside a longer one ("12345678" within "1234567890123456").
@@ -301,8 +304,13 @@ def merge_checklist_retry(first: list, first_valid: list[dict], retried) -> list
     used_ids = {c.get("id") for c in first if good(c)}
     replacements = {}
     for c in retried if isinstance(retried, list) else []:
-        if isinstance(c, dict) and _title_key(c) not in covered and c.get("id") not in used_ids:
-            replacements.setdefault(_title_key(c), c)
+        if isinstance(c, dict) and _title_key(c) not in covered and _title_key(c) not in replacements:
+            if c.get("id") in used_ids:
+                # The AI numbers ids c1..cN on each attempt, so a missed case
+                # usually reuses a good checklist's id - keep it under a new one.
+                c = {**c, "id": f"{c.get('id')}-retry"}
+            used_ids.add(c.get("id"))
+            replacements[_title_key(c)] = c
     merged = []
     for c in first:  # in the first attempt's order, each bad one swapped for its retry
         if good(c):
@@ -392,14 +400,24 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         # The app code may be right and the checklist wrong (a record the
         # starting data already has used as "new", a result used as an id) -
         # code fixes can't solve that, so every earlier stuck build gave up.
-        failed = {r.id: r.failures for r in report.languages["python"].results if not r.passed}
+        # Checklists that ran and failed - not ones where the app itself didn't
+        # load or run (lang_report.error, "failed to load"): a checklist
+        # rewrite can't fix that, so it isn't paid for.
+        failed = {r.id: r.failures for r in report.languages["python"].results
+                  if not r.passed and not any(f.startswith("the app failed to load") for f in r.failures)}
+        if not failed:
+            return checklists, []
         cases = {(c.get("title") or "").strip().lower(): c for c in reference_cases}
         blocks = [json.dumps({"checklist": c, "round1_test_case": cases.get((c.get("title") or "").strip().lower(), {}),
                               "what_went_wrong": failed[c["id"]][:5]}, indent=1, ensure_ascii=False)
                   for c in checklists if c["id"] in failed]
-        raw = llm_service._parse_json_response(call(_render(
-            llm_service._load_prompt("practice_app_repair_checklists.txt"), plan=plan_text, failing="\n\n".join(blocks),
-        ), _CHECKLIST_TOKENS))
+        try:
+            raw = llm_service._parse_json_response(call(_render(
+                llm_service._load_prompt("practice_app_repair_checklists.txt"), plan=plan_text, failing="\n\n".join(blocks),
+            ), _CHECKLIST_TOKENS))
+        except Exception as e:  # an unusable reply is not a reason to lose the build - the code fixes still run
+            result.log.append(f"couldn't re-check the failing checklists ({type(e).__name__}) - kept as they were")
+            return checklists, []
         return accept_repairs(result.plan, checklists, raw, set(failed))
 
     try:
@@ -501,7 +519,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 result.checklists = runnable
                 checklists_text = json.dumps(runnable, indent=1, ensure_ascii=False)
                 result.log.append(f"kept the best version ({best['passed']}/{len(runnable)} pass) - the last fix made it worse")
-            if problems:
+            if problems or result.unsupported:
                 result.env_code_by_language, result.report = {"python": python}, report
                 problem = result.approval_problem()
                 if problem:
@@ -545,8 +563,11 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
 
         result.env_code_by_language = code
         result.report = report
-        result.ok = report.all_passed and all(row["status"] != "fails" for row in result.coverage())
-        result.approvable = result.ok or (all(lang in code for lang in LANGUAGE_NAMES) and result.approval_problem() is None)
+        # ok: every test case verified in every language. "Not supported" is
+        # not verified - an app can reach ok only by modelling every case;
+        # anything short goes through the approval rule (90%, High priority).
+        result.ok = report.all_passed and all(row["status"] == "works" for row in result.coverage())
+        result.approvable = result.ok or result.approval_problem() is None
     except Exception as e:  # the caller shows HR a clear message; nothing is saved
         result.error = f"{type(e).__name__}: {e}"
         result.log.append(f"stopped: {result.error}")

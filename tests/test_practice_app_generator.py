@@ -149,7 +149,8 @@ def test_a_test_case_the_app_cannot_support_is_listed_not_faked(monkeypatch):
     fake = FakeAI(checklists=[with_gap])
     monkeypatch.setattr(llm_service, "_call_claude", fake)
     result = generator.generate("Doctor Appointment System", "...", REFERENCE_CASES + [{"title": "SMS reminder is sent"}])
-    assert result.ok
+    # Listed, and not counted as verified: approvable under the 90% rule, not "all verified".
+    assert not result.ok and result.approvable and result.verified() == (15, 16)
     assert {"title": "SMS reminder is sent", "status": "not supported", "details": ["no SMS in the app"]} in result.coverage()
 
 
@@ -422,3 +423,60 @@ def test_an_unverified_high_priority_case_blocks_approval_and_translation(monkey
 def test_not_supported_cases_count_as_not_verified():
     result = generator.PracticeAppResult(reference_titles=["a", "b"], unsupported=[{"title": "b", "reason": "no clock"}])
     assert result.verified() == (0, 2)
+
+
+def test_not_supported_cases_cannot_slip_a_build_past_the_approval_rule(monkeypatch):
+    """C1: every runnable checklist passes, but the AI marked three test cases -
+    one High priority - as unsupported. That is 15 of 18 (83%), not "ok"."""
+    gaps = [{"id": f"gap{i}", "title": f"Gap {i}", "unsupported": "not modelled"} for i in range(3)]
+    fake = FakeAI(checklists=[json.loads(json.dumps(CHECKLISTS)) + gaps])
+    monkeypatch.setattr(llm_service, "_call_claude", fake)
+    cases = REFERENCE_CASES + [{"title": f"Gap {i}", "priority": "High" if i == 0 else "Low"} for i in range(3)]
+    result = generator.generate("Doctor Appointment System", "...", cases)
+    assert not result.ok and not result.approvable
+    assert "15 of 18" in result.approval_problem()
+    assert not any("from Python to" in p for p in fake.prompts)  # stopped before paying to translate
+
+
+def test_a_false_relation_check_on_an_existing_record_is_not_flagged():
+    """C2: has_borrowed('BEN001', ...) == false is about a relation, not the
+    record existing - only "...exists..." checks count."""
+    plan = {**_BENEFICIARY_PLAN, "helpers": _BENEFICIARY_PLAN["helpers"] + [
+        {"layer": "Database", "name": "has_borrowed", "returns": "Boolean", "changes_data": False}]}
+    checklist = {"id": "c", "steps": [{"call": "Database.has_borrowed", "args": ["1234567890123456", "BK-9"], "expect": False}]}
+    assert generator._missing_start_record_problem(checklist, plan, generator._data_changing_helpers(plan)) is None
+
+
+def test_a_retry_checklist_with_a_reused_id_still_fills_a_missed_case():
+    """C3: the first attempt skipped a test case; the retry wrote it under an
+    id a good first-attempt checklist already has (ids restart at c1)."""
+    first = [{"id": "c1", "title": "A", "steps": [{"call": "setup"}]}]
+    retried = [{"id": "c1", "title": "A", "steps": [{"call": "setup"}]}, {"id": "c1", "title": "B", "steps": [{"call": "setup"}]}]
+    merged = generator.merge_checklist_retry(first, first, retried)
+    assert [(c["id"], c["title"]) for c in merged] == [("c1", "A"), ("c1-retry", "B")]
+
+
+def test_an_unusable_checklist_recheck_does_not_end_the_build(monkeypatch):
+    """C4: the re-check reply is unusable - the build carries on to the code fixes."""
+    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
+    fake = FakeAI(python=broken, fixes={"python": [APP["python"]]}, repairs=["not json at all"])
+    fake_repairs = fake.repairs
+    original = fake.__call__
+
+    def call(prompt, max_tokens=4096):
+        if "fixing the app's code hasn't helped" in prompt:
+            fake.prompts.append(prompt)
+            return fake_repairs.pop(0)
+        return original(prompt, max_tokens)
+    monkeypatch.setattr(llm_service, "_call_claude", call)
+    result = generator.generate("Doctor Appointment System", "...", REFERENCE_CASES)
+    assert result.ok and result.error is None, result.log
+    assert any(line.startswith("couldn't re-check the failing checklists") for line in result.log)
+
+
+def test_no_recheck_is_paid_for_when_the_app_did_not_run(monkeypatch):
+    """C4: a Python file that doesn't even load has no failing checklist to rewrite."""
+    fake = FakeAI(python="this is not python (", fixes={"python": ["still not python (", "nor this ("]})
+    result = _run(monkeypatch, fake)
+    assert not result.ok
+    assert not any("fixing the app's code hasn't helped" in p for p in fake.prompts)

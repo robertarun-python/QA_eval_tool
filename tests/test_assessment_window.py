@@ -18,7 +18,7 @@ below for the regression test that gap needed.
 """
 from datetime import datetime, timedelta
 
-from .conftest import HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, _login, _auth, _publish_scenario
+from .conftest import HR_EMAIL, HR_PASSWORD, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD, _login, _auth, _publish_round4_scenario, _publish_scenario
 
 
 def _txt_file(text: str):
@@ -64,6 +64,10 @@ def test_a_never_started_round_gets_closed_out_once_round1_started_and_window_pa
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
+    # Every round exists, so each was reachable in turn - a round nobody could
+    # reach is left open instead (see test_an_unreachable_round_is_left_open...).
+    _publish_round4_scenario(client, hr_token, monkeypatch)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="R3")
     _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="R2")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
@@ -121,6 +125,8 @@ def test_a_seeded_account_gets_enforced_once_it_actually_starts_a_round(client, 
 
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1", band="0-7")
+    _publish_round4_scenario(client, hr_token, monkeypatch, band="0-7")  # every round reachable in turn
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="R3", band="0-7")
     _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="R2", band="0-7")
     monkeypatch.setattr(
         llm_service, "score_round1_submission",
@@ -217,3 +223,29 @@ def test_a_round_with_no_live_scenario_stays_not_started_even_past_the_window(cl
     report = client.get("/hr/candidates", cookies=_auth(hr_token)).json()
     row = next(c for c in report if c["email"] == "jane.doe@acme.com")
     assert next(r for r in row["rounds"] if r["round_number"] == 2)["status"] == "not_started"
+
+
+def test_an_unreachable_round_is_left_open_not_scored_zero(client, monkeypatch):
+    """Rounds unlock in order. When the candidate's Round 2 was never available
+    (no Round 2 at all here - in real use, no approved practice app for their
+    Round 1 yet), they couldn't reach Round 2 or anything after it: the window
+    closing mustn't record a 0 for those."""
+    from app.services import llm_service
+
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch, round_number=1, title="R1")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=3, title="R3")
+    _publish_scenario(client, hr_token, monkeypatch, round_number=4, title="R4")
+    monkeypatch.setattr(llm_service, "score_round1_submission",
+                        lambda **kwargs: {"coverage_score": 90, "misses": [], "final_score": 90, "feedback_text": "great"})
+    upload_body = client.post("/hr/candidates/upload", files=_txt_file(f"email,exam_date\njane.doe@acme.com,{_date(30)}\n"), cookies=_auth(hr_token)).json()
+    password = next(r["password"] for r in upload_body["rows"] if r["username"] == "jane.doe")
+    cand_token = _login(client, "jane.doe", password)
+    client.post("/candidate/round/1/start", cookies=_auth(cand_token))
+    client.post("/candidate/round/1/submit", json={"content": [{"title": "x", "steps": "x", "expected_result": "x"}]},
+                cookies=_auth(cand_token))
+    _set_round1_started_at("jane.doe@acme.com", days_ago=2)
+    client.get("/hr/candidates", cookies=_auth(hr_token))
+    row = next(c for c in client.get("/hr/candidates", cookies=_auth(hr_token)).json() if c["email"] == "jane.doe@acme.com")
+    for n in (2, 3, 4):
+        assert next(r for r in row["rounds"] if r["round_number"] == n)["status"] == "not_started"

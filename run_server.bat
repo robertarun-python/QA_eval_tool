@@ -36,8 +36,17 @@ echo.
 echo Creating/checking the seeded HR + candidate accounts...
 python -m app.seed
 echo.
+echo Backing up the database (the last 10 startup backups are kept)...
+python -m app.backup_db startup --keep 10
+echo.
+rem Default: no auto-restart (see run_server.sh). run_server.bat --dev only while developing.
+set RELOAD=
+if "%~1"=="--dev" (
+    set RELOAD=--reload
+    echo DEV MODE: the server restarts whenever code changes - not for real assessments.
+)
 echo Starting server at http://127.0.0.1:8000/
 echo Open that address in your browser once you see "Application startup complete" below.
 echo Press Ctrl+C here to stop the server when you're done.
 echo.
-uvicorn app.main:app --reload
+uvicorn app.main:app %RELOAD%

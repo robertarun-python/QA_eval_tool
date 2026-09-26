@@ -8,7 +8,7 @@ import re
 import pytest
 from playwright.sync_api import expect
 
-from .conftest import CANDIDATE, login
+from .conftest import CANDIDATE, HR, login
 
 pytestmark = pytest.mark.e2e
 
@@ -109,3 +109,17 @@ def test_round4_debugging_investigation(app_page):
     expect(submit).to_be_enabled()
     submit.click()
     expect(page.locator("text=You've already submitted this round").or_(page.locator('button[onclick="loadRound(4)"] .tick-num'))).to_be_visible()
+
+
+def test_hr_sees_the_candidates_scored_rounds(app_page):
+    """Last in this file on purpose: it needs the candidate above to have
+    finished all four rounds (each scored by the fake AI). It lived in
+    test_hr.py and failed whenever that file ran on its own."""
+    page = app_page
+    login(page, HR)
+    page.click("button[onclick=\"selectHRPage('candidates')\"]")
+    page.click(f'button[aria-label="View report for {CANDIDATE[0]}"]')
+    detail = page.locator("#candidate-detail-view")
+    expect(detail).to_be_visible()
+    expect(detail).to_contain_text("placeholder feedback")  # the fake scorer's text reached HR's report
+    expect(detail.locator("text=Override score").first).to_be_visible()
