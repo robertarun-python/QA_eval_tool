@@ -1,0 +1,711 @@
+    // Practice-app engine runtime (Java). Same behaviour as runtime.py and
+    // runtime.js - see docs/practice_engine/DESIGN.md.
+
+    static final class EngineError extends RuntimeException {
+        EngineError(String message) { super(message); }
+    }
+
+    static final class Refused extends RuntimeException {
+        final String page;
+        Refused(String message, String page) { super(message); this.page = page; }
+        Refused(String message) { this(message, null); }
+    }
+
+    // ---- a small JSON reader for the scenario description ---------------------------------------
+    static final class Json {
+        private final String s;
+        private int i = 0;
+        private Json(String s) { this.s = s; }
+        static Object parse(String text) { Json j = new Json(text); Object v = j.value(); return v; }
+        private void ws() { while (i < s.length() && Character.isWhitespace(s.charAt(i))) i++; }
+        private Object value() {
+            ws();
+            char c = s.charAt(i);
+            if (c == '{') { i++; Map<String, Object> m = new LinkedHashMap<>(); ws();
+                if (s.charAt(i) == '}') { i++; return m; }
+                while (true) { ws(); String k = (String) value(); ws(); i++; m.put(k, value()); ws();
+                    if (s.charAt(i++) == '}') return m; } }
+            if (c == '[') { i++; List<Object> l = new ArrayList<>(); ws();
+                if (s.charAt(i) == ']') { i++; return l; }
+                while (true) { l.add(value()); ws(); if (s.charAt(i++) == ']') return l; } }
+            if (c == '"') { i++; StringBuilder b = new StringBuilder();
+                while (true) { char ch = s.charAt(i++);
+                    if (ch == '"') return b.toString();
+                    if (ch == '\\') { char e = s.charAt(i++);
+                        switch (e) { case 'n': b.append('\n'); break; case 't': b.append('\t'); break; case 'r': b.append('\r'); break;
+                            case 'b': b.append('\b'); break; case 'f': b.append('\f'); break;
+                            case 'u': b.append((char) Integer.parseInt(s.substring(i, i + 4), 16)); i += 4; break;
+                            default: b.append(e); } }
+                    else b.append(ch); } }
+            if (s.startsWith("true", i)) { i += 4; return Boolean.TRUE; }
+            if (s.startsWith("false", i)) { i += 5; return Boolean.FALSE; }
+            if (s.startsWith("null", i)) { i += 4; return null; }
+            int start = i;
+            while (i < s.length() && "+-0123456789.eE".indexOf(s.charAt(i)) >= 0) i++;
+            String n = s.substring(start, i);
+            if (n.contains(".") || n.contains("e") || n.contains("E")) return Double.parseDouble(n);
+            return Long.parseLong(n);
+        }
+    }
+
+    // ---- values -----------------------------------------------------------------------------------
+    static final String[] MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+    @SuppressWarnings("unchecked") static Map<String, Object> map(Object o) { return (Map<String, Object>) o; }
+    @SuppressWarnings("unchecked") static List<Object> list(Object o) { return (List<Object>) o; }
+    static String str(Object o) { return o == null ? null : String.valueOf(o); }
+
+    static Object deepCopy(Object v) {
+        if (v instanceof Map) { Map<String, Object> m = new LinkedHashMap<>(); for (Map.Entry<String, Object> e : map(v).entrySet()) m.put(e.getKey(), deepCopy(e.getValue())); return m; }
+        if (v instanceof List) { List<Object> l = new ArrayList<>(); for (Object x : list(v)) l.add(deepCopy(x)); return l; }
+        return v;
+    }
+
+    static double num(Object value) {
+        if (value instanceof Boolean) throw new EngineError("expected a number, got true/false");
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value instanceof String && ((String) value).trim().matches("[+-]?(\\d+\\.?\\d*|\\.\\d+)")) return Double.parseDouble(((String) value).trim());
+        throw new EngineError("expected a number, got " + value);
+    }
+
+    static boolean isNumber(Object v) { return v instanceof Number; }
+
+    // Whole numbers as Long, others rounded half-up to 2 places.
+    static Object clean(double v) {
+        if (v == Math.rint(v) && Math.abs(v) < 1e15) return (long) v;
+        return new java.math.BigDecimal(Double.toString(v)).setScale(2, java.math.RoundingMode.HALF_UP).doubleValue();
+    }
+
+    static Object roundHalfUp(Object value, int places) {
+        double x = num(value);
+        return clean(new java.math.BigDecimal(Double.toString(x)).setScale(places, java.math.RoundingMode.HALF_UP).doubleValue());
+    }
+
+    static java.time.LocalDate toDate(Object value) {
+        if (value instanceof String && ((String) value).length() >= 10) {
+            String s = (String) value;
+            return java.time.LocalDate.of(Integer.parseInt(s.substring(0, 4)), Integer.parseInt(s.substring(5, 7)), Integer.parseInt(s.substring(8, 10)));
+        }
+        throw new EngineError("expected a date YYYY-MM-DD, got " + value);
+    }
+
+    static java.time.LocalDateTime toDateTime(Object value) {
+        if (value instanceof String && ((String) value).length() >= 16) {
+            String s = (String) value;
+            return java.time.LocalDateTime.of(Integer.parseInt(s.substring(0, 4)), Integer.parseInt(s.substring(5, 7)), Integer.parseInt(s.substring(8, 10)),
+                    Integer.parseInt(s.substring(11, 13)), Integer.parseInt(s.substring(14, 16)));
+        }
+        if (value instanceof String && ((String) value).length() == 10) return toDate(value).atStartOfDay();
+        throw new EngineError("expected a date-time YYYY-MM-DDTHH:MM, got " + value);
+    }
+
+    static String isoDate(java.time.LocalDate d) { return String.format(Locale.ROOT, "%04d-%02d-%02d", d.getYear(), d.getMonthValue(), d.getDayOfMonth()); }
+    static String isoDateTime(java.time.LocalDateTime d) { return isoDate(d.toLocalDate()) + String.format(Locale.ROOT, "T%02d:%02d", d.getHour(), d.getMinute()); }
+
+    static String formatDate(Object value, String fmt) {
+        java.time.LocalDate d = toDate(value);
+        String dd = String.format(Locale.ROOT, "%02d", d.getDayOfMonth()), mm = String.format(Locale.ROOT, "%02d", d.getMonthValue()), yyyy = String.format(Locale.ROOT, "%04d", d.getYear());
+        String mon = MONTHS[d.getMonthValue() - 1];
+        switch (fmt) {
+            case "YYYY-MM-DD": return yyyy + "-" + mm + "-" + dd;
+            case "DD-MM-YYYY": return dd + "-" + mm + "-" + yyyy;
+            case "DD/MM/YYYY": return dd + "/" + mm + "/" + yyyy;
+            case "MM/DD/YYYY": return mm + "/" + dd + "/" + yyyy;
+            case "DD-Mon-YYYY": return dd + "-" + mon + "-" + yyyy;
+            case "DD Mon YYYY": return dd + " " + mon + " " + yyyy;
+            default: throw new EngineError("unknown date format " + fmt);
+        }
+    }
+
+    static String group(String digits, boolean indian) {
+        List<String> parts = new ArrayList<>();
+        if (!indian || digits.length() <= 3) {
+            while (digits.length() > 3) { parts.add(0, digits.substring(digits.length() - 3)); digits = digits.substring(0, digits.length() - 3); }
+            parts.add(0, digits);
+            return String.join(",", parts);
+        }
+        String head = digits.substring(0, digits.length() - 3), tail = digits.substring(digits.length() - 3);
+        while (head.length() > 2) { parts.add(0, head.substring(head.length() - 2)); head = head.substring(0, head.length() - 2); }
+        if (!head.isEmpty()) parts.add(0, head);
+        parts.add(tail);
+        return String.join(",", parts);
+    }
+
+    static String formatMoney(Object value, String currency) {
+        java.math.BigDecimal amount = new java.math.BigDecimal(Double.toString(num(value))).setScale(2, java.math.RoundingMode.HALF_UP);
+        String sign = amount.signum() < 0 ? "-" : "";
+        String[] p = amount.abs().toPlainString().split("\\.");
+        String symbol;
+        switch (currency) { case "INR": symbol = "₹"; break; case "USD": symbol = "$"; break; case "EUR": symbol = "€"; break; case "GBP": symbol = "£"; break; default: symbol = currency + " "; }
+        return sign + symbol + group(p[0], "INR".equals(currency)) + "." + p[1];
+    }
+
+    // Characters, not UTF-16 units - as in Python.
+    static long chars(Object v) { String s = String.valueOf(v); return s.codePointCount(0, s.length()); }
+
+    static boolean fullMatch(String pattern, Object text) { return java.util.regex.Pattern.matches(pattern, text == null ? "" : String.valueOf(text)); }
+
+    static boolean same(Object a, Object b) {
+        if (a instanceof Boolean || b instanceof Boolean) return Objects.equals(a, b);
+        if (isNumber(a) && isNumber(b)) return Math.abs(num(a) - num(b)) < 1e-9;
+        return Objects.equals(a, b);
+    }
+
+    static int compare(Object a, Object b) {
+        if (isNumber(a) && isNumber(b)) return Double.compare(num(a), num(b));
+        if (a instanceof String && b instanceof String) return Integer.signum(((String) a).compareTo((String) b));
+        if (a == null || b == null) throw new EngineError("can't compare a missing value");
+        return Double.compare(num(a), num(b));
+    }
+
+    static String text(Object v) {
+        if (v == null) return "";
+        if (v instanceof Boolean) return ((Boolean) v) ? "true" : "false";
+        if (v instanceof Number) { Object c = clean(num(v)); return c instanceof Long ? String.valueOf(c) : String.format(Locale.ROOT, "%.2f", (Double) c); }
+        return String.valueOf(v);
+    }
+
+    static Map.Entry<String, Object> one(Object expr) {
+        Map<String, Object> m = map(expr);
+        if (m.size() != 1) throw new EngineError("an expression has exactly one operator");
+        return m.entrySet().iterator().next();
+    }
+
+    // ---- the engine -------------------------------------------------------------------------------
+    static final class Engine {
+        final Map<String, Object> spec;
+        final Map<String, Object> entities, users;
+        final Map<String, Map<String, Object>> actions = new LinkedHashMap<>(), queries = new LinkedHashMap<>(), faults = new LinkedHashMap<>();
+        Map<String, List<Object>> store;
+        Map<String, Long> counters;
+        Set<String> created;
+        java.time.LocalDateTime clock, lastActive;
+        Map<String, Object> session, user, last;
+        Set<String> activeFaults;
+        List<Object> outbox;
+        String page, message;
+
+        Engine(Map<String, Object> spec) {
+            this.spec = spec;
+            this.entities = spec.get("entities") == null ? new LinkedHashMap<>() : map(spec.get("entities"));
+            this.users = spec.get("users") == null ? null : map(spec.get("users"));
+            for (Object a : spec.get("actions") == null ? List.of() : list(spec.get("actions"))) actions.put(str(map(a).get("name")), map(a));
+            for (Object q : spec.get("queries") == null ? List.of() : list(spec.get("queries"))) queries.put(str(map(q).get("name")), map(q));
+            for (Object f : spec.get("faults") == null ? List.of() : list(spec.get("faults"))) faults.put(str(map(f).get("name")), map(f));
+            reset();
+        }
+
+        void reset() {
+            store = new LinkedHashMap<>();
+            counters = new LinkedHashMap<>();
+            Map<String, Object> data = spec.get("data") == null ? new LinkedHashMap<>() : map(spec.get("data"));
+            for (String name : entities.keySet()) {
+                List<Object> rows = data.get(name) == null ? new ArrayList<>() : list(deepCopy(data.get(name)));
+                store.put(name, rows);
+                counters.put(name, (long) rows.size());
+            }
+            created = new HashSet<>();
+            clock = toDateTime(spec.get("now") == null ? "2025-01-15T10:00" : spec.get("now"));
+            session = new LinkedHashMap<>();
+            user = null;
+            lastActive = null;
+            activeFaults = new LinkedHashSet<>();
+            outbox = new ArrayList<>();
+            List<Object> pages = spec.get("pages") == null ? List.of("Home") : list(spec.get("pages"));
+            page = users != null ? loginPage() : (spec.get("home_page") != null ? str(spec.get("home_page")) : str(pages.get(0)));
+            message = "";
+            last = new LinkedHashMap<>();
+        }
+
+        String loginPage() { return users != null && users.get("page") != null ? str(users.get("page")) : "Login"; }
+        String key(String entity) { Object k = map(entities.get(entity)).get("key"); return k == null ? "id" : str(k); }
+
+        Object typed(String entity, String field, Object value) {
+            if (value == null) return null;
+            Map<String, Object> e = entity == null ? null : map(entities.get(entity));
+            Object kind = e == null || e.get("fields") == null ? "string" : map(e.get("fields")).getOrDefault(field, "string");
+            if ("int".equals(kind)) return (long) num(value);
+            if ("number".equals(kind) || "money".equals(kind)) return clean(num(value));
+            if ("bool".equals(kind)) return Boolean.TRUE.equals(value);
+            return value;
+        }
+
+        Object get(Map<String, Object> record, String field) { return record == null ? null : record.get(field); }
+
+        @SuppressWarnings("unchecked")
+        Object ev(Object expr, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            if (expr instanceof List) { List<Object> out = new ArrayList<>(); for (Object x : list(expr)) out.add(ev(x, inputs, aliases)); return out; }
+            if (!(expr instanceof Map)) return expr;
+            Map.Entry<String, Object> e = one(expr);
+            String op = e.getKey();
+            Object arg = e.getValue();
+            switch (op) {
+                case "input": return inputs.get(str(arg));
+                case "field": {
+                    String s = str(arg);
+                    int dot = s.indexOf('.');
+                    String alias = dot < 0 ? s : s.substring(0, dot), field = dot < 0 ? "" : s.substring(dot + 1);
+                    Map<String, Object> record = aliases.get(alias);
+                    if (record == null) throw new EngineError("no record called " + alias + " here");
+                    return record.get(field);
+                }
+                case "user": return user == null ? null : user.get(str(arg));
+                case "session": return session.get(str(arg));
+                case "today": return isoDate(clock.toLocalDate());
+                case "now": return isoDateTime(clock);
+                case "add": case "sub": case "mul": case "div": {
+                    double a = num(ev(list(arg).get(0), inputs, aliases)), b = num(ev(list(arg).get(1), inputs, aliases));
+                    if (op.equals("div") && b == 0) throw new Refused("Cannot divide by zero");
+                    return clean(op.equals("add") ? a + b : op.equals("sub") ? a - b : op.equals("mul") ? a * b : a / b);
+                }
+                case "round": {
+                    Object value = arg instanceof List ? list(arg).get(0) : arg;
+                    Object places = arg instanceof List && list(arg).size() > 1 ? ev(list(arg).get(1), inputs, aliases) : 2L;
+                    return roundHalfUp(ev(value, inputs, aliases), (int) num(places));
+                }
+                case "add_days": return isoDate(toDate(ev(list(arg).get(0), inputs, aliases)).plusDays((long) num(ev(list(arg).get(1), inputs, aliases))));
+                case "add_months": return isoDate(toDate(ev(list(arg).get(0), inputs, aliases)).plusMonths((long) num(ev(list(arg).get(1), inputs, aliases))));
+                case "days_between": return java.time.temporal.ChronoUnit.DAYS.between(toDate(ev(list(arg).get(0), inputs, aliases)), toDate(ev(list(arg).get(1), inputs, aliases)));
+                case "minutes_since": {
+                    Object then = ev(arg, inputs, aliases);
+                    return then == null ? null : Math.floorDiv(java.time.Duration.between(toDateTime(then), clock).getSeconds(), 60L);
+                }
+                case "count": case "sum": case "exists": {
+                    Map<String, Object> a = map(arg);
+                    List<Object> rows = rows(str(a.get("entity")), a.get("where"), inputs, aliases);
+                    if (op.equals("count")) return (long) rows.size();
+                    if (op.equals("exists")) return !rows.isEmpty();
+                    double total = 0;
+                    for (Object r : rows) { Object v = map(r).get(str(a.get("field"))); total += v == null ? 0 : num(v); }
+                    return clean(total);
+                }
+                case "if": return cond(list(arg).get(0), inputs, aliases) ? ev(list(arg).get(1), inputs, aliases) : ev(list(arg).get(2), inputs, aliases);
+                case "format": {
+                    Map<String, Object> values = list(arg).size() > 1 ? map(list(arg).get(1)) : new LinkedHashMap<>();
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{(\\w+)\\}").matcher(str(list(arg).get(0)));
+                    StringBuilder b = new StringBuilder();
+                    while (m.find()) {
+                        String k = m.group(1);
+                        String rep = values.containsKey(k) ? text(ev(values.get(k), inputs, aliases)) : m.group(0);
+                        m.appendReplacement(b, java.util.regex.Matcher.quoteReplacement(rep));
+                    }
+                    m.appendTail(b);
+                    return b.toString();
+                }
+                case "format_date": return formatDate(ev(list(arg).get(0), inputs, aliases), str(list(arg).get(1)));
+                case "format_money": return formatMoney(ev(list(arg).get(0), inputs, aliases), list(arg).size() > 1 ? str(list(arg).get(1)) : "INR");
+                case "upper": { Object v = ev(arg, inputs, aliases); return text(v).toUpperCase(Locale.ROOT); }
+                case "lower": { Object v = ev(arg, inputs, aliases); return text(v).toLowerCase(Locale.ROOT); }
+                case "trim": { Object v = ev(arg, inputs, aliases); return text(v).strip(); }
+                case "length": { Object v = ev(arg, inputs, aliases); return v instanceof List ? (long) list(v).size() : chars(text(v)); }
+                case "concat": { StringBuilder b = new StringBuilder(); for (Object x : list(arg)) b.append(text(ev(x, inputs, aliases))); return b.toString(); }
+                case "eq": case "ne": case "lt": case "le": case "gt": case "ge": case "and": case "or": case "not": case "empty": case "matches": case "in":
+                    return cond(expr, inputs, aliases);
+                default: throw new EngineError("unknown operator " + op);
+            }
+        }
+
+        boolean cond(Object expr, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            if (expr instanceof Boolean) return (Boolean) expr;
+            if (!(expr instanceof Map)) throw new EngineError("not a condition: " + expr);
+            Map.Entry<String, Object> e = one(expr);
+            String op = e.getKey();
+            Object arg = e.getValue();
+            switch (op) {
+                case "and": for (Object c : list(arg)) if (!cond(c, inputs, aliases)) return false; return true;
+                case "or": for (Object c : list(arg)) if (cond(c, inputs, aliases)) return true; return false;
+                case "not": return !cond(arg, inputs, aliases);
+                case "empty": { Object v = ev(arg, inputs, aliases); return v == null || (v instanceof String && ((String) v).trim().isEmpty()) || (v instanceof List && list(v).isEmpty()); }
+                case "matches": return fullMatch(str(list(arg).get(1)), ev(list(arg).get(0), inputs, aliases));
+                case "in": { Object v = ev(list(arg).get(0), inputs, aliases); for (Object o : list(ev(list(arg).get(1), inputs, aliases))) if (same(v, o)) return true; return false; }
+                case "eq": case "ne": { boolean s = same(ev(list(arg).get(0), inputs, aliases), ev(list(arg).get(1), inputs, aliases)); return op.equals("eq") == s; }
+                case "lt": case "le": case "gt": case "ge": {
+                    int c = compare(ev(list(arg).get(0), inputs, aliases), ev(list(arg).get(1), inputs, aliases));
+                    return op.equals("lt") ? c < 0 : op.equals("le") ? c <= 0 : op.equals("gt") ? c > 0 : c >= 0;
+                }
+                default: { Object v = ev(expr, inputs, aliases); if (v instanceof Boolean) return (Boolean) v; throw new EngineError("not a condition: " + expr); }
+            }
+        }
+
+        List<Object> rows(String entity, Object where, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            if (!store.containsKey(entity)) throw new EngineError("unknown record type " + entity);
+            if (where == null) return new ArrayList<>(store.get(entity));
+            List<Object> found = new ArrayList<>();
+            for (Object row : store.get(entity)) {
+                Map<String, Map<String, Object>> inner = new LinkedHashMap<>(aliases);
+                inner.put("row", map(row));
+                if (cond(where, inputs, inner)) found.add(row);
+            }
+            return found;
+        }
+
+        Map<String, Object> messages() {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("required_login", "Please enter your login"); m.put("required_password", "Please enter your password");
+            m.put("invalid", "Invalid login or password"); m.put("blocked", "Your account is blocked");
+            m.put("expired", "Your session has expired. Please log in again."); m.put("need_login", "Please log in first");
+            if (users != null && users.get("messages") != null) m.putAll(map(users.get("messages")));
+            return m;
+        }
+
+        void checkSession() {
+            if (users == null) return;
+            if (user == null) throw new Refused(str(messages().get("need_login")), loginPage());
+            Object minutes = users.get("session_minutes");
+            if (minutes != null && num(minutes) > 0 && lastActive != null && java.time.Duration.between(lastActive, clock).getSeconds() > (long) num(minutes) * 60) {
+                user = null; session = new LinkedHashMap<>();
+                throw new Refused(str(messages().get("expired")), loginPage());
+            }
+            lastActive = clock;
+        }
+
+        Object login(Object login, Object password) {
+            Map<String, Object> msgs = messages();
+            if (login == null || String.valueOf(login).trim().isEmpty()) throw new Refused(str(msgs.get("required_login")));
+            if (password == null || String.valueOf(password).isEmpty()) throw new Refused(str(msgs.get("required_password")));
+            String field = users.get("login_field") == null ? "email" : str(users.get("login_field"));
+            Map<String, Object> match = null;
+            for (Object u : store.get(str(users.get("entity")))) {
+                Object v = map(u).get(field);
+                if (String.valueOf(v == null ? "" : v).toLowerCase(Locale.ROOT).equals(String.valueOf(login).trim().toLowerCase(Locale.ROOT))) { match = map(u); break; }
+            }
+            String pf = users.get("password_field") == null ? "password" : str(users.get("password_field"));
+            if (match == null || !String.valueOf(match.get(pf)).equals(String.valueOf(password))) throw new Refused(str(msgs.get("invalid")));
+            if (users.get("blocked_when") != null) {
+                Map<String, Map<String, Object>> a = new LinkedHashMap<>();
+                a.put("user", match);
+                if (cond(users.get("blocked_when"), new LinkedHashMap<>(), a)) throw new Refused(str(msgs.get("blocked")));
+            }
+            user = match;
+            lastActive = clock;
+            session = new LinkedHashMap<>();
+            String nf = users.get("name_field") == null ? field : str(users.get("name_field"));
+            return match.get(nf);
+        }
+
+        void checkInputs(Object definitions, Map<String, Object> inputs) {
+            if (definitions == null) return;
+            for (Object d : list(definitions)) {
+                Map<String, Object> def = map(d);
+                Object value = inputs.get(str(def.get("name")));
+                boolean present = !(value == null || (value instanceof String && ((String) value).trim().isEmpty()));
+                if (def.get("checks") == null) continue;
+                for (Object c : list(def.get("checks"))) {
+                    Map<String, Object> check = map(c);
+                    String rule = str(check.get("rule"));
+                    Object limit = check.get("value");
+                    boolean ok = true;
+                    if (rule.equals("required")) ok = present;
+                    else if (!present) continue;
+                    else if (rule.equals("min_length")) ok = chars(value) >= num(limit);
+                    else if (rule.equals("max_length")) ok = chars(value) <= num(limit);
+                    else if (rule.equals("pattern")) ok = fullMatch(str(limit), value);
+                    else if (rule.equals("min") || rule.equals("max")) {
+                        try { double n = num(value); ok = rule.equals("min") ? n >= num(limit) : n <= num(limit); } catch (EngineError err) { ok = false; }
+                    } else if (rule.equals("number")) { try { num(value); } catch (EngineError err) { ok = false; } }
+                    else if (rule.equals("one_of")) {
+                        ok = false;
+                        for (Object o : list(limit)) if (same(value, o) || String.valueOf(value).equalsIgnoreCase(String.valueOf(o))) ok = true;
+                    } else if (rule.equals("date")) {
+                        try { toDate(String.valueOf(value)); } catch (RuntimeException err) { ok = false; }
+                    } else if (rule.equals("not_past")) ok = String.valueOf(value).substring(0, Math.min(10, String.valueOf(value).length())).compareTo(isoDate(clock.toLocalDate())) >= 0;
+                    else if (rule.equals("not_future")) ok = String.valueOf(value).substring(0, Math.min(10, String.valueOf(value).length())).compareTo(isoDate(clock.toLocalDate())) <= 0;
+                    else throw new EngineError("unknown input check " + rule);
+                    if (!ok) throw new Refused(str(check.get("message")));
+                }
+            }
+        }
+
+        Map<String, Object> findByKey(String entity, Object key) {
+            String k = key(entity);
+            for (Object r : store.get(entity)) {
+                Object v = map(r).get(k);
+                if (same(v, key) || String.valueOf(v).equalsIgnoreCase(String.valueOf(key))) return map(r);
+            }
+            return null;
+        }
+
+        boolean loginDefault(Map<String, Object> def) { return def.get("requires_login") != null ? Boolean.TRUE.equals(def.get("requires_login")) : users != null; }
+
+        Object[] runAction(String name, Map<String, Object> inputs) {
+            Map<String, Object> action = actions.get(name);
+            for (String f : activeFaults) {
+                Map<String, Object> fault = faults.get(f);
+                Object applies = fault.get("applies_to");
+                if (applies == null || list(applies).isEmpty() || list(applies).contains(name)) throw new Refused(str(fault.get("message")));
+            }
+            if (loginDefault(action)) checkSession();
+            checkInputs(action.get("inputs"), inputs);
+            Map<String, Map<String, Object>> aliases = new LinkedHashMap<>();
+            for (Object l : action.get("load") == null ? List.of() : list(action.get("load"))) {
+                Map<String, Object> load = map(l);
+                Map<String, Object> record = findByKey(str(load.get("entity")), ev(load.get("key"), inputs, aliases));
+                if (record == null) throw new Refused(str(load.get("missing")));
+                aliases.put(str(load.get("as")), record);
+            }
+            for (Object r : action.get("rules") == null ? List.of() : list(action.get("rules"))) {
+                Map<String, Object> rule = map(r);
+                if (rule.containsKey("unless") && !cond(rule.get("unless"), inputs, aliases)) throw new Refused(text(ev(rule.get("message"), inputs, aliases)));
+                if (rule.containsKey("when") && cond(rule.get("when"), inputs, aliases)) throw new Refused(text(ev(rule.get("message"), inputs, aliases)));
+            }
+            @SuppressWarnings("unchecked") Map<String, List<Object>> savedStore = (Map<String, List<Object>>) deepCopy(store);
+            Map<String, Object> savedSession = map(deepCopy(session));
+            List<Object> savedOutbox = list(deepCopy(outbox));
+            Map<String, Long> savedCounters = new LinkedHashMap<>(counters);
+            Set<String> savedCreated = new HashSet<>(created);
+            Map<String, Object> savedUser = user;
+            try {
+                for (Object effect : action.get("effects") == null ? List.of() : list(action.get("effects"))) apply(effect, inputs, aliases);
+            } catch (RuntimeException err) {
+                store = savedStore; session = savedSession; outbox = savedOutbox; counters = savedCounters; created = savedCreated; user = savedUser;
+                throw err;
+            }
+            String msg = action.get("message") != null ? text(ev(action.get("message"), inputs, aliases)) : "";
+            Map<String, Object> returns = new LinkedHashMap<>();
+            if (action.get("returns") != null) for (Map.Entry<String, Object> r : map(action.get("returns")).entrySet()) returns.put(r.getKey(), ev(r.getValue(), inputs, aliases));
+            return new Object[]{msg, returns, action.get("next_page")};
+        }
+
+        String entityOf(Map<String, Object> record) {
+            for (Map.Entry<String, List<Object>> e : store.entrySet()) for (Object r : e.getValue()) if (r == record) return e.getKey();
+            return null;
+        }
+
+        void apply(Object effect, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            Map.Entry<String, Object> e = one(effect);
+            String op = e.getKey();
+            Object arg = e.getValue();
+            switch (op) {
+                case "set": {
+                    Map<String, Object> a = map(arg);
+                    Map<String, Object> record = aliases.get(str(a.get("record")));
+                    String entity = entityOf(record);
+                    Object value = ev(a.get("value"), inputs, aliases);
+                    record.put(str(a.get("field")), entity != null ? typed(entity, str(a.get("field")), value) : value);
+                    break;
+                }
+                case "create": {
+                    Map<String, Object> a = map(arg);
+                    String entity = str(a.get("entity"));
+                    Map<String, Object> values = new LinkedHashMap<>();
+                    if (a.get("values") != null) for (Map.Entry<String, Object> v : map(a.get("values")).entrySet()) values.put(v.getKey(), typed(entity, v.getKey(), ev(v.getValue(), inputs, aliases)));
+                    String k = key(entity);
+                    if (values.get(k) == null) {
+                        counters.put(entity, counters.get(entity) + 1);
+                        Object fmt = map(entities.get(entity)).get("id_format");
+                        values.put(k, fmt != null ? makeId(str(fmt), counters.get(entity)) : (Object) counters.get(entity));
+                    }
+                    store.get(entity).add(values);
+                    created.add(entity + "\u0000" + values.get(k));
+                    if (a.get("as") != null) aliases.put(str(a.get("as")), values);
+                    break;
+                }
+                case "delete": {
+                    Map<String, Object> record = aliases.get(str(map(arg).get("record")));
+                    for (List<Object> rows : store.values()) for (int i = 0; i < rows.size(); i++) if (rows.get(i) == record) { rows.remove(i); return; }
+                    break;
+                }
+                case "set_session": session.put(str(map(arg).get("key")), ev(map(arg).get("value"), inputs, aliases)); break;
+                case "clear_session": session.remove(str(arg)); break;
+                case "send": {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    for (Map.Entry<String, Object> x : map(arg).entrySet()) m.put(x.getKey(), text(ev(x.getValue(), inputs, aliases)));
+                    outbox.add(m);
+                    break;
+                }
+                case "logout": user = null; session = new LinkedHashMap<>(); break;
+                default: throw new EngineError("unknown effect " + op);
+            }
+        }
+
+        static String makeId(String fmt, long n) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\{n(?::0?(\\d+))?\\}").matcher(fmt);
+            StringBuilder b = new StringBuilder();
+            while (m.find()) {
+                String s = String.valueOf(n);
+                int width = m.group(1) == null ? 0 : Integer.parseInt(m.group(1));
+                while (s.length() < width) s = "0" + s;
+                m.appendReplacement(b, java.util.regex.Matcher.quoteReplacement(s));
+            }
+            m.appendTail(b);
+            return b.toString();
+        }
+
+        Object[] runQuery(String name, Map<String, Object> inputs) {
+            Map<String, Object> query = queries.get(name);
+            if (loginDefault(query)) checkSession();
+            checkInputs(query.get("inputs"), inputs);
+            Map<String, Map<String, Object>> aliases = new LinkedHashMap<>();
+            String entity = str(query.get("entity"));
+            if (query.get("key_input") != null) {
+                Map<String, Object> record = findByKey(entity, inputs.get(str(query.get("key_input"))));
+                boolean hidden = false;
+                if (record != null && query.get("where") != null) { Map<String, Map<String, Object>> a = new LinkedHashMap<>(); a.put("row", record); hidden = !cond(query.get("where"), inputs, a); }
+                if (record == null || hidden) throw new Refused(query.get("missing") == null ? "Not found" : str(query.get("missing")));
+                return new Object[]{show(query, record), null};
+            }
+            List<Object> rows = rows(entity, query.get("where"), inputs, aliases);
+            if (query.get("match") != null) {
+                Map<String, Object> match = map(query.get("match"));
+                Object term = inputs.get(str(match.get("input")));
+                boolean blank = term == null || String.valueOf(term).trim().isEmpty();
+                if (blank) {
+                    String how = match.get("blank") == null ? "all" : str(match.get("blank"));
+                    if (how.startsWith("error:")) throw new Refused(how.substring("error:".length()));
+                    if (how.equals("empty")) rows = new ArrayList<>();
+                } else {
+                    if (match.get("max_length") != null && chars(term) > num(match.get("max_length")))
+                        throw new Refused(match.get("too_long") == null ? "Search text is too long" : str(match.get("too_long")));
+                    String needle = String.valueOf(term).trim().toLowerCase(Locale.ROOT);
+                    String mode = match.get("mode") == null ? "contains" : str(match.get("mode"));
+                    List<Object> hits = new ArrayList<>();
+                    for (Object row : rows) {
+                        for (Object f : list(match.get("fields"))) {
+                            String t = text(map(row).get(str(f))).toLowerCase(Locale.ROOT);
+                            if ((mode.equals("equals") && t.equals(needle)) || (mode.equals("starts_with") && t.startsWith(needle)) || (mode.equals("contains") && t.contains(needle))) { hits.add(row); break; }
+                        }
+                    }
+                    rows = hits;
+                }
+            }
+            List<Object> orders = query.get("order_by") == null ? List.of() : list(query.get("order_by"));
+            for (int oi = orders.size() - 1; oi >= 0; oi--) {
+                Map<String, Object> order = map(orders.get(oi));
+                String f = str(order.get("field"));
+                boolean desc = Boolean.TRUE.equals(order.get("desc"));
+                List<Object> sorted = new ArrayList<>(rows);
+                sorted.sort((x, y) -> {
+                    Object a = map(x).get(f), b = map(y).get(f);
+                    boolean an = a == null, bn = b == null;
+                    if (an || bn) { int c = an && bn ? 0 : (an ? 1 : -1); return desc ? -c : c; }
+                    int c = compare(a, b);
+                    return desc ? -c : c;
+                });
+                rows = sorted;
+            }
+            List<Object> shown = new ArrayList<>();
+            for (Object r : rows) shown.add(show(query, map(r)));
+            return new Object[]{shown, shown.isEmpty() ? query.get("none_message") : null};
+        }
+
+        static Map<String, Object> show(Map<String, Object> query, Map<String, Object> record) {
+            if (query.get("show") == null) return map(deepCopy(record));
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Object f : list(query.get("show"))) out.put(str(f), deepCopy(record.get(str(f))));
+            return out;
+        }
+
+        boolean uiOpen(Object pageName) {
+            List<Object> pages = spec.get("pages") == null ? List.of() : list(spec.get("pages"));
+            if (!pages.contains(pageName)) { message = "Page not found: " + pageName; return false; }
+            if (users != null && !loginPage().equals(pageName)) {
+                try { checkSession(); } catch (Refused r) { if (r.page != null) page = r.page; message = r.getMessage(); return false; }
+            }
+            page = str(pageName); message = ""; return true;
+        }
+
+        boolean uiLogin(Object login, Object password) {
+            page = loginPage();
+            try { login(login, password); } catch (Refused r) { message = r.getMessage(); return false; }
+            if (spec.get("home_page") != null) page = str(spec.get("home_page"));
+            message = "";
+            return true;
+        }
+
+        boolean uiLogout() { user = null; session = new LinkedHashMap<>(); if (users != null) page = loginPage(); message = ""; return true; }
+
+        @SuppressWarnings("unchecked")
+        boolean uiAction(String name, Map<String, Object> inputs) {
+            Map<String, Object> action = actions.get(name);
+            if (action.get("page") != null && !action.get("page").equals(page)) {
+                message = (action.get("label") == null ? name : str(action.get("label"))) + " is not available on this page";
+                return false;
+            }
+            Object[] result;
+            try { result = runAction(name, inputs); } catch (Refused r) { message = r.getMessage(); if (r.page != null) page = r.page; return false; }
+            message = str(result[0]);
+            last = (Map<String, Object>) result[1];
+            if (result[2] != null) page = str(result[2]);
+            return true;
+        }
+
+        Object uiQuery(String name, Map<String, Object> inputs) {
+            Map<String, Object> query = queries.get(name);
+            Object empty = query.get("key_input") != null ? null : new ArrayList<>();
+            if (query.get("page") != null && !query.get("page").equals(page)) {
+                message = (query.get("label") == null ? name : str(query.get("label"))) + " is not available on this page";
+                return empty;
+            }
+            Object[] result;
+            try { result = runQuery(name, inputs); } catch (Refused r) { message = r.getMessage(); if (r.page != null) page = r.page; return empty; }
+            message = result[1] == null ? "" : str(result[1]);
+            if (query.get("next_page") != null) page = str(query.get("next_page"));
+            return result[0];
+        }
+
+        Map<String, Object> apiLogin(Object login, Object password) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            try { Object name = login(login, password); out.put("ok", true); out.put("error", null); out.put("user", name); }
+            catch (Refused r) { out.put("ok", false); out.put("error", r.getMessage()); out.put("user", null); }
+            return out;
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> apiAction(String name, Map<String, Object> inputs) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            try {
+                Object[] r = runAction(name, inputs);
+                out.put("ok", true); out.put("error", null); out.put("message", r[0]);
+                out.putAll((Map<String, Object>) r[1]);
+            } catch (Refused r) { out.put("ok", false); out.put("error", r.getMessage()); out.put("message", null); }
+            return out;
+        }
+
+        Map<String, Object> apiQuery(String name, Map<String, Object> inputs) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            try { Object[] r = runQuery(name, inputs); out.put("ok", true); out.put("error", null); out.put("result", r[0]); out.put("message", r[1]); }
+            catch (Refused r) { out.put("ok", false); out.put("error", r.getMessage()); out.put("result", null); }
+            return out;
+        }
+
+        Object dbGet(String entity, Object key) {
+            String k = key(entity);
+            for (Object r : store.get(entity)) { Object v = map(r).get(k); if (same(v, key) || String.valueOf(v).equals(String.valueOf(key))) return deepCopy(r); }
+            return null;
+        }
+
+        List<Object> dbFind(String entity, Object field, Object value) {
+            List<Object> out = new ArrayList<>();
+            for (Object r : store.get(entity)) if (same(map(r).get(str(field)), value)) out.add(deepCopy(r));
+            return out;
+        }
+
+        long dbCount(String entity, Object field, Object value) { return field == null ? store.get(entity).size() : dbFind(entity, field, value).size(); }
+        List<Object> dbAll(String entity) { return list(deepCopy(store.get(entity))); }
+        List<Object> outboxCopy() { return list(deepCopy(outbox)); }
+
+        String advanceMinutes(Object minutes) { clock = clock.plusMinutes((long) num(minutes)); return isoDateTime(clock); }
+
+        boolean simulate(Object fault) {
+            if (!faults.containsKey(str(fault))) throw new EngineError("unknown failure " + fault + " - see the list at the top of this file");
+            activeFaults.add(str(fault));
+            return true;
+        }
+
+        void teardown(Object key) {
+            if (key == null) return;
+            for (Map.Entry<String, List<Object>> e : store.entrySet()) {
+                String k = key(e.getKey());
+                for (int i = 0; i < e.getValue().size(); i++) {
+                    Object v = map(e.getValue().get(i)).get(k);
+                    if (String.valueOf(v).equals(String.valueOf(key)) && created.contains(e.getKey() + "\u0000" + v)) { e.getValue().remove(i); return; }
+                }
+            }
+        }
+    }
+
+    static Map<String, Object> inputs(Object... pairs) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) m.put(String.valueOf(pairs[i]), pairs[i + 1]);
+        return m;
+    }
