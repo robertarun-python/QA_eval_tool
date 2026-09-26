@@ -163,13 +163,14 @@ def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: 
 
     try:
         _generate_reference(scenario, db)
-    except HTTPException:
+    except HTTPException as error:  # _generate_reference already logged the real cause
         # Nothing half-made is left behind: the draft had no test cases, and
         # HR re-clicking Create would otherwise pile up empty drafts.
         db.rollback()
         db.delete(db.get(Scenario, scenario.id))
         db.commit()
-        raise HTTPException(502, "Couldn't generate the reference test cases - nothing was saved. Try again.")
+        error.detail = "Couldn't generate the reference test cases - nothing was saved. Try again."
+        raise
     return scenario
 
 
