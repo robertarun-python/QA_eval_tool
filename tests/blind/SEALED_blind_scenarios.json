@@ -1,0 +1,82 @@
+[
+ {
+  "title": "Insurance Claim Status Tracking",
+  "description": "User logs into the insurance portal, navigates to 'My Claims' section, selects a submitted claim, and views its current status (submitted, under review, approved, rejected). The status page should show claim number, submission date, estimated processing time, and any documents pending from user's end."
+ },
+ {
+  "title": "E-commerce Product Return Initiation",
+  "description": "Test the flow where a customer initiates a return for an ordered item. Features to test: 1) View eligible items for return within return window (30 days), 2) Select return reason from dropdown, 3) Choose refund method (original payment method or store credit), 4) Schedule pickup date and time slot, 5) Receive return confirmation with tracking ID."
+ },
+ {
+  "title": "Food Delivery - Apply Coupon Code",
+  "description": "Customer adds items to cart, proceeds to checkout, enters a promotional coupon code and applies it. The discount should reflect in the order summary. Test with valid codes, expired codes, minimum order value requirements, and first-time user only codes."
+ },
+ {
+  "title": "Healthcare Lab Test Home Sample Collection",
+  "description": "User selects lab tests from catalog, adds to cart, enters patient details (name, age, gender), chooses home sample collection, selects preferred date and 2-hour time slot, enters address, makes payment, and receives booking confirmation with phlebotomist details."
+ },
+ {
+  "title": "Hotel Room Booking Modification",
+  "description": "A user has an existing hotel reservation. They want to modify check-in/check-out dates or change room type. Business rules: Modifications allowed up to 48 hours before check-in. Price difference (if any) should be calculated and charged/refunded. Confirmation email sent after successful modification."
+ },
+ {
+  "title": "Telecom Prepaid Recharge",
+  "description": "Test prepaid mobile recharge. User enters mobile number, selects recharge plan (talk time, data, validity), chooses payment method, completes payment. Balance should update immediately. Test for own number and other numbers, failed payments, and recharge history."
+ },
+ {
+  "title": "Online Course Enrollment and Payment",
+  "description": "Student browses course catalog, views course details (syllabus, instructor, duration, price), clicks Enroll, creates account or logs in, applies discount code if available, makes payment via card/UPI/net banking, gets enrollment confirmation and course access."
+ },
+ {
+  "title": "Payroll - Employee Tax Declaration Submission",
+  "description": "Employee logs in during tax declaration period, fills investment declaration form under different sections (80C, 80D, HRA, etc.), uploads supporting documents (PDF/JPG, max 5MB each), submits for manager approval. System calculates tentative tax savings and shows revised monthly deduction."
+ },
+ {
+  "title": "Government Portal - Birth Certificate Application",
+  "description": "Citizen applies for birth certificate online. Fill form with child details, parent details, hospital information, upload hospital birth record, pay application fee, submit. Application number generated. Track status: submitted > verified > approved > certificate ready for download."
+ },
+ {
+  "title": "Logistics - Shipment Tracking",
+  "description": "User enters tracking number or AWB number and clicks Track. System displays shipment journey with timestamps: picked up, in transit, out for delivery, delivered. Shows current location, expected delivery date, and delivery person contact for last mile."
+ },
+ {
+  "title": "Electricity Bill Payment",
+  "description": "Features to test: 1) Enter consumer number and fetch bill details, 2) Display current bill amount, due date, previous balance, 3) Option to pay full or partial amount, 4) Multiple payment modes, 5) Generate payment receipt, 6) Send confirmation SMS/email, 7) Update payment history."
+ },
+ {
+  "title": "Movie Ticket Booking Seat Selection",
+  "description": "User selects movie, theater, date and showtime. On seat selection screen, view seat layout with available (green), booked (grey), and selected (orange) seats. Select number of seats as per ticket count. Premium seats priced higher. Apply food combo offers. Proceed to payment within 10-minute timer or session expires."
+ },
+ {
+  "title": "Gym Membership Subscription Upgrade",
+  "description": "Existing member with basic monthly plan wants to upgrade to premium annual plan. View plan comparison, see benefits of premium (all classes, guest passes, locker). Calculate pro-rated charges for remaining days of current plan. Apply upgrade, pay difference, receive updated membership card and confirmation."
+ },
+ {
+  "title": "Loyalty Points Redemption for Shopping",
+  "description": "Customer has 5000 loyalty points (1 point = Rs. 0.25). During checkout, option to redeem points. Enter points to redeem (minimum 500, maximum available balance). Discount applied to order total. Remaining points balance shown. Cannot combine with certain other offers. Points deducted after successful order."
+ },
+ {
+  "title": "Banking - Fixed Deposit Premature Withdrawal",
+  "description": "User views active FD list, selects one FD, chooses premature withdrawal option. System shows maturity amount, current value with reduced interest rate penalty, interest earned, and TDS deduction. User confirms withdrawal, enters transaction password, amount credited to linked savings account, FD closed, receipt generated."
+ },
+ {
+  "title": "Pharmacy Medicine Order with Prescription Upload",
+  "description": "User searches for medicines, adds to cart (prescription and non-prescription items). For prescription items, mandatory to upload valid prescription (image/PDF). Enter delivery address, select delivery speed (standard/express). Apply health wallet balance if available. Place order and track delivery status."
+ },
+ {
+  "title": "Car Insurance Policy Renewal",
+  "description": "User receives renewal reminder 30 days before expiry. Logs in, views current policy details, option to modify IDV or add-ons (zero depreciation, engine protection). System recalculates premium. Compare quotes. Apply no-claim bonus discount. Make payment. Download renewed policy document. Old policy expires, new policy active immediately."
+ },
+ {
+  "title": "Cab Booking Ride Scheduling",
+  "description": "User wants to schedule a cab for future date/time (not immediate). Enter pickup location, drop location, select date and time (up to 7 days advance). Choose cab type. View estimated fare. Book ride. Receive booking confirmation. Get driver assignment notification 30 minutes before scheduled time. Option to cancel with cancellation policy."
+ },
+ {
+  "title": "Job Portal - Application Withdrawal",
+  "description": "Candidate has applied for multiple jobs. Goes to 'My Applications' section, views list with status (applied, shortlisted, rejected, interview scheduled). Selects an application with 'Applied' status, clicks 'Withdraw Application', confirms withdrawal with reason selection (optional), application status changes to 'Withdrawn', notification sent to employer."
+ },
+ {
+  "title": "Water Bill Auto-Pay Setup",
+  "description": "User wants to set up auto-payment for monthly water bills. Navigate to auto-pay section, link bank account or card, set payment preferences (pay full amount automatically, pay only if below certain amount, pay on due date or 2 days before). Enable auto-pay. Test first auto-debit, payment failure scenarios, disable auto-pay option, and notification settings."
+ }
+]
