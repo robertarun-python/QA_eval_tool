@@ -38,6 +38,7 @@ import sys
 import tempfile
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..config import settings
@@ -124,7 +125,21 @@ def syntax_error(language: str, code: str | None) -> tuple[bool, str | None]:
     return False, None
 
 
-def _child_env(cwd: Path | None = None) -> dict:
+@dataclass(frozen=True)
+class SandboxAccess:
+    """What a Round 2 practice Run may reach beyond its own folder - nothing
+    else is opened up (practice_engine.practice_run). Other rounds pass none."""
+    ports: tuple = ()             # this machine's ports: the practice app and the Selenium Grid
+    read_dirs: tuple = ()         # the browser-automation tools (vendor/) - no secrets there
+    rw_dirs: tuple = ()           # the practice app's database folder
+    env: dict = field(default_factory=dict)
+    java_classpath: tuple = ()
+    python_path: tuple = ()
+    node_path: str | None = None
+    timeout_seconds: int | None = None
+
+
+def _child_env(cwd: Path | None = None, access: "SandboxAccess | None" = None) -> dict:
     """Environment for every candidate process we launch, forcing UTF-8 on
     the CHILD's own stdout/stderr.
 
@@ -144,6 +159,10 @@ def _child_env(cwd: Path | None = None) -> dict:
     env = {"PATH": _CHILD_PATH, "LANG": "en_US.UTF-8", "PYTHONIOENCODING": "utf-8"}
     if cwd is not None:
         env.update(HOME=str(cwd), TMPDIR=str(cwd))
+    if access is not None:
+        env.update({str(k): str(v) for k, v in access.env.items()})
+        if access.node_path:
+            env["NODE_PATH"] = access.node_path
     return env
 
 
@@ -158,8 +177,27 @@ class SandboxUnavailable(OSError):  # an OSError, so both launch sites report it
     """No way to isolate candidate code on this host - refused, not run unprotected."""
 
 
-def _sandbox_profile(workdir: Path) -> str:
-    work = str(workdir.resolve()).replace('"', "")
+def _quoted(path) -> str:
+    return str(Path(path).resolve()).replace('"', "")
+
+
+def _sandbox_profile(workdir: Path, access: SandboxAccess | None = None) -> str:
+    work = _quoted(workdir)
+    extra = ""
+    if access is not None:
+        if access.ports:
+            # This machine only, these ports only ("localhost" needs IPv4 in Java - see _prepare_run).
+            extra += "(allow network-outbound " + " ".join(f'(remote ip "localhost:{int(p)}")' for p in access.ports) + ")\n"
+        dirs = [_quoted(d) for d in (*access.read_dirs, *access.rw_dirs)]
+        # Java resolves a classpath entry by looking at each parent folder: allow
+        # "does it exist" on those parents - never listing or reading them.
+        parents = sorted({str(p) for d in dirs for p in Path(d).parents if str(p).startswith("/Users")})
+        if parents:
+            extra += "(allow file-read-metadata " + " ".join(f'(literal "{p}")' for p in parents) + ")\n"
+        for d in dirs:
+            extra += f'(allow file-read* (subpath "{d}"))\n'
+        for d in access.rw_dirs:
+            extra += f'(allow file-write* (subpath "{_quoted(d)}"))\n'
     return f"""(version 1)
 (allow default)
 (deny network*)
@@ -168,10 +206,10 @@ def _sandbox_profile(workdir: Path) -> str:
 (deny file-write*)
 (allow file-write* (subpath "{work}") (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty"))
 (allow file-read* (subpath "{work}"))
-"""
+{extra}"""
 
 
-def _sandboxed(cmd: list[str], workdir: Path) -> list[str]:
+def _sandboxed(cmd: list[str], workdir: Path, access: SandboxAccess | None = None) -> list[str]:
     """`cmd` wrapped so it can't reach secrets, the database, the network or
     other processes - see the module docstring. Raises SandboxUnavailable
     rather than ever returning the bare command, unless the setting is "off"."""
@@ -179,7 +217,7 @@ def _sandboxed(cmd: list[str], workdir: Path) -> list[str]:
     if mode == "off":
         return cmd
     if sys.platform == "darwin" and Path(_SANDBOX_EXEC).exists():
-        return [_SANDBOX_EXEC, "-p", _sandbox_profile(workdir), *cmd]
+        return [_SANDBOX_EXEC, "-p", _sandbox_profile(workdir, access), *cmd]
     raise SandboxUnavailable(f"no sandbox available on {sys.platform} (execution_sandbox={mode!r})")
 
 # What macOS's /usr/bin/javac placeholder prints when no JDK is installed
@@ -231,11 +269,11 @@ def _javac_works(javac: str) -> bool:
 # Python's -I leaves the script's own folder off the import path; a Round 2
 # practice app's engine module sits there, so the file is run from a -c that
 # puts it back (tracebacks still name main.py and its real line numbers).
-_RUN_WITH_SIBLINGS = "import runpy, sys; sys.path.insert(0, ''); runpy.run_path('main.py', run_name='__main__')"
+_RUN_WITH_SIBLINGS = "import runpy, sys; sys.path[:0] = {path!r}; runpy.run_path('main.py', run_name='__main__')"
 
 
 def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: int, *, unbuffered_python: bool,
-                 extra_sources: list[str] | None = None) -> _PreparedRun:
+                 extra_sources: list[str] | None = None, access: SandboxAccess | None = None) -> _PreparedRun:
     """Resolves `language` to a runnable command, compiling first for
     Java. Shared by run_code (batch) and start_interactive (the
     candidate's Run button) - the only difference between the two is
@@ -244,8 +282,9 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
     importable from Python, compiled with it in Java."""
     if language == "python":
         flags = [PYTHON, "-I", "-u"] if unbuffered_python else [PYTHON, "-I"]
-        if extra_sources and source.name == "main.py":
-            return _PreparedRun(run_cmd=flags + ["-c", _RUN_WITH_SIBLINGS])
+        python_path = list(access.python_path) if access else []
+        if (extra_sources or python_path) and source.name == "main.py":
+            return _PreparedRun(run_cmd=flags + ["-c", _RUN_WITH_SIBLINGS.format(path=[""] + python_path)])
         return _PreparedRun(run_cmd=flags + [str(source)])
     elif language == "javascript":
         node = shutil.which("node")
@@ -264,7 +303,8 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
         # fixed). Changing it here would also break the existing
         # compile-failure tests' subprocess.run stubs for no gain.
         compile_proc = subprocess.run(
-            [javac, source.name] + [n for n in extra_sources or [] if n.endswith(".java")], cwd=tmp_path, capture_output=True, text=True,
+            [javac, *(["-nowarn", "-cp", ":".join([".", *access.java_classpath])] if access and access.java_classpath else []), source.name]
+            + [n for n in extra_sources or [] if n.endswith(".java")], cwd=tmp_path, capture_output=True, text=True,
             timeout=timeout_seconds,
         )
         if compile_proc.returncode != 0:
@@ -287,10 +327,15 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
             stderr = f"[compile] {compile_stderr}" if compile_stderr else "[compile] compilation failed"
             return _PreparedRun(compile_stderr=stderr, compile_exit_code=compile_proc.returncode)
         # -XX:-UsePerfData: the JVM would otherwise write a perf file outside the run's temp directory.
+        if access is not None:
+            # IPv4: the sandbox recognises only IPv4 connections to this machine as "localhost".
+            return _PreparedRun(run_cmd=[java, "-XX:-UsePerfData", "-Djava.net.preferIPv4Stack=true", f"-Djava.io.tmpdir={tmp_path}",
+                                         "-cp", ":".join([str(tmp_path), *access.java_classpath]), "Main"])
         return _PreparedRun(run_cmd=[java, "-XX:-UsePerfData", "-cp", str(tmp_path), "Main"])
 
 
-def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds: int) -> tuple[str, str, int | None, bool]:
+def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds: int,
+                    access: SandboxAccess | None = None) -> tuple[str, str, int | None, bool]:
     """Runs one subprocess to completion, feeding it stdin_text and
     capturing everything - the one place that actually shells out, same
     isolation pattern llm_service.py uses for _call_claude (tests
@@ -300,14 +345,14 @@ def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds:
     infinite loop), not an infrastructure failure."""
     try:
         proc = subprocess.run(
-            _sandboxed(cmd, cwd), cwd=cwd, input=stdin_text, capture_output=True, text=True,
+            _sandboxed(cmd, cwd, access), cwd=cwd, input=stdin_text, capture_output=True, text=True,
             # Both halves are needed: env makes the CHILD write UTF-8 (see
             # _child_env), encoding/errors make the PARENT read it back as
             # UTF-8 instead of the host locale, which would otherwise
             # mojibake exactly the characters the child just emitted.
             # errors="replace" keeps a stray undecodable byte from turning
             # a candidate's real run into an infrastructure failure.
-            encoding="utf-8", errors="replace", env=_child_env(cwd),
+            encoding="utf-8", errors="replace", env=_child_env(cwd, access),
             timeout=timeout_seconds,
         )
         return proc.stdout, proc.stderr, proc.returncode, False
@@ -319,7 +364,8 @@ def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds:
         return stdout, stderr, None, True
 
 
-def run_code(language: str, code: str, stdin: list[str], support_files: dict[str, str] | None = None) -> ExecutionResult:
+def run_code(language: str, code: str, stdin: list[str], support_files: dict[str, str] | None = None,
+             access: SandboxAccess | None = None) -> ExecutionResult:
     """Runs `code` once, feeding `stdin` (one value per line, in order)
     to the process's standard input - a single batch call, not a live
     interactive session (see this module's docstring). support_files:
@@ -342,7 +388,7 @@ def run_code(language: str, code: str, stdin: list[str], support_files: dict[str
     # attributable outcomes. A no-op for code that reads a fixed,
     # already-known number of values and never touches the extra line.
     stdin_text = "\n".join(stdin) + "\n\n"
-    timeout_seconds = settings.execution_timeout_seconds
+    timeout_seconds = (access.timeout_seconds if access and access.timeout_seconds else settings.execution_timeout_seconds)
 
     try:
         with tempfile.TemporaryDirectory(prefix="qa_eval_round3_") as tmp:
@@ -356,7 +402,7 @@ def run_code(language: str, code: str, stdin: list[str], support_files: dict[str
                 (tmp_path / name).write_text(content, encoding="utf-8")
                 extra.append(name)
 
-            prepared = _prepare_run(language, source, tmp_path, timeout_seconds, unbuffered_python=False, extra_sources=extra)
+            prepared = _prepare_run(language, source, tmp_path, timeout_seconds, unbuffered_python=False, extra_sources=extra, access=access)
             if prepared.infra_error:
                 return ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
             if prepared.compile_stderr is not None:
@@ -364,7 +410,8 @@ def run_code(language: str, code: str, stdin: list[str], support_files: dict[str
             run_cmd = prepared.run_cmd
 
             start = time.monotonic()
-            stdout, stderr, exit_code, timed_out = _run_subprocess(run_cmd, tmp_path, stdin_text, timeout_seconds)
+            stdout, stderr, exit_code, timed_out = _run_subprocess(run_cmd, tmp_path, stdin_text, timeout_seconds,
+                                                                   **({"access": access} if access else {}))
             duration_ms = int((time.monotonic() - start) * 1000)
     # Covers a missing interpreter, a permissions failure, or any other
     # environment-level surprise launching the subprocess - infra_error,

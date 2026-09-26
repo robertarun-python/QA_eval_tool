@@ -111,6 +111,14 @@ class Settings(BaseSettings):
     # "auto" uses the platform's (macOS sandbox-exec) and refuses to run code
     # where there is none. "off" runs it unprotected - development only.
     execution_sandbox: str = "auto"
+    # A Round 2 practice Run (practice_engine.practice_run): the candidate's
+    # Selenium / API / database test against the practice app - several page
+    # loads in a real browser, so longer than execution_timeout_seconds.
+    practice_run_timeout_seconds: int = 60
+    # The Selenium Grid the practice Runs' browsers come from (started on
+    # demand, this machine only) and where its tools live (tools/setup_vendor.sh).
+    selenium_grid_port: int = 4444
+    vendor_dir: str = str(Path(__file__).resolve().parents[2] / "vendor")
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
     # logins instead of open signup: 1 HR + 3 candidates. Emails default to

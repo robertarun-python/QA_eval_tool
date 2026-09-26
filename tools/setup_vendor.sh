@@ -1,0 +1,22 @@
+#!/bin/sh
+# One-time download of the browser-automation tools the Round 2 practice
+# environment uses (never committed - see .gitignore). Re-run to repair.
+#   Chrome for Testing + matching chromedriver (mac-arm64), Selenium server (Grid),
+#   sqlite-jdbc (Java database access), Selenium for Python and JavaScript.
+set -e
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+V="$ROOT/vendor"
+mkdir -p "$V" && cd "$V"
+CFT=154.0.8037.57
+SELENIUM=4.49.0
+SQLITE_JDBC=3.49.1.0
+curl -sSfL -o chrome.zip "https://storage.googleapis.com/chrome-for-testing-public/$CFT/mac-arm64/chrome-mac-arm64.zip"
+curl -sSfL -o chromedriver.zip "https://storage.googleapis.com/chrome-for-testing-public/$CFT/mac-arm64/chromedriver-mac-arm64.zip"
+unzip -q -o chrome.zip && unzip -q -o chromedriver.zip && rm chrome.zip chromedriver.zip
+xattr -dr com.apple.quarantine . 2>/dev/null || true
+curl -sSfL -o selenium-server.jar "https://github.com/SeleniumHQ/selenium/releases/download/selenium-$SELENIUM/selenium-server-$SELENIUM.jar"
+curl -sSfL -o sqlite-jdbc.jar "https://repo1.maven.org/maven2/org/xerial/sqlite-jdbc/$SQLITE_JDBC/sqlite-jdbc-$SQLITE_JDBC.jar"
+PY="$(cd "$ROOT/backend" && "$ROOT/.venv/bin/python" -c 'from app.services import execution_service as e; print(e.PYTHON)')"
+"$PY" -m pip install --quiet --target python "selenium==4.36.0"
+mkdir -p node && (cd node && [ -f package.json ] || npm init -y >/dev/null) && (cd node && npm install --silent "selenium-webdriver@$SELENIUM")
+echo "vendor ready in $V"

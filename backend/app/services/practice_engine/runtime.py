@@ -162,10 +162,14 @@ def _compare(a, b):
 
 
 class _Refused(Exception):
-    def __init__(self, message, page=None):
+    """A refusal the user sees. status: the HTTP status the practice server's
+    API answers with (400 bad input, 401 not signed in, 403 blocked, 404 not
+    found, 503 simulated outage, 500 unexpected; a rule may set its own)."""
+    def __init__(self, message, page=None, status=400):
         super().__init__(message)
         self.message = message
         self.page = page
+        self.status = status
 
 
 class Engine:
@@ -379,12 +383,12 @@ class Engine:
         if not self.users:
             return
         if self.user is None:
-            raise _Refused(self._messages()["need_login"], page=self._login_page())
+            raise _Refused(self._messages()["need_login"], page=self._login_page(), status=401)
         minutes = self.users.get("session_minutes")
         if minutes and self.last_active is not None and (self.clock - self.last_active) > timedelta(minutes=minutes):
             self.user = None
             self.session = {}
-            raise _Refused(self._messages()["expired"], page=self._login_page())
+            raise _Refused(self._messages()["expired"], page=self._login_page(), status=401)
         self.last_active = self.clock
 
     def login(self, login, password):
@@ -400,7 +404,7 @@ class Engine:
         if match is not None and lockout:
             until = self.locked_until.get(who)
             if until is not None and (until is True or self.clock < until):
-                raise _Refused(lockout["message"])
+                raise _Refused(lockout["message"], status=403)
         if match is None or str(match.get(self.users.get("password_field", "password"))) != str(password):
             if match is not None and lockout:
                 self.failed_logins[who] = self.failed_logins.get(who, 0) + 1
@@ -408,11 +412,11 @@ class Engine:
                     self.failed_logins[who] = 0
                     minutes = lockout.get("minutes")
                     self.locked_until[who] = self.clock + timedelta(minutes=minutes) if minutes else True
-                    raise _Refused(lockout["message"])
-            raise _Refused(msgs["invalid"])
+                    raise _Refused(lockout["message"], status=403)
+            raise _Refused(msgs["invalid"], status=401)
         self.failed_logins.pop(who, None)
         if self.users.get("blocked_when") is not None and self.cond(self.users["blocked_when"], {"inputs": {}, "aliases": {"user": match}}):
-            raise _Refused(msgs["blocked"])
+            raise _Refused(msgs["blocked"], status=403)
         self.user = match
         self.last_active = self.clock
         self.session = {}
@@ -474,7 +478,7 @@ class Engine:
         except _Refused:
             raise
         except Exception:
-            raise _Refused(UNEXPECTED)
+            raise _Refused(UNEXPECTED, status=500)
 
     def run_query(self, name, inputs):
         try:
@@ -482,14 +486,14 @@ class Engine:
         except _Refused:
             raise
         except Exception:
-            raise _Refused(UNEXPECTED)
+            raise _Refused(UNEXPECTED, status=500)
 
     def _run_action(self, name, inputs):
         action = self.actions[name]
         for fault_name in self.active_faults:
             fault = self.faults[fault_name]
             if not fault.get("applies_to") or name in fault["applies_to"]:
-                raise _Refused(fault["message"])
+                raise _Refused(fault["message"], status=fault.get("status", 503))
         if action.get("requires_login", bool(self.users)):
             self._check_session()
         self._check_inputs(action.get("inputs") or [], inputs)
@@ -497,7 +501,7 @@ class Engine:
         for load in action.get("load") or []:
             record = self._by_key(load["entity"], self.ev(load["key"], ctx))
             if record is None:
-                raise _Refused(load["missing"])
+                raise _Refused(load["missing"], status=404)
             ctx["aliases"][load["as"]] = record
         self._check_rules(action.get("rules") or [], ctx)
         self._transaction(action.get("effects") or [], ctx)
@@ -526,7 +530,7 @@ class Engine:
             if refused:
                 if rule.get("then"):
                     self._transaction(rule["then"], ctx)
-                raise _Refused(self._text(self.ev(rule["message"], ctx)))
+                raise _Refused(self._text(self.ev(rule["message"], ctx)), status=rule.get("status", 400))
 
     def _transaction(self, effects, ctx):
         """All the effects, or - if one fails - none of them."""
@@ -565,9 +569,13 @@ class Engine:
             values = {k: self._typed(entity, k, self.ev(v, ctx)) for k, v in (arg.get("values") or {}).items()}
             key = self._key(entity)
             if values.get(key) is None:
-                self.counters[entity] += 1
                 fmt = self.entities[entity].get("id_format")
-                values[key] = self._id(fmt, self.counters[entity]) if fmt else self.counters[entity]
+                taken = {str(r.get(key)).lower() for r in self.store[entity]}
+                while True:  # never an id already stored (e.g. a record a test inserted into the database itself)
+                    self.counters[entity] += 1
+                    values[key] = self._id(fmt, self.counters[entity]) if fmt else self.counters[entity]
+                    if str(values[key]).lower() not in taken:
+                        break
             record = values
             self.store[entity].append(record)
             self.created.add((entity, str(values[key])))
@@ -608,7 +616,7 @@ class Engine:
         if query.get("key_input"):
             record = self._by_key(entity, inputs.get(query["key_input"]))
             if record is None or (query.get("where") is not None and not self.cond(query["where"], dict(ctx, aliases={"row": record}))):
-                raise _Refused(query.get("missing", "Not found"))
+                raise _Refused(query.get("missing", "Not found"), status=404)
             return self._show(query, record, ctx), None
         match = query.get("match")
         rows = self._rows(entity, query.get("where"), ctx)

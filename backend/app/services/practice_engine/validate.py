@@ -443,9 +443,11 @@ class _Checker:
             return
         for j, rule in enumerate(rules):
             w = f"{where} rule {j + 1}"
-            if not isinstance(rule, dict) or len({"unless", "when"} & set(rule)) != 1 or set(rule) - {"unless", "when", "message", "then", "for_each"}:
+            if not isinstance(rule, dict) or len({"unless", "when"} & set(rule)) != 1 or set(rule) - {"unless", "when", "message", "then", "for_each", "status"}:
                 self.err(w, "needs exactly one of unless / when, a message, and optionally then (effects kept when it refuses) and for_each")
                 continue
+            if "status" in rule and rule["status"] not in (400, 403, 404, 409, 422, 429):
+                self.err(w, "status must be one of 400, 403, 404, 409, 422, 429")
             inner = self.for_each(rule["for_each"], w, scope) if "for_each" in rule else scope
             if inner is None:
                 continue
@@ -656,6 +658,8 @@ class _Checker:
                 self.err(where, "is defined twice")
             names.add(f.get("name"))
             self.message(f.get("message"), where)
+            if "status" in f and f["status"] not in (500, 502, 503, 504):
+                self.err(where, "status must be one of 500, 502, 503, 504")
             for a in f.get("applies_to") or []:
                 if a not in actions:
                     self.err(where, f"applies_to {a!r} is not one of the actions")
