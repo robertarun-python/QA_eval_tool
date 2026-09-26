@@ -328,3 +328,16 @@ def test_code_writing_calls_pass_their_schema():
                        (llm_service.round3_syntax_fix, "SCHEMA_SYNTAX_FIX"),
                        (llm_service.generate_round3_reference, "SCHEMA_R3_REFERENCE")):
         assert f"schema={schema}" in inspect.getsource(fn), fn.__name__
+
+
+def test_a_turn_that_runs_out_of_time_tells_the_candidate_to_try_again(client, monkeypatch):
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    cand_token = _reach_automation_round(client, hr_token, monkeypatch)
+    _select(client, cand_token)
+
+    def too_slow(**kwargs):
+        raise llm_service.LLMTurnTooSlow("The candidate turn used its 120s.")
+
+    monkeypatch.setattr(llm_service, "round2_automation_clarify", too_slow)
+    res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode step 1", "row_index": 0}, cookies=_auth(cand_token))
+    assert res.status_code == 502 and "try sending your message again" in res.json()["detail"]

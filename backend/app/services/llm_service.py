@@ -5,6 +5,8 @@ routers: (1) one place to change models/retry logic later, (2) prompts
 live in text files under app/prompts/, loaded here, so the actual
 wording is easy to find and edit without touching Python.
 """
+import contextvars
+import functools
 import hashlib
 import json
 import re
@@ -194,6 +196,45 @@ def _timeout_for(max_tokens: int) -> float:
     return min(240.0, max(60.0, 30.0 + max_tokens / 50))
 
 
+# A candidate is waiting on these calls with their round clock running. A slow
+# or retried reply used to have no overall limit (each call up to ~3 minutes,
+# retried twice by the SDK): up to ~10 minutes of a 20-45 minute round. Now a
+# whole candidate turn - every call it makes, retries included - gets this
+# long, then fails into the page's "the assistant had trouble responding -
+# try again" message. Two minutes, not less: a full code-file reply can
+# legitimately take well over one.
+CANDIDATE_TURN_SECONDS = 120
+_TURN_DEADLINE: contextvars.ContextVar = contextvars.ContextVar("candidate_turn_deadline", default=None)
+
+
+class LLMTurnTooSlow(RuntimeError):
+    """A candidate turn ran out of its CANDIDATE_TURN_SECONDS."""
+
+
+def candidate_turn(fn):
+    """Caps the whole of a candidate-facing AI turn at CANDIDATE_TURN_SECONDS."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        token = _TURN_DEADLINE.set(time.monotonic() + CANDIDATE_TURN_SECONDS)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _TURN_DEADLINE.reset(token)
+    return wrapper
+
+
+def _client_and_timeout(client, budget: int):
+    """The client to use and the per-call timeout - inside a candidate turn,
+    no SDK retries and never past the turn's deadline."""
+    deadline = _TURN_DEADLINE.get()
+    if deadline is None:
+        return client, _timeout_for(budget)
+    remaining = deadline - time.monotonic()
+    if remaining < 5:
+        raise LLMTurnTooSlow(f"The candidate turn used its {CANDIDATE_TURN_SECONDS}s.")
+    return client.with_options(max_retries=0), min(_timeout_for(budget), remaining)
+
+
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     """The one place every Claude call goes through. A reply cut off at
     max_tokens (stop_reason "max_tokens") used to be returned as-is and only
@@ -203,10 +244,11 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     if settings.llm_fake_mode:
         _record_call("fake", max_tokens=max_tokens, detail="fake AI mode - scripted reply")
         return fake_llm.reply_text(_calling_function(), prompt)
-    client = _get_client()
+    base_client = _get_client()
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     budget = max_tokens
     for _ in range(2):
+        client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
             message = client.messages.create(
@@ -214,7 +256,7 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
                 max_tokens=budget,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt}],
-                timeout=_timeout_for(budget),
+                timeout=timeout,
                 **extra,
             )
         except Exception as e:
@@ -309,18 +351,19 @@ def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict
     """Same guarantees as _call_claude (cut-off retry, scaled timeout,
     logging), but the reply comes back as the arguments of a forced tool
     call - already-parsed fields, so a code file inside it can't break JSON."""
-    client = _get_client()
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     tool = {"name": _TOOL_NAME, "description": "Submit your reply - its arguments are the reply's fields.", "input_schema": schema}
+    base_client = _get_client()
     budget = max_tokens
     for _ in range(2):
+        client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
             message = client.messages.create(
                 model=settings.claude_model, max_tokens=budget, system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": prompt + _TOOL_NOTE}],
                 tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME},
-                timeout=_timeout_for(budget), **extra,
+                timeout=timeout, **extra,
             )
         except Exception as e:
             _record_call("api_error", started=started, max_tokens=budget, detail=f"tool: {type(e).__name__}: {e}")
@@ -608,6 +651,7 @@ def _validated_turn(call, model, what: str):
     return model.model_validate({"response_kind": "clarify", "response_message": UNUSABLE_REPLY_MESSAGE})
 
 
+@candidate_turn
 def round3_coding_turn(
     scenario_description: str,
     language: str,
@@ -868,6 +912,7 @@ def _round3_coding_turn_once(
     }
 
 
+@candidate_turn
 def round3_syntax_fix(
     code: str,
     language: str,
@@ -1066,6 +1111,7 @@ Add one extra top-level field to your JSON response, "planted_flaw": ONE sentenc
 """
 
 
+@candidate_turn
 def round2_automation_turn(
     language: str,
     selected_design: list[dict],
@@ -1223,6 +1269,7 @@ _ENVIRONMENT_LEAK_NOTE = (
 )
 
 
+@candidate_turn
 def round2_automation_clarify(
     language: str,
     selected_design: list[dict],
