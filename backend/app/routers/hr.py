@@ -44,7 +44,7 @@ from ..schemas import (
     Round2AutomationEnvironmentUpdate, Round2AutomationEnvironmentOut,
 )
 from ..dependencies import require_hr
-from ..services import llm_service
+from ..services import llm_service, round_scenarios
 from ..services import candidate_upload_service
 from ..services.practice_app import service as practice_app_service
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions, close_expired_assessment_windows, fail_interrupted_scoring
@@ -648,7 +648,27 @@ def practice_app_status(scenario_id: int, db: Session = Depends(get_db), hr: Use
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
     return {**practice_app_service.summary(scenario), "cannot_start": practice_app_service.can_start(scenario),
-            "steps": practice_app_service.generator.STEPS}
+            "steps": practice_app_service.generator.STEPS,
+            "waiting_candidates": _candidates_waiting_for_round2(scenario, db) if scenario.round_number == 1 else 0}
+
+
+def _candidates_waiting_for_round2(round1: Scenario, db: Session) -> int:
+    """Candidates who finished this Round 1 scenario but can't start Round 2
+    because no practice app for it is approved yet - HR has to know, or they
+    wait unseen until their assessment window runs out."""
+    if round_scenarios.round2_for_round1(db, round1) is not None:
+        return 0
+    finished = (
+        db.query(Submission.user_id)
+        .filter(Submission.scenario_id == round1.id, Submission.round_number == 1, Submission.archived.is_(False),
+                Submission.status.in_([RoundStatus.submitted, RoundStatus.scored]))
+        .all()
+    )
+    started_round2 = {
+        uid for (uid,) in db.query(Submission.user_id)
+        .filter(Submission.round_number == 2, Submission.archived.is_(False)).all()
+    }
+    return len({uid for (uid,) in finished} - started_round2)
 
 
 @router.post("/scenarios/{scenario_id}/practice-app", status_code=202)

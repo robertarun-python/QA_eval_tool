@@ -117,7 +117,9 @@ def test_round1_view_leaves_out_what_is_built_from_the_answer_key(client, monkey
     library = _r1(client, token, monkeypatch, title="Library")
     _fake_factory(monkeypatch)
     round2 = _approve_practice_app(client, token, library["id"])
-    _set(round2,
+    config = dict(_db_scenario(round2).config_json)
+    config.pop("round1_sheet")  # an app approved before the design's account was stored
+    _set(round2, config_json=config,
          environment_json={"fields": {"Base URL": "https://library.example.test", "Test account username": "testuser",
                                       "Test account password": "Test@123", "Account at borrowing limit username": "maxuser",
                                       "Account at borrowing limit password": "Max@123", "Unavailable book title": "To Kill a Mockingbird"},
@@ -147,3 +149,37 @@ def test_round1_shows_nothing_from_a_round2_built_for_another_scenario(client, m
     state = client.get("/candidate/round/1", cookies=_auth(cand)).json()
     assert state["scenario"]["id"] == library["id"]
     assert state["environment"] is None and state["ui_mockup"] is None
+
+
+def test_round1_shows_the_designs_main_account_for_an_approved_app(client, monkeypatch, builds_dir):
+    """Stored at approval straight from the practice app's design - no guessing from field names."""
+    token = _hr(client)
+    library = _r1(client, token, monkeypatch, title="Library")
+    _fake_factory(monkeypatch)
+    _approve_practice_app(client, token, library["id"])
+    cand = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    state = client.get("/candidate/round/1", cookies=_auth(cand)).json()
+    assert state["environment"]["fields"] == {"Test login": "qa.patient.demo@testportal.io", "Password": "Px!7mK@2024Test"}
+
+
+def test_the_older_sheet_fallback_skips_special_accounts_and_pages():
+    """C9: the first field containing "login"/"password" could be a page or the
+    locked account - both built from the Round 1 answer key."""
+    from app.routers.candidate import _main_login_fields
+    fields = {"App URL": "https://hotel.example.test", "Login page": "/signin", "Locked account password": "x",
+              "Locked account username": "locked.user", "Test username": "qa", "Test password": "p",
+              "Rooms page url note": "see docs"}
+    assert _main_login_fields(fields) == {"App URL": "https://hotel.example.test", "Test username": "qa", "Test password": "p"}
+
+
+def test_hr_is_told_how_many_candidates_are_waiting_for_round2(client, monkeypatch, builds_dir):
+    """D7: a candidate who finished a Round 1 with no approved app can't go on -
+    the Round 2 card has to say so, or they wait unseen until their window ends."""
+    token = _hr(client)
+    library = _r1(client, token, monkeypatch, title="Library")
+    _submitted_round1(CANDIDATE1_EMAIL, library["id"])
+    status = lambda: client.get(f"/hr/scenarios/{library['id']}/practice-app", cookies=_auth(token)).json()  # noqa: E731
+    assert status()["waiting_candidates"] == 1
+    _fake_factory(monkeypatch)
+    _approve_practice_app(client, token, library["id"])
+    assert status()["waiting_candidates"] == 0

@@ -255,6 +255,10 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         "paired_round1_title": round1.title,
         "practice_app_checklists": build["checklists"],
         "practice_app_built_at": build["built_at"],
+        # What Round 1 shows of this app (routers/candidate._round1_environment_view):
+        # the web address and the design's main test account - nothing built
+        # from the Round 1 answer key.
+        "round1_sheet": _round1_sheet(plan),
     }
     reference = {"ground_truth": build["ground_truth"], "validation_notes": validation_notes(unverified)}
     environment = {"fields": {str(k): str(v) for k, v in (sheet.get("fields") or {}).items()},
@@ -290,6 +294,18 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         activate_paired_round2(round1, db)
     db.commit()
     return round2
+
+
+def _round1_sheet(plan: dict) -> dict:
+    sheet = {}
+    if plan.get("base_url"):
+        sheet["Web address"] = str(plan["base_url"])
+    account = next(iter(plan.get("test_accounts") or []), None) or {}
+    if account.get("login"):
+        sheet["Test login"] = str(account["login"])
+    if account.get("password"):
+        sheet["Password"] = str(account["password"])
+    return sheet
 
 
 def screens_for(plan: dict) -> dict | None:

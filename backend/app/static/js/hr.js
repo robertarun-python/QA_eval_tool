@@ -957,6 +957,14 @@ async function loadRound2AutomationSettings() {
   } else {
     box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, liveRound1);
   }
+  const waitingEl = liveRound1 && document.getElementById(`r2-waiting-${liveRound1.id}`);
+  if (waitingEl) {
+    // Candidates who finished this Round 1 can't start Round 2 until an app is approved.
+    api(`/hr/scenarios/${liveRound1.id}/practice-app`).then((d) => {
+      const n = d.waiting_candidates || 0;
+      if (n) waitingEl.textContent = `${n} candidate${n === 1 ? " has" : "s have"} finished Round 1 on ${liveRound1.title} and ${n === 1 ? "is" : "are"} waiting for this Round 2 - they can't continue until you approve a practice app.`;
+    }).catch(() => {});
+  }
   clearTimeout(round2PracticeAppTimer);
   if (liveRound1 && ((liveRound1.config_json || {}).practice_app || {}).status === "building") {
     round2PracticeAppTimer = setTimeout(() => {
@@ -1011,6 +1019,7 @@ function renderRound2NeedsPracticeApp(round1) {
     <div class="panel card" style="margin-bottom:1.5rem">
       <h3>Round 2 ${badge}</h3>
       <p class="muted">Round 1 is now <strong>${title}</strong>. Round 2's previous content was built for a different scenario, so it's hidden until Round 2 is generated for this one.</p>
+      <p id="r2-waiting-${round1.id}" class="error-text" role="status"></p>
       ${body}
       <p id="practice-app-r2-status" class="muted"></p>
     </div>`;

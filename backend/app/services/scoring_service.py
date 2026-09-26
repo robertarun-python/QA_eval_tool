@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from fastapi import BackgroundTasks
 from sqlalchemy.orm import Session
 
-from ..models import Submission, Score, RoundStatus, Scenario, User, AppSettings, CandidateSummary
+from ..models import Submission, Score, RoundStatus, User, AppSettings, CandidateSummary
 from . import llm_service, execution_service, round3_scope_guard, round2_automation_evidence_audit
 
 # Keep in sync with routers/candidate.py's ROUND_SEQUENCE - duplicated
@@ -767,17 +767,16 @@ def close_expired_assessment_windows(
     for round_number in _ASSESSMENT_ROUND_SEQUENCE:
         if round_number in existing_rounds:
             continue
-        scenario = (
-            db.query(Scenario)
-            .filter(
-                Scenario.round_number == round_number,
-                Scenario.experience_band == candidate.experience_band,
-                Scenario.is_live.is_(True),
-            )
-            .first()
-        )
+        # The same scenario the candidate would have been served (their own
+        # Round 2 practice app, not whichever is live). If a round was never
+        # available to them - no approved Round 2 for their Round 1 yet, or
+        # nothing live - they couldn't have reached it or any later round:
+        # leave those "not_started" rather than record a 0 they never had the
+        # chance to avoid.
+        from .round_scenarios import candidate_scenario
+        scenario = candidate_scenario(db, candidate, round_number)
         if scenario is None:
-            continue  # nothing published/live for this round+band - leave it "not_started", there's nothing to score against
+            break
         if round_number == 1:
             content = []
         elif round_number == 4:

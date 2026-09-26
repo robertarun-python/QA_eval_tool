@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
-from ..models import User, Scenario, ScenarioStatus, Submission, RoundStatus, Round4TestCase, CandidateAppearance, Round3Turn, Round3ExecutionRun
+from ..models import User, Scenario, Submission, RoundStatus, Round4TestCase, CandidateAppearance, Round3Turn, Round3ExecutionRun
 from ..schemas import (
     RoundStateOut, SubmissionCreate, SubmissionOut,
     Round1ContextOut, Round2EntryStateOut, Round4TestCaseOut, Round2AutomationEnvironmentOut,
@@ -33,7 +33,7 @@ from ..schemas import (
     Round2AutomationSubmitCreate, Round2AutomationTCSubmitEntry, Round2AutomationRunOut, Round2AutomationTCStateOut,
 )
 from ..dependencies import require_candidate
-from ..services import llm_service, execution_service
+from ..services import llm_service, execution_service, round_scenarios
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
@@ -71,70 +71,14 @@ router = APIRouter(prefix="/candidate", tags=["candidate"])
 
 
 def _live_scenario(db: Session, round_number: int, candidate: User) -> Scenario | None:
-    """The scenario this candidate takes for this round. A round they've
-    already started stays on the scenario they started, even after HR makes
-    another one live - otherwise switching scenarios would drop their work
-    and let them take a finished round again. Round 2 is also the practice
-    app built for THEIR Round 1 scenario (see _round2_for_round1), never
-    whichever Round 2 happens to be live."""
-    started = (
-        db.query(Submission)
-        .filter(Submission.user_id == candidate.id, Submission.round_number == round_number, Submission.archived.is_(False))
-        .first()
-    )
-    if started is not None:
-        return db.get(Scenario, started.scenario_id)
-    if round_number == 2:
-        round1 = (
-            db.query(Submission)
-            .filter(Submission.user_id == candidate.id, Submission.round_number == 1, Submission.archived.is_(False))
-            .first()
-        )
-        if round1 is not None:
-            return _round2_for_round1(db, db.get(Scenario, round1.scenario_id))
-    return (
-        db.query(Scenario)
-        .filter(
-            Scenario.round_number == round_number,
-            Scenario.experience_band == candidate.experience_band,
-            Scenario.is_live.is_(True),
-        )
-        .first()
-    )
-
-
-def _paired_with(round2: Scenario) -> tuple[int | None, str | None]:
-    config = round2.config_json or {}
-    return config.get("paired_round1_scenario_id"), config.get("paired_round1_title")
+    """The scenario this candidate takes for this round - see
+    services/round_scenarios.candidate_scenario (shared with the
+    assessment-window close, so the two can't disagree)."""
+    return round_scenarios.candidate_scenario(db, candidate, round_number)
 
 
 def _round2_for_round1(db: Session, round1: Scenario | None) -> Scenario | None:
-    """The Round 2 scenario a candidate who answered this Round 1 scenario
-    takes: the practice app built for it (live one first), else a live
-    Round 2 that isn't built for any particular Round 1. None when the only
-    Round 2 around was built for a different scenario - automating these
-    test cases against another app would be meaningless, so Round 2 shows
-    as not available until HR approves this scenario's practice app."""
-    if round1 is None:
-        return None
-    round2s = (
-        db.query(Scenario)
-        .filter(Scenario.round_number == 2, Scenario.experience_band == round1.experience_band,
-                Scenario.status == ScenarioStatus.published)
-        .all()
-    )
-
-    def built_for_this(s: Scenario) -> bool:
-        paired_id, paired_title = _paired_with(s)
-        return paired_id == round1.id if paired_id else bool(paired_title) and paired_title == round1.title
-
-    paired = [s for s in round2s if built_for_this(s)]
-    if paired:
-        return max(paired, key=lambda s: (s.is_live, s.id))
-    live = next((s for s in round2s if s.is_live), None)
-    if live is not None and _paired_with(live) == (None, None):
-        return live
-    return None
+    return round_scenarios.round2_for_round1(db, round1)
 
 
 def _round1_environment_view(round2: Scenario) -> tuple[Round2AutomationEnvironmentOut | None, Round2AutomationUiMockupOut | None]:
@@ -146,14 +90,13 @@ def _round1_environment_view(round2: Scenario) -> tuple[Round2AutomationEnvironm
     built from the Round 1 answer key, so it would list the edge cases Round
     1 is scored on."""
     environment = None
-    fields = (round2.environment_json or {}).get("fields") or {}
-    kept = {k: v for k, v in fields.items() if "url" in k.lower()}
-    for words in (("username", "email", "login"), ("password",)):
-        key = next((k for k in fields if "url" not in k.lower() and any(w in k.lower() for w in words)), None)
-        if key is not None:
-            kept[key] = fields[key]
-    if kept:
-        environment = Round2AutomationEnvironmentOut(fields={k: kept[k] for k in fields if k in kept})
+    sheet = (round2.config_json or {}).get("round1_sheet")
+    if sheet:  # stored at approval, straight from the practice app's design (its main test account)
+        environment = Round2AutomationEnvironmentOut(fields={str(k): str(v) for k, v in sheet.items()})
+    else:
+        kept = _main_login_fields((round2.environment_json or {}).get("fields") or {})
+        if kept:
+            environment = Round2AutomationEnvironmentOut(fields=kept)
     ui_mockup = None
     screens = []
     for screen in (round2.ui_mockup_json or {}).get("screens") or []:
@@ -163,6 +106,36 @@ def _round1_environment_view(round2: Scenario) -> tuple[Round2AutomationEnvironm
     if screens:
         ui_mockup = Round2AutomationUiMockupOut(screens=screens)
     return environment, ui_mockup
+
+
+# Words that mark a field as a special-case setup (an account at a limit, a
+# locked one, unavailable data...) - built from the Round 1 answer key, so
+# never shown in Round 1.
+_SPECIAL_CASE = re.compile(
+    r"lock|limit|block|expir|inactive|suspend|disabl|second|other|admin|invalid|unavailable|max|min|page|with \d", re.IGNORECASE)
+
+
+def _main_login_fields(fields: dict) -> dict:
+    """For sheets saved before approval stored round1_sheet: the web address
+    (a field named like a URL whose value is one) and the main test login -
+    the first username/email/login field that isn't a special-case account or
+    a page, and the password beside it."""
+    kept = {}
+    for key, value in fields.items():
+        name = key.lower()
+        if ("url" in name or "web address" in name) and str(value).startswith("http") and not _SPECIAL_CASE.search(key):
+            kept[key] = value
+            break
+    login = next((k for k in fields if re.search(r"username|email|login", k, re.I) and not _SPECIAL_CASE.search(k)
+                  and not str(fields[k]).startswith("/") and "url" not in k.lower()), None)
+    if login is not None:
+        kept[login] = fields[login]
+        stem = re.sub(r"username|email|login", "", login, flags=re.I).strip().lower()
+        passwords = [k for k in fields if "password" in k.lower() and not _SPECIAL_CASE.search(k)]
+        password = next((k for k in passwords if k.lower().replace("password", "").strip() == stem), None) or next(iter(passwords), None)
+        if password is not None:
+            kept[password] = fields[password]
+    return {k: fields[k] for k in fields if k in kept}
 
 
 # The practice-app design marks every message a page can show with
