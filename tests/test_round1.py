@@ -761,3 +761,20 @@ def test_round1_prompts_actually_ask_for_and_grade_test_data():
     assert "test_data" in scoring_prompt
     assert "specificity_score" in scoring_prompt
     assert "specificity_notes" in scoring_prompt
+
+
+def test_a_failed_generation_saves_nothing(client, monkeypatch):
+    """D4: HR re-clicking Create after a failure used to pile up empty drafts."""
+    import app.database as database_module
+    from app.models import Scenario
+    from app.services import llm_service
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    monkeypatch.setattr(llm_service, "generate_round1_reference", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("boom")))
+    res = client.post("/hr/scenarios", json={"round_number": 1, "title": "Doomed", "description": "desc",
+                                             "experience_band": "0-7", "time_limit_minutes": 30}, cookies=_auth(hr_token))
+    assert res.status_code == 502 and "nothing was saved" in res.json()["detail"]
+    db = database_module.SessionLocal()
+    try:
+        assert db.query(Scenario).filter(Scenario.title == "Doomed").count() == 0
+    finally:
+        db.close()
