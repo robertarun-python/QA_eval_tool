@@ -143,6 +143,20 @@ class PracticeAppResult:
         return rows
 
 
+def _shared_context(plan_text: str, checklists_text: str | None = None) -> str:
+    """The start every build prompt that works from the design shares, byte for
+    byte, so it's read from the prompt cache after the first call instead of
+    paid for again (llm_service.CACHE_BREAK): the design, and - for the calls
+    that work against them - the checklists. Each prompt's own instructions
+    follow and refer to "the design above" / "the checklists above"."""
+    text = ("THE PRACTICE APP'S DESIGN (a pretend, in-memory application for a QA hiring assessment):\n"
+            + plan_text + "\n" + llm_service.CACHE_BREAK)
+    if checklists_text is not None:
+        text += ("\nTHE CHECKLISTS (names are Layer.helper as in the design; \"expect\" values are what each call must return):\n"
+                 + checklists_text + "\n" + llm_service.CACHE_BREAK)
+    return text + "\n"
+
+
 def _render(template: str, **values) -> str:
     for key, value in values.items():
         template = template.replace(f"<<{key.upper()}>>", value)
@@ -388,11 +402,10 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         return llm_service._call_claude(prompt, max_tokens=max_tokens)
 
     def fix(language: str, code: str, problems: list[str]) -> str:
-        prompt = _render(
+        prompt = _shared_context(plan_text, checklists_text) + _render(
             llm_service._load_prompt("practice_app_fix.txt"),
-            language_name=LANGUAGE_NAMES[language], fence=_FENCES[language], plan=plan_text, code=code,
-            problems="\n".join(f"- {p}" for p in problems[:40]), checklists=checklists_text,
-            language_rules=_LANGUAGE_RULES[language],
+            language_name=LANGUAGE_NAMES[language], fence=_FENCES[language], code=code,
+            problems="\n".join(f"- {p}" for p in problems[:40]), language_rules=_LANGUAGE_RULES[language],
         )
         return _code(call(prompt, _CODE_TOKENS))
 
@@ -412,8 +425,8 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                               "what_went_wrong": failed[c["id"]][:5]}, indent=1, ensure_ascii=False)
                   for c in checklists if c["id"] in failed]
         try:
-            raw = llm_service._parse_json_response(call(_render(
-                llm_service._load_prompt("practice_app_repair_checklists.txt"), plan=plan_text, failing="\n\n".join(blocks),
+            raw = llm_service._parse_json_response(call(_shared_context(plan_text) + _render(
+                llm_service._load_prompt("practice_app_repair_checklists.txt"), failing="\n\n".join(blocks),
             ), _CHECKLIST_TOKENS))
         except Exception as e:  # an unusable reply is not a reason to lose the build - the code fixes still run
             result.log.append(f"couldn't re-check the failing checklists ({type(e).__name__}) - kept as they were")
@@ -452,7 +465,8 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
 
             # 2. Checklists (one retry if they don't match the design)
             step(1)
-            checklist_prompt = _render(llm_service._load_prompt("practice_app_checklists.txt"), plan=plan_text, reference_cases=cases_text)
+            checklist_prompt = _shared_context(plan_text) + _render(llm_service._load_prompt("practice_app_checklists.txt"),
+                                                                    reference_cases=cases_text)
             raw = llm_service._parse_json_response(call(checklist_prompt, _CHECKLIST_TOKENS))
             runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
             if problems:
@@ -472,9 +486,9 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
 
             # 3. Python, checked and fixed on its own first
             step(2)
-            python = _code(call(_render(
+            python = _code(call(_shared_context(plan_text, checklists_text) + _render(
                 llm_service._load_prompt("practice_app_write_python.txt"),
-                plan=plan_text, checklists=checklists_text, example=llm_service._load_prompt(_EXAMPLE_FILES["python"]),
+                example=llm_service._load_prompt(_EXAMPLE_FILES["python"]),
             ), _CODE_TOKENS))
             # The best version seen: a fix can make things worse (the Beneficiary
             # build went 18/19 -> 16/19 on its last fix), and the build must

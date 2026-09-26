@@ -1,10 +1,4 @@
-Write the PRACTICE APP below as a single Python file. Candidates in a QA hiring assessment will read this file and write automated tests at the bottom of it, so it must be clear, correct and exactly match the design.
-
-THE DESIGN (implement exactly this - every helper, the exact data, the exact messages):
-<<PLAN>>
-
-THE CHECKLISTS IT MUST PASS (names are Layer.helper as in the design; "expect" values are what each call must return):
-<<CHECKLISTS>>
+Write the PRACTICE APP designed above as a single Python file. Candidates in a QA hiring assessment will read this file and write automated tests at the bottom of it, so it must be clear, correct and exactly match the design: implement exactly the design above - every helper, the exact data, the exact messages - so that it passes every checklist above.
 
 Follow the structure and style of this example practice app for a different application EXACTLY - the same docstring layout, CONFIG, an in-memory store object, a session dict, classes UI / API / Database with @staticmethod helpers, module-level setup() and teardown(), and the TODO marker block and empty __main__ at the end:
 ```python

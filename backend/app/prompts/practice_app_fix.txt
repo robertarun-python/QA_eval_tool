@@ -1,18 +1,12 @@
-This <<LANGUAGE_NAME>> PRACTICE APP (a pretend application for a QA hiring assessment) failed its automatic inspection. Fix it.
-
-THE DESIGN IT MUST MATCH:
-<<PLAN>>
+This <<LANGUAGE_NAME>> PRACTICE APP (a pretend application for a QA hiring assessment) failed its automatic inspection. Fix it. It must match the design above.
 
 THE CURRENT CODE:
 ```<<FENCE>>
 <<CODE>>
 ```
 
-WHAT WENT WRONG (each line is a checklist step that returned the wrong thing or failed, or a place where this language behaves differently from the Python version, which is correct):
+WHAT WENT WRONG (each line is a step of one of the checklists above that returned the wrong thing or failed, or a place where this language behaves differently from the Python version, which is correct):
 <<PROBLEMS>>
-
-THE CHECKLISTS (for reference - the steps above refer to these):
-<<CHECKLISTS>>
 
 Fix the code so every problem above is resolved, without changing anything that already works: keep the same structure, helper names, data and messages. <<LANGUAGE_RULES>>
 
