@@ -403,3 +403,22 @@ def test_an_app_with_one_unverified_case_is_finished_and_can_be_approved(monkeyp
     assert unverified == ["Book an available slot and see the confirmation"]
     # the translations were never sent chasing the case Python itself fails
     assert not any(p.startswith("This JavaScript ") or p.startswith("This Java ") for p in fake.prompts)
+
+
+def test_an_unverified_high_priority_case_blocks_approval_and_translation(monkeypatch):
+    """14 of 15 is over the line, but the one unverified is the main booking
+    flow - nearly every candidate automates it, so the app can't be approved."""
+    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
+    cases = [{**c, "priority": "High" if c["title"] == "Book an available slot and see the confirmation" else "Medium"}
+             for c in REFERENCE_CASES]
+    fake = FakeAI(python=broken, fixes={"python": [broken, broken]})
+    monkeypatch.setattr(llm_service, "_call_claude", fake)
+    result = generator.generate("Doctor Appointment System", "...", cases)
+    assert not result.approvable
+    assert "High-priority test case isn't verified: Book an available slot" in result.approval_problem()
+    assert not any("from Python to" in p for p in fake.prompts)  # not paid to translate
+
+
+def test_not_supported_cases_count_as_not_verified():
+    result = generator.PracticeAppResult(reference_titles=["a", "b"], unsupported=[{"title": "b", "reason": "no clock"}])
+    assert result.verified() == (0, 2)

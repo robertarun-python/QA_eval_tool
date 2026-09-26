@@ -95,13 +95,31 @@ class PracticeAppResult:
     ai_calls: int = 0
     error: str | None = None
     reference_titles: list = field(default_factory=list)   # every Round 1 test case, so none can go missing from the report
-    approvable: bool = False  # every language built and at least APPROVE_AT of the test cases verified (see verified())
+    approvable: bool = False  # see approval_problem()
+    high_priority_titles: set = field(default_factory=set)  # the Round 1 test cases marked High priority
 
     def verified(self) -> tuple[int, int]:
-        """(test cases that work in every language, test cases that could) -
-        "not supported" ones are left out: the app deliberately doesn't model them."""
-        rows = [r for r in self.coverage() if r["status"] != "not supported"]
+        """(test cases that work in every language, all test cases). "Not
+        supported" ones count as not verified: left out, the AI could mark the
+        hard cases unsupported and still reach the approval line."""
+        rows = self.coverage()
         return sum(r["status"] == "works" for r in rows), len(rows)
+
+    def unverified_high_priority(self) -> list[str]:
+        """High-priority test cases not verified - the main flows nearly every
+        candidate automates, so a practice app missing one can't be approved."""
+        return [r["title"] for r in self.coverage()
+                if r["status"] != "works" and r["title"].strip().lower() in self.high_priority_titles]
+
+    def approval_problem(self) -> str | None:
+        """Why HR can't approve this build, or None."""
+        works, total = self.verified()
+        if not total or works / total < APPROVE_AT:
+            return f"{works} of {total} test cases verified - at least {APPROVE_AT:.0%} are needed"
+        high = self.unverified_high_priority()
+        if high:
+            return "a High-priority test case isn't verified: " + "; ".join(high)
+        return None
 
     def coverage(self) -> list[dict]:
         """One row per reference test case: works / fails / not supported."""
@@ -344,7 +362,10 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
     Python are kept and only the translations are redone - when only a
     translation failed, "Generate again" costs two AI calls, not ten. If it
     doesn't pass, reuse is ignored and the build starts from scratch."""
-    result = PracticeAppResult(reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")])
+    result = PracticeAppResult(
+        reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")],
+        high_priority_titles={(c.get("title") or "").strip().lower() for c in reference_cases if c.get("priority") == "High"},
+    )
     cases_text = _format_cases(reference_cases)
 
     def step(index: int, detail: str = "") -> None:
@@ -482,14 +503,14 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 result.log.append(f"kept the best version ({best['passed']}/{len(runnable)} pass) - the last fix made it worse")
             if problems:
                 result.env_code_by_language, result.report = {"python": python}, report
-                works, countable = result.verified()
-                if not countable or works / countable < APPROVE_AT:
-                    # Translating an app this far off would only pay to copy its
-                    # mistakes - stop here and show HR what failed.
-                    result.log.append(f"stopped: {works} of {countable} test cases verified in Python, below "
-                                      f"{APPROVE_AT:.0%} - not translated")
+                problem = result.approval_problem()
+                if problem:
+                    # An app that can't be approved anyway: translating it would
+                    # only pay to copy its mistakes - stop and show HR what failed.
+                    result.log.append(f"stopped: in Python, {problem} - not translated")
                     return result
-                result.log.append(f"{works} of {countable} test cases verified in Python - translating; the rest "
+                works, total = result.verified()
+                result.log.append(f"{works} of {total} test cases verified in Python - translating; the rest "
                                   "will be listed for HR")
 
         # 4. JavaScript and Java, translated from the checked Python
@@ -525,9 +546,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         result.env_code_by_language = code
         result.report = report
         result.ok = report.all_passed and all(row["status"] != "fails" for row in result.coverage())
-        works, countable = result.verified()
-        result.approvable = result.ok or (all(lang in code for lang in LANGUAGE_NAMES) and bool(countable)
-                                          and works / countable >= APPROVE_AT)
+        result.approvable = result.ok or (all(lang in code for lang in LANGUAGE_NAMES) and result.approval_problem() is None)
     except Exception as e:  # the caller shows HR a clear message; nothing is saved
         result.error = f"{type(e).__name__}: {e}"
         result.log.append(f"stopped: {result.error}")

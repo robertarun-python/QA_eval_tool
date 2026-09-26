@@ -1,0 +1,1597 @@
+{
+ "scenario": {
+  "title": "Bus Booking App – Book Bus Ticket",
+  "description": "A registered user searches for buses between two cities for a selected travel date, chooses a bus, selects an available seat, enters passenger details, makes the payment, and verifies the booking confirmation.\n\nFeatures to test\nFeature\tWhat to verify\nLogin\tValid/invalid credentials\nBus Search\tSource, destination, travel date\nBus Selection\tBus details, timing, fare\nSeat Selection\tAvailable/occupied seats\nPassenger Details\tName, age, gender, contact details\nPayment\tSuccessful/failed payment\nBooking Confirmation\tTicket, seat, PNR/booking ID"
+ },
+ "reference_cases": [
+  {
+   "title": "Successful bus booking with valid details and payment",
+   "preconditions": "User is registered with email: testuser@example.com, password: Test@1234",
+   "steps": "1. Navigate to login page\n2. Enter email and password\n3. Click Login\n4. Enter source city, destination city, and travel date\n5. Click Search\n6. Select a bus from results\n7. Click on an available seat\n8. Enter passenger name, age, gender, and contact number\n9. Proceed to payment\n10. Enter card details and complete payment\n11. Verify booking confirmation page",
+   "test_data": "email = testuser@example.com; password = Test@1234; source = Mumbai; destination = Pune; travel_date = 2024-02-15; bus = Volvo AC Sleeper 9:00 AM; seat = 12A; passenger_name = Rajesh Kumar; age = 32; gender = Male; contact = 9876543210; card_number = 4111111111111111; cvv = 123; expiry = 12/25",
+   "expected_result": "Booking confirmation page displays with PNR number, passenger name (Rajesh Kumar), seat number (12A), bus details (Volvo AC Sleeper 9:00 AM), travel date (2024-02-15), route (Mumbai to Pune), and booking status as Confirmed",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Login fails with incorrect password",
+   "preconditions": "User account exists with email: testuser@example.com",
+   "steps": "1. Navigate to login page\n2. Enter valid email and incorrect password\n3. Click Login",
+   "test_data": "email = testuser@example.com; password = WrongPass123",
+   "expected_result": "Error message displayed: 'Invalid email or password. Please try again.' User remains on login page",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Search returns no results for invalid route",
+   "preconditions": "User is logged in",
+   "steps": "1. Enter source and destination cities that have no bus service\n2. Select travel date\n3. Click Search",
+   "test_data": "source = Leh; destination = Kanyakumari; travel_date = 2024-02-20",
+   "expected_result": "Message displayed: 'No buses available for this route on the selected date.' Search results section is empty",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Cannot select already occupied seat",
+   "preconditions": "User is logged in and has searched for buses. Seat 15B is already booked",
+   "steps": "1. Select a bus from search results\n2. Attempt to click on seat 15B which shows as occupied/booked",
+   "test_data": "bus = Scania Multi-Axle 11:30 PM; seat = 15B (status: occupied)",
+   "expected_result": "Seat 15B is not selectable (grayed out or disabled). No action occurs on click. Tooltip or message shows 'Seat already booked'",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Search with past date is rejected",
+   "preconditions": "User is logged in. Current date is 2024-02-10",
+   "steps": "1. Enter source and destination\n2. Select a past date from date picker\n3. Click Search",
+   "test_data": "source = Delhi; destination = Jaipur; travel_date = 2024-02-05",
+   "expected_result": "Error message: 'Please select a current or future date.' Search is not executed",
+   "priority": "Medium",
+   "type": "Boundary"
+  },
+  {
+   "title": "Passenger age at minimum boundary (1 year)",
+   "preconditions": "User is logged in, bus and seat selected",
+   "steps": "1. Enter passenger details with age = 1\n2. Fill other mandatory fields\n3. Proceed to payment",
+   "test_data": "passenger_name = Baby Singh; age = 1; gender = Male; contact = 9123456789",
+   "expected_result": "Form accepts age value of 1. User proceeds to payment page without errors",
+   "priority": "Low",
+   "type": "Boundary"
+  },
+  {
+   "title": "Passenger age at maximum boundary (120 years)",
+   "preconditions": "User is logged in, bus and seat selected",
+   "steps": "1. Enter passenger details with age = 120\n2. Fill other mandatory fields\n3. Proceed to payment",
+   "test_data": "passenger_name = Elder Person; age = 120; gender = Female; contact = 9234567890",
+   "expected_result": "Form accepts age value of 120. User proceeds to payment page without errors",
+   "priority": "Low",
+   "type": "Boundary"
+  },
+  {
+   "title": "Invalid passenger age rejected (0 or negative)",
+   "preconditions": "User is logged in, bus and seat selected",
+   "steps": "1. Enter passenger details with age = 0\n2. Fill other mandatory fields\n3. Attempt to proceed",
+   "test_data": "passenger_name = Test User; age = 0; gender = Male; contact = 9345678901",
+   "expected_result": "Validation error: 'Age must be between 1 and 120.' Cannot proceed to payment",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Payment fails with insufficient card balance",
+   "preconditions": "User is logged in, bus and seat selected, passenger details entered. Card has balance less than ticket fare",
+   "steps": "1. Proceed to payment page\n2. Enter card details with insufficient balance\n3. Click Pay Now",
+   "test_data": "card_number = 5555555555554444; cvv = 456; expiry = 06/26; card_balance = 200.00; ticket_fare = 850.00",
+   "expected_result": "Payment fails. Error message: 'Payment declined due to insufficient funds.' Booking is not confirmed. User remains on payment page",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Invalid contact number format rejected",
+   "preconditions": "User is logged in, bus and seat selected",
+   "steps": "1. Enter passenger name, age, gender\n2. Enter contact number with less than 10 digits\n3. Attempt to proceed to payment",
+   "test_data": "passenger_name = Amit Sharma; age = 28; gender = Male; contact = 98765",
+   "expected_result": "Validation error: 'Please enter a valid 10-digit mobile number.' Cannot proceed to payment",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Search for same day travel (today's date)",
+   "preconditions": "User is logged in. Current date and time is 2024-02-10 08:00 AM",
+   "steps": "1. Enter source and destination\n2. Select today's date\n3. Click Search",
+   "test_data": "source = Bangalore; destination = Chennai; travel_date = 2024-02-10 (today)",
+   "expected_result": "Search results display buses departing after current time (after 08:00 AM). Buses with departure time before 08:00 AM are not shown",
+   "priority": "Medium",
+   "type": "Edge"
+  },
+  {
+   "title": "Mandatory passenger fields validation",
+   "preconditions": "User is logged in, bus and seat selected",
+   "steps": "1. Leave passenger name field empty\n2. Fill age, gender, and contact\n3. Attempt to proceed to payment",
+   "test_data": "passenger_name = (empty); age = 25; gender = Female; contact = 9456789012",
+   "expected_result": "Validation error: 'Passenger name is required.' Cannot proceed to payment. Name field is highlighted",
+   "priority": "High",
+   "type": "Negative"
+  }
+ ],
+ "summary": {
+  "working": 10,
+  "total": 12
+ },
+ "unsupported": [],
+ "build": {
+  "built_at": "2026-09-25",
+  "ok": false,
+  "plan": {
+   "app_name": "Bus Booking App",
+   "summary": "A bus ticket booking system where users search routes, select seats, enter passenger details, and complete payment.",
+   "base_url": "https://busbook.example.test",
+   "test_accounts": [
+    {
+     "login": "testuser@example.com",
+     "password": "Test@1234",
+     "notes": "Main test account for successful booking flows"
+    }
+   ],
+   "data": "USERS:\n- email: testuser@example.com, password: Test@1234, name: Test User\n\nBUSES:\n- bus_id: BUS001, name: Volvo AC Sleeper 9:00 AM, route: Mumbai to Pune, departure: 09:00, arrival: 13:00, fare: 850.00, total_seats: 40\n- bus_id: BUS002, name: Scania Multi-Axle 11:30 PM, route: Mumbai to Pune, departure: 23:30, arrival: 03:30, fare: 950.00, total_seats: 45\n- bus_id: BUS003, name: Mercedes Luxury 10:30 AM, route: Bangalore to Chennai, departure: 10:30, arrival: 17:00, fare: 1200.00, total_seats: 36\n- bus_id: BUS004, name: Ashok Leyland Sleeper 14:00 PM, route: Delhi to Jaipur, departure: 14:00, arrival: 19:00, fare: 650.00, total_seats: 40\n\nSEATS (pre-booked):\n- bus_id: BUS002, seat_number: 15B, status: occupied, date: 2024-02-15\n\nBOOKINGS:\n(none at start - all test bookings are created during test execution)\n\nCARDS (simulated for payment):\n- card_number: 4111111111111111, balance: 50000.00, valid: true\n- card_number: 5555555555554444, balance: 200.00, valid: true\n\nCURRENT_DATE: 2024-02-10\nCURRENT_TIME: 08:00",
+   "pages": [
+    "Login Page",
+    "Search Page",
+    "Search Results Page",
+    "Seat Selection Page",
+    "Passenger Details Page",
+    "Payment Page",
+    "Booking Confirmation Page"
+   ],
+   "helpers": [
+    {
+     "layer": "global",
+     "name": "setup",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Resets app to initial state: logged out, on Login Page, no visible message, all data reset to starting data (removes all bookings created during tests, resets seat occupancy to initial state)",
+     "changes_data": true
+    },
+    {
+     "layer": "global",
+     "name": "teardown",
+     "params": [
+      "booking_id"
+     ],
+     "returns": "None",
+     "behaviour": "If booking_id is provided and exists, deletes that booking and frees its seat. If booking_id is None, does nothing. Always succeeds silently",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "current_page",
+     "params": [],
+     "returns": "String: name of current page",
+     "behaviour": "Returns the exact page name from the pages list that user is currently on",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "visible_message",
+     "params": [],
+     "returns": "String: current message shown to user, or empty string if none",
+     "behaviour": "Returns the current error/success/info message displayed on screen, or '' if no message is shown",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "navigate_to_login",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Navigates to Login Page. Clears any visible message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "login",
+     "params": [
+      "email",
+      "password"
+     ],
+     "returns": "Boolean: true if login successful, false otherwise",
+     "behaviour": "Attempts to log in with provided credentials. If email and password match a user account, logs in, navigates to Search Page, clears message, returns true. If credentials invalid, sets message 'Invalid email or password. Please try again.', stays on Login Page, returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "search_buses",
+     "params": [
+      "source",
+      "destination",
+      "travel_date"
+     ],
+     "returns": "Boolean: true if search executed, false if validation failed",
+     "behaviour": "Must be logged in. Validates travel_date is not before current date (2024-02-10). If past date, sets message 'Please select a current or future date.', returns false. Otherwise searches for buses matching route and date. If found, navigates to Search Results Page, clears message, returns true. If no buses found, sets message 'No buses available for this route on the selected date.', stays on Search Page, returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "get_search_results",
+     "params": [],
+     "returns": "List of objects: [{bus_id, name, route, departure, arrival, fare}, ...]",
+     "behaviour": "Must be on Search Results Page. Returns list of buses from last search. If searching for today's date (2024-02-10), filters out buses with departure time before current time (08:00). Returns empty list if no results",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "select_bus",
+     "params": [
+      "bus_name"
+     ],
+     "returns": "Boolean: true if bus selected, false if not found",
+     "behaviour": "Must be on Search Results Page. Finds bus by exact name match in current search results. If found, navigates to Seat Selection Page, clears message, returns true. If not found, sets message 'Bus not found in search results.', returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "get_seat_map",
+     "params": [],
+     "returns": "List of objects: [{seat_number, status}, ...] where status is 'available' or 'occupied'",
+     "behaviour": "Must be on Seat Selection Page. Returns all seats for selected bus with their current status for the searched travel date. Status is 'occupied' if seat is pre-booked or booked during test session for that date",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "select_seat",
+     "params": [
+      "seat_number"
+     ],
+     "returns": "Boolean: true if seat selected, false if occupied or invalid",
+     "behaviour": "Must be on Seat Selection Page. If seat is occupied, sets message 'Seat already booked', returns false. If seat is available, selects it, navigates to Passenger Details Page, clears message, returns true. If seat doesn't exist, sets message 'Invalid seat number.', returns false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "enter_passenger_details",
+     "params": [
+      "passenger_name",
+      "age",
+      "gender",
+      "contact"
+     ],
+     "returns": "Boolean: true if details valid and accepted, false if validation failed",
+     "behaviour": "Must be on Passenger Details Page. Validates: passenger_name not empty (error: 'Passenger name is required.'), age between 1 and 120 inclusive (error: 'Age must be between 1 and 120.'), contact is exactly 10 digits (error: 'Please enter a valid 10-digit mobile number.'). If any validation fails, sets error message, stays on page, returns false. If all valid, stores details, navigates to Payment Page, clears message, returns true",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "make_payment",
+     "params": [
+      "card_number",
+      "cvv",
+      "expiry"
+     ],
+     "returns": "Boolean: true if payment successful, false if failed",
+     "behaviour": "Must be on Payment Page. Checks if card exists and has sufficient balance for ticket fare. If card not found or balance insufficient, sets message 'Payment declined due to insufficient funds.', stays on Payment Page, returns false. If payment succeeds, creates booking with status 'Confirmed', generates PNR (format: PNR + 10 digits), marks seat as occupied, navigates to Booking Confirmation Page, clears message, returns true",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "get_booking_confirmation",
+     "params": [],
+     "returns": "Object: {pnr, passenger_name, seat_number, bus_name, travel_date, route, status} or None",
+     "behaviour": "Must be on Booking Confirmation Page. Returns details of the most recently completed booking, or None if no booking exists",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_login",
+     "params": [
+      "email",
+      "password"
+     ],
+     "returns": "Object: {ok: true, user_email} or {ok: false, error: 'Invalid email or password. Please try again.'}",
+     "behaviour": "Validates credentials against user accounts. If valid, returns success with user email. If invalid, returns error. Does not change current page or message",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_search_buses",
+     "params": [
+      "source",
+      "destination",
+      "travel_date"
+     ],
+     "returns": "Object: {ok: true, buses: [{bus_id, name, route, departure, arrival, fare}, ...]} or {ok: false, error: '...'}",
+     "behaviour": "Validates travel_date is not before 2024-02-10. If past, returns {ok: false, error: 'Please select a current or future date.'}. Searches for buses matching route. If searching for 2024-02-10, filters buses departing before 08:00. If no buses found, returns {ok: false, error: 'No buses available for this route on the selected date.'}. Otherwise returns {ok: true, buses: [...]}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_get_seats",
+     "params": [
+      "bus_id",
+      "travel_date"
+     ],
+     "returns": "Object: {ok: true, seats: [{seat_number, status}, ...]} or {ok: false, error: '...'}",
+     "behaviour": "Returns all seats for the bus with their status for the given date. Status is 'available' or 'occupied'. If bus_id invalid, returns {ok: false, error: 'Bus not found.'}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "api_book_ticket",
+     "params": [
+      "bus_id",
+      "travel_date",
+      "seat_number",
+      "passenger_name",
+      "age",
+      "gender",
+      "contact",
+      "card_number",
+      "cvv",
+      "expiry"
+     ],
+     "returns": "Object: {ok: true, booking: {pnr, passenger_name, seat_number, bus_name, travel_date, route, status, fare}} or {ok: false, error: '...'}",
+     "behaviour": "Validates all inputs: passenger_name not empty, age 1-120, contact 10 digits, seat available, card valid with sufficient balance. If any validation fails, returns {ok: false, error: '...'}. If seat occupied: 'Seat already booked'. If name empty: 'Passenger name is required.'. If age invalid: 'Age must be between 1 and 120.'. If contact invalid: 'Please enter a valid 10-digit mobile number.'. If payment fails: 'Payment declined due to insufficient funds.'. If all valid, creates booking, marks seat occupied, returns {ok: true, booking: {...}}",
+     "changes_data": true
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_user",
+     "params": [
+      "email"
+     ],
+     "returns": "Object: {email, password, name} or None if not found",
+     "behaviour": "Returns user record by email, or None if doesn't exist",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_buses",
+     "params": [
+      "source",
+      "destination"
+     ],
+     "returns": "List of objects: [{bus_id, name, route, departure, arrival, fare, total_seats}, ...]",
+     "behaviour": "Returns all buses matching the route (case-insensitive match on source and destination). Returns empty list if no matches",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_seat_status",
+     "params": [
+      "bus_id",
+      "seat_number",
+      "travel_date"
+     ],
+     "returns": "String: 'available' or 'occupied'",
+     "behaviour": "Returns current status of the seat for the given bus and date. Checks both pre-booked seats and bookings created during test session",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_booking",
+     "params": [
+      "pnr"
+     ],
+     "returns": "Object: {pnr, bus_id, travel_date, seat_number, passenger_name, age, gender, contact, fare, status} or None",
+     "behaviour": "Returns booking record by PNR, or None if not found",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_get_all_bookings",
+     "params": [],
+     "returns": "List of objects: [{pnr, bus_id, travel_date, seat_number, passenger_name, age, gender, contact, fare, status}, ...]",
+     "behaviour": "Returns all bookings in the system. Used for verification and cleanup",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "db_delete_booking",
+     "params": [
+      "pnr"
+     ],
+     "returns": "Boolean: true if deleted, false if not found",
+     "behaviour": "Deletes booking by PNR and frees the seat. Returns true if booking existed and was deleted, false if PNR not found",
+     "changes_data": true
+    }
+   ],
+   "rules": [
+    "Users must be logged in to search for buses, select seats, or make bookings",
+    "Travel date must be current date (2024-02-10) or future date; past dates are rejected",
+    "When searching for today's date (2024-02-10), only buses departing after current time (08:00) are shown",
+    "Passenger name is mandatory and cannot be empty",
+    "Passenger age must be between 1 and 120 (inclusive)",
+    "Contact number must be exactly 10 digits",
+    "Seats marked as occupied cannot be selected",
+    "Payment requires card to exist and have balance >= ticket fare",
+    "Successful payment creates booking with status 'Confirmed' and generates unique PNR",
+    "PNR format: PNR followed by 10 digits (e.g., PNR1234567890)",
+    "Each booking occupies exactly one seat on one bus for one date",
+    "Failed validations or payments do not create bookings or change seat status"
+   ],
+   "messages": [
+    {
+     "when": "Login with invalid credentials",
+     "text": "Invalid email or password. Please try again."
+    },
+    {
+     "when": "Search with past date",
+     "text": "Please select a current or future date."
+    },
+    {
+     "when": "Search finds no buses for route",
+     "text": "No buses available for this route on the selected date."
+    },
+    {
+     "when": "Attempt to select occupied seat",
+     "text": "Seat already booked"
+    },
+    {
+     "when": "Passenger name is empty",
+     "text": "Passenger name is required."
+    },
+    {
+     "when": "Age is 0, negative, or > 120",
+     "text": "Age must be between 1 and 120."
+    },
+    {
+     "when": "Contact number is not 10 digits",
+     "text": "Please enter a valid 10-digit mobile number."
+    },
+    {
+     "when": "Payment fails due to insufficient balance or invalid card",
+     "text": "Payment declined due to insufficient funds."
+    },
+    {
+     "when": "Bus not found in search results",
+     "text": "Bus not found in search results."
+    },
+    {
+     "when": "Invalid seat number",
+     "text": "Invalid seat number."
+    }
+   ],
+   "not_supported": [
+    "Real-time clock: Current date fixed at 2024-02-10, current time fixed at 08:00",
+    "Card CVV and expiry validation: Only card number and balance are checked",
+    "Seat layout visualization: Seats returned as list with status, no graphical layout",
+    "Multiple passengers per booking: Each booking is for one passenger only",
+    "Booking cancellation: No cancel feature; use teardown to remove test bookings",
+    "User registration: Only pre-existing test account available"
+   ],
+   "reference_sheet": {
+    "fields": {
+     "Base URL": "https://busbook.example.test",
+     "Test account email": "testuser@example.com",
+     "Test account password": "Test@1234",
+     "Current date": "2024-02-10",
+     "Current time": "08:00",
+     "Available routes": "Mumbai to Pune, Bangalore to Chennai, Delhi to Jaipur",
+     "Sample bus (Mumbai-Pune)": "Volvo AC Sleeper 9:00 AM",
+     "Pre-occupied seat": "15B on Scania Multi-Axle 11:30 PM for 2024-02-15",
+     "Valid card with funds": "4111111111111111 (balance: 50000.00)",
+     "Valid card insufficient funds": "5555555555554444 (balance: 200.00)",
+     "Age range": "1 to 120",
+     "Contact format": "10 digits"
+    },
+    "notes": "Only the buses and routes listed in starting data exist in the practice app."
+   },
+   "screens": [
+    {
+     "name": "Login Page",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Email"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Password"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Login"
+      },
+      {
+       "type": "text",
+       "text": "Invalid email or password. Please try again. (shown when login fails)"
+      }
+     ]
+    },
+    {
+     "name": "Search Page",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Source City"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Destination City"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Travel Date"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Search"
+      },
+      {
+       "type": "text",
+       "text": "Please select a current or future date. (shown when past date entered)"
+      },
+      {
+       "type": "text",
+       "text": "No buses available for this route on the selected date. (shown when no buses found)"
+      }
+     ]
+    },
+    {
+     "name": "Search Results Page",
+     "elements": [
+      {
+       "type": "text",
+       "text": "Volvo AC Sleeper 9:00 AM - Mumbai to Pune - Departure: 09:00 - Arrival: 13:00 - Fare: 850.00"
+      },
+      {
+       "type": "text",
+       "text": "Scania Multi-Axle 11:30 PM - Mumbai to Pune - Departure: 23:30 - Arrival: 03:30 - Fare: 950.00"
+      },
+      {
+       "type": "button",
+       "text": "Select (for each bus)"
+      },
+      {
+       "type": "text",
+       "text": "Bus not found in search results. (shown when invalid bus selected)"
+      }
+     ]
+    },
+    {
+     "name": "Seat Selection Page",
+     "elements": [
+      {
+       "type": "text",
+       "text": "Seat 1A - Available"
+      },
+      {
+       "type": "text",
+       "text": "Seat 12A - Available"
+      },
+      {
+       "type": "text",
+       "text": "Seat 15B - Occupied"
+      },
+      {
+       "type": "text",
+       "text": "Seat 20C - Available"
+      },
+      {
+       "type": "button",
+       "text": "Select (for each available seat)"
+      },
+      {
+       "type": "text",
+       "text": "Seat already booked (shown when occupied seat clicked)"
+      },
+      {
+       "type": "text",
+       "text": "Invalid seat number. (shown when invalid seat selected)"
+      }
+     ]
+    },
+    {
+     "name": "Passenger Details Page",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Passenger Name"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Age"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Gender"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Contact Number"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Proceed to Payment"
+      },
+      {
+       "type": "text",
+       "text": "Passenger name is required. (shown when name empty)"
+      },
+      {
+       "type": "text",
+       "text": "Age must be between 1 and 120. (shown when age invalid)"
+      },
+      {
+       "type": "text",
+       "text": "Please enter a valid 10-digit mobile number. (shown when contact invalid)"
+      }
+     ]
+    },
+    {
+     "name": "Payment Page",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Card Number"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "CVV"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Expiry"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Pay Now"
+      },
+      {
+       "type": "text",
+       "text": "Payment declined due to insufficient funds. (shown when payment fails)"
+      }
+     ]
+    },
+    {
+     "name": "Booking Confirmation Page",
+     "elements": [
+      {
+       "type": "text",
+       "text": "Booking Confirmed"
+      },
+      {
+       "type": "label",
+       "text": "PNR Number"
+      },
+      {
+       "type": "text",
+       "text": "PNR1234567890"
+      },
+      {
+       "type": "label",
+       "text": "Passenger Name"
+      },
+      {
+       "type": "text",
+       "text": "Rajesh Kumar"
+      },
+      {
+       "type": "label",
+       "text": "Seat Number"
+      },
+      {
+       "type": "text",
+       "text": "12A"
+      },
+      {
+       "type": "label",
+       "text": "Bus"
+      },
+      {
+       "type": "text",
+       "text": "Volvo AC Sleeper 9:00 AM"
+      },
+      {
+       "type": "label",
+       "text": "Travel Date"
+      },
+      {
+       "type": "text",
+       "text": "2024-02-15"
+      },
+      {
+       "type": "label",
+       "text": "Route"
+      },
+      {
+       "type": "text",
+       "text": "Mumbai to Pune"
+      },
+      {
+       "type": "label",
+       "text": "Status"
+      },
+      {
+       "type": "text",
+       "text": "Confirmed"
+      }
+     ]
+    }
+   ]
+  },
+  "checklists": [
+   {
+    "id": "successful-booking",
+    "title": "Successful bus booking with valid details and payment",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Page"
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Results Page"
+     },
+     {
+      "call": "UI.get_search_results",
+      "expect_includes": [
+       {
+        "name": "Volvo AC Sleeper 9:00 AM"
+       }
+      ]
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Seat Selection Page"
+     },
+     {
+      "call": "UI.get_seat_map",
+      "expect_includes": [
+       {
+        "seat_number": "12A",
+        "status": "available"
+       }
+      ]
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       "12A"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "Rajesh Kumar",
+       32,
+       "Male",
+       "9876543210"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Payment Page"
+     },
+     {
+      "call": "UI.make_payment",
+      "args": [
+       "4111111111111111",
+       "123",
+       "12/25"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Booking Confirmation Page"
+     },
+     {
+      "call": "UI.get_booking_confirmation",
+      "save_as": "booking",
+      "expect_includes": {
+       "passenger_name": "Rajesh Kumar",
+       "seat_number": "12A",
+       "bus_name": "Volvo AC Sleeper 9:00 AM",
+       "travel_date": "2024-02-15",
+       "route": "Mumbai to Pune",
+       "status": "Confirmed"
+      }
+     },
+     {
+      "call": "Database.db_get_booking",
+      "args": [
+       {
+        "ref": "booking.pnr"
+       }
+      ],
+      "expect_includes": {
+       "passenger_name": "Rajesh Kumar",
+       "seat_number": "12A",
+       "travel_date": "2024-02-15",
+       "status": "Confirmed"
+      }
+     },
+     {
+      "call": "Database.db_get_seat_status",
+      "args": [
+       "BUS001",
+       "12A",
+       "2024-02-15"
+      ],
+      "expect": "occupied"
+     },
+     {
+      "call": "teardown",
+      "args": [
+       {
+        "ref": "booking.pnr"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "login-incorrect-password",
+    "title": "Login fails with incorrect password",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login Page"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "WrongPass123"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid email or password. Please try again."
+     }
+    ]
+   },
+   {
+    "id": "search-invalid-route",
+    "title": "Search returns no results for invalid route",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Page"
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Leh",
+       "Kanyakumari",
+       "2024-02-20"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "No buses available for this route on the selected date."
+     }
+    ]
+   },
+   {
+    "id": "occupied-seat-not-selectable",
+    "title": "Cannot select already occupied seat",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Results Page"
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Scania Multi-Axle 11:30 PM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Seat Selection Page"
+     },
+     {
+      "call": "UI.get_seat_map",
+      "expect_includes": [
+       {
+        "seat_number": "15B",
+        "status": "occupied"
+       }
+      ]
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       "15B"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Seat Selection Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Seat already booked"
+     },
+     {
+      "call": "Database.db_get_seat_status",
+      "args": [
+       "BUS002",
+       "15B",
+       "2024-02-15"
+      ],
+      "expect": "occupied"
+     }
+    ]
+   },
+   {
+    "id": "search-past-date-rejected",
+    "title": "Search with past date is rejected",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Page"
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Delhi",
+       "Jaipur",
+       "2024-02-05"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Please select a current or future date."
+     }
+    ]
+   },
+   {
+    "id": "age-minimum-boundary",
+    "title": "Passenger age at minimum boundary (1 year)",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.get_seat_map",
+      "save_as": "seat_map"
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       {
+        "ref": "seat_map.0.seat_number"
+       }
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "Baby Singh",
+       1,
+       "Male",
+       "9123456789"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Payment Page"
+     }
+    ]
+   },
+   {
+    "id": "age-maximum-boundary",
+    "title": "Passenger age at maximum boundary (120 years)",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.get_seat_map",
+      "save_as": "seat_map"
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       {
+        "ref": "seat_map.0.seat_number"
+       }
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "Elder Person",
+       120,
+       "Female",
+       "9234567890"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Payment Page"
+     }
+    ]
+   },
+   {
+    "id": "invalid-age-rejected",
+    "title": "Invalid passenger age rejected (0 or negative)",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.get_seat_map",
+      "save_as": "seat_map"
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       {
+        "ref": "seat_map.0.seat_number"
+       }
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "Test User",
+       0,
+       "Male",
+       "9345678901"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Age must be between 1 and 120."
+     }
+    ]
+   },
+   {
+    "id": "payment-insufficient-balance",
+    "title": "Payment fails with insufficient card balance",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.get_seat_map",
+      "save_as": "seat_map"
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       {
+        "ref": "seat_map.0.seat_number"
+       }
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "Test User",
+       28,
+       "Male",
+       "9876543210"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Payment Page"
+     },
+     {
+      "call": "UI.make_payment",
+      "args": [
+       "5555555555554444",
+       "456",
+       "06/26"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Payment Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Payment declined due to insufficient funds."
+     },
+     {
+      "call": "Database.db_get_all_bookings",
+      "expect": []
+     },
+     {
+      "call": "Database.db_get_seat_status",
+      "args": [
+       "BUS001",
+       {
+        "ref": "seat_map.0.seat_number"
+       },
+       "2024-02-15"
+      ],
+      "expect": "available"
+     }
+    ]
+   },
+   {
+    "id": "invalid-contact-format",
+    "title": "Invalid contact number format rejected",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.get_seat_map",
+      "save_as": "seat_map"
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       {
+        "ref": "seat_map.0.seat_number"
+       }
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "Amit Sharma",
+       28,
+       "Male",
+       "98765"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Please enter a valid 10-digit mobile number."
+     }
+    ]
+   },
+   {
+    "id": "same-day-travel-search",
+    "title": "Search for same day travel (today's date)",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Page"
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Bangalore",
+       "Chennai",
+       "2024-02-10"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search Results Page"
+     },
+     {
+      "call": "UI.get_search_results",
+      "save_as": "results"
+     },
+     {
+      "call": "UI.get_search_results",
+      "expect": [
+       {
+        "bus_id": "BUS003",
+        "name": "Mercedes Luxury 10:30 AM",
+        "route": "Bangalore to Chennai",
+        "departure": "10:30",
+        "arrival": "17:00",
+        "fare": 1200.0
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "mandatory-passenger-name",
+    "title": "Mandatory passenger fields validation",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.login",
+      "args": [
+       "testuser@example.com",
+       "Test@1234"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.search_buses",
+      "args": [
+       "Mumbai",
+       "Pune",
+       "2024-02-15"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.select_bus",
+      "args": [
+       "Volvo AC Sleeper 9:00 AM"
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.get_seat_map",
+      "save_as": "seat_map"
+     },
+     {
+      "call": "UI.select_seat",
+      "args": [
+       {
+        "ref": "seat_map.0.seat_number"
+       }
+      ],
+      "expect": true
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.enter_passenger_details",
+      "args": [
+       "",
+       25,
+       "Female",
+       "9456789012"
+      ],
+      "expect": false
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Passenger Details Page"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Passenger name is required."
+     }
+    ]
+   }
+  ],
+  "env_code_by_language": {
+   "python": "\"\"\"\nAutomation environment (Python) - Bus Booking App - provided for\nyou, already working.\n\nThis is a SMALL controlled environment, not a framework you need to build\nor extend. It simulates the bus booking portal's UI, its API and its database\nin-process so your automation runs deterministically with no real network\ncalls. The data matches the reference sheet: test account\ntestuser@example.com / Test@1234, buses BUS001-BUS004 on routes Mumbai-Pune,\nBangalore-Chennai, Delhi-Jaipur, current date 2024-02-10, current time 08:00.\n\nWrite your automated test(s) at the bottom, under the TODO marker, using\nthe helpers below. Do not rewrite the helpers.\n\"\"\"\n\nCONFIG = {\"base_url\": \"https://busbook.example.test\", \"current_date\": \"2024-02-10\", \"current_time\": \"08:00\"}\n\n\nclass _Store:\n    \"\"\"In-memory stand-in for the application's database.\"\"\"\n\n    def __init__(self):\n        self.users = {\n            \"testuser@example.com\": {\"email\": \"testuser@example.com\", \"password\": \"Test@1234\", \"name\": \"Test User\"}\n        }\n        self.buses = {\n            \"BUS001\": {\"bus_id\": \"BUS001\", \"name\": \"Volvo AC Sleeper 9:00 AM\", \"route\": \"Mumbai to Pune\", \n                      \"departure\": \"09:00\", \"arrival\": \"13:00\", \"fare\": 850.00, \"total_seats\": 40},\n            \"BUS002\": {\"bus_id\": \"BUS002\", \"name\": \"Scania Multi-Axle 11:30 PM\", \"route\": \"Mumbai to Pune\",\n                      \"departure\": \"23:30\", \"arrival\": \"03:30\", \"fare\": 950.00, \"total_seats\": 45},\n            \"BUS003\": {\"bus_id\": \"BUS003\", \"name\": \"Mercedes Luxury 10:30 AM\", \"route\": \"Bangalore to Chennai\",\n                      \"departure\": \"10:30\", \"arrival\": \"17:00\", \"fare\": 1200.00, \"total_seats\": 36},\n            \"BUS004\": {\"bus_id\": \"BUS004\", \"name\": \"Ashok Leyland Sleeper 14:00 PM\", \"route\": \"Delhi to Jaipur\",\n                      \"departure\": \"14:00\", \"arrival\": \"19:00\", \"fare\": 650.00, \"total_seats\": 40}\n        }\n        self.pre_booked_seats = {(\"BUS002\", \"15B\", \"2024-02-15\")}\n        self.bookings = {}\n        self.cards = {\n            \"4111111111111111\": {\"card_number\": \"4111111111111111\", \"balance\": 50000.00, \"valid\": True},\n            \"5555555555554444\": {\"card_number\": \"5555555555554444\", \"balance\": 200.00, \"valid\": True}\n        }\n        self._next_pnr = 1000000000\n\n    def generate_pnr(self):\n        pnr = f\"PNR{self._next_pnr}\"\n        self._next_pnr += 1\n        return pnr\n\n    def is_seat_occupied(self, bus_id, seat_number, travel_date):\n        if (bus_id, seat_number, travel_date) in self.pre_booked_seats:\n            return True\n        for booking in self.bookings.values():\n            if (booking[\"bus_id\"] == bus_id and booking[\"seat_number\"] == seat_number \n                and booking[\"travel_date\"] == travel_date):\n                return True\n        return False\n\n    def create_booking(self, bus_id, travel_date, seat_number, passenger_name, age, gender, contact, fare):\n        pnr = self.generate_pnr()\n        self.bookings[pnr] = {\n            \"pnr\": pnr,\n            \"bus_id\": bus_id,\n            \"travel_date\": travel_date,\n            \"seat_number\": seat_number,\n            \"passenger_name\": passenger_name,\n            \"age\": age,\n            \"gender\": gender,\n            \"contact\": contact,\n            \"fare\": fare,\n            \"status\": \"Confirmed\"\n        }\n        return pnr\n\n    def delete_booking(self, pnr):\n        if pnr in self.bookings:\n            del self.bookings[pnr]\n            return True\n        return False\n\n    def get_all_seats(self, bus_id):\n        bus = self.buses.get(bus_id)\n        if not bus:\n            return []\n        total_seats = bus[\"total_seats\"]\n        seats = []\n        # Generate seats column-first: 1A, 2A, 3A, ..., then 1B, 2B, 3B, ..., etc.\n        # Assume 4 columns (A, B, C, D) for layout\n        num_columns = 4\n        rows_per_column = (total_seats + num_columns - 1) // num_columns\n        \n        for col_index in range(num_columns):\n            col = chr(ord('A') + col_index)\n            for row in range(1, rows_per_column + 1):\n                seat_index = col_index * rows_per_column + row\n                if seat_index <= total_seats:\n                    seats.append(f\"{row}{col}\")\n        \n        return seats\n\n\nDB = _Store()\n_SESSION = {\n    \"logged_in_email\": None,\n    \"page\": \"Login Page\",\n    \"message\": \"\",\n    \"search_results\": [],\n    \"selected_bus\": None,\n    \"selected_seat\": None,\n    \"travel_date\": None,\n    \"passenger_details\": None,\n    \"last_booking\": None\n}\n\n\ndef _parse_route(route):\n    parts = route.split(\" to \")\n    if len(parts) == 2:\n        return parts[0].strip(), parts[1].strip()\n    return None, None\n\n\ndef _match_route(bus_route, source, destination):\n    bus_source, bus_dest = _parse_route(bus_route)\n    if bus_source and bus_dest:\n        return (bus_source.lower() == source.lower().strip() and \n                bus_dest.lower() == destination.lower().strip())\n    return False\n\n\ndef _time_to_minutes(time_str):\n    parts = time_str.split(\":\")\n    return int(parts[0]) * 60 + int(parts[1])\n\n\nclass UI:\n    \"\"\"UI-layer actions - what the user does and sees in the portal.\"\"\"\n\n    @staticmethod\n    def current_page():\n        return _SESSION[\"page\"]\n\n    @staticmethod\n    def visible_message():\n        return _SESSION[\"message\"]\n\n    @staticmethod\n    def navigate_to_login():\n        _SESSION[\"page\"] = \"Login Page\"\n        _SESSION[\"message\"] = \"\"\n\n    @staticmethod\n    def login(email, password):\n        user = DB.users.get(email)\n        if user and user[\"password\"] == password:\n            _SESSION[\"logged_in_email\"] = email\n            _SESSION[\"page\"] = \"Search Page\"\n            _SESSION[\"message\"] = \"\"\n            return True\n        else:\n            _SESSION[\"message\"] = \"Invalid email or password. Please try again.\"\n            _SESSION[\"page\"] = \"Login Page\"\n            return False\n\n    @staticmethod\n    def search_buses(source, destination, travel_date):\n        if not _SESSION[\"logged_in_email\"]:\n            return False\n        \n        if travel_date < CONFIG[\"current_date\"]:\n            _SESSION[\"message\"] = \"Please select a current or future date.\"\n            return False\n        \n        results = []\n        for bus in DB.buses.values():\n            if _match_route(bus[\"route\"], source, destination):\n                if travel_date == CONFIG[\"current_date\"]:\n                    if _time_to_minutes(bus[\"departure\"]) > _time_to_minutes(CONFIG[\"current_time\"]):\n                        results.append(bus)\n                else:\n                    results.append(bus)\n        \n        if not results:\n            _SESSION[\"message\"] = \"No buses available for this route on the selected date.\"\n            return False\n        \n        _SESSION[\"search_results\"] = results\n        _SESSION[\"travel_date\"] = travel_date\n        _SESSION[\"page\"] = \"Search Results Page\"\n        _SESSION[\"message\"] = \"\"\n        return True\n\n    @staticmethod\n    def get_search_results():\n        if _SESSION[\"page\"] != \"Search Results Page\":\n            return []\n        return [{\"bus_id\": b[\"bus_id\"], \"name\": b[\"name\"], \"route\": b[\"route\"],\n                 \"departure\": b[\"departure\"], \"arrival\": b[\"arrival\"], \"fare\": b[\"fare\"]}\n                for b in _SESSION[\"search_results\"]]\n\n    @staticmethod\n    def select_bus(bus_name):\n        if _SESSION[\"page\"] != \"Search Results Page\":\n            return False\n        \n        for bus in _SESSION[\"search_results\"]:\n            if bus[\"name\"] == bus_name:\n                _SESSION[\"selected_bus\"] = bus\n                _SESSION[\"page\"] = \"Seat Selection Page\"\n                _SESSION[\"message\"] = \"\"\n                return True\n        \n        _SESSION[\"message\"] = \"Bus not found in search results.\"\n        return False\n\n    @staticmethod\n    def get_seat_map():\n        if _SESSION[\"page\"] != \"Seat Selection Page\" or not _SESSION[\"selected_bus\"]:\n            return []\n        \n        bus_id = _SESSION[\"selected_bus\"][\"bus_id\"]\n        travel_date = _SESSION[\"travel_date\"]\n        all_seats = DB.get_all_seats(bus_id)\n        \n        seat_map = []\n        for seat in all_seats:\n            status = \"occupied\" if DB.is_seat_occupied(bus_id, seat, travel_date) else \"available\"\n            seat_map.append({\"seat_number\": seat, \"status\": status})\n        \n        return seat_map\n\n    @staticmethod\n    def select_seat(seat_number):\n        if _SESSION[\"page\"] != \"Seat Selection Page\" or not _SESSION[\"selected_bus\"]:\n            return False\n        \n        bus_id = _SESSION[\"selected_bus\"][\"bus_id\"]\n        travel_date = _SESSION[\"travel_date\"]\n        all_seats = DB.get_all_seats(bus_id)\n        \n        if seat_number not in all_seats:\n            _SESSION[\"message\"] = \"Invalid seat number.\"\n            return False\n        \n        if DB.is_seat_occupied(bus_id, seat_number, travel_date):\n            _SESSION[\"message\"] = \"Seat already booked\"\n            return False\n        \n        _SESSION[\"selected_seat\"] = seat_number\n        _SESSION[\"page\"] = \"Passenger Details Page\"\n        _SESSION[\"message\"] = \"\"\n        return True\n\n    @staticmethod\n    def enter_passenger_details(passenger_name, age, gender, contact):\n        if _SESSION[\"page\"] != \"Passenger Details Page\":\n            return False\n        \n        if not passenger_name or passenger_name.strip() == \"\":\n            _SESSION[\"message\"] = \"Passenger name is required.\"\n            return False\n        \n        if age < 1 or age > 120:\n            _SESSION[\"message\"] = \"Age must be between 1 and 120.\"\n            return False\n        \n        if not (isinstance(contact, str) and contact.isdigit() and len(contact) == 10):\n            _SESSION[\"message\"] = \"Please enter a valid 10-digit mobile number.\"\n            return False\n        \n        _SESSION[\"passenger_details\"] = {\n            \"passenger_name\": passenger_name,\n            \"age\": age,\n            \"gender\": gender,\n            \"contact\": contact\n        }\n        _SESSION[\"page\"] = \"Payment Page\"\n        _SESSION[\"message\"] = \"\"\n        return True\n\n    @staticmethod\n    def make_payment(card_number, cvv, expiry):\n        if _SESSION[\"page\"] != \"Payment Page\":\n            return False\n        \n        card = DB.cards.get(card_number)\n        fare = _SESSION[\"selected_bus\"][\"fare\"]\n        \n        if not card or not card[\"valid\"] or card[\"balance\"] < fare:\n            _SESSION[\"message\"] = \"Payment declined due to insufficient funds.\"\n            return False\n        \n        pnr = DB.create_booking(\n            _SESSION[\"selected_bus\"][\"bus_id\"],\n            _SESSION[\"travel_date\"],\n            _SESSION[\"selected_seat\"],\n            _SESSION[\"passenger_details\"][\"passenger_name\"],\n            _SESSION[\"passenger_details\"][\"age\"],\n            _SESSION[\"passenger_details\"][\"gender\"],\n            _SESSION[\"passenger_details\"][\"contact\"],\n            fare\n        )\n        \n        booking = DB.bookings[pnr]\n        _SESSION[\"last_booking\"] = {\n            \"pnr\": pnr,\n            \"passenger_name\": booking[\"passenger_name\"],\n            \"seat_number\": booking[\"seat_number\"],\n            \"bus_name\": _SESSION[\"selected_bus\"][\"name\"],\n            \"travel_date\": booking[\"travel_date\"],\n            \"route\": _SESSION[\"selected_bus\"][\"route\"],\n            \"status\": booking[\"status\"]\n        }\n        \n        _SESSION[\"page\"] = \"Booking Confirmation Page\"\n        _SESSION[\"message\"] = \"\"\n        return True\n\n    @staticmethod\n    def get_booking_confirmation():\n        if _SESSION[\"page\"] != \"Booking Confirmation Page\":\n            return None\n        return dict(_SESSION[\"last_booking\"]) if _SESSION[\"last_booking\"] else None\n\n\nclass API:\n    \"\"\"API-layer actions.\"\"\"\n\n    @staticmethod\n    def api_login(email, password):\n        user = DB.users.get(email)\n        if user and user[\"password\"] == password:\n            return {\"ok\": True, \"user_email\": email}\n        else:\n            return {\"ok\": False, \"error\": \"Invalid email or password. Please try again.\"}\n\n    @staticmethod\n    def api_search_buses(source, destination, travel_date):\n        if travel_date < CONFIG[\"current_date\"]:\n            return {\"ok\": False, \"error\": \"Please select a current or future date.\"}\n        \n        results = []\n        for bus in DB.buses.values():\n            if _match_route(bus[\"route\"], source, destination):\n                if travel_date == CONFIG[\"current_date\"]:\n                    if _time_to_minutes(bus[\"departure\"]) > _time_to_minutes(CONFIG[\"current_time\"]):\n                        results.append(bus)\n                else:\n                    results.append(bus)\n        \n        if not results:\n            return {\"ok\": False, \"error\": \"No buses available for this route on the selected date.\"}\n        \n        buses = [{\"bus_id\": b[\"bus_id\"], \"name\": b[\"name\"], \"route\": b[\"route\"],\n                  \"departure\": b[\"departure\"], \"arrival\": b[\"arrival\"], \"fare\": b[\"fare\"]}\n                 for b in results]\n        return {\"ok\": True, \"buses\": buses}\n\n    @staticmethod\n    def api_get_seats(bus_id, travel_date):\n        if bus_id not in DB.buses:\n            return {\"ok\": False, \"error\": \"Bus not found.\"}\n        \n        all_seats = DB.get_all_seats(bus_id)\n        seats = []\n        for seat in all_seats:\n            status = \"occupied\" if DB.is_seat_occupied(bus_id, seat, travel_date) else \"available\"\n            seats.append({\"seat_number\": seat, \"status\": status})\n        \n        return {\"ok\": True, \"seats\": seats}\n\n    @staticmethod\n    def api_book_ticket(bus_id, travel_date, seat_number, passenger_name, age, gender, contact, card_number, cvv, expiry):\n        if not passenger_name or passenger_name.strip() == \"\":\n            return {\"ok\": False, \"error\": \"Passenger name is required.\"}\n        \n        if age < 1 or age > 120:\n            return {\"ok\": False, \"error\": \"Age must be between 1 and 120.\"}\n        \n        if not (isinstance(contact, str) and contact.isdigit() and len(contact) == 10):\n            return {\"ok\": False, \"error\": \"Please enter a valid 10-digit mobile number.\"}\n        \n        if bus_id not in DB.buses:\n            return {\"ok\": False, \"error\": \"Bus not found.\"}\n        \n        all_seats = DB.get_all_seats(bus_id)\n        if seat_number not in all_seats:\n            return {\"ok\": False, \"error\": \"Invalid seat number.\"}\n        \n        if DB.is_seat_occupied(bus_id, seat_number, travel_date):\n            return {\"ok\": False, \"error\": \"Seat already booked\"}\n        \n        card = DB.cards.get(card_number)\n        fare = DB.buses[bus_id][\"fare\"]\n        \n        if not card or not card[\"valid\"] or card[\"balance\"] < fare:\n            return {\"ok\": False, \"error\": \"Payment declined due to insufficient funds.\"}\n        \n        pnr = DB.create_booking(bus_id, travel_date, seat_number, passenger_name, age, gender, contact, fare)\n        booking = DB.bookings[pnr]\n        bus = DB.buses[bus_id]\n        \n        return {\n            \"ok\": True,\n            \"booking\": {\n                \"pnr\": pnr,\n                \"passenger_name\": booking[\"passenger_name\"],\n                \"seat_number\": booking[\"seat_number\"],\n                \"bus_name\": bus[\"name\"],\n                \"travel_date\": booking[\"travel_date\"],\n                \"route\": bus[\"route\"],\n                \"status\": booking[\"status\"],\n                \"fare\": booking[\"fare\"]\n            }\n        }\n\n\nclass Database:\n    \"\"\"Direct DB-layer access, for verifying what was really stored.\"\"\"\n\n    @staticmethod\n    def db_get_user(email):\n        user = DB.users.get(email)\n        return dict(user) if user else None\n\n    @staticmethod\n    def db_get_buses(source, destination):\n        results = []\n        for bus in DB.buses.values():\n            if _match_route(bus[\"route\"], source, destination):\n                results.append(dict(bus))\n        return results\n\n    @staticmethod\n    def db_get_seat_status(bus_id, seat_number, travel_date):\n        return \"occupied\" if DB.is_seat_occupied(bus_id, seat_number, travel_date) else \"available\"\n\n    @staticmethod\n    def db_get_booking(pnr):\n        booking = DB.bookings.get(pnr)\n        return dict(booking) if booking else None\n\n    @staticmethod\n    def db_get_all_bookings():\n        return [dict(b) for b in DB.bookings.values()]\n\n    @staticmethod\n    def db_delete_booking(pnr):\n        return DB.delete_booking(pnr)\n\n\ndef setup():\n    \"\"\"Runs before your test. Resets to initial state.\"\"\"\n    global DB, _SESSION\n    DB = _Store()\n    _SESSION.update({\n        \"logged_in_email\": None,\n        \"page\": \"Login Page\",\n        \"message\": \"\",\n        \"search_results\": [],\n        \"selected_bus\": None,\n        \"selected_seat\": None,\n        \"travel_date\": None,\n        \"passenger_details\": None,\n        \"last_booking\": None\n    })\n\n\ndef teardown(booking_id=None):\n    \"\"\"Runs after your test. Pass a PNR to cancel it and free its slot.\"\"\"\n    if booking_id is not None:\n        Database.db_delete_booking(booking_id)\n\n\n# ---------------------------------------------------------------------------\n# TODO: write your automated test(s) below, then call them from __main__.\n# ---------------------------------------------------------------------------\n\n\nif __name__ == \"__main__\":\n    pass\n"
+  }
+ }
+}

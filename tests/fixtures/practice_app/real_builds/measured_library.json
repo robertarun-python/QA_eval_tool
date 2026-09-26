@@ -1,0 +1,2725 @@
+{
+ "scenario": {
+  "title": "Library Management System",
+  "description": "A registered library member logs into the library system, searches for a book, checks its availability, borrows the book, and verifies the borrowing details.\n\nFeatures to test\nFeature\tWhat to verify\nLogin\tValid/invalid login, mandatory fields\nBook Search\tSearch by title, author, ISBN, no-result search\nBook Details\tTitle, author, availability, number of copies\nBorrow Book\tBorrow available book, borrowing limit\nBorrow Confirmation\tDue date, borrowed book details, confirmation\nReturn Book\tReturn borrowed book, status update"
+ },
+ "reference_cases": [
+  {
+   "title": "Successful login with valid credentials",
+   "preconditions": "User has a registered account with username 'testuser' and password 'Test@123'",
+   "steps": "1. Navigate to library login page\n2. Enter username 'testuser'\n3. Enter password 'Test@123'\n4. Click Login button",
+   "expected_result": "User is logged in successfully and redirected to the home/dashboard page. Username is displayed in the header.",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Login fails with incorrect password",
+   "preconditions": "User has a registered account with username 'testuser'",
+   "steps": "1. Navigate to library login page\n2. Enter valid username 'testuser'\n3. Enter incorrect password 'wrongpass'\n4. Click Login button",
+   "expected_result": "Login fails with error message 'Invalid username or password' displayed. User remains on login page.",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Login with empty username field",
+   "preconditions": "None",
+   "steps": "1. Navigate to library login page\n2. Leave username field empty\n3. Enter password 'Test@123'\n4. Click Login button",
+   "expected_result": "Error message appears indicating username is required. Login does not proceed.",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Login with empty password field",
+   "preconditions": "None",
+   "steps": "1. Navigate to library login page\n2. Enter username 'testuser'\n3. Leave password field empty\n4. Click Login button",
+   "expected_result": "Error message appears indicating password is required. Login does not proceed.",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Search for book by exact title match",
+   "preconditions": "User is logged in. Book 'The Great Gatsby' exists in the library catalog",
+   "steps": "1. Navigate to book search page\n2. Enter 'The Great Gatsby' in the search box\n3. Click Search button",
+   "expected_result": "Search results display 'The Great Gatsby' with correct author, ISBN, and availability status",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Search for book by partial title",
+   "preconditions": "User is logged in. Book 'The Great Gatsby' exists in the library catalog",
+   "steps": "1. Navigate to book search page\n2. Enter 'Great Gatsby' (without 'The') in search box\n3. Click Search button",
+   "expected_result": "Search results include 'The Great Gatsby' and any other books with matching keywords",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Search for book by author name",
+   "preconditions": "User is logged in. Books by 'F. Scott Fitzgerald' exist in catalog",
+   "steps": "1. Navigate to book search page\n2. Enter 'F. Scott Fitzgerald' in search box\n3. Click Search button",
+   "expected_result": "All books by F. Scott Fitzgerald are displayed in search results",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Search for book by ISBN",
+   "preconditions": "User is logged in. Book with ISBN '978-0-7432-7356-5' exists",
+   "steps": "1. Navigate to book search page\n2. Enter ISBN '978-0-7432-7356-5'\n3. Click Search button",
+   "expected_result": "Exact book matching the ISBN is displayed with all details",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Search with non-existent book title",
+   "preconditions": "User is logged in",
+   "steps": "1. Navigate to book search page\n2. Enter 'XYZ123NonExistentBook999' in search box\n3. Click Search button",
+   "expected_result": "No results found message is displayed. No books are shown in results.",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Search with empty search field",
+   "preconditions": "User is logged in",
+   "steps": "1. Navigate to book search page\n2. Leave search box empty\n3. Click Search button",
+   "expected_result": "Either validation error appears asking to enter search term, or all books are displayed",
+   "priority": "Medium",
+   "type": "Edge"
+  },
+  {
+   "title": "Search with special characters only",
+   "preconditions": "User is logged in",
+   "steps": "1. Navigate to book search page\n2. Enter '@#$%^&*' in search box\n3. Click Search button",
+   "expected_result": "No results found or appropriate error message. System doesn't crash.",
+   "priority": "Low",
+   "type": "Edge"
+  },
+  {
+   "title": "View book details for available book",
+   "preconditions": "User is logged in. Book 'The Great Gatsby' has 3 copies available",
+   "steps": "1. Search for 'The Great Gatsby'\n2. Click on the book from search results",
+   "expected_result": "Book details page shows title, author, ISBN, availability status as 'Available', and number of copies (3 available out of total)",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "View book details for unavailable book",
+   "preconditions": "User is logged in. Book 'To Kill a Mockingbird' has 0 copies available (all borrowed)",
+   "steps": "1. Search for 'To Kill a Mockingbird'\n2. Click on the book from search results",
+   "expected_result": "Book details page shows title, author, ISBN, availability status as 'Not Available' or 'All copies borrowed', 0 copies available",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Borrow an available book successfully",
+   "preconditions": "User is logged in. Book 'The Great Gatsby' is available. User has not exceeded borrowing limit",
+   "steps": "1. Search for 'The Great Gatsby'\n2. Click on the book\n3. Click 'Borrow' button\n4. Confirm borrowing action if prompted",
+   "expected_result": "Book is borrowed successfully. Confirmation message is displayed. Available copies count decreases by 1.",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Attempt to borrow book with zero availability",
+   "preconditions": "User is logged in. Book 'To Kill a Mockingbird' has 0 available copies",
+   "steps": "1. Search for 'To Kill a Mockingbird'\n2. Click on the book\n3. Attempt to click 'Borrow' button",
+   "expected_result": "Borrow button is either disabled/not visible, or clicking it shows error message 'No copies available'",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Attempt to borrow when at borrowing limit",
+   "preconditions": "User is logged in and has already borrowed maximum allowed books (e.g., 5 books)",
+   "steps": "1. Search for an available book\n2. Click on the book\n3. Click 'Borrow' button",
+   "expected_result": "Error message displayed: 'You have reached your borrowing limit' or similar. Book is not borrowed.",
+   "priority": "High",
+   "type": "Boundary"
+  },
+  {
+   "title": "Verify borrowing limit boundary - borrow last allowed book",
+   "preconditions": "User is logged in and has borrowed 4 books (limit is 5)",
+   "steps": "1. Search for an available book\n2. Click on the book\n3. Click 'Borrow' button",
+   "expected_result": "Book is borrowed successfully. User now has 5 borrowed books (at the limit).",
+   "priority": "Medium",
+   "type": "Boundary"
+  },
+  {
+   "title": "View borrowing confirmation details",
+   "preconditions": "User is logged in",
+   "steps": "1. Search for available book 'The Great Gatsby'\n2. Click on the book\n3. Click 'Borrow' button\n4. View confirmation page/message",
+   "expected_result": "Confirmation displays: book title, author, borrow date (today's date), due date (typically 14-30 days from today), and success message",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Verify due date calculation is correct",
+   "preconditions": "User is logged in. Borrowing period is 14 days",
+   "steps": "1. Note today's date\n2. Search for available book\n3. Borrow the book\n4. Check due date on confirmation",
+   "expected_result": "Due date is exactly 14 days from today's date (accounting for weekends/holidays per library policy)",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Verify borrowed book appears in user's borrowed list",
+   "preconditions": "User is logged in",
+   "steps": "1. Navigate to 'My Books' or 'Borrowed Books' section\n2. Note current borrowed books\n3. Borrow a new book 'The Great Gatsby'\n4. Return to 'My Books' section",
+   "expected_result": "'The Great Gatsby' now appears in the borrowed books list with borrow date and due date",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Return a borrowed book successfully",
+   "preconditions": "User is logged in and has borrowed book 'The Great Gatsby'",
+   "steps": "1. Navigate to 'My Books' or 'Borrowed Books' section\n2. Locate 'The Great Gatsby' in borrowed list\n3. Click 'Return' button\n4. Confirm return if prompted",
+   "expected_result": "Book is returned successfully. Confirmation message appears. Book is removed from borrowed list or status changes to 'Returned'.",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Verify book availability increases after return",
+   "preconditions": "User has borrowed 'The Great Gatsby'. Before borrowing, it had 3 available copies, now has 2",
+   "steps": "1. Return 'The Great Gatsby'\n2. Search for 'The Great Gatsby'\n3. View book details",
+   "expected_result": "Available copies count is now 3 (increased by 1 after return)",
+   "priority": "High",
+   "type": "Positive"
+  },
+  {
+   "title": "Verify returned book can be borrowed again",
+   "preconditions": "User has just returned 'The Great Gatsby'",
+   "steps": "1. Search for 'The Great Gatsby'\n2. Click on the book\n3. Click 'Borrow' button",
+   "expected_result": "Book can be borrowed again successfully without issues",
+   "priority": "Medium",
+   "type": "Positive"
+  },
+  {
+   "title": "Attempt to borrow the same book twice",
+   "preconditions": "User is logged in and has already borrowed 'The Great Gatsby'",
+   "steps": "1. Search for 'The Great Gatsby'\n2. Click on the book\n3. Click 'Borrow' button",
+   "expected_result": "Error message: 'You have already borrowed this book' or borrow button is disabled",
+   "priority": "Medium",
+   "type": "Negative"
+  },
+  {
+   "title": "Search with very long string input",
+   "preconditions": "User is logged in",
+   "steps": "1. Navigate to search page\n2. Enter a very long string (500+ characters) in search box\n3. Click Search",
+   "expected_result": "System handles gracefully - either truncates input, shows validation error, or returns no results. No crash or performance issue.",
+   "priority": "Low",
+   "type": "Edge"
+  },
+  {
+   "title": "Login with SQL injection attempt",
+   "preconditions": "None",
+   "steps": "1. Navigate to login page\n2. Enter username as: admin' OR '1'='1\n3. Enter any password\n4. Click Login",
+   "expected_result": "Login fails with invalid credentials error. No SQL injection occurs. User is not logged in.",
+   "priority": "High",
+   "type": "Negative"
+  },
+  {
+   "title": "Verify session timeout after inactivity",
+   "preconditions": "User is logged in. Session timeout is set (e.g., 30 minutes)",
+   "steps": "1. Log in successfully\n2. Remain idle for the timeout period\n3. Attempt to perform any action (search, borrow)",
+   "expected_result": "User is logged out automatically. Redirected to login page with session expired message.",
+   "priority": "Medium",
+   "type": "Edge"
+  },
+  {
+   "title": "Case insensitive book search",
+   "preconditions": "User is logged in. Book 'The Great Gatsby' exists",
+   "steps": "1. Navigate to search page\n2. Enter 'the great gatsby' (all lowercase)\n3. Click Search",
+   "expected_result": "'The Great Gatsby' appears in search results. Search is case-insensitive.",
+   "priority": "Low",
+   "type": "Positive"
+  }
+ ],
+ "summary": {
+  "working": 26,
+  "total": 28
+ },
+ "unsupported": [
+  {
+   "title": "Verify session timeout after inactivity",
+   "reason": "Session timeout requires time-based session management which is not modeled in this in-memory practice app"
+  }
+ ],
+ "build": {
+  "built_at": "2026-09-25",
+  "ok": false,
+  "plan": {
+   "app_name": "Library Management System",
+   "summary": "A library system where members log in, search for books, check availability, borrow and return books with borrowing limits.",
+   "base_url": "https://library.example.test",
+   "test_accounts": [
+    {
+     "login": "testuser",
+     "password": "Test@123",
+     "notes": "Standard test account with no books borrowed initially"
+    },
+    {
+     "login": "maxuser",
+     "password": "Max@123",
+     "notes": "Account that starts with 5 books already borrowed (at limit)"
+    }
+   ],
+   "data": "USERS:\n- username: testuser, password: Test@123, name: Test User, borrowed_count: 0, borrowed_books: []\n- username: maxuser, password: Max@123, name: Max User, borrowed_count: 5, borrowed_books: [1, 2, 3, 4, 5]\n\nBOOKS:\n1. title: The Great Gatsby, author: F. Scott Fitzgerald, isbn: 978-0-7432-7356-5, total_copies: 3, available_copies: 3\n2. title: To Kill a Mockingbird, author: Harper Lee, isbn: 978-0-06-112008-4, total_copies: 2, available_copies: 0\n3. title: 1984, author: George Orwell, isbn: 978-0-452-28423-4, total_copies: 4, available_copies: 4\n4. title: Pride and Prejudice, author: Jane Austen, isbn: 978-0-14-143951-8, total_copies: 2, available_copies: 2\n5. title: The Catcher in the Rye, author: J.D. Salinger, isbn: 978-0-316-76948-0, total_copies: 3, available_copies: 0\n6. title: Tender is the Night, author: F. Scott Fitzgerald, isbn: 978-0-684-80154-5, total_copies: 2, available_copies: 2\n\nBORROWINGS (for maxuser):\n- book_id: 1 (The Great Gatsby), username: maxuser, borrow_date: 2024-01-15, due_date: 2024-01-29\n- book_id: 2 (To Kill a Mockingbird), username: maxuser, borrow_date: 2024-01-15, due_date: 2024-01-29\n- book_id: 2 (To Kill a Mockingbird), username: another_user, borrow_date: 2024-01-16, due_date: 2024-01-30\n- book_id: 3 (1984), username: maxuser, borrow_date: 2024-01-15, due_date: 2024-01-29\n- book_id: 4 (Pride and Prejudice), username: maxuser, borrow_date: 2024-01-15, due_date: 2024-01-29\n- book_id: 5 (The Catcher in the Rye), username: maxuser, borrow_date: 2024-01-15, due_date: 2024-01-29\n- book_id: 5 (The Catcher in the Rye), username: another_user, borrow_date: 2024-01-16, due_date: 2024-01-30\n- book_id: 5 (The Catcher in the Rye), username: third_user, borrow_date: 2024-01-17, due_date: 2024-01-31\n\nCONSTANTS:\n- Borrowing limit: 5 books per user\n- Loan period: 14 days\n- Current date (fixed): 2024-01-20",
+   "pages": [
+    "Login",
+    "Home",
+    "Search",
+    "Book Details",
+    "My Books"
+   ],
+   "helpers": [
+    {
+     "layer": "global",
+     "name": "setup",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Resets the app to initial state: logs out any user, clears visible message, resets to Login page, restores all data to starting state (users, books, borrowings as defined in data section)",
+     "changes_data": true
+    },
+    {
+     "layer": "global",
+     "name": "teardown",
+     "params": [
+      "id"
+     ],
+     "returns": "None",
+     "behaviour": "If id is provided and matches a borrowing record created during test, removes that borrowing and restores book availability. If id is None, does nothing (setup handles full reset)",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "current_page",
+     "params": [],
+     "returns": "String: name of current page ('Login', 'Home', 'Search', 'Book Details', or 'My Books')",
+     "behaviour": "Returns the name of the page currently displayed",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "visible_message",
+     "params": [],
+     "returns": "String: the current message shown to user, or empty string if no message",
+     "behaviour": "Returns the current visible message text exactly as shown on screen",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "logged_in_user",
+     "params": [],
+     "returns": "String: username of logged in user, or empty string if not logged in",
+     "behaviour": "Returns the username displayed in header if logged in, empty string otherwise",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "navigate_to_login",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Navigates to the Login page, clears any visible message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "navigate_to_search",
+     "params": [],
+     "returns": "None",
+     "behaviour": "If logged in, navigates to Search page and clears message. If not logged in, sets message 'Please log in first' and stays on current page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "navigate_to_my_books",
+     "params": [],
+     "returns": "None",
+     "behaviour": "If logged in, navigates to My Books page and clears message. If not logged in, sets message 'Please log in first' and stays on current page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "enter_username",
+     "params": [
+      "username"
+     ],
+     "returns": "None",
+     "behaviour": "Enters the given username into the username field on Login page. Does nothing if not on Login page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "enter_password",
+     "params": [
+      "password"
+     ],
+     "returns": "None",
+     "behaviour": "Enters the given password into the password field on Login page. Does nothing if not on Login page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_login",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Attempts login with current username and password fields. If username empty, sets message 'Username is required' and stays on Login. If password empty, sets message 'Password is required' and stays on Login. If credentials invalid, sets message 'Invalid username or password' and stays on Login. If valid, logs in user, navigates to Home page, clears message",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_logout",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Logs out current user, navigates to Login page, sets message 'You have been logged out'",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "enter_search_term",
+     "params": [
+      "term"
+     ],
+     "returns": "None",
+     "behaviour": "Enters the given search term into the search box on Search page. Does nothing if not on Search page",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_search",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Performs search with current search term. Searches across title, author, and ISBN (case-insensitive, partial match). If search term is empty, displays all books. Sets message 'No results found' if no matches. Stays on Search page and displays results",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "search_results",
+     "params": [],
+     "returns": "List of objects: [{book_id, title, author, isbn, availability_status, available_copies, total_copies}, ...] for books matching last search, or empty list if no results",
+     "behaviour": "Returns the list of books currently displayed in search results. availability_status is 'Available' if available_copies > 0, else 'Not Available'",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_book",
+     "params": [
+      "book_id"
+     ],
+     "returns": "None",
+     "behaviour": "Navigates to Book Details page for the specified book_id. If book_id doesn't exist, sets message 'Book not found' and stays on current page. Clears message if successful",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "book_details",
+     "params": [],
+     "returns": "Object: {book_id, title, author, isbn, availability_status, available_copies, total_copies} for currently displayed book, or None if not on Book Details page",
+     "behaviour": "Returns details of the book currently shown on Book Details page. availability_status is 'Available' if available_copies > 0, else 'Not Available'",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "borrow_button_visible",
+     "params": [],
+     "returns": "Boolean: true if Borrow button is visible and enabled, false otherwise",
+     "behaviour": "Returns true if on Book Details page, user is logged in, book has available copies > 0, user hasn't borrowed this book already, and user is under borrowing limit. Otherwise false",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_borrow",
+     "params": [],
+     "returns": "None",
+     "behaviour": "Attempts to borrow the currently displayed book. If not logged in, sets message 'Please log in first'. If no copies available, sets message 'No copies available'. If user already borrowed this book, sets message 'You have already borrowed this book'. If at borrowing limit (5 books), sets message 'You have reached your borrowing limit'. If successful, creates borrowing record with borrow_date 2024-01-20 and due_date 2024-02-03 (14 days later), decrements available_copies, sets message 'Book borrowed successfully. Due date: 2024-02-03', stays on Book Details page",
+     "changes_data": true
+    },
+    {
+     "layer": "UI",
+     "name": "borrowed_books_list",
+     "params": [],
+     "returns": "List of objects: [{book_id, title, author, borrow_date, due_date}, ...] for books borrowed by current user, or empty list if none or not logged in",
+     "behaviour": "Returns list of books currently borrowed by the logged-in user, shown on My Books page. Empty list if not on My Books page or not logged in",
+     "changes_data": false
+    },
+    {
+     "layer": "UI",
+     "name": "click_return",
+     "params": [
+      "book_id"
+     ],
+     "returns": "None",
+     "behaviour": "Attempts to return the specified book. If user hasn't borrowed this book, sets message 'You have not borrowed this book' and does nothing. If successful, removes borrowing record, increments book's available_copies, sets message 'Book returned successfully', stays on My Books page",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "login",
+     "params": [
+      "username",
+      "password"
+     ],
+     "returns": "Object: {ok: true, user: username} if successful, or {ok: false, error: message} if failed",
+     "behaviour": "Validates credentials. Returns {ok: false, error: 'Username is required'} if username empty. Returns {ok: false, error: 'Password is required'} if password empty. Returns {ok: false, error: 'Invalid username or password'} if credentials don't match any user. Returns {ok: true, user: username} if valid, and logs in the user",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "logout",
+     "params": [],
+     "returns": "Object: {ok: true}",
+     "behaviour": "Logs out current user and returns {ok: true}",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "search_books",
+     "params": [
+      "term"
+     ],
+     "returns": "Object: {ok: true, books: [{book_id, title, author, isbn, availability_status, available_copies, total_copies}, ...]}",
+     "behaviour": "Searches for books matching term (case-insensitive, partial match) in title, author, or ISBN. If term is empty, returns all books. Returns {ok: true, books: []} if no matches. availability_status is 'Available' if available_copies > 0, else 'Not Available'",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "get_book_details",
+     "params": [
+      "book_id"
+     ],
+     "returns": "Object: {ok: true, book: {book_id, title, author, isbn, availability_status, available_copies, total_copies}} if found, or {ok: false, error: 'Book not found'} if not found",
+     "behaviour": "Returns details for specified book_id. availability_status is 'Available' if available_copies > 0, else 'Not Available'",
+     "changes_data": false
+    },
+    {
+     "layer": "API",
+     "name": "borrow_book",
+     "params": [
+      "username",
+      "book_id"
+     ],
+     "returns": "Object: {ok: true, borrow_date: '2024-01-20', due_date: '2024-02-03'} if successful, or {ok: false, error: message} if failed",
+     "behaviour": "Attempts to borrow book for user. Returns {ok: false, error: 'Book not found'} if book_id invalid. Returns {ok: false, error: 'No copies available'} if available_copies is 0. Returns {ok: false, error: 'You have already borrowed this book'} if user already has active borrowing of this book. Returns {ok: false, error: 'You have reached your borrowing limit'} if user has 5 borrowed books. If successful, creates borrowing with borrow_date 2024-01-20 and due_date 2024-02-03, decrements available_copies, returns {ok: true, borrow_date: '2024-01-20', due_date: '2024-02-03'}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "return_book",
+     "params": [
+      "username",
+      "book_id"
+     ],
+     "returns": "Object: {ok: true} if successful, or {ok: false, error: 'You have not borrowed this book'} if failed",
+     "behaviour": "Attempts to return book for user. Returns {ok: false, error: 'You have not borrowed this book'} if user doesn't have active borrowing of this book. If successful, removes borrowing record, increments book's available_copies, returns {ok: true}",
+     "changes_data": true
+    },
+    {
+     "layer": "API",
+     "name": "get_borrowed_books",
+     "params": [
+      "username"
+     ],
+     "returns": "Object: {ok: true, books: [{book_id, title, author, borrow_date, due_date}, ...]}",
+     "behaviour": "Returns list of books currently borrowed by the specified user. Returns empty list if user has no borrowed books",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "get_user",
+     "params": [
+      "username"
+     ],
+     "returns": "Object: {username, password, name, borrowed_count} if user exists, or None if not found",
+     "behaviour": "Returns user record from database for specified username, or None if user doesn't exist",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "get_book",
+     "params": [
+      "book_id"
+     ],
+     "returns": "Object: {book_id, title, author, isbn, total_copies, available_copies} if book exists, or None if not found",
+     "behaviour": "Returns book record from database for specified book_id, or None if book doesn't exist",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "get_all_books",
+     "params": [],
+     "returns": "List of objects: [{book_id, title, author, isbn, total_copies, available_copies}, ...]",
+     "behaviour": "Returns all book records from database",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "get_borrowing",
+     "params": [
+      "username",
+      "book_id"
+     ],
+     "returns": "Object: {username, book_id, borrow_date, due_date} if active borrowing exists, or None if not found",
+     "behaviour": "Returns borrowing record for specified user and book if it exists and is active, or None otherwise",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "get_all_borrowings",
+     "params": [
+      "username"
+     ],
+     "returns": "List of objects: [{username, book_id, borrow_date, due_date}, ...]",
+     "behaviour": "Returns all active borrowing records for specified username. Returns empty list if user has no borrowings",
+     "changes_data": false
+    },
+    {
+     "layer": "Database",
+     "name": "count_user_borrowings",
+     "params": [
+      "username"
+     ],
+     "returns": "Integer: number of books currently borrowed by user",
+     "behaviour": "Returns count of active borrowing records for specified username",
+     "changes_data": false
+    }
+   ],
+   "rules": [
+    "Users must log in with valid username and password to access the system",
+    "Username and password fields are mandatory for login",
+    "Search is case-insensitive and matches partial text in title, author, or ISBN fields",
+    "Empty search term displays all books",
+    "Book availability status is 'Available' if available_copies > 0, otherwise 'Not Available'",
+    "Users can borrow a book only if: available_copies > 0, user hasn't already borrowed it, and user has fewer than 5 borrowed books",
+    "Borrowing limit is 5 books per user",
+    "Loan period is 14 days from borrow date",
+    "Borrow date is always 2024-01-20 (fixed current date)",
+    "Due date is always 2024-02-03 (14 days after borrow date)",
+    "Borrowing a book decrements available_copies by 1",
+    "Returning a book increments available_copies by 1",
+    "Users cannot borrow the same book twice simultaneously",
+    "Users can only return books they have currently borrowed",
+    "Invalid login attempts do not grant access and show error message",
+    "SQL injection attempts are treated as invalid credentials"
+   ],
+   "messages": [
+    {
+     "when": "Login with empty username",
+     "text": "Username is required"
+    },
+    {
+     "when": "Login with empty password",
+     "text": "Password is required"
+    },
+    {
+     "when": "Login with invalid credentials",
+     "text": "Invalid username or password"
+    },
+    {
+     "when": "Successful logout",
+     "text": "You have been logged out"
+    },
+    {
+     "when": "Search returns no results",
+     "text": "No results found"
+    },
+    {
+     "when": "Attempt to access protected page while logged out",
+     "text": "Please log in first"
+    },
+    {
+     "when": "Book not found",
+     "text": "Book not found"
+    },
+    {
+     "when": "Attempt to borrow with no copies available",
+     "text": "No copies available"
+    },
+    {
+     "when": "Attempt to borrow already borrowed book",
+     "text": "You have already borrowed this book"
+    },
+    {
+     "when": "Attempt to borrow at borrowing limit",
+     "text": "You have reached your borrowing limit"
+    },
+    {
+     "when": "Successful book borrowing",
+     "text": "Book borrowed successfully. Due date: 2024-02-03"
+    },
+    {
+     "when": "Attempt to return book not borrowed",
+     "text": "You have not borrowed this book"
+    },
+    {
+     "when": "Successful book return",
+     "text": "Book returned successfully"
+    }
+   ],
+   "not_supported": [
+    "Session timeout - test case 27 requires time-based session management which is not modeled in this in-memory practice app",
+    "Real date/time calculations - the app uses fixed dates (current: 2024-01-20, due: 2024-02-03) instead of dynamic date calculations",
+    "Multiple simultaneous user sessions - the app maintains single session state",
+    "Actual SQL database - uses in-memory data structures instead",
+    "Network operations - all operations are local"
+   ],
+   "reference_sheet": {
+    "fields": {
+     "Base URL": "https://library.example.test",
+     "Test account username": "testuser",
+     "Test account password": "Test@123",
+     "Max limit account username": "maxuser",
+     "Max limit account password": "Max@123",
+     "Borrowing limit": "5 books",
+     "Loan period": "14 days",
+     "Current date (fixed)": "2024-01-20",
+     "Due date for new borrowings": "2024-02-03",
+     "Book 1": "The Great Gatsby by F. Scott Fitzgerald, ISBN 978-0-7432-7356-5, 3 copies available",
+     "Book 2": "To Kill a Mockingbird by Harper Lee, ISBN 978-0-06-112008-4, 0 copies available",
+     "Book 3": "1984 by George Orwell, ISBN 978-0-452-28423-4, 4 copies available",
+     "Book 4": "Pride and Prejudice by Jane Austen, ISBN 978-0-14-143951-8, 2 copies available",
+     "Book 5": "The Catcher in the Rye by J.D. Salinger, ISBN 978-0-316-76948-0, 0 copies available",
+     "Book 6": "Tender is the Night by F. Scott Fitzgerald, ISBN 978-0-684-80154-5, 2 copies available"
+    },
+    "notes": "Only these 6 books and 2 user accounts exist in the practice app. maxuser starts with 5 books borrowed (at limit)."
+   },
+   "screens": [
+    {
+     "name": "Login",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Library Management System"
+      },
+      {
+       "type": "label",
+       "text": "Username"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "label",
+       "text": "Password"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Login"
+      },
+      {
+       "type": "text",
+       "text": "Username is required (shown when username empty on login)"
+      },
+      {
+       "type": "text",
+       "text": "Password is required (shown when password empty on login)"
+      },
+      {
+       "type": "text",
+       "text": "Invalid username or password (shown when credentials invalid)"
+      },
+      {
+       "type": "text",
+       "text": "You have been logged out (shown after logout)"
+      }
+     ]
+    },
+    {
+     "name": "Home",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Welcome, testuser"
+      },
+      {
+       "type": "link",
+       "text": "Search Books"
+      },
+      {
+       "type": "link",
+       "text": "My Books"
+      },
+      {
+       "type": "link",
+       "text": "Logout"
+      }
+     ]
+    },
+    {
+     "name": "Search",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Welcome, testuser"
+      },
+      {
+       "type": "label",
+       "text": "Search Books"
+      },
+      {
+       "type": "input",
+       "text": ""
+      },
+      {
+       "type": "button",
+       "text": "Search"
+      },
+      {
+       "type": "link",
+       "text": "My Books"
+      },
+      {
+       "type": "link",
+       "text": "Logout"
+      },
+      {
+       "type": "text",
+       "text": "Search Results:"
+      },
+      {
+       "type": "text",
+       "text": "The Great Gatsby by F. Scott Fitzgerald (ISBN: 978-0-7432-7356-5) - Available - 3 of 3 copies available"
+      },
+      {
+       "type": "text",
+       "text": "To Kill a Mockingbird by Harper Lee (ISBN: 978-0-06-112008-4) - Not Available - 0 of 2 copies available"
+      },
+      {
+       "type": "text",
+       "text": "1984 by George Orwell (ISBN: 978-0-452-28423-4) - Available - 4 of 4 copies available"
+      },
+      {
+       "type": "text",
+       "text": "No results found (shown when search has no matches)"
+      }
+     ]
+    },
+    {
+     "name": "Book Details",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Welcome, testuser"
+      },
+      {
+       "type": "label",
+       "text": "Book Details"
+      },
+      {
+       "type": "text",
+       "text": "Title: The Great Gatsby"
+      },
+      {
+       "type": "text",
+       "text": "Author: F. Scott Fitzgerald"
+      },
+      {
+       "type": "text",
+       "text": "ISBN: 978-0-7432-7356-5"
+      },
+      {
+       "type": "text",
+       "text": "Availability: Available"
+      },
+      {
+       "type": "text",
+       "text": "Copies: 3 available out of 3 total"
+      },
+      {
+       "type": "button",
+       "text": "Borrow"
+      },
+      {
+       "type": "link",
+       "text": "Back to Search"
+      },
+      {
+       "type": "link",
+       "text": "My Books"
+      },
+      {
+       "type": "link",
+       "text": "Logout"
+      },
+      {
+       "type": "text",
+       "text": "No copies available (shown when trying to borrow unavailable book)"
+      },
+      {
+       "type": "text",
+       "text": "You have already borrowed this book (shown when trying to borrow already borrowed book)"
+      },
+      {
+       "type": "text",
+       "text": "You have reached your borrowing limit (shown when at 5 book limit)"
+      },
+      {
+       "type": "text",
+       "text": "Book borrowed successfully. Due date: 2024-02-03 (shown after successful borrow)"
+      }
+     ]
+    },
+    {
+     "name": "My Books",
+     "elements": [
+      {
+       "type": "label",
+       "text": "Welcome, testuser"
+      },
+      {
+       "type": "label",
+       "text": "My Borrowed Books"
+      },
+      {
+       "type": "text",
+       "text": "You have no borrowed books (shown when list is empty)"
+      },
+      {
+       "type": "text",
+       "text": "The Great Gatsby by F. Scott Fitzgerald - Borrowed: 2024-01-20, Due: 2024-02-03"
+      },
+      {
+       "type": "button",
+       "text": "Return"
+      },
+      {
+       "type": "link",
+       "text": "Search Books"
+      },
+      {
+       "type": "link",
+       "text": "Logout"
+      },
+      {
+       "type": "text",
+       "text": "Book returned successfully (shown after successful return)"
+      }
+     ]
+    }
+   ]
+  },
+  "checklists": [
+   {
+    "id": "successful-login",
+    "title": "Successful login with valid credentials",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Home"
+     },
+     {
+      "call": "UI.logged_in_user",
+      "expect": "testuser"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": ""
+     }
+    ]
+   },
+   {
+    "id": "login-incorrect-password",
+    "title": "Login fails with incorrect password",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "wrongpass"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid username or password"
+     },
+     {
+      "call": "UI.logged_in_user",
+      "expect": ""
+     }
+    ]
+   },
+   {
+    "id": "login-empty-username",
+    "title": "Login with empty username field",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       ""
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Username is required"
+     },
+     {
+      "call": "UI.logged_in_user",
+      "expect": ""
+     }
+    ]
+   },
+   {
+    "id": "login-empty-password",
+    "title": "Login with empty password field",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       ""
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Password is required"
+     },
+     {
+      "call": "UI.logged_in_user",
+      "expect": ""
+     }
+    ]
+   },
+   {
+    "id": "search-exact-title",
+    "title": "Search for book by exact title match",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 1,
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald",
+        "isbn": "978-0-7432-7356-5",
+        "availability_status": "Available",
+        "available_copies": 2,
+        "total_copies": 3
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "search-partial-title",
+    "title": "Search for book by partial title",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 1,
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald",
+        "isbn": "978-0-7432-7356-5"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "search-by-author",
+    "title": "Search for book by author name",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "F. Scott Fitzgerald"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 1,
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald"
+       }
+      ]
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 6,
+        "title": "Tender is the Night",
+        "author": "F. Scott Fitzgerald"
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "search-by-isbn",
+    "title": "Search for book by ISBN",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "978-0-7432-7356-5"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect": [
+       {
+        "book_id": 1,
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald",
+        "isbn": "978-0-7432-7356-5",
+        "availability_status": "Available",
+        "available_copies": 2,
+        "total_copies": 3
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "search-nonexistent-book",
+    "title": "Search with non-existent book title",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "XYZ123NonExistentBook999"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect": []
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "No results found"
+     }
+    ]
+   },
+   {
+    "id": "search-empty-field",
+    "title": "Search with empty search field",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       ""
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 1
+       }
+      ]
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 2
+       }
+      ]
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 3
+       }
+      ]
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 4
+       }
+      ]
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 5
+       }
+      ]
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 6
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "search-special-characters",
+    "title": "Search with special characters only",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "@#$%^&*"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect": []
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "No results found"
+     }
+    ]
+   },
+   {
+    "id": "view-available-book-details",
+    "title": "View book details for available book",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Book Details"
+     },
+     {
+      "call": "UI.book_details",
+      "expect": {
+       "book_id": 1,
+       "title": "The Great Gatsby",
+       "author": "F. Scott Fitzgerald",
+       "isbn": "978-0-7432-7356-5",
+       "availability_status": "Available",
+       "available_copies": 2,
+       "total_copies": 3
+      }
+     }
+    ]
+   },
+   {
+    "id": "view-unavailable-book-details",
+    "title": "View book details for unavailable book",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "To Kill a Mockingbird"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       2
+      ]
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Book Details"
+     },
+     {
+      "call": "UI.book_details",
+      "expect": {
+       "book_id": 2,
+       "title": "To Kill a Mockingbird",
+       "author": "Harper Lee",
+       "isbn": "978-0-06-112008-4",
+       "availability_status": "Not Available",
+       "available_copies": 0,
+       "total_copies": 2
+      }
+     }
+    ]
+   },
+   {
+    "id": "borrow-available-book",
+    "title": "Borrow an available book successfully",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.borrow_button_visible",
+      "expect": true
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Book borrowed successfully. Due date: 2024-02-03"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Book Details"
+     },
+     {
+      "call": "UI.book_details",
+      "expect_includes": {
+       "book_id": 1,
+       "available_copies": 1
+      }
+     },
+     {
+      "call": "Database.get_book",
+      "args": [
+       1
+      ],
+      "expect_includes": {
+       "available_copies": 1
+      }
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       1
+      ],
+      "expect": {
+       "username": "testuser",
+       "book_id": 1,
+       "borrow_date": "2024-01-20",
+       "due_date": "2024-02-03"
+      }
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 1
+     }
+    ]
+   },
+   {
+    "id": "borrow-unavailable-book",
+    "title": "Attempt to borrow book with zero availability",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "To Kill a Mockingbird"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       2
+      ]
+     },
+     {
+      "call": "UI.borrow_button_visible",
+      "expect": false
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "No copies available"
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       2
+      ],
+      "expect": null
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 0
+     }
+    ]
+   },
+   {
+    "id": "borrow-at-limit",
+    "title": "Attempt to borrow when at borrowing limit",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "maxuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Max@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "maxuser"
+      ],
+      "expect": 5
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "Tender is the Night"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       6
+      ]
+     },
+     {
+      "call": "UI.borrow_button_visible",
+      "expect": false
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "You have reached your borrowing limit"
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "maxuser",
+       6
+      ],
+      "expect": null
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "maxuser"
+      ],
+      "expect": 5
+     }
+    ]
+   },
+   {
+    "id": "borrow-last-allowed-book",
+    "title": "Verify borrowing limit boundary - borrow last allowed book",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "1984"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       3
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "Pride and Prejudice"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       4
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "Tender is the Night"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       6
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 4
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "1984"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       3
+      ]
+     },
+     {
+      "call": "UI.borrow_button_visible",
+      "expect": true
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Book borrowed successfully. Due date: 2024-02-03"
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 5
+     }
+    ]
+   },
+   {
+    "id": "view-borrowing-confirmation",
+    "title": "View borrowing confirmation details",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Book borrowed successfully. Due date: 2024-02-03"
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       1
+      ],
+      "expect": {
+       "username": "testuser",
+       "book_id": 1,
+       "borrow_date": "2024-01-20",
+       "due_date": "2024-02-03"
+      }
+     }
+    ]
+   },
+   {
+    "id": "verify-due-date-calculation",
+    "title": "Verify due date calculation is correct",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       1
+      ],
+      "expect": {
+       "username": "testuser",
+       "book_id": 1,
+       "borrow_date": "2024-01-20",
+       "due_date": "2024-02-03"
+      }
+     }
+    ]
+   },
+   {
+    "id": "borrowed-book-in-list",
+    "title": "Verify borrowed book appears in user's borrowed list",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_my_books"
+     },
+     {
+      "call": "UI.borrowed_books_list",
+      "expect": []
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.navigate_to_my_books"
+     },
+     {
+      "call": "UI.borrowed_books_list",
+      "expect": [
+       {
+        "book_id": 1,
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald",
+        "borrow_date": "2024-01-20",
+        "due_date": "2024-02-03"
+       }
+      ]
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       1
+      ],
+      "expect": {
+       "username": "testuser",
+       "book_id": 1,
+       "borrow_date": "2024-01-20",
+       "due_date": "2024-02-03"
+      }
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 1
+     }
+    ]
+   },
+   {
+    "id": "return-borrowed-book",
+    "title": "Return a borrowed book successfully",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.navigate_to_my_books"
+     },
+     {
+      "call": "UI.borrowed_books_list",
+      "expect_includes": [
+       {
+        "book_id": 1
+       }
+      ]
+     },
+     {
+      "call": "UI.click_return",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Book returned successfully"
+     },
+     {
+      "call": "UI.borrowed_books_list",
+      "expect": []
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       1
+      ],
+      "expect": null
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 0
+     }
+    ]
+   },
+   {
+    "id": "availability-increases-after-return",
+    "title": "Verify book availability increases after return",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.book_details",
+      "expect_includes": {
+       "available_copies": 2
+      }
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.book_details",
+      "expect_includes": {
+       "available_copies": 1
+      }
+     },
+     {
+      "call": "Database.get_book",
+      "args": [
+       1
+      ],
+      "expect_includes": {
+       "available_copies": 1
+      }
+     },
+     {
+      "call": "UI.navigate_to_my_books"
+     },
+     {
+      "call": "UI.click_return",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "Database.get_book",
+      "args": [
+       1
+      ],
+      "expect_includes": {
+       "available_copies": 2
+      }
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.book_details",
+      "expect_includes": {
+       "available_copies": 2
+      }
+     }
+    ]
+   },
+   {
+    "id": "reborrow-returned-book",
+    "title": "Verify returned book can be borrowed again",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.navigate_to_my_books"
+     },
+     {
+      "call": "UI.click_return",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.borrow_button_visible",
+      "expect": true
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Book borrowed successfully. Due date: 2024-02-03"
+     },
+     {
+      "call": "Database.get_borrowing",
+      "args": [
+       "testuser",
+       1
+      ],
+      "expect": {
+       "username": "testuser",
+       "book_id": 1,
+       "borrow_date": "2024-01-20",
+       "due_date": "2024-02-03"
+      }
+     }
+    ]
+   },
+   {
+    "id": "borrow-same-book-twice",
+    "title": "Attempt to borrow the same book twice",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Book borrowed successfully. Due date: 2024-02-03"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "The Great Gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.click_book",
+      "args": [
+       1
+      ]
+     },
+     {
+      "call": "UI.borrow_button_visible",
+      "expect": false
+     },
+     {
+      "call": "UI.click_borrow"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "You have already borrowed this book"
+     },
+     {
+      "call": "Database.count_user_borrowings",
+      "args": [
+       "testuser"
+      ],
+      "expect": 1
+     }
+    ]
+   },
+   {
+    "id": "search-very-long-string",
+    "title": "Search with very long string input",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect": []
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "No results found"
+     }
+    ]
+   },
+   {
+    "id": "login-sql-injection",
+    "title": "Login with SQL injection attempt",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "admin' OR '1'='1"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "anypassword"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.current_page",
+      "expect": "Login"
+     },
+     {
+      "call": "UI.visible_message",
+      "expect": "Invalid username or password"
+     },
+     {
+      "call": "UI.logged_in_user",
+      "expect": ""
+     }
+    ]
+   },
+   {
+    "id": "case-insensitive-search",
+    "title": "Case insensitive book search",
+    "steps": [
+     {
+      "call": "setup"
+     },
+     {
+      "call": "UI.navigate_to_login"
+     },
+     {
+      "call": "UI.enter_username",
+      "args": [
+       "testuser"
+      ]
+     },
+     {
+      "call": "UI.enter_password",
+      "args": [
+       "Test@123"
+      ]
+     },
+     {
+      "call": "UI.click_login"
+     },
+     {
+      "call": "UI.navigate_to_search"
+     },
+     {
+      "call": "UI.enter_search_term",
+      "args": [
+       "the great gatsby"
+      ]
+     },
+     {
+      "call": "UI.click_search"
+     },
+     {
+      "call": "UI.search_results",
+      "expect_includes": [
+       {
+        "book_id": 1,
+        "title": "The Great Gatsby",
+        "author": "F. Scott Fitzgerald",
+        "isbn": "978-0-7432-7356-5"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "env_code_by_language": {
+   "python": "\"\"\"\nAutomation environment (Python) - Library Management System - provided for\nyou, already working.\n\nThis is a SMALL controlled environment, not a framework you need to build\nor extend. It simulates the library system's UI, its API and its database\nin-process so your automation runs deterministically with no real network\ncalls. The data matches the reference sheet: test accounts\ntestuser / Test@123 (no books borrowed initially) and\nmaxuser / Max@123 (5 books already borrowed, at limit).\n\nWrite your automated test(s) at the bottom, under the TODO marker, using\nthe helpers below. Do not rewrite the helpers.\n\"\"\"\n\nCONFIG = {\n    \"base_url\": \"https://library.example.test\",\n    \"borrowing_limit\": 5,\n    \"loan_period_days\": 14,\n    \"current_date\": \"2024-01-20\",\n    \"due_date\": \"2024-02-03\"\n}\n\n\nclass _Store:\n    \"\"\"In-memory stand-in for the application's database.\"\"\"\n\n    def __init__(self):\n        self.users = {\n            \"testuser\": {\"username\": \"testuser\", \"password\": \"Test@123\", \"name\": \"Test User\", \"borrowed_count\": 0},\n            \"maxuser\": {\"username\": \"maxuser\", \"password\": \"Max@123\", \"name\": \"Max User\", \"borrowed_count\": 5}\n        }\n        self.books = {\n            1: {\"book_id\": 1, \"title\": \"The Great Gatsby\", \"author\": \"F. Scott Fitzgerald\", \"isbn\": \"978-0-7432-7356-5\", \"total_copies\": 3, \"available_copies\": 3},\n            2: {\"book_id\": 2, \"title\": \"To Kill a Mockingbird\", \"author\": \"Harper Lee\", \"isbn\": \"978-0-06-112008-4\", \"total_copies\": 2, \"available_copies\": 2},\n            3: {\"book_id\": 3, \"title\": \"1984\", \"author\": \"George Orwell\", \"isbn\": \"978-0-452-28423-4\", \"total_copies\": 4, \"available_copies\": 4},\n            4: {\"book_id\": 4, \"title\": \"Pride and Prejudice\", \"author\": \"Jane Austen\", \"isbn\": \"978-0-14-143951-8\", \"total_copies\": 2, \"available_copies\": 2},\n            5: {\"book_id\": 5, \"title\": \"The Catcher in the Rye\", \"author\": \"J.D. Salinger\", \"isbn\": \"978-0-316-76948-0\", \"total_copies\": 3, \"available_copies\": 3},\n            6: {\"book_id\": 6, \"title\": \"Tender is the Night\", \"author\": \"F. Scott Fitzgerald\", \"isbn\": \"978-0-684-80154-5\", \"total_copies\": 2, \"available_copies\": 2}\n        }\n        self.borrowings = [\n            {\"username\": \"maxuser\", \"book_id\": 1, \"borrow_date\": \"2024-01-15\", \"due_date\": \"2024-01-29\"},\n            {\"username\": \"maxuser\", \"book_id\": 2, \"borrow_date\": \"2024-01-15\", \"due_date\": \"2024-01-29\"},\n            {\"username\": \"another_user\", \"book_id\": 2, \"borrow_date\": \"2024-01-16\", \"due_date\": \"2024-01-30\"},\n            {\"username\": \"maxuser\", \"book_id\": 3, \"borrow_date\": \"2024-01-15\", \"due_date\": \"2024-01-29\"},\n            {\"username\": \"maxuser\", \"book_id\": 4, \"borrow_date\": \"2024-01-15\", \"due_date\": \"2024-01-29\"},\n            {\"username\": \"maxuser\", \"book_id\": 5, \"borrow_date\": \"2024-01-15\", \"due_date\": \"2024-01-29\"},\n            {\"username\": \"another_user\", \"book_id\": 5, \"borrow_date\": \"2024-01-16\", \"due_date\": \"2024-01-30\"},\n            {\"username\": \"third_user\", \"book_id\": 5, \"borrow_date\": \"2024-01-17\", \"due_date\": \"2024-01-31\"}\n        ]\n        self.initial_borrowings = [dict(b) for b in self.borrowings]\n        # Update available copies based on borrowings\n        self.books[1][\"available_copies\"] = 2  # 3 total - 1 borrowed by maxuser\n        self.books[2][\"available_copies\"] = 0  # 2 total - 1 by maxuser - 1 by another_user\n        self.books[3][\"available_copies\"] = 3  # 4 total - 1 borrowed by maxuser\n        self.books[4][\"available_copies\"] = 1  # 2 total - 1 borrowed by maxuser\n        self.books[5][\"available_copies\"] = 0  # 3 total - 1 by maxuser - 1 by another_user - 1 by third_user\n        self.books[6][\"available_copies\"] = 2  # 2 total - 0 borrowed\n\n    def reset(self):\n        \"\"\"Reset to initial state.\"\"\"\n        self.users[\"testuser\"][\"borrowed_count\"] = 0\n        self.users[\"maxuser\"][\"borrowed_count\"] = 5\n        self.books[1][\"available_copies\"] = 2\n        self.books[2][\"available_copies\"] = 0\n        self.books[3][\"available_copies\"] = 3\n        self.books[4][\"available_copies\"] = 1\n        self.books[5][\"available_copies\"] = 0\n        self.books[6][\"available_copies\"] = 2\n        self.borrowings = [dict(b) for b in self.initial_borrowings]\n\n\nDB = _Store()\n_SESSION = {\n    \"logged_in_user\": None,\n    \"page\": \"Login\",\n    \"message\": \"\",\n    \"username_field\": \"\",\n    \"password_field\": \"\",\n    \"search_term\": \"\",\n    \"search_results\": [],\n    \"current_book_id\": None\n}\n\n\nclass UI:\n    \"\"\"UI-layer actions - what the user does and sees in the library system.\"\"\"\n\n    @staticmethod\n    def current_page():\n        \"\"\"Returns the name of the page currently displayed.\"\"\"\n        return _SESSION[\"page\"]\n\n    @staticmethod\n    def visible_message():\n        \"\"\"Returns the current visible message text exactly as shown on screen.\"\"\"\n        return _SESSION[\"message\"]\n\n    @staticmethod\n    def logged_in_user():\n        \"\"\"Returns the username of logged in user, or empty string if not logged in.\"\"\"\n        return _SESSION[\"logged_in_user\"] if _SESSION[\"logged_in_user\"] else \"\"\n\n    @staticmethod\n    def navigate_to_login():\n        \"\"\"Navigates to the Login page, clears any visible message.\"\"\"\n        _SESSION[\"page\"] = \"Login\"\n        _SESSION[\"message\"] = \"\"\n\n    @staticmethod\n    def navigate_to_search():\n        \"\"\"If logged in, navigates to Search page and clears message. If not logged in, sets message 'Please log in first' and stays on current page.\"\"\"\n        if _SESSION[\"logged_in_user\"]:\n            _SESSION[\"page\"] = \"Search\"\n            _SESSION[\"message\"] = \"\"\n        else:\n            _SESSION[\"message\"] = \"Please log in first\"\n\n    @staticmethod\n    def navigate_to_my_books():\n        \"\"\"If logged in, navigates to My Books page and clears message. If not logged in, sets message 'Please log in first' and stays on current page.\"\"\"\n        if _SESSION[\"logged_in_user\"]:\n            _SESSION[\"page\"] = \"My Books\"\n            _SESSION[\"message\"] = \"\"\n        else:\n            _SESSION[\"message\"] = \"Please log in first\"\n\n    @staticmethod\n    def enter_username(username):\n        \"\"\"Enters the given username into the username field on Login page. Does nothing if not on Login page.\"\"\"\n        if _SESSION[\"page\"] == \"Login\":\n            _SESSION[\"username_field\"] = username\n\n    @staticmethod\n    def enter_password(password):\n        \"\"\"Enters the given password into the password field on Login page. Does nothing if not on Login page.\"\"\"\n        if _SESSION[\"page\"] == \"Login\":\n            _SESSION[\"password_field\"] = password\n\n    @staticmethod\n    def click_login():\n        \"\"\"Attempts login with current username and password fields.\"\"\"\n        if _SESSION[\"page\"] != \"Login\":\n            return\n        \n        username = _SESSION[\"username_field\"]\n        password = _SESSION[\"password_field\"]\n        \n        if not username:\n            _SESSION[\"message\"] = \"Username is required\"\n            return\n        \n        if not password:\n            _SESSION[\"message\"] = \"Password is required\"\n            return\n        \n        result = API.login(username, password)\n        if result[\"ok\"]:\n            _SESSION[\"logged_in_user\"] = result[\"user\"]\n            _SESSION[\"page\"] = \"Home\"\n            _SESSION[\"message\"] = \"\"\n        else:\n            _SESSION[\"message\"] = result[\"error\"]\n\n    @staticmethod\n    def click_logout():\n        \"\"\"Logs out current user, navigates to Login page, sets message 'You have been logged out'.\"\"\"\n        API.logout()\n        _SESSION[\"logged_in_user\"] = None\n        _SESSION[\"page\"] = \"Login\"\n        _SESSION[\"message\"] = \"You have been logged out\"\n\n    @staticmethod\n    def enter_search_term(term):\n        \"\"\"Enters the given search term into the search box on Search page. Does nothing if not on Search page.\"\"\"\n        if _SESSION[\"page\"] == \"Search\":\n            _SESSION[\"search_term\"] = term\n\n    @staticmethod\n    def click_search():\n        \"\"\"Performs search with current search term.\"\"\"\n        if _SESSION[\"page\"] != \"Search\":\n            return\n        \n        result = API.search_books(_SESSION[\"search_term\"])\n        _SESSION[\"search_results\"] = result[\"books\"]\n        if not result[\"books\"]:\n            _SESSION[\"message\"] = \"No results found\"\n        else:\n            _SESSION[\"message\"] = \"\"\n\n    @staticmethod\n    def search_results():\n        \"\"\"Returns the list of books currently displayed in search results.\"\"\"\n        if _SESSION[\"page\"] == \"Search\":\n            return _SESSION[\"search_results\"]\n        return []\n\n    @staticmethod\n    def click_book(book_id):\n        \"\"\"Navigates to Book Details page for the specified book_id.\"\"\"\n        result = API.get_book_details(book_id)\n        if result[\"ok\"]:\n            _SESSION[\"page\"] = \"Book Details\"\n            _SESSION[\"current_book_id\"] = book_id\n            _SESSION[\"message\"] = \"\"\n        else:\n            _SESSION[\"message\"] = result[\"error\"]\n\n    @staticmethod\n    def book_details():\n        \"\"\"Returns details of the book currently shown on Book Details page.\"\"\"\n        if _SESSION[\"page\"] == \"Book Details\" and _SESSION[\"current_book_id\"]:\n            result = API.get_book_details(_SESSION[\"current_book_id\"])\n            if result[\"ok\"]:\n                return result[\"book\"]\n        return None\n\n    @staticmethod\n    def borrow_button_visible():\n        \"\"\"Returns true if Borrow button is visible and enabled, false otherwise.\"\"\"\n        if _SESSION[\"page\"] != \"Book Details\" or not _SESSION[\"logged_in_user\"] or not _SESSION[\"current_book_id\"]:\n            return False\n        \n        book = Database.get_book(_SESSION[\"current_book_id\"])\n        if not book or book[\"available_copies\"] <= 0:\n            return False\n        \n        borrowing = Database.get_borrowing(_SESSION[\"logged_in_user\"], _SESSION[\"current_book_id\"])\n        if borrowing:\n            return False\n        \n        count = Database.count_user_borrowings(_SESSION[\"logged_in_user\"])\n        if count >= CONFIG[\"borrowing_limit\"]:\n            return False\n        \n        return True\n\n    @staticmethod\n    def click_borrow():\n        \"\"\"Attempts to borrow the currently displayed book.\"\"\"\n        if not _SESSION[\"logged_in_user\"]:\n            _SESSION[\"message\"] = \"Please log in first\"\n            return\n        \n        if not _SESSION[\"current_book_id\"]:\n            return\n        \n        result = API.borrow_book(_SESSION[\"logged_in_user\"], _SESSION[\"current_book_id\"])\n        if result[\"ok\"]:\n            _SESSION[\"message\"] = f\"Book borrowed successfully. Due date: {result['due_date']}\"\n        else:\n            _SESSION[\"message\"] = result[\"error\"]\n\n    @staticmethod\n    def borrowed_books_list():\n        \"\"\"Returns list of books currently borrowed by the logged-in user.\"\"\"\n        if _SESSION[\"page\"] != \"My Books\" or not _SESSION[\"logged_in_user\"]:\n            return []\n        \n        result = API.get_borrowed_books(_SESSION[\"logged_in_user\"])\n        return result[\"books\"]\n\n    @staticmethod\n    def click_return(book_id):\n        \"\"\"Attempts to return the specified book.\"\"\"\n        if not _SESSION[\"logged_in_user\"]:\n            _SESSION[\"message\"] = \"Please log in first\"\n            return\n        \n        result = API.return_book(_SESSION[\"logged_in_user\"], book_id)\n        if result[\"ok\"]:\n            _SESSION[\"message\"] = \"Book returned successfully\"\n        else:\n            _SESSION[\"message\"] = result[\"error\"]\n\n\nclass API:\n    \"\"\"API-layer actions.\"\"\"\n\n    @staticmethod\n    def login(username, password):\n        \"\"\"Validates credentials.\"\"\"\n        if not username:\n            return {\"ok\": False, \"error\": \"Username is required\"}\n        \n        if not password:\n            return {\"ok\": False, \"error\": \"Password is required\"}\n        \n        user = DB.users.get(username)\n        if not user or user[\"password\"] != password:\n            return {\"ok\": False, \"error\": \"Invalid username or password\"}\n        \n        return {\"ok\": True, \"user\": username}\n\n    @staticmethod\n    def logout():\n        \"\"\"Logs out current user.\"\"\"\n        return {\"ok\": True}\n\n    @staticmethod\n    def search_books(term):\n        \"\"\"Searches for books matching term.\"\"\"\n        results = []\n        search_term = term.lower() if term else \"\"\n        \n        for book in DB.books.values():\n            if not term or search_term in book[\"title\"].lower() or search_term in book[\"author\"].lower() or search_term in book[\"isbn\"].lower():\n                availability_status = \"Available\" if book[\"available_copies\"] > 0 else \"Not Available\"\n                results.append({\n                    \"book_id\": book[\"book_id\"],\n                    \"title\": book[\"title\"],\n                    \"author\": book[\"author\"],\n                    \"isbn\": book[\"isbn\"],\n                    \"availability_status\": availability_status,\n                    \"available_copies\": book[\"available_copies\"],\n                    \"total_copies\": book[\"total_copies\"]\n                })\n        \n        return {\"ok\": True, \"books\": results}\n\n    @staticmethod\n    def get_book_details(book_id):\n        \"\"\"Returns details for specified book_id.\"\"\"\n        book = DB.books.get(book_id)\n        if not book:\n            return {\"ok\": False, \"error\": \"Book not found\"}\n        \n        availability_status = \"Available\" if book[\"available_copies\"] > 0 else \"Not Available\"\n        return {\n            \"ok\": True,\n            \"book\": {\n                \"book_id\": book[\"book_id\"],\n                \"title\": book[\"title\"],\n                \"author\": book[\"author\"],\n                \"isbn\": book[\"isbn\"],\n                \"availability_status\": availability_status,\n                \"available_copies\": book[\"available_copies\"],\n                \"total_copies\": book[\"total_copies\"]\n            }\n        }\n\n    @staticmethod\n    def borrow_book(username, book_id):\n        \"\"\"Attempts to borrow book for user.\"\"\"\n        book = DB.books.get(book_id)\n        if not book:\n            return {\"ok\": False, \"error\": \"Book not found\"}\n        \n        if book[\"available_copies\"] <= 0:\n            return {\"ok\": False, \"error\": \"No copies available\"}\n        \n        existing = Database.get_borrowing(username, book_id)\n        if existing:\n            return {\"ok\": False, \"error\": \"You have already borrowed this book\"}\n        \n        count = Database.count_user_borrowings(username)\n        if count >= CONFIG[\"borrowing_limit\"]:\n            return {\"ok\": False, \"error\": \"You have reached your borrowing limit\"}\n        \n        DB.borrowings.append({\n            \"username\": username,\n            \"book_id\": book_id,\n            \"borrow_date\": CONFIG[\"current_date\"],\n            \"due_date\": CONFIG[\"due_date\"]\n        })\n        book[\"available_copies\"] -= 1\n        \n        return {\"ok\": True, \"borrow_date\": CONFIG[\"current_date\"], \"due_date\": CONFIG[\"due_date\"]}\n\n    @staticmethod\n    def return_book(username, book_id):\n        \"\"\"Attempts to return book for user.\"\"\"\n        borrowing = Database.get_borrowing(username, book_id)\n        if not borrowing:\n            return {\"ok\": False, \"error\": \"You have not borrowed this book\"}\n        \n        DB.borrowings = [b for b in DB.borrowings if not (b[\"username\"] == username and b[\"book_id\"] == book_id)]\n        book = DB.books.get(book_id)\n        if book:\n            book[\"available_copies\"] += 1\n        \n        return {\"ok\": True}\n\n    @staticmethod\n    def get_borrowed_books(username):\n        \"\"\"Returns list of books currently borrowed by the specified user.\"\"\"\n        books = []\n        for borrowing in DB.borrowings:\n            if borrowing[\"username\"] == username:\n                book = DB.books.get(borrowing[\"book_id\"])\n                if book:\n                    books.append({\n                        \"book_id\": book[\"book_id\"],\n                        \"title\": book[\"title\"],\n                        \"author\": book[\"author\"],\n                        \"borrow_date\": borrowing[\"borrow_date\"],\n                        \"due_date\": borrowing[\"due_date\"]\n                    })\n        return {\"ok\": True, \"books\": books}\n\n\nclass Database:\n    \"\"\"Direct DB-layer access, for verifying what was really stored.\"\"\"\n\n    @staticmethod\n    def get_user(username):\n        \"\"\"Returns user record from database for specified username, or None if user doesn't exist.\"\"\"\n        user = DB.users.get(username)\n        return dict(user) if user else None\n\n    @staticmethod\n    def get_book(book_id):\n        \"\"\"Returns book record from database for specified book_id, or None if book doesn't exist.\"\"\"\n        book = DB.books.get(book_id)\n        return dict(book) if book else None\n\n    @staticmethod\n    def get_all_books():\n        \"\"\"Returns all book records from database.\"\"\"\n        return [dict(book) for book in DB.books.values()]\n\n    @staticmethod\n    def get_borrowing(username, book_id):\n        \"\"\"Returns borrowing record for specified user and book if it exists and is active, or None otherwise.\"\"\"\n        for borrowing in DB.borrowings:\n            if borrowing[\"username\"] == username and borrowing[\"book_id\"] == book_id:\n                return dict(borrowing)\n        return None\n\n    @staticmethod\n    def get_all_borrowings(username):\n        \"\"\"Returns all active borrowing records for specified username.\"\"\"\n        return [dict(b) for b in DB.borrowings if b[\"username\"] == username]\n\n    @staticmethod\n    def count_user_borrowings(username):\n        \"\"\"Returns count of active borrowing records for specified username.\"\"\"\n        return sum(1 for b in DB.borrowings if b[\"username\"] == username)\n\n\ndef setup():\n    \"\"\"Resets the app to initial state.\"\"\"\n    DB.reset()\n    _SESSION.update({\n        \"logged_in_user\": None,\n        \"page\": \"Login\",\n        \"message\": \"\",\n        \"username_field\": \"\",\n        \"password_field\": \"\",\n        \"search_term\": \"\",\n        \"search_results\": [],\n        \"current_book_id\": None\n    })\n\n\ndef teardown(id=None):\n    \"\"\"If id is provided and matches a borrowing record created during test, removes that borrowing and restores book availability.\"\"\"\n    if id is not None:\n        # id would be a borrowing identifier, but since we don't track individual borrowing IDs\n        # in this implementation, we do nothing here. setup() handles full reset.\n        pass\n\n\n# ---------------------------------------------------------------------------\n# TODO: write your automated test(s) below, then call them from __main__.\n# ---------------------------------------------------------------------------\n\n\nif __name__ == \"__main__\":\n    pass\n"
+  }
+ }
+}
