@@ -218,6 +218,7 @@ async function loadAiHealth() {
       <tr><td class="muted">${escapeHtml(c.at)}</td><td>${escapeHtml(c.caller)}</td><td>${escapeHtml(c.outcome)}</td><td>${escapeHtml(c.detail || "")}</td></tr>`).join("");
     box.innerHTML = `
       <p>AI mode: <strong>${escapeHtml(h.mode)}</strong>. ${h.total} AI call${h.total === 1 ? "" : "s"} since the server started. ${counts}</p>
+      ${h.total ? `<p class="muted">Estimated cost of these calls: about $${Number(h.estimated_cost_usd || 0).toFixed(2)}${h.saved_by_cache_usd ? ` - prompt caching saved about $${Number(h.saved_by_cache_usd).toFixed(2)}` : ""}.</p>` : ""}
       ${rows ? `<div class="table-scroll"><table><thead><tr><th>When (UTC)</th><th>Step</th><th>Outcome</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`
              : `<p class="muted">No failed AI calls.</p>`}`;
   } catch (e) {

@@ -15,7 +15,7 @@ THE AUTOMATION ENVIRONMENT (provided, already working - the candidate must reuse
 ---
 {environment_code}
 ---
-
+<<CACHE_BREAK>>
 THE CURRENT CODE (may already include the candidate's own edits):
 ---
 <candidate_code>

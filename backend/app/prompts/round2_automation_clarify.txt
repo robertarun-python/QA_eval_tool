@@ -15,7 +15,7 @@ THE AUTOMATION ENVIRONMENT (provided, already working):
 ---
 {environment_code}
 ---
-
+<<CACHE_BREAK>>
 THE CURRENT CODE:
 ---
 <candidate_code>

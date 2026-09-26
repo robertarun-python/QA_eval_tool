@@ -160,6 +160,10 @@ def _record_call(outcome: str, *, started: float | None = None, max_tokens: int 
         "stop_reason": getattr(message, "stop_reason", None),
         "input_tokens": getattr(usage, "input_tokens", None),
         "output_tokens": getattr(usage, "output_tokens", None),
+        # Prompt caching: input read from the cache (a tenth of the price) and
+        # written to it (a quarter extra) - input_tokens is the rest.
+        "cache_read_tokens": getattr(usage, "cache_read_input_tokens", None),
+        "cache_write_tokens": getattr(usage, "cache_creation_input_tokens", None),
         "detail": detail[:300],
     }
     _CALL_LOG.append(entry)
@@ -235,6 +239,35 @@ def _client_and_timeout(client, budget: int):
     return client.with_options(max_retries=0), min(_timeout_for(budget), remaining)
 
 
+# Prompt caching. A prompt may contain CACHE_BREAK lines: everything before
+# each one is sent as its own block marked cacheable, so a later call that
+# starts with the same text (within ~5 minutes) reads it at a tenth of the
+# input price instead of paying for it again - e.g. the practice app's code
+# on every turn of a candidate's Round 2 conversation, or the design and
+# checklists on every call of a practice-app build. The marker line itself
+# is removed: the model sees exactly the same text either way.
+CACHE_BREAK = "<<CACHE_BREAK>>"
+_MAX_CACHE_BREAKS = 3  # the API allows 4 cache breakpoints; the tool definition may use none
+
+
+def _user_content(prompt: str):
+    """The user message content for a prompt: the plain string, or - when it
+    has CACHE_BREAK lines - text blocks with every one but the last cacheable."""
+    if CACHE_BREAK not in prompt:
+        return prompt
+    parts = prompt.split(CACHE_BREAK)
+    if len(parts) > _MAX_CACHE_BREAKS + 1:  # extra markers just don't get their own breakpoint
+        parts = parts[:_MAX_CACHE_BREAKS] + ["".join(parts[_MAX_CACHE_BREAKS:])]
+    blocks = [{"type": "text", "text": part} for part in parts if part]
+    for block in blocks[:-1]:
+        block["cache_control"] = {"type": "ephemeral"}
+    return blocks
+
+
+def _without_cache_breaks(prompt: str) -> str:
+    return prompt.replace(CACHE_BREAK, "")
+
+
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     """The one place every Claude call goes through. A reply cut off at
     max_tokens (stop_reason "max_tokens") used to be returned as-is and only
@@ -243,7 +276,7 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     limit, and raised as LLMReplyTruncated if it's still cut off."""
     if settings.llm_fake_mode:
         _record_call("fake", max_tokens=max_tokens, detail="fake AI mode - scripted reply")
-        return fake_llm.reply_text(_calling_function(), prompt)
+        return fake_llm.reply_text(_calling_function(), _without_cache_breaks(prompt))
     base_client = _get_client()
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     budget = max_tokens
@@ -255,7 +288,7 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
                 model=settings.claude_model,
                 max_tokens=budget,
                 system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[{"role": "user", "content": _user_content(prompt)}],
                 timeout=timeout,
                 **extra,
             )
@@ -361,7 +394,7 @@ def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict
         try:
             message = client.messages.create(
                 model=settings.claude_model, max_tokens=budget, system=SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": prompt + _TOOL_NOTE}],
+                messages=[{"role": "user", "content": _user_content(prompt + _TOOL_NOTE)}],
                 tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME},
                 timeout=timeout, **extra,
             )
