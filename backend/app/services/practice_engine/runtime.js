@@ -7,6 +7,7 @@ class Refused extends Error {
   constructor(message, page) { super(message); this.message = message; this.page = page || null; }
 }
 
+const UNEXPECTED = "Something went wrong. Please check your input and try again.";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const SYMBOLS = { INR: "₹", USD: "$", EUR: "€", GBP: "£" };
 const pad = (n, w) => String(n).padStart(w, "0");
@@ -15,7 +16,7 @@ const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)
 function num(value) {
   if (typeof value === "boolean") throw new EngineError("expected a number, got true/false");
   if (typeof value === "number") return value;
-  if (typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value.trim())) return Number(value);
+  if (typeof value === "string" && /^[+-]?(\d+\.?\d*|\.\d+)$/.test(value.trim())) return Number(value.trim());
   throw new EngineError(`expected a number, got ${JSON.stringify(value)}`);
 }
 
@@ -35,10 +36,19 @@ function roundHalfUp(value, places) {
   return x < 0 ? -result : result;
 }
 
+// Whole numbers stay whole; others to 10 places (removes binary noise, keeps
+// a rate like 0.00875 exact). Money is rounded to 2 places where stored or shown.
 function clean(value) {
-  if (typeof value === "number" && !Number.isInteger(value)) return roundHalfUp(value, 2);
+  if (typeof value === "number" && !Number.isInteger(value)) return roundHalfUp(value, 10);
   return value;
 }
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function workingDays(start, end) {
+  let count = 0;
+  for (const d = new Date(start.getTime()); d <= end; d.setUTCDate(d.getUTCDate() + 1)) if (d.getUTCDay() % 6 !== 0) count += 1;
+  return count;
+}
+const split = (value, sep) => (value === null || value === undefined ? "" : String(value)).split(sep).map((p) => p.trim()).filter((p) => p);
 
 function toDate(value) {
   if (typeof value === "string" && value.length >= 10) return new Date(Date.UTC(+value.slice(0, 4), +value.slice(5, 7) - 1, +value.slice(8, 10)));
@@ -103,7 +113,7 @@ function compare(a, b) {
 function text(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") return Number.isInteger(clean(value)) ? String(clean(value)) : clean(value).toFixed(2);
+  if (typeof value === "number") { const v = roundHalfUp(clean(value), 2); return Number.isInteger(v) ? String(v) : v.toFixed(2); }
   return String(value);
 }
 const one = (expr) => { const keys = Object.keys(expr); if (keys.length !== 1) throw new EngineError("an expression has exactly one operator"); return [keys[0], expr[keys[0]]]; };
@@ -133,6 +143,7 @@ class Engine {
     this.lastActive = null;
     this.activeFaults = new Set();
     this.outbox = [];
+    this.failedLogins = {}; this.lockedUntil = {};
     this.page = this.users ? this.loginPage() : (this.spec.home_page || (this.spec.pages || ["Home"])[0]);
     this.message = "";
     this.last = {};
@@ -143,7 +154,8 @@ class Engine {
     const kind = ((this.entities[entity] || {}).fields || {})[field] || "string";
     if (value === null || value === undefined) return null;
     if (kind === "int") return Math.trunc(num(value));
-    if (kind === "number" || kind === "money") return clean(num(value));
+    if (kind === "money") return roundHalfUp(clean(num(value)), 2);
+    if (kind === "number") return clean(num(value));
     if (kind === "bool") return Boolean(value);
     return value;
   }
@@ -177,6 +189,16 @@ class Engine {
       case "add_days": { const d = toDate(this.ev(arg[0], ctx)); d.setUTCDate(d.getUTCDate() + Math.trunc(num(this.ev(arg[1], ctx)))); return isoDate(d); }
       case "add_months": return isoDate(addMonths(toDate(this.ev(arg[0], ctx)), num(this.ev(arg[1], ctx))));
       case "days_between": return Math.round((toDate(this.ev(arg[1], ctx)) - toDate(this.ev(arg[0], ctx))) / 86400000);
+      case "add_minutes": return isoDateTime(new Date(toDateTime(this.ev(arg[0], ctx)).getTime() + Math.trunc(num(this.ev(arg[1], ctx))) * 60000));
+      case "minutes_between": return Math.floor((toDateTime(this.ev(arg[1], ctx)) - toDateTime(this.ev(arg[0], ctx))) / 60000);
+      case "time": return isoDateTime(toDateTime(this.ev(arg, ctx))).slice(11, 16);
+      case "weekday": return WEEKDAYS[(toDate(this.ev(arg, ctx)).getUTCDay() + 6) % 7];
+      case "working_days": return workingDays(toDate(this.ev(arg[0], ctx)), toDate(this.ev(arg[1], ctx)));
+      case "split": return split(this.ev(arg[0], ctx), arg.length > 1 ? arg[1] : ",");
+      case "occurrences": {
+        const items = this.ev(arg[0], ctx) || [], value = this.ev(arg[1], ctx);
+        return items.filter((i) => same(i, value) || (typeof i === "string" && typeof value === "string" && i.toLowerCase() === value.toLowerCase())).length;
+      }
       case "minutes_since": { const then = this.ev(arg, ctx); return then === null ? null : Math.floor((this.clock - toDateTime(then)) / 60000); }
       case "count": case "sum": case "exists": {
         const rows = this.rows(arg.entity, arg.where, ctx);
@@ -249,7 +271,23 @@ class Engine {
     if (password === null || password === undefined || String(password) === "") throw new Refused(msgs.required_password);
     const field = this.users.login_field || "email";
     const match = this.store[this.users.entity].find((u) => String(u[field] === undefined ? "" : u[field]).toLowerCase() === String(login).trim().toLowerCase());
-    if (!match || String(match[this.users.password_field || "password"]) !== String(password)) throw new Refused(msgs.invalid);
+    const lockout = this.users.lockout, who = String(login).trim().toLowerCase();
+    if (match && lockout && who in this.lockedUntil) {
+      const until = this.lockedUntil[who];
+      if (until === true || this.clock < until) throw new Refused(lockout.message);
+    }
+    if (!match || String(match[this.users.password_field || "password"]) !== String(password)) {
+      if (match && lockout) {
+        this.failedLogins[who] = (this.failedLogins[who] || 0) + 1;
+        if (this.failedLogins[who] >= lockout.attempts) {
+          this.failedLogins[who] = 0;
+          this.lockedUntil[who] = lockout.minutes ? new Date(this.clock.getTime() + lockout.minutes * 60000) : true;
+          throw new Refused(lockout.message);
+        }
+      }
+      throw new Refused(msgs.invalid);
+    }
+    delete this.failedLogins[who];
     if (this.users.blocked_when && this.cond(this.users.blocked_when, { inputs: {}, aliases: { user: match } })) throw new Refused(msgs.blocked);
     this.user = match;
     this.lastActive = new Date(this.clock.getTime());
@@ -283,10 +321,18 @@ class Engine {
   }
   findByKey(entity, key) {
     const k = this.key(entity);
-    return this.store[entity].find((r) => same(r[k], key) || String(r[k]).toLowerCase() === String(key).toLowerCase()) || null;
+    const wanted = String(key).trim().toLowerCase();
+    return this.store[entity].find((r) => same(r[k], key) || String(r[k]).trim().toLowerCase() === wanted) || null;
   }
 
+  // An unexpected problem is refused like any error message a real application shows.
   runAction(name, inputs) {
+    try { return this.runActionCore(name, inputs); } catch (e) { if (e instanceof Refused) throw e; throw new Refused(UNEXPECTED); }
+  }
+  runQuery(name, inputs) {
+    try { return this.runQueryCore(name, inputs); } catch (e) { if (e instanceof Refused) throw e; throw new Refused(UNEXPECTED); }
+  }
+  runActionCore(name, inputs) {
     const action = this.actions[name];
     for (const f of this.activeFaults) {
       const fault = this.faults[f];
@@ -300,17 +346,8 @@ class Engine {
       if (!record) throw new Refused(load.missing);
       ctx.aliases[load.as] = record;
     }
-    for (const rule of action.rules || []) {
-      if ("unless" in rule && !this.cond(rule.unless, ctx)) throw new Refused(text(this.ev(rule.message, ctx)));
-      if ("when" in rule && this.cond(rule.when, ctx)) throw new Refused(text(this.ev(rule.message, ctx)));
-    }
-    const saved = [clone(this.store), clone(this.session), clone(this.outbox), clone(this.counters), new Set(this.created), this.user];
-    try {
-      for (const effect of action.effects || []) this.apply(effect, ctx);
-    } catch (e) {
-      [this.store, this.session, this.outbox, this.counters, this.created, this.user] = saved;
-      throw e;
-    }
+    this.checkRules(action.rules || [], ctx);
+    this.transaction(action.effects || [], ctx);
     const message = action.message !== undefined && action.message !== null ? text(this.ev(action.message, ctx)) : "";
     const returns = {};
     for (const k of Object.keys(action.returns || {})) returns[k] = this.ev(action.returns[k], ctx);
@@ -320,8 +357,51 @@ class Engine {
     for (const [e, rows] of Object.entries(this.store)) if (rows.includes(record)) return e;
     return null;
   }
+  items(source, ctx) {
+    if ("entity" in source) return this.rows(source.entity, source.where, ctx).slice();
+    return (this.ev(source.list, ctx) || []).map((v) => ({ value: v }));
+  }
+  checkRules(rules, ctx) {
+    for (const rule of rules) {
+      if (rule.for_each) {
+        const each = rule.for_each, inner = Object.assign({}, rule);
+        delete inner.for_each;
+        for (const item of this.items(each, ctx)) this.checkRules([inner], { inputs: ctx.inputs, aliases: Object.assign({}, ctx.aliases, { [each.as]: item }) });
+        continue;
+      }
+      const refused = ("unless" in rule && !this.cond(rule.unless, ctx)) || ("when" in rule && this.cond(rule.when, ctx));
+      if (refused) {
+        if (rule.then && rule.then.length) this.transaction(rule.then, ctx);
+        throw new Refused(text(this.ev(rule.message, ctx)));
+      }
+    }
+  }
+  transaction(effects, ctx) {
+    const field = (this.users && this.users.login_field) || "email";
+    const who = this.user === null ? null : this.user[field];
+    const saved = [clone(this.store), clone(this.session), clone(this.outbox), clone(this.counters), new Set(this.created)];
+    try {
+      for (const effect of effects) this.apply(effect, ctx);
+    } catch (e) {
+      [this.store, this.session, this.outbox, this.counters, this.created] = saved;
+      this.user = who === null ? null : (this.store[this.users.entity].find((u) => u[field] === who) || null);
+      throw e;
+    }
+  }
   apply(effect, ctx) {
     const [op, arg] = one(effect);
+    if (op === "if") {
+      const branch = this.cond(arg[0], ctx) ? arg[1] : (arg.length > 2 ? arg[2] : []);
+      for (const inner of branch) this.apply(inner, ctx);
+      return;
+    }
+    if (op === "for_each") {
+      for (const item of this.items(arg, ctx)) {
+        const inner = { inputs: ctx.inputs, aliases: Object.assign({}, ctx.aliases, { [arg.as]: item }) };
+        for (const e of arg.effects) this.apply(e, inner);
+      }
+      return;
+    }
     if (op === "set") {
       const record = ctx.aliases[arg.record];
       const entity = this.entityOf(record);
@@ -357,16 +437,17 @@ class Engine {
   }
   static makeId(fmt, n) { return fmt.replace(/\{n(?::0?(\d+))?\}/g, (m, w) => String(n).padStart(Number(w || 0), "0")); }
 
-  runQuery(name, inputs) {
+  runQueryCore(name, inputs) {
     const query = this.queries[name];
     if (query.requires_login !== undefined ? query.requires_login : !!this.users) this.checkSession();
     this.checkInputs(query.inputs || [], inputs);
     const ctx = { inputs, aliases: {} };
+    this.checkRules(query.rules || [], ctx);
     const entity = query.entity;
     if (query.key_input) {
       const record = this.findByKey(entity, inputs[query.key_input]);
       if (!record || (query.where && !this.cond(query.where, { inputs, aliases: { row: record } }))) throw new Refused(query.missing || "Not found");
-      return [Engine.show(query, record), null];
+      return [this.show(query, record, ctx), null];
     }
     const match = query.match;
     let rows = this.rows(entity, query.where, ctx);
@@ -399,13 +480,18 @@ class Engine {
         return c !== 0 ? c : x[1] - y[1];
       }).map((p) => p[0]);
     }
-    const shown = rows.map((r) => Engine.show(query, r));
+    const shown = rows.map((r) => this.show(query, r, ctx));
     return [shown, shown.length === 0 ? (query.none_message === undefined ? null : query.none_message) : null];
   }
-  static show(query, record) {
+  show(query, record, ctx) {
     if (!query.show) return clone(record);
+    const aliases = Object.assign({}, ctx.aliases, { row: record });
+    if (query.as) aliases[query.as] = record;
     const out = {};
-    for (const f of query.show) out[f] = record[f] === undefined ? null : clone(record[f]);
+    for (const f of query.show) {
+      if (isPlain(f)) out[f.name] = this.ev(f.value, { inputs: ctx.inputs, aliases });
+      else out[f] = record[f] === undefined ? null : clone(record[f]);
+    }
     return out;
   }
 
@@ -477,7 +563,10 @@ class Engine {
   dbFind(entity, field, value) { return this.store[entity].filter((r) => same(r[field], value)).map(clone); }
   dbCount(entity, field, value) { return field === null || field === undefined ? this.store[entity].length : this.dbFind(entity, field, value).length; }
   dbAll(entity) { return clone(this.store[entity]); }
-  advanceMinutes(minutes) { this.clock = new Date(this.clock.getTime() + Math.trunc(num(minutes)) * 60000); return isoDateTime(this.clock); }
+  advanceMinutes(minutes) {
+    if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0 || minutes > 5256000) throw new EngineError("Test.advance_minutes needs a whole number of minutes from 0 to 5256000 (10 years)");
+    this.clock = new Date(this.clock.getTime() + minutes * 60000); return isoDateTime(this.clock);
+  }
   simulate(fault) {
     if (!(fault in this.faults)) throw new EngineError(`unknown failure ${fault} - see the list at the top of this file`);
     this.activeFaults.add(fault); return true;

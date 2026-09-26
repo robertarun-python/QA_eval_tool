@@ -57,7 +57,7 @@ def helpers(spec: dict) -> list[dict]:
     for q in spec.get("queries") or []:
         params = query_params(q)
         doc = q.get("description") or q.get("label") or q["name"].replace("_", " ")
-        shown = ", ".join(q.get("show") or []) or "every field"
+        shown = ", ".join(f["name"] if isinstance(f, dict) else f for f in q.get("show") or []) or "every field"
         what = f"the {q['entity']} record" if q.get("key_input") else f"the list of {q['entity']} records"
         where = f" (on the {q['page']} page)" if q.get("page") else ""
         out.append({"call": f"UI.{snake(q['name'])}", "params": params, "doc": f"{doc}{where}. Returns {what} shown ({shown})."})

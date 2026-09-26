@@ -159,14 +159,19 @@ CALC = {
         "text": {"format": ["{a} and {b}", {"a": {"div": [10, 4]}, "b": 3}]}, "concat": {"concat": ["x", 2.5, True, None]},
         "upper": {"upper": {"input": "text"}}, "length": {"length": {"input": "text"}},
         "trim": {"trim": "  a b  "}, "ordered": {"lt": ["apple", "banana"]}, "digits": {"matches": ["١٢", "\\d+"]},
-        "word": {"matches": [{"input": "text"}, "\\w+"]}, "upper_zero": {"upper": 0}, "lower_money": {"lower": 2.5}, "len_money": {"length": 2.5}, "len_none": {"length": None}, "trim_none": {"trim": None}}}],
+        "word": {"matches": [{"input": "text"}, "\\w+"]}, "upper_zero": {"upper": 0}, "lower_money": {"lower": 2.5}, "len_money": {"length": 2.5}, "len_none": {"length": None}, "trim_none": {"trim": None},
+        "monthly_rate": {"div": [{"div": [10.5, 12]}, 100]}, "emi_factor": {"round": [{"mul": [100000, {"div": [10.5, 1200]}]}, 2]},
+        "money_text": {"format": ["{m}", {"m": 1234.855}]}, "weekday": {"weekday": "2024-03-16"}, "working": {"working_days": ["2024-03-15", "2024-03-18"]},
+        "time": {"time": "2024-03-15T16:05"}, "between_min": {"minutes_between": ["2024-03-15T10:00", "2024-03-17T09:30"]},
+        "seats": {"split": [" A1, A2 ,,A3 ", ","]}, "dupes": {"occurrences": [{"split": ["A1,a1,B2", ","]}, "A1"]}}}],
 }
 CALC_EXPECT = {
-    "ok": True, "round_2675": 2.68, "round_1005": 1.01, "round_0": 3, "tenth_times_3": 0.3, "ten_by_4": 2.5, "sum": 1234.86,
+    "ok": True, "round_2675": 2.68, "round_1005": 1.01, "round_0": 3, "tenth_times_3": 0.3, "ten_by_4": 2.5, "sum": 1234.855,
     "inr": "₹12,34,567.50", "usd": "$1,234,567.50", "neg": "-₹50.00", "small": "₹999.00", "gbp": "£0.01",
     "leap": "29-Feb-2024", "us": "02/09/2024", "month_end": "2024-02-29", "year_end": "2025-01-01", "between": 60, "today": "2024-02-10",
     "text": "2.50 and 3", "concat": "x2.50true", "upper": "STRASSE\U0001F600", "length": 7, "trim": "a b", "ordered": True,
-    "digits": False, "word": False, "upper_zero": "0", "lower_money": "2.50", "len_money": 4, "len_none": 0, "trim_none": "",
+    "digits": False, "word": False, "upper_zero": "0", "lower_money": "2.50", "len_money": 4, "len_none": 0, "trim_none": "", "monthly_rate": 0.00875, "emi_factor": 875, "money_text": "1234.86", "weekday": "Sat", "working": 2,
+    "time": "16:05", "between_min": 2850, "seats": ["A1", "A2", "A3"], "dupes": 2,
 }
 
 

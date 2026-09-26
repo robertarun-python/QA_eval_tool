@@ -16,6 +16,7 @@ class EngineError(Exception):
     should have caught it) - never a candidate's mistake."""
 
 
+UNEXPECTED = "Something went wrong. Please check your input and try again."
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 _SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£"}
 
@@ -25,26 +26,27 @@ def _num(value):
         raise EngineError("expected a number, got true/false")
     if isinstance(value, (int, float)):
         return value
-    if isinstance(value, str):
-        try:
-            return float(value) if "." in value else int(value)
-        except ValueError:
-            pass
+    if isinstance(value, str) and re.fullmatch(r"[+-]?(\d+\.?\d*|\.\d+)", value.strip(), re.ASCII):
+        return float(value) if "." in value else int(value)
     raise EngineError(f"expected a number, got {value!r}")
 
 
 def _clean(value):
-    """Numbers as the engine returns them: whole numbers as int, others rounded to 2 places."""
+    """Numbers as the engine returns them: whole numbers as int, others to 10
+    places (which removes binary noise such as 0.1 x 3 = 0.30000000000000004
+    but keeps a monthly rate like 10.5 / 12 / 100 = 0.00875 exact). Money is
+    rounded to 2 places only where it is stored, shown, or rounded on purpose."""
     if isinstance(value, float):
         if value == int(value) and abs(value) < 1e15:
             return int(value)
-        return float(Decimal(repr(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        value = float(Decimal(repr(value)).quantize(Decimal("1e-10"), rounding=ROUND_HALF_UP))
+        return int(value) if value == int(value) else value
     return value
 
 
 def _round(value, places=2):
     q = Decimal(1).scaleb(-int(places))
-    return _clean(float(Decimal(repr(_num(value))).quantize(q, rounding=ROUND_HALF_UP)))
+    return _clean(float(Decimal(repr(_clean(float(_num(value))))).quantize(q, rounding=ROUND_HALF_UP)))
 
 
 def _to_date(value):
@@ -76,6 +78,22 @@ def _add_months(d, n):
     month = month % 12 + 1
     last = [31, 29 if (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1]
     return date(year, month, min(d.day, last))
+
+
+_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _working_days(start, end):
+    """Monday-Friday dates from start to end, both included (0 if end is before start)."""
+    d, count = start, 0
+    while d <= end:
+        count += d.weekday() < 5
+        d += timedelta(days=1)
+    return count
+
+
+def _split(text, sep):
+    return [part.strip() for part in ("" if text is None else str(text)).split(sep) if part.strip()]
 
 
 def _format_date(value, fmt):
@@ -171,6 +189,7 @@ class Engine:
         self.last_active = None
         self.active_faults = set()
         self.outbox = []
+        self.failed_logins, self.locked_until = {}, {}
         self.page = self._login_page() if self.users else (self.spec.get("home_page") or (self.spec.get("pages") or ["Home"])[0])
         self.message = ""
         self.last = {}
@@ -181,6 +200,12 @@ class Engine:
     def _key(self, entity):
         return self.entities[entity].get("key", "id")
 
+    def _by_key(self, entity, key):
+        """The record a user means by this key: case and stray spaces ignored."""
+        wanted = str(key).strip().lower()
+        return next((r for r in self.store[entity] if _same(r.get(self._key(entity)), key)
+                     or str(r.get(self._key(entity))).strip().lower() == wanted), None)
+
     def _field_type(self, entity, field):
         return (self.entities[entity].get("fields") or {}).get(field, "string")
 
@@ -190,7 +215,9 @@ class Engine:
             return None
         if kind in ("int",):
             return int(_num(value))
-        if kind in ("number", "money"):
+        if kind == "money":
+            return _round(value, 2)
+        if kind == "number":
             return _clean(float(_num(value)))
         if kind == "bool":
             return bool(value)
@@ -236,6 +263,22 @@ class Engine:
             return _iso_date(_add_months(_to_date(ev(arg[0], ctx)), _num(ev(arg[1], ctx))))
         if op == "days_between":
             return (_to_date(ev(arg[1], ctx)) - _to_date(ev(arg[0], ctx))).days
+        if op == "add_minutes":
+            return _iso_datetime(_to_datetime(ev(arg[0], ctx)) + timedelta(minutes=int(_num(ev(arg[1], ctx)))))
+        if op == "minutes_between":
+            a, b = _to_datetime(ev(arg[0], ctx)), _to_datetime(ev(arg[1], ctx))
+            return int((b - a).total_seconds() // 60)
+        if op == "time":
+            return _iso_datetime(_to_datetime(ev(arg, ctx)))[11:16]
+        if op == "weekday":
+            return _WEEKDAYS[_to_date(ev(arg, ctx)).weekday()]
+        if op == "working_days":
+            return _working_days(_to_date(ev(arg[0], ctx)), _to_date(ev(arg[1], ctx)))
+        if op == "split":
+            return _split(ev(arg[0], ctx), arg[1] if len(arg) > 1 else ",")
+        if op == "occurrences":
+            items, value = ev(arg[0], ctx), ev(arg[1], ctx)
+            return sum(1 for i in items or [] if _same(i, value) or (isinstance(i, str) and isinstance(value, str) and i.lower() == value.lower()))
         if op == "minutes_since":
             then = ev(arg, ctx)
             return None if then is None else int((self.clock - _to_datetime(then)).total_seconds() // 60)
@@ -309,7 +352,7 @@ class Engine:
         if isinstance(value, bool):
             return "true" if value else "false"
         if isinstance(value, float):
-            value = _clean(value)
+            value = _round(value, 2)
             return f"{value:.2f}" if isinstance(value, float) else str(value)
         return str(value)
 
@@ -353,8 +396,21 @@ class Engine:
         entity = self.users["entity"]
         field = self.users.get("login_field", "email")
         match = next((u for u in self.store[entity] if str(u.get(field, "")).lower() == str(login).strip().lower()), None)
+        lockout, who = self.users.get("lockout"), str(login).strip().lower()
+        if match is not None and lockout:
+            until = self.locked_until.get(who)
+            if until is not None and (until is True or self.clock < until):
+                raise _Refused(lockout["message"])
         if match is None or str(match.get(self.users.get("password_field", "password"))) != str(password):
+            if match is not None and lockout:
+                self.failed_logins[who] = self.failed_logins.get(who, 0) + 1
+                if self.failed_logins[who] >= lockout["attempts"]:
+                    self.failed_logins[who] = 0
+                    minutes = lockout.get("minutes")
+                    self.locked_until[who] = self.clock + timedelta(minutes=minutes) if minutes else True
+                    raise _Refused(lockout["message"])
             raise _Refused(msgs["invalid"])
+        self.failed_logins.pop(who, None)
         if self.users.get("blocked_when") is not None and self.cond(self.users["blocked_when"], {"inputs": {}, "aliases": {"user": match}}):
             raise _Refused(msgs["blocked"])
         self.user = match
@@ -410,6 +466,25 @@ class Engine:
 
     # ---- actions ------------------------------------------------------------------------------
     def run_action(self, name, inputs):
+        """An unexpected problem (e.g. text where a number is needed and the
+        description has no check for it) is refused like any error message a
+        real application shows - never a crash in the candidate's test."""
+        try:
+            return self._run_action(name, inputs)
+        except _Refused:
+            raise
+        except Exception:
+            raise _Refused(UNEXPECTED)
+
+    def run_query(self, name, inputs):
+        try:
+            return self._run_query(name, inputs)
+        except _Refused:
+            raise
+        except Exception:
+            raise _Refused(UNEXPECTED)
+
+    def _run_action(self, name, inputs):
         action = self.actions[name]
         for fault_name in self.active_faults:
             fault = self.faults[fault_name]
@@ -420,30 +495,66 @@ class Engine:
         self._check_inputs(action.get("inputs") or [], inputs)
         ctx = {"inputs": inputs, "aliases": {}}
         for load in action.get("load") or []:
-            key = self.ev(load["key"], ctx)
-            record = next((r for r in self.store[load["entity"]] if _same(r.get(self._key(load["entity"])), key)
-                           or str(r.get(self._key(load["entity"]))).lower() == str(key).lower()), None)
+            record = self._by_key(load["entity"], self.ev(load["key"], ctx))
             if record is None:
                 raise _Refused(load["missing"])
             ctx["aliases"][load["as"]] = record
-        for rule in action.get("rules") or []:
-            if "unless" in rule and not self.cond(rule["unless"], ctx):
-                raise _Refused(self._text(self.ev(rule["message"], ctx)))
-            if "when" in rule and self.cond(rule["when"], ctx):
-                raise _Refused(self._text(self.ev(rule["message"], ctx)))
-        saved = (copy.deepcopy(self.store), dict(self.session), list(self.outbox), dict(self.counters), set(self.created), self.user)
-        try:
-            for effect in action.get("effects") or []:
-                self._apply(effect, ctx)
-        except Exception:
-            self.store, self.session, self.outbox, self.counters, self.created, self.user = saved
-            raise
+        self._check_rules(action.get("rules") or [], ctx)
+        self._transaction(action.get("effects") or [], ctx)
         message = self._text(self.ev(action["message"], ctx)) if action.get("message") is not None else ""
         returns = {k: self.ev(v, ctx) for k, v in (action.get("returns") or {}).items()}
         return message, returns, action.get("next_page")
 
+    def _items(self, source, ctx):
+        """What a for_each goes through: records of an entity (matching "where"),
+        or the values of a list, each as a record {"value": item}."""
+        if "entity" in source:
+            return list(self._rows(source["entity"], source.get("where"), ctx))
+        return [{"value": v} for v in self.ev(source["list"], ctx) or []]
+
+    def _check_rules(self, rules, ctx):
+        """In order; the first that fails refuses. A rule's "then" effects are
+        kept even though it refuses (e.g. counting a wrong PIN)."""
+        for rule in rules:
+            if "for_each" in rule:
+                each = rule["for_each"]
+                for item in self._items(each, ctx):
+                    self._check_rules([{k: v for k, v in rule.items() if k != "for_each"}],
+                                      dict(ctx, aliases=dict(ctx["aliases"], **{each["as"]: item})))
+                continue
+            refused = ("unless" in rule and not self.cond(rule["unless"], ctx)) or ("when" in rule and self.cond(rule["when"], ctx))
+            if refused:
+                if rule.get("then"):
+                    self._transaction(rule["then"], ctx)
+                raise _Refused(self._text(self.ev(rule["message"], ctx)))
+
+    def _transaction(self, effects, ctx):
+        """All the effects, or - if one fails - none of them."""
+        field = self.users.get("login_field", "email")
+        who = None if self.user is None else self.user.get(field)
+        saved = (copy.deepcopy(self.store), copy.deepcopy(self.session), copy.deepcopy(self.outbox), dict(self.counters), set(self.created))
+        try:
+            for effect in effects:
+                self._apply(effect, ctx)
+        except Exception:
+            self.store, self.session, self.outbox, self.counters, self.created = saved
+            # signed in as before, as the restored copy of their record
+            self.user = None if who is None else next((u for u in self.store[self.users["entity"]] if u.get(field) == who), None)
+            raise
+
     def _apply(self, effect, ctx):
         (op, arg), = effect.items()
+        if op == "if":
+            branch = arg[1] if self.cond(arg[0], ctx) else (arg[2] if len(arg) > 2 else [])
+            for inner in branch:
+                self._apply(inner, ctx)
+            return
+        if op == "for_each":
+            for item in self._items(arg, ctx):
+                inner_ctx = dict(ctx, aliases=dict(ctx["aliases"], **{arg["as"]: item}))
+                for inner in arg["effects"]:
+                    self._apply(inner, inner_ctx)
+            return
         if op == "set":
             record = ctx["aliases"][arg["record"]]
             entity = next((e for e, rows in self.store.items() if any(r is record for r in rows)), None)
@@ -486,20 +597,19 @@ class Engine:
         return re.sub(r"\{n(?::0?(\d+))?\}", lambda m: str(n).zfill(int(m.group(1) or 0)), fmt)
 
     # ---- queries ------------------------------------------------------------------------------
-    def run_query(self, name, inputs):
+    def _run_query(self, name, inputs):
         query = self.queries[name]
         if query.get("requires_login", bool(self.users)):
             self._check_session()
         self._check_inputs(query.get("inputs") or [], inputs)
         ctx = {"inputs": inputs, "aliases": {}}
+        self._check_rules(query.get("rules") or [], ctx)
         entity = query["entity"]
         if query.get("key_input"):
-            key = inputs.get(query["key_input"])
-            record = next((r for r in self.store[entity] if _same(r.get(self._key(entity)), key)
-                           or str(r.get(self._key(entity))).lower() == str(key).lower()), None)
+            record = self._by_key(entity, inputs.get(query["key_input"]))
             if record is None or (query.get("where") is not None and not self.cond(query["where"], dict(ctx, aliases={"row": record}))):
                 raise _Refused(query.get("missing", "Not found"))
-            return self._show(query, record), None
+            return self._show(query, record, ctx), None
         match = query.get("match")
         rows = self._rows(entity, query.get("where"), ctx)
         if match:
@@ -529,13 +639,18 @@ class Engine:
         for order in reversed(query.get("order_by") or []):
             rows = sorted(rows, key=lambda r: (r.get(order["field"]) is None, r.get(order["field"]) if r.get(order["field"]) is not None else 0),
                           reverse=bool(order.get("desc")))
-        shown = [self._show(query, r) for r in rows]
+        shown = [self._show(query, r, ctx) for r in rows]
         return shown, (query.get("none_message") if not shown else None)
 
-    @staticmethod
-    def _show(query, record):
+    def _show(self, query, record, ctx):
+        """The fields shown for a record; a shown item can also be computed:
+        {"name": "grade", "value": <expression on row.<field>>}."""
         fields = query.get("show")
-        return {f: record.get(f) for f in fields} if fields else dict(record)
+        if not fields:
+            return copy.deepcopy(record)
+        inner = dict(ctx, aliases=dict(ctx["aliases"], row=record, **({query["as"]: record} if query.get("as") else {})))
+        return {f["name"] if isinstance(f, dict) else f: self.ev(f["value"], inner) if isinstance(f, dict) else copy.deepcopy(record.get(f))
+                for f in fields}
 
     # ---- the layers candidates call -------------------------------------------------------------
     def ui_open(self, page):
@@ -641,7 +756,9 @@ class Engine:
         return copy.deepcopy(self.store[entity])
 
     def advance_minutes(self, minutes):
-        self.clock += timedelta(minutes=int(_num(minutes)))
+        if isinstance(minutes, bool) or not isinstance(minutes, int) or not 0 <= minutes <= 5256000:
+            raise EngineError("Test.advance_minutes needs a whole number of minutes from 0 to 5256000 (10 years)")
+        self.clock += timedelta(minutes=minutes)
         return _iso_datetime(self.clock)
 
     def simulate(self, fault):

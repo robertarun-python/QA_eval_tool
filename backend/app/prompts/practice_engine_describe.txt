@@ -25,7 +25,7 @@ users: {"entity": "Member", "login_field": "email", "password_field": "password"
         "blocked_when": <condition on "user.<field>">, "page": "Login",
         "messages": {"required_login", "required_password", "invalid", "blocked", "expired", "need_login"}}
 - The login page is where the app starts; a successful login goes to home_page. Login matches login_field case-insensitively; the password exactly. With users, every query and action needs a signed-in user unless it says "requires_login": false. A session idle longer than session_minutes expires (0 or omitted = never).
-- For a lockout after N failed attempts, or anything else login doesn't cover, write an action (e.g. with a failed_attempts field) and say so in not_supported only if it truly can't be done.
+- Account lockout after wrong passwords: "lockout": {"attempts": 3, "minutes": 15, "message": "..."} (omit minutes = locked until reset). The attempt that reaches the limit already shows the lock message; while locked even the right password is refused with it; a successful login resets the count. Login fields can be anything (roll number + date of birth, mobile + password).
 
 pages: every page name exactly as UI.current_page() returns it (include the login page).
 
@@ -35,6 +35,8 @@ queries (read-only - search, lists, details):
  "inputs": [extra inputs, with checks like actions], "where": <condition on row.<field>>, "order_by": [{"field": "title", "desc": false}],
  "show": [fields returned for each record], "none_message": "<message when nothing matches>", "next_page": "<page>"}
 - Matching is always case-insensitive and ignores surrounding spaces. One record by key instead of a search: "key_input": "book_id", "missing": "<message>" (no match).
+- Query "rules" (same form as action rules) refuse the lookup: roles ("Only admins can ..."), "Results are not published yet".
+- Calculated columns: a "show" item can be {"name": "grade", "value": <expression on row.<field>>}; give the query "as": "<name>" to refer to its record inside a count/sum/exists (where "row" is that entity's row).
 - UI.<query> works only on its "page" (else the visible message is "<label> is not available on this page"); omit "page" for a query usable anywhere.
 
 actions (anything that changes data or state), run in this order - the first refusal stops it and NOTHING changes:
@@ -46,14 +48,18 @@ actions (anything that changes data or state), run in this order - the first ref
 - Input check rules: required, min_length, max_length, pattern (full match), min, max, number, one_of (list), date, not_past, not_future. Checks other than required skip an empty value. Order the checks as the test cases expect the messages.
 - Input names are the helper's parameters, in order: lower_snake_case, never a word like class, new, default, return, number, string.
 - Effects: {"set": {"record": "<alias>", "field": "...", "value": <expression>}}, {"create": {"entity": "...", "as": "<alias>", "values": {...}}} (the key is filled from id_format), {"delete": {"record": "<alias>"}}, {"set_session": {"key": "...", "value": <expression>}}, {"clear_session": "<key>"}, {"send": {"channel": "email"|"sms"|"alert", "to": ..., "subject": ..., "body": ...}}, {"logout": true}.
+- Rules: {"unless" | "when": <condition>, "message": ..., "then": [effects]} - "then" effects are KEPT even though the rule refuses (count a wrong PIN, lock after 3). {"for_each": {"list": <list>} | {"entity": "...", "where": ...}, "as": "s", ...} checks the rule for each item and refuses on the first failing one (list items are {"field": "s.value"}).
+- More effects: {"if": [condition, [effects], [effects if not]]}; {"for_each": {"entity": "...", "where": ..., "as": "r", "effects": [...]}} (e.g. every cart line at checkout: reduce stock, create order lines, delete the line); for_each over {"list": ...} for values.
+- Several values typed as one text (seats "A1,A2"): {"split": [text, ","]} gives the trimmed list; {"length": list}; {"occurrences": [list, value]} finds duplicates; {"in": [{"field": "row.code"}, <list>]} selects matching records.
 - Multi-step flows (OTP, confirm, cancel, payment steps) are separate actions sharing state through set_session / {"session": key} and the clock: e.g. send_otp sets session otp="123456" and otp_sent_at={"now": true}; verify_otp refuses when {"gt": [{"minutes_since": {"session": "otp_sent_at"}}, 5]}. Use fixed values (a fixed OTP), never randomness.
 
 Expressions (values): literal JSON; {"input": "name"}; {"field": "alias.field"} (aliases: records loaded or created by this action; "row" inside a where; "user" in blocked_when); {"user": "field"} (signed-in user's record); {"session": "key"}; {"today": true}; {"now": true};
 {"add"|"sub"|"mul"|"div": [a, b]}; {"round": [value, places]} (half-up); {"add_days": [date, n]}; {"add_months": [date, n]}; {"days_between": [from, to]}; {"minutes_since": datetime};
+{"add_minutes": [datetime, n]}; {"minutes_between": [from, to]}; {"time": datetime} ("HH:MM", e.g. opening hours); {"weekday": date} ("Mon".."Sun"); {"working_days": [from, to]} (Mon-Fri, both ends included);
 {"count"|"sum"|"exists": {"entity": "...", "where": <condition on row.field>, "field": "<for sum>"}}; {"if": [condition, then, else]};
 {"format": ["Text with {name}", {"name": <expression>}]}; {"format_date": [date, "DD-Mon-YYYY"|"DD-MM-YYYY"|"DD/MM/YYYY"|"MM/DD/YYYY"|"YYYY-MM-DD"|"DD Mon YYYY"]}; {"format_money": [amount, "INR"|"USD"|"EUR"|"GBP"]} (INR: ₹1,21,200.00); {"upper"|"lower"|"trim"|"length": value}; {"concat": [values]}.
 Conditions: {"eq"|"ne"|"lt"|"le"|"gt"|"ge": [a, b]}, {"and": [...]}, {"or": [...]}, {"not": c}, {"empty": value}, {"matches": [value, "regex"]}, {"in": [value, [list]]}, {"exists": {...}}.
-- Numbers show in text with 2 decimals ("2.50"); whole numbers stay whole. Regex: plain classes, groups, | and counts only - no look-behind, named groups, flags or back-references.
+- Maths is exact (a monthly rate 10.5/12/100 = 0.00875); money fields are stored rounded half-up to 2 places, and {"round": [value, 2]} rounds on purpose. Numbers show in text with 2 decimals ("2.50"); whole numbers stay whole. Dates/datetimes compare as text ("2024-03-15T16:30" > "2024-03-15"). Regex: plain classes, groups, | and counts only - no look-behind, named groups, flags or back-references.
 
 faults (simulated failures a test switches on with Test.simulate("<name>")): {"name": "network_down", "applies_to": ["<action>", ...], "message": "..."}. While on, those actions refuse with the message and change nothing. Add one when a test case covers a failure (network, timeout, service down, payment declined by the bank).
 

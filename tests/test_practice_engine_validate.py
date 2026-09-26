@@ -63,7 +63,7 @@ BROKEN = {
     "format placeholder": (lambda s: _action(s, "borrow_book").update(message={"format": ["Due {due}", {}]}), "placeholder {due} has no value"),
     "date format": (lambda s: _action(s, "borrow_book").update(message={"format_date": [{"today": True}, "dd/mm/yy"]}), "format_date needs"),
     "set unknown record": (lambda s: _action(s, "borrow_book")["effects"].append({"set": {"record": "member", "field": "status", "value": "x"}}),
-                           "set needs a record loaded earlier"),
+                           "set needs a stored record loaded earlier"),
     "fault on unknown action": (lambda s: s["faults"][0].update(applies_to=["pay_bill"]), "applies_to 'pay_bill'"),
     "users field": (lambda s: s["users"].update(login_field="username"), "login_field 'username'"),
     "query show field": (lambda s: _query(s, "search_books").update(show=["id", "colour"]), "show field 'colour'"),

@@ -1,0 +1,470 @@
+{
+ "app_name": "UPI Payments",
+ "base_url": "https://upi.example.test",
+ "now": "2024-03-15T10:00",
+ "pages": [
+  "Login",
+  "Home",
+  "Send Money",
+  "History"
+ ],
+ "home_page": "Home",
+ "entities": {
+  "Account": {
+   "key": "mobile",
+   "fields": {
+    "mobile": "string",
+    "password": "string",
+    "name": "string",
+    "upi_id": "string",
+    "pin": "string",
+    "balance": "money",
+    "pin_fails": "int",
+    "blocked_until": "datetime"
+   }
+  },
+  "Txn": {
+   "key": "id",
+   "id_format": "TX-{n:04}",
+   "fields": {
+    "id": "string",
+    "from_mobile": "string",
+    "to_upi": "string",
+    "amount": "money",
+    "at": "datetime",
+    "status": "string"
+   }
+  }
+ },
+ "data": {
+  "Account": [
+   {
+    "mobile": "9876543210",
+    "password": "Pay@123",
+    "name": "Asha",
+    "upi_id": "asha@okbank",
+    "pin": "1234",
+    "balance": 10000,
+    "pin_fails": 0,
+    "blocked_until": null
+   },
+   {
+    "mobile": "9876500000",
+    "password": "Rich@123",
+    "name": "Ravi",
+    "upi_id": "ravi@okbank",
+    "pin": "4321",
+    "balance": 200000,
+    "pin_fails": 0,
+    "blocked_until": null
+   }
+  ],
+  "Txn": []
+ },
+ "users": {
+  "entity": "Account",
+  "login_field": "mobile",
+  "password_field": "password",
+  "name_field": "name",
+  "session_minutes": 30,
+  "messages": {
+   "invalid": "Invalid mobile number or password"
+  }
+ },
+ "queries": [
+  {
+   "name": "history",
+   "label": "History",
+   "page": "History",
+   "entity": "Txn",
+   "where": {
+    "eq": [
+     {
+      "field": "row.from_mobile"
+     },
+     {
+      "user": "mobile"
+     }
+    ]
+   },
+   "order_by": [
+    {
+     "field": "id",
+     "desc": true
+    }
+   ],
+   "show": [
+    "id",
+    "to_upi",
+    "amount",
+    "status"
+   ],
+   "none_message": "No transactions yet"
+  }
+ ],
+ "actions": [
+  {
+   "name": "send_money",
+   "label": "Pay",
+   "page": "Send Money",
+   "inputs": [
+    {
+     "name": "upi_id",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Enter a UPI ID"
+      },
+      {
+       "rule": "pattern",
+       "value": "[A-Za-z0-9._-]{2,}@[A-Za-z]{2,}",
+       "message": "Enter a valid UPI ID"
+      }
+     ]
+    },
+    {
+     "name": "amount",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Enter an amount"
+      },
+      {
+       "rule": "number",
+       "message": "Enter a valid amount"
+      },
+      {
+       "rule": "min",
+       "value": 1,
+       "message": "Enter an amount of at least Rs 1"
+      },
+      {
+       "rule": "max",
+       "value": 50000,
+       "message": "Maximum Rs 50,000 per transaction"
+      },
+      {
+       "rule": "pattern",
+       "value": "\\d+(\\.\\d{1,2})?",
+       "message": "Amount can have at most 2 decimal places"
+      }
+     ]
+    },
+    {
+     "name": "pin",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Enter your UPI PIN"
+      }
+     ]
+    }
+   ],
+   "load": [
+    {
+     "as": "me",
+     "entity": "Account",
+     "key": {
+      "user": "mobile"
+     },
+     "missing": "Account not found"
+    }
+   ],
+   "rules": [
+    {
+     "when": {
+      "and": [
+       {
+        "not": {
+         "empty": {
+          "field": "me.blocked_until"
+         }
+        }
+       },
+       {
+        "lt": [
+         {
+          "now": true
+         },
+         {
+          "field": "me.blocked_until"
+         }
+        ]
+       }
+      ]
+     },
+     "message": "UPI is blocked for 24 hours after 3 wrong PINs"
+    },
+    {
+     "unless": {
+      "eq": [
+       {
+        "input": "pin"
+       },
+       {
+        "field": "me.pin"
+       }
+      ]
+     },
+     "then": [
+      {
+       "set": {
+        "record": "me",
+        "field": "pin_fails",
+        "value": {
+         "add": [
+          {
+           "field": "me.pin_fails"
+          },
+          1
+         ]
+        }
+       }
+      },
+      {
+       "if": [
+        {
+         "ge": [
+          {
+           "field": "me.pin_fails"
+          },
+          3
+         ]
+        },
+        [
+         {
+          "set": {
+           "record": "me",
+           "field": "blocked_until",
+           "value": {
+            "add_minutes": [
+             {
+              "now": true
+             },
+             1440
+            ]
+           }
+          }
+         },
+         {
+          "set": {
+           "record": "me",
+           "field": "pin_fails",
+           "value": 0
+          }
+         }
+        ]
+       ]
+      }
+     ],
+     "message": {
+      "if": [
+       {
+        "empty": {
+         "field": "me.blocked_until"
+        }
+       },
+       "Incorrect UPI PIN",
+       {
+        "if": [
+         {
+          "lt": [
+           {
+            "now": true
+           },
+           {
+            "field": "me.blocked_until"
+           }
+          ]
+         },
+         "UPI is blocked for 24 hours after 3 wrong PINs",
+         "Incorrect UPI PIN"
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "unless": {
+      "le": [
+       {
+        "input": "amount"
+       },
+       {
+        "field": "me.balance"
+       }
+      ]
+     },
+     "message": "Insufficient balance"
+    },
+    {
+     "unless": {
+      "le": [
+       {
+        "add": [
+         {
+          "sum": {
+           "entity": "Txn",
+           "field": "amount",
+           "where": {
+            "and": [
+             {
+              "eq": [
+               {
+                "field": "row.from_mobile"
+               },
+               {
+                "user": "mobile"
+               }
+              ]
+             },
+             {
+              "eq": [
+               {
+                "field": "row.status"
+               },
+               "Success"
+              ]
+             },
+             {
+              "ge": [
+               {
+                "field": "row.at"
+               },
+               {
+                "today": true
+               }
+              ]
+             }
+            ]
+           }
+          }
+         },
+         {
+          "input": "amount"
+         }
+        ]
+       },
+       100000
+      ]
+     },
+     "message": "Daily limit of Rs 1,00,000 reached"
+    }
+   ],
+   "effects": [
+    {
+     "set": {
+      "record": "me",
+      "field": "balance",
+      "value": {
+       "sub": [
+        {
+         "field": "me.balance"
+        },
+        {
+         "input": "amount"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "set": {
+      "record": "me",
+      "field": "pin_fails",
+      "value": 0
+     }
+    },
+    {
+     "create": {
+      "entity": "Txn",
+      "as": "t",
+      "values": {
+       "from_mobile": {
+        "user": "mobile"
+       },
+       "to_upi": {
+        "lower": {
+         "trim": {
+          "input": "upi_id"
+         }
+        }
+       },
+       "amount": {
+        "input": "amount"
+       },
+       "at": {
+        "now": true
+       },
+       "status": "Success"
+      }
+     }
+    },
+    {
+     "send": {
+      "channel": "sms",
+      "to": {
+       "user": "mobile"
+      },
+      "body": {
+       "format": [
+        "{a} sent to {to}. Ref {id}",
+        {
+         "a": {
+          "format_money": [
+           {
+            "input": "amount"
+           },
+           "INR"
+          ]
+         },
+         "to": {
+          "field": "t.to_upi"
+         },
+         "id": {
+          "field": "t.id"
+         }
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "message": {
+    "format": [
+     "Payment of {a} to {to} successful",
+     {
+      "a": {
+       "format_money": [
+        {
+         "input": "amount"
+        },
+        "INR"
+       ]
+      },
+      "to": {
+       "field": "t.to_upi"
+      }
+     }
+    ]
+   },
+   "returns": {
+    "txn_id": {
+     "field": "t.id"
+    },
+    "balance": {
+     "field": "me.balance"
+    }
+   }
+  }
+ ],
+ "faults": [
+  {
+   "name": "bank_down",
+   "applies_to": [
+    "send_money"
+   ],
+   "message": "Bank server not responding, please try later"
+  }
+ ]
+}

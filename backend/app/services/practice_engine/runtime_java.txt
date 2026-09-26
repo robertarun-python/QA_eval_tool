@@ -49,6 +49,7 @@
     }
 
     // ---- values -----------------------------------------------------------------------------------
+    static final String UNEXPECTED = "Something went wrong. Please check your input and try again.";
     static final String[] MONTHS = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
     @SuppressWarnings("unchecked") static Map<String, Object> map(Object o) { return (Map<String, Object>) o; }
@@ -70,14 +71,31 @@
 
     static boolean isNumber(Object v) { return v instanceof Number; }
 
-    // Whole numbers as Long, others rounded half-up to 2 places.
+    // Whole numbers as Long, others to 10 places (removes binary noise, keeps a
+    // rate like 0.00875 exact). Money is rounded to 2 places where stored or shown.
     static Object clean(double v) {
         if (v == Math.rint(v) && Math.abs(v) < 1e15) return (long) v;
-        return new java.math.BigDecimal(Double.toString(v)).setScale(2, java.math.RoundingMode.HALF_UP).doubleValue();
+        double r = new java.math.BigDecimal(Double.toString(v)).setScale(10, java.math.RoundingMode.HALF_UP).doubleValue();
+        return r == Math.rint(r) && Math.abs(r) < 1e15 ? (Object) (long) r : (Object) r;
+    }
+
+    static final String[] WEEKDAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+
+    static long workingDays(java.time.LocalDate start, java.time.LocalDate end) {
+        long count = 0;
+        for (java.time.LocalDate d = start; !d.isAfter(end); d = d.plusDays(1)) if (d.getDayOfWeek().getValue() <= 5) count++;
+        return count;
+    }
+
+    static List<Object> split(Object value, String sep) {
+        List<Object> out = new ArrayList<>();
+        for (String p : (value == null ? "" : String.valueOf(value)).split(java.util.regex.Pattern.quote(sep), -1)) if (!p.strip().isEmpty()) out.add(p.strip());
+        return out;
     }
 
     static Object roundHalfUp(Object value, int places) {
-        double x = num(value);
+        Object c = clean(num(value));
+        double x = num(c);
         return clean(new java.math.BigDecimal(Double.toString(x)).setScale(places, java.math.RoundingMode.HALF_UP).doubleValue());
     }
 
@@ -161,7 +179,7 @@
     static String text(Object v) {
         if (v == null) return "";
         if (v instanceof Boolean) return ((Boolean) v) ? "true" : "false";
-        if (v instanceof Number) { Object c = clean(num(v)); return c instanceof Long ? String.valueOf(c) : String.format(Locale.ROOT, "%.2f", (Double) c); }
+        if (v instanceof Number) { Object c = roundHalfUp(v, 2); return c instanceof Long ? String.valueOf(c) : String.format(Locale.ROOT, "%.2f", (Double) c); }
         return String.valueOf(v);
     }
 
@@ -183,6 +201,8 @@
         Map<String, Object> session, user, last;
         Set<String> activeFaults;
         List<Object> outbox;
+        Map<String, Long> failedLogins;
+        Map<String, java.time.LocalDateTime> lockedUntil;  // LocalDateTime.MAX = until reset
         String page, message;
 
         Engine(Map<String, Object> spec) {
@@ -211,6 +231,8 @@
             lastActive = null;
             activeFaults = new LinkedHashSet<>();
             outbox = new ArrayList<>();
+            failedLogins = new HashMap<>();
+            lockedUntil = new HashMap<>();
             List<Object> pages = spec.get("pages") == null ? List.of("Home") : list(spec.get("pages"));
             page = users != null ? loginPage() : (spec.get("home_page") != null ? str(spec.get("home_page")) : str(pages.get(0)));
             message = "";
@@ -225,7 +247,8 @@
             Map<String, Object> e = entity == null ? null : map(entities.get(entity));
             Object kind = e == null || e.get("fields") == null ? "string" : map(e.get("fields")).getOrDefault(field, "string");
             if ("int".equals(kind)) return (long) num(value);
-            if ("number".equals(kind) || "money".equals(kind)) return clean(num(value));
+            if ("money".equals(kind)) return roundHalfUp(value, 2);
+            if ("number".equals(kind)) return clean(num(value));
             if ("bool".equals(kind)) return Boolean.TRUE.equals(value);
             return value;
         }
@@ -266,6 +289,19 @@
                 case "add_days": return isoDate(toDate(ev(list(arg).get(0), inputs, aliases)).plusDays((long) num(ev(list(arg).get(1), inputs, aliases))));
                 case "add_months": return isoDate(toDate(ev(list(arg).get(0), inputs, aliases)).plusMonths((long) num(ev(list(arg).get(1), inputs, aliases))));
                 case "days_between": return java.time.temporal.ChronoUnit.DAYS.between(toDate(ev(list(arg).get(0), inputs, aliases)), toDate(ev(list(arg).get(1), inputs, aliases)));
+                case "add_minutes": return isoDateTime(toDateTime(ev(list(arg).get(0), inputs, aliases)).plusMinutes((long) num(ev(list(arg).get(1), inputs, aliases))));
+                case "minutes_between": return Math.floorDiv(java.time.Duration.between(toDateTime(ev(list(arg).get(0), inputs, aliases)), toDateTime(ev(list(arg).get(1), inputs, aliases))).getSeconds(), 60L);
+                case "time": return isoDateTime(toDateTime(ev(arg, inputs, aliases))).substring(11, 16);
+                case "weekday": return WEEKDAYS[toDate(ev(arg, inputs, aliases)).getDayOfWeek().getValue() - 1];
+                case "working_days": return workingDays(toDate(ev(list(arg).get(0), inputs, aliases)), toDate(ev(list(arg).get(1), inputs, aliases)));
+                case "split": return split(ev(list(arg).get(0), inputs, aliases), list(arg).size() > 1 ? str(list(arg).get(1)) : ",");
+                case "occurrences": {
+                    Object items = ev(list(arg).get(0), inputs, aliases), value = ev(list(arg).get(1), inputs, aliases);
+                    long n = 0;
+                    for (Object i : items == null ? List.of() : list(items))
+                        if (same(i, value) || (i instanceof String && value instanceof String && ((String) i).equalsIgnoreCase((String) value))) n++;
+                    return n;
+                }
                 case "minutes_since": {
                     Object then = ev(arg, inputs, aliases);
                     return then == null ? null : Math.floorDiv(java.time.Duration.between(toDateTime(then), clock).getSeconds(), 60L);
@@ -370,7 +406,22 @@
                 if (String.valueOf(v == null ? "" : v).toLowerCase(Locale.ROOT).equals(String.valueOf(login).trim().toLowerCase(Locale.ROOT))) { match = map(u); break; }
             }
             String pf = users.get("password_field") == null ? "password" : str(users.get("password_field"));
-            if (match == null || !String.valueOf(match.get(pf)).equals(String.valueOf(password))) throw new Refused(str(msgs.get("invalid")));
+            Map<String, Object> lockout = users.get("lockout") == null ? null : map(users.get("lockout"));
+            String who = String.valueOf(login).trim().toLowerCase(Locale.ROOT);
+            if (match != null && lockout != null && lockedUntil.containsKey(who) && clock.isBefore(lockedUntil.get(who))) throw new Refused(str(lockout.get("message")));
+            if (match == null || !String.valueOf(match.get(pf)).equals(String.valueOf(password))) {
+                if (match != null && lockout != null) {
+                    failedLogins.put(who, failedLogins.getOrDefault(who, 0L) + 1);
+                    if (failedLogins.get(who) >= (long) num(lockout.get("attempts"))) {
+                        failedLogins.put(who, 0L);
+                        Object minutes = lockout.get("minutes");
+                        lockedUntil.put(who, minutes != null && num(minutes) > 0 ? clock.plusMinutes((long) num(minutes)) : java.time.LocalDateTime.MAX);
+                        throw new Refused(str(lockout.get("message")));
+                    }
+                }
+                throw new Refused(str(msgs.get("invalid")));
+            }
+            failedLogins.remove(who);
             if (users.get("blocked_when") != null) {
                 Map<String, Map<String, Object>> a = new LinkedHashMap<>();
                 a.put("user", match);
@@ -420,14 +471,23 @@
             String k = key(entity);
             for (Object r : store.get(entity)) {
                 Object v = map(r).get(k);
-                if (same(v, key) || String.valueOf(v).equalsIgnoreCase(String.valueOf(key))) return map(r);
+                if (same(v, key) || String.valueOf(v).strip().equalsIgnoreCase(String.valueOf(key).strip())) return map(r);
             }
             return null;
         }
 
         boolean loginDefault(Map<String, Object> def) { return def.get("requires_login") != null ? Boolean.TRUE.equals(def.get("requires_login")) : users != null; }
 
+        // An unexpected problem is refused like any error message a real application shows.
         Object[] runAction(String name, Map<String, Object> inputs) {
+            try { return runActionCore(name, inputs); } catch (Refused r) { throw r; } catch (RuntimeException e) { throw new Refused(UNEXPECTED); }
+        }
+
+        Object[] runQuery(String name, Map<String, Object> inputs) {
+            try { return runQueryCore(name, inputs); } catch (Refused r) { throw r; } catch (RuntimeException e) { throw new Refused(UNEXPECTED); }
+        }
+
+        Object[] runActionCore(String name, Map<String, Object> inputs) {
             Map<String, Object> action = actions.get(name);
             for (String f : activeFaults) {
                 Map<String, Object> fault = faults.get(f);
@@ -443,23 +503,8 @@
                 if (record == null) throw new Refused(str(load.get("missing")));
                 aliases.put(str(load.get("as")), record);
             }
-            for (Object r : action.get("rules") == null ? List.of() : list(action.get("rules"))) {
-                Map<String, Object> rule = map(r);
-                if (rule.containsKey("unless") && !cond(rule.get("unless"), inputs, aliases)) throw new Refused(text(ev(rule.get("message"), inputs, aliases)));
-                if (rule.containsKey("when") && cond(rule.get("when"), inputs, aliases)) throw new Refused(text(ev(rule.get("message"), inputs, aliases)));
-            }
-            @SuppressWarnings("unchecked") Map<String, List<Object>> savedStore = (Map<String, List<Object>>) deepCopy(store);
-            Map<String, Object> savedSession = map(deepCopy(session));
-            List<Object> savedOutbox = list(deepCopy(outbox));
-            Map<String, Long> savedCounters = new LinkedHashMap<>(counters);
-            Set<String> savedCreated = new HashSet<>(created);
-            Map<String, Object> savedUser = user;
-            try {
-                for (Object effect : action.get("effects") == null ? List.of() : list(action.get("effects"))) apply(effect, inputs, aliases);
-            } catch (RuntimeException err) {
-                store = savedStore; session = savedSession; outbox = savedOutbox; counters = savedCounters; created = savedCreated; user = savedUser;
-                throw err;
-            }
+            checkRules(action.get("rules"), inputs, aliases);
+            transaction(action.get("effects"), inputs, aliases);
             String msg = action.get("message") != null ? text(ev(action.get("message"), inputs, aliases)) : "";
             Map<String, Object> returns = new LinkedHashMap<>();
             if (action.get("returns") != null) for (Map.Entry<String, Object> r : map(action.get("returns")).entrySet()) returns.put(r.getKey(), ev(r.getValue(), inputs, aliases));
@@ -471,8 +516,72 @@
             return null;
         }
 
+        List<Map<String, Object>> items(Map<String, Object> source, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            List<Map<String, Object>> out = new ArrayList<>();
+            if (source.containsKey("entity")) { for (Object r : rows(str(source.get("entity")), source.get("where"), inputs, aliases)) out.add(map(r)); return out; }
+            Object values = ev(source.get("list"), inputs, aliases);
+            for (Object v : values == null ? List.of() : list(values)) { Map<String, Object> m = new LinkedHashMap<>(); m.put("value", v); out.add(m); }
+            return out;
+        }
+
+        void checkRules(Object rules, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            for (Object r : rules == null ? List.of() : list(rules)) {
+                Map<String, Object> rule = map(r);
+                if (rule.containsKey("for_each")) {
+                    Map<String, Object> each = map(rule.get("for_each"));
+                    Map<String, Object> inner = new LinkedHashMap<>(rule);
+                    inner.remove("for_each");
+                    for (Map<String, Object> item : items(each, inputs, aliases)) {
+                        Map<String, Map<String, Object>> a = new LinkedHashMap<>(aliases);
+                        a.put(str(each.get("as")), item);
+                        checkRules(List.of(inner), inputs, a);
+                    }
+                    continue;
+                }
+                boolean refused = (rule.containsKey("unless") && !cond(rule.get("unless"), inputs, aliases)) || (rule.containsKey("when") && cond(rule.get("when"), inputs, aliases));
+                if (refused) {
+                    if (rule.get("then") != null) transaction(rule.get("then"), inputs, aliases);
+                    throw new Refused(text(ev(rule.get("message"), inputs, aliases)));
+                }
+            }
+        }
+
+        // All the effects, or - if one fails - none of them.
+        void transaction(Object effects, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            String field = users == null || users.get("login_field") == null ? "email" : str(users.get("login_field"));
+            Object who = user == null ? null : user.get(field);
+            @SuppressWarnings("unchecked") Map<String, List<Object>> savedStore = (Map<String, List<Object>>) deepCopy(store);
+            Map<String, Object> savedSession = map(deepCopy(session));
+            List<Object> savedOutbox = list(deepCopy(outbox));
+            Map<String, Long> savedCounters = new LinkedHashMap<>(counters);
+            Set<String> savedCreated = new HashSet<>(created);
+            try {
+                for (Object effect : effects == null ? List.of() : list(effects)) apply(effect, inputs, aliases);
+            } catch (RuntimeException err) {
+                store = savedStore; session = savedSession; outbox = savedOutbox; counters = savedCounters; created = savedCreated;
+                user = null;
+                if (who != null) for (Object u : store.get(str(users.get("entity")))) if (Objects.equals(map(u).get(field), who)) { user = map(u); break; }
+                throw err;
+            }
+        }
+
         void apply(Object effect, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
             Map.Entry<String, Object> e = one(effect);
+            if (e.getKey().equals("if")) {
+                List<Object> arg = list(e.getValue());
+                Object branch = cond(arg.get(0), inputs, aliases) ? arg.get(1) : (arg.size() > 2 ? arg.get(2) : List.of());
+                for (Object inner : list(branch)) apply(inner, inputs, aliases);
+                return;
+            }
+            if (e.getKey().equals("for_each")) {
+                Map<String, Object> arg = map(e.getValue());
+                for (Map<String, Object> item : items(arg, inputs, aliases)) {
+                    Map<String, Map<String, Object>> a = new LinkedHashMap<>(aliases);
+                    a.put(str(arg.get("as")), item);
+                    for (Object inner : list(arg.get("effects"))) apply(inner, inputs, a);
+                }
+                return;
+            }
             String op = e.getKey();
             Object arg = e.getValue();
             switch (op) {
@@ -531,18 +640,19 @@
             return b.toString();
         }
 
-        Object[] runQuery(String name, Map<String, Object> inputs) {
+        Object[] runQueryCore(String name, Map<String, Object> inputs) {
             Map<String, Object> query = queries.get(name);
             if (loginDefault(query)) checkSession();
             checkInputs(query.get("inputs"), inputs);
             Map<String, Map<String, Object>> aliases = new LinkedHashMap<>();
+            checkRules(query.get("rules"), inputs, aliases);
             String entity = str(query.get("entity"));
             if (query.get("key_input") != null) {
                 Map<String, Object> record = findByKey(entity, inputs.get(str(query.get("key_input"))));
                 boolean hidden = false;
                 if (record != null && query.get("where") != null) { Map<String, Map<String, Object>> a = new LinkedHashMap<>(); a.put("row", record); hidden = !cond(query.get("where"), inputs, a); }
                 if (record == null || hidden) throw new Refused(query.get("missing") == null ? "Not found" : str(query.get("missing")));
-                return new Object[]{show(query, record), null};
+                return new Object[]{show(query, record, inputs, aliases), null};
             }
             List<Object> rows = rows(entity, query.get("where"), inputs, aliases);
             if (query.get("match") != null) {
@@ -584,14 +694,20 @@
                 rows = sorted;
             }
             List<Object> shown = new ArrayList<>();
-            for (Object r : rows) shown.add(show(query, map(r)));
+            for (Object r : rows) shown.add(show(query, map(r), inputs, aliases));
             return new Object[]{shown, shown.isEmpty() ? query.get("none_message") : null};
         }
 
-        static Map<String, Object> show(Map<String, Object> query, Map<String, Object> record) {
+        Map<String, Object> show(Map<String, Object> query, Map<String, Object> record, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
             if (query.get("show") == null) return map(deepCopy(record));
+            Map<String, Map<String, Object>> a = new LinkedHashMap<>(aliases);
+            a.put("row", record);
+            if (query.get("as") != null) a.put(str(query.get("as")), record);
             Map<String, Object> out = new LinkedHashMap<>();
-            for (Object f : list(query.get("show"))) out.put(str(f), deepCopy(record.get(str(f))));
+            for (Object f : list(query.get("show"))) {
+                if (f instanceof Map) out.put(str(map(f).get("name")), ev(map(f).get("value"), inputs, a));
+                else out.put(str(f), deepCopy(record.get(str(f))));
+            }
             return out;
         }
 
@@ -684,7 +800,11 @@
         List<Object> dbAll(String entity) { return list(deepCopy(store.get(entity))); }
         List<Object> outboxCopy() { return list(deepCopy(outbox)); }
 
-        String advanceMinutes(Object minutes) { clock = clock.plusMinutes((long) num(minutes)); return isoDateTime(clock); }
+        String advanceMinutes(Object minutes) {
+            boolean whole = minutes instanceof Long || minutes instanceof Integer || minutes instanceof Short || minutes instanceof Byte;
+            if (!whole || ((Number) minutes).longValue() < 0 || ((Number) minutes).longValue() > 5256000L) throw new EngineError("Test.advance_minutes needs a whole number of minutes from 0 to 5256000 (10 years)");
+            clock = clock.plusMinutes(((Number) minutes).longValue()); return isoDateTime(clock);
+        }
 
         boolean simulate(Object fault) {
             if (!faults.containsKey(str(fault))) throw new EngineError("unknown failure " + fault + " - see the list at the top of this file");

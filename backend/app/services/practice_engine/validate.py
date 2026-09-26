@@ -12,10 +12,11 @@ from .runtime import Engine, EngineError
 
 FIELD_TYPES = {"string", "int", "number", "money", "date", "datetime", "bool"}
 TOP_KEYS = {"app_name", "base_url", "now", "entities", "data", "users", "pages", "home_page", "queries", "actions", "faults", "description"}
-USER_KEYS = {"entity", "login_field", "password_field", "name_field", "session_minutes", "blocked_when", "messages", "page"}
+USER_KEYS = {"entity", "login_field", "password_field", "name_field", "session_minutes", "blocked_when", "messages", "page", "lockout"}
 USER_MESSAGES = {"required_login", "required_password", "invalid", "blocked", "expired", "need_login"}
 QUERY_KEYS = {"name", "label", "description", "page", "entity", "match", "inputs", "key_input", "missing", "where", "order_by", "show",
-              "none_message", "next_page", "requires_login"}
+              "none_message", "next_page", "requires_login", "rules", "as"}
+_ITEM = "(list item)"  # the pseudo record type of a for_each over a list: its one field is "value"
 MATCH_KEYS = {"input", "fields", "mode", "blank", "max_length", "too_long"}
 ACTION_KEYS = {"name", "label", "description", "page", "requires_login", "inputs", "load", "rules", "effects", "message", "returns", "next_page"}
 CHECK_RULES = {"required", "min_length", "max_length", "pattern", "min", "max", "number", "one_of", "date", "not_past", "not_future"}
@@ -38,9 +39,10 @@ UNPORTABLE_REGEX = [(r"\(\?<[=!]", "look-behind"), (r"\(\?P", "named groups"), (
                     (r"\[[^\]]*\[", "[ inside [...]")]
 EXPR_OPS = {"input", "field", "user", "session", "today", "now", "add", "sub", "mul", "div", "round", "add_days", "add_months",
             "days_between", "minutes_since", "count", "sum", "exists", "if", "format", "format_date", "format_money", "upper", "lower",
-            "trim", "length", "concat"}
+            "trim", "length", "concat", "minutes_between", "time", "weekday", "working_days", "split", "occurrences", "add_minutes"}
 COND_OPS = {"and", "or", "not", "empty", "matches", "in", "eq", "ne", "lt", "le", "gt", "ge"}
-PAIR_OPS = {"add", "sub", "mul", "div", "add_days", "add_months", "days_between", "eq", "ne", "lt", "le", "gt", "ge", "in", "matches"}
+PAIR_OPS = {"add", "sub", "mul", "div", "add_days", "add_months", "days_between", "eq", "ne", "lt", "le", "gt", "ge", "in", "matches",
+            "minutes_between", "working_days", "occurrences", "add_minutes"}
 
 
 def problems(spec) -> list[str]:
@@ -144,6 +146,8 @@ class _Checker:
         return value
 
     def fields(self, entity) -> dict:
+        if entity == _ITEM:
+            return {"value": "string"}
         e = self.entities.get(entity)
         return e.get("fields") if isinstance(e, dict) and isinstance(e.get("fields"), dict) else {}
 
@@ -240,6 +244,13 @@ class _Checker:
         else:
             for k in sorted(set(messages) - USER_MESSAGES):
                 self.err("users", f"unknown message {k!r}; use {', '.join(sorted(USER_MESSAGES))}")
+        lockout = users.get("lockout")
+        if lockout is not None:
+            if not isinstance(lockout, dict) or not isinstance(lockout.get("attempts"), int) or isinstance(lockout.get("attempts"), bool) \
+                    or lockout["attempts"] < 1 or not (lockout.get("minutes") is None or (isinstance(lockout["minutes"], int) and lockout["minutes"] >= 0)):
+                self.err("users", "lockout needs attempts (a whole number, at least 1), minutes (whole number, or omit for locked until reset) and message")
+            else:
+                self.message(lockout.get("message"), "users lockout")
         if "blocked_when" in users:
             self.cond(users["blocked_when"], "users.blocked_when", {"inputs": set(), "aliases": {"user": entity}})
         if not (self.spec.get("data") or {}).get(entity):
@@ -352,11 +363,22 @@ class _Checker:
             first = [key_input]
             self.message(q.get("missing"), f"{where} missing")
         self.params(first + [n for n in extra if n not in first], where)
+        self.rules(q.get("rules"), where, {"inputs": set(first + extra), "aliases": {}})
         scope = {"inputs": set(first + extra), "aliases": {"row": entity}}
+        if q.get("as") is not None:
+            if not isinstance(q["as"], str) or not NAME.fullmatch(q["as"]) or q["as"] == "row":
+                self.err(where, "as must be a lower_snake_case name for each record (not row)")
+            else:
+                scope["aliases"][q["as"]] = entity
         if "where" in q:
             self.cond(q["where"], f"{where} where", scope)
         for f in q.get("show") or []:
-            if f not in fields:
+            if isinstance(f, dict):
+                if not isinstance(f.get("name"), str) or not NAME.fullmatch(f["name"]) or "value" not in f or set(f) - {"name", "value"}:
+                    self.err(where, 'a calculated show item is {"name": "lower_snake_case", "value": <expression>}')
+                else:
+                    self.expr(f["value"], f"{where} show {f['name']}", scope)
+            elif f not in fields:
                 self.err(where, f"show field {f!r} is not a field of {entity}")
         for o in q.get("order_by") or []:
             if not isinstance(o, dict) or o.get("field") not in fields:
@@ -379,16 +401,7 @@ class _Checker:
             self.expr(load.get("key"), f"{w} key", scope)
             self.message(load.get("missing"), f"{w} missing")
             scope["aliases"][load["as"]] = load["entity"]
-        for j, rule in enumerate(a.get("rules") or []):
-            w = f"{where} rule {j + 1}"
-            if not isinstance(rule, dict) or len({"unless", "when"} & set(rule)) != 1:
-                self.err(w, "needs exactly one of unless / when, and a message")
-                continue
-            self.cond(rule.get("unless", rule.get("when")), w, scope)
-            if isinstance(rule.get("message"), str):
-                self.message(rule["message"], w)
-            else:
-                self.expr(rule.get("message"), f"{w} message", scope)
+        self.rules(a.get("rules"), where, scope)
         for j, effect in enumerate(a.get("effects") or []):
             self.effect(effect, f"{where} effect {j + 1}", scope)
         if a.get("message") is not None:
@@ -398,6 +411,48 @@ class _Checker:
                 self.err(where, f"returns name {k!r} must be lower_snake_case and not ok/error/message")
             self.expr(v, f"{where} returns {k}", scope)
 
+    def for_each(self, each, where: str, scope: dict) -> dict | None:
+        """The scope inside a for_each ({"entity", "where"} or {"list"}, and "as"), or None."""
+        if not isinstance(each, dict) or not isinstance(each.get("as"), str) or not NAME.fullmatch(each["as"]):
+            self.err(where, 'for_each needs "as" (a lower_snake_case name) and either "entity" (+ optional "where") or "list"')
+            return None
+        if "entity" in each:
+            if each["entity"] not in self.entities:
+                self.err(where, f"for_each entity {each['entity']!r} is not one of the entities")
+                return None
+            if "where" in each:
+                self.cond(each["where"], where, {"inputs": scope["inputs"], "aliases": {**scope["aliases"], "row": each["entity"]}})
+            kind = each["entity"]
+        elif "list" in each:
+            self.expr(each["list"], where, scope)
+            kind = _ITEM
+        else:
+            self.err(where, 'for_each needs "entity" or "list"')
+            return None
+        return {"inputs": scope["inputs"], "aliases": {**scope["aliases"], each["as"]: kind}}
+
+    def rules(self, rules, where: str, scope: dict) -> None:
+        if rules is None:
+            return
+        if not isinstance(rules, list):
+            self.err(where, "rules must be a list")
+            return
+        for j, rule in enumerate(rules):
+            w = f"{where} rule {j + 1}"
+            if not isinstance(rule, dict) or len({"unless", "when"} & set(rule)) != 1 or set(rule) - {"unless", "when", "message", "then", "for_each"}:
+                self.err(w, "needs exactly one of unless / when, a message, and optionally then (effects kept when it refuses) and for_each")
+                continue
+            inner = self.for_each(rule["for_each"], w, scope) if "for_each" in rule else scope
+            if inner is None:
+                continue
+            self.cond(rule.get("unless", rule.get("when")), w, inner)
+            if isinstance(rule.get("message"), str):
+                self.message(rule["message"], w)
+            else:
+                self.expr(rule.get("message"), f"{w} message", inner)
+            for k, effect in enumerate(rule.get("then") or []):
+                self.effect(effect, f"{w} then {k + 1}", {"inputs": inner["inputs"], "aliases": dict(inner["aliases"])})
+
     def effect(self, effect, where: str, scope: dict) -> None:
         if not isinstance(effect, dict) or len(effect) != 1:
             self.err(where, "an effect has exactly one operator")
@@ -405,8 +460,8 @@ class _Checker:
         (op, arg), = effect.items()
         aliases = scope["aliases"]
         if op == "set":
-            if not isinstance(arg, dict) or arg.get("record") not in aliases:
-                self.err(where, f"set needs a record loaded earlier (one of {sorted(aliases)})")
+            if not isinstance(arg, dict) or arg.get("record") not in aliases or aliases[arg["record"]] == _ITEM:
+                self.err(where, f"set needs a stored record loaded earlier (one of {sorted(a for a, k in aliases.items() if k != _ITEM)})")
                 return
             if arg.get("field") not in self.fields(aliases[arg["record"]]):
                 self.err(where, f"{arg.get('field')!r} is not a field of {aliases[arg['record']]}")
@@ -426,8 +481,8 @@ class _Checker:
             if arg.get("as"):
                 aliases[arg["as"]] = arg["entity"]
         elif op == "delete":
-            if not isinstance(arg, dict) or arg.get("record") not in aliases:
-                self.err(where, "delete needs a record loaded earlier")
+            if not isinstance(arg, dict) or arg.get("record") not in aliases or aliases[arg["record"]] == _ITEM:
+                self.err(where, "delete needs a stored record loaded earlier")
         elif op == "set_session":
             if not isinstance(arg, dict) or not isinstance(arg.get("key"), str):
                 self.err(where, "set_session needs key and value")
@@ -444,8 +499,25 @@ class _Checker:
                 self.expr(v, f"{where} {k}", scope)
         elif op == "logout":
             pass
+        elif op == "if":
+            if not isinstance(arg, list) or len(arg) not in (2, 3) or not all(isinstance(b, list) for b in arg[1:]):
+                self.err(where, "if needs [condition, [effects if true], [effects if false]]")
+                return
+            self.cond(arg[0], where, scope)
+            for branch in arg[1:]:
+                for k, inner in enumerate(branch):
+                    self.effect(inner, f"{where}.{k + 1}", {"inputs": scope["inputs"], "aliases": dict(scope["aliases"])})
+        elif op == "for_each":
+            inner = self.for_each(arg, where, scope)
+            if inner is None:
+                return
+            if not isinstance(arg.get("effects"), list) or not arg["effects"]:
+                self.err(where, "for_each needs a list of effects")
+                return
+            for k, e in enumerate(arg["effects"]):
+                self.effect(e, f"{where}.{k + 1}", inner)
         else:
-            self.err(where, f"unknown effect {op!r}; use set, create, delete, set_session, clear_session, send or logout")
+            self.err(where, f"unknown effect {op!r}; use set, create, delete, set_session, clear_session, send, logout, if or for_each")
 
     # ---- expressions --------------------------------------------------------------------------
     def expr(self, e, where: str, scope: dict) -> None:
@@ -487,6 +559,11 @@ class _Checker:
                 self.err(where, "session needs a key name")
         elif op in ("today", "now"):
             pass
+        elif op == "split":
+            if not isinstance(arg, list) or not 1 <= len(arg) <= 2 or (len(arg) == 2 and not (isinstance(arg[1], str) and arg[1])):
+                self.err(where, 'split needs [text, "separator"]')
+                return
+            self.expr(arg[0], where, scope)
         elif op in ("count", "sum", "exists"):
             if not isinstance(arg, dict) or arg.get("entity") not in self.entities:
                 self.err(where, f"{op} needs an entity that exists")
