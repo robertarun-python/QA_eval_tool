@@ -92,6 +92,10 @@ def start_build(scenario: Scenario, db: Session) -> dict:
     previous = summary(scenario)
     if previous.get("approved_round2_scenario_id"):
         data["approved_round2_scenario_id"] = previous["approved_round2_scenario_id"]
+    # Kept for _reusable_build: this summary is about to replace the previous
+    # one, and builds saved before "unsupported" was stored only had it here.
+    data["previous_unsupported"] = [{"title": r["title"], "reason": (r.get("details") or [""])[0]}
+                                    for r in previous.get("coverage") or [] if r.get("status") == "not supported"]
     _set_summary(scenario, data)
     db.commit()
     return data
@@ -195,9 +199,8 @@ def _reusable_build(scenario: Scenario) -> dict | None:
     if not (build.get("plan") and build.get("checklists") and python):
         return None
     unsupported = build.get("unsupported")
-    if unsupported is None:  # older builds kept these only in the summary
-        unsupported = [{"title": r["title"], "reason": (r.get("details") or [""])[0]}
-                       for r in summary(scenario).get("coverage") or [] if r.get("status") == "not supported"]
+    if unsupported is None:  # older builds kept these only in the summary start_build replaced
+        unsupported = summary(scenario).get("previous_unsupported") or []
     return {"plan": build["plan"], "checklists": build["checklists"], "unsupported": unsupported, "python": python}
 
 

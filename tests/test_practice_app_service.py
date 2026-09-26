@@ -283,3 +283,27 @@ def test_a_fully_verified_app_gets_the_plain_notes(client, monkeypatch, builds_d
     assert client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()["unverified"] == []
     round2_id = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token)).json()["round2_scenario_id"]
     assert _db_scenario(round2_id).reference_json["validation_notes"] == service.VALIDATION_NOTES
+
+
+def test_a_reused_old_build_keeps_its_not_supported_cases(client, monkeypatch, builds_dir):
+    """C5: builds saved before "unsupported" was stored had it only in the
+    summary - which start_build replaces before the reuse is looked up."""
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    calls = _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    saved = builds_dir / f"scenario_{r1['id']}" / "latest.json"
+    build = json.loads(saved.read_text())
+    build.pop("unsupported")  # an old build
+    saved.write_text(json.dumps(build))
+    db = database_module.SessionLocal()
+    try:
+        scenario = db.get(Scenario, r1["id"])
+        data = service.summary(scenario)
+        data["coverage"] = data["coverage"] + [{"title": "SMS reminder", "status": "not supported", "details": ["no SMS"]}]
+        service._set_summary(scenario, data)
+        db.commit()
+    finally:
+        db.close()
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    assert calls[1]["reuse"]["unsupported"] == [{"title": "SMS reminder", "reason": "no SMS"}]
