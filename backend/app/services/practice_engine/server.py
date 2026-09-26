@@ -150,6 +150,64 @@ class PracticeApp:
         self.write_db()
 
 
+    # ---- pages ---------------------------------------------------------------------------------
+    def document(self, title: str, content: str) -> str:
+        app_name = html.escape(self.spec.get("app_name", "Practice app"))
+        return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{html.escape(title)} - {app_name}</title>'
+                '<style>body{font-family:sans-serif;margin:24px;max-width:900px}form{margin:12px 0;padding:12px;border:1px solid #ccc}'
+                'label{display:block;margin-top:6px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}'
+                '#message{font-weight:bold}</style></head>'
+                f'<body><header><strong id="app-name">{app_name}</strong></header>{content}</body></html>')
+
+    def form(self, form_id: str, action: str, method: str, fields: list[tuple[str, str]], button_id: str, button: str) -> str:
+        inputs = "".join(f'<label for="{html.escape(n)}">{html.escape(lbl)}</label><input id="{html.escape(n)}" name="{html.escape(n)}"'
+                         + (' type="password"' if n == self.password_field else "") + ">" for n, lbl in fields)
+        return (f'<form id="{form_id}" method="{method}" action="{action}">{inputs}'
+                f'<button id="{button_id}" type="submit">{html.escape(button)}</button></form>')
+
+    def render_page(self, client: str) -> str:
+        app, e = self, self.engine
+        page = e.page
+        parts = [f'<h1 id="page-title">{html.escape(page)}</h1>']
+        if e.user is not None:
+            name = e.user.get((e.users or {}).get("name_field", app.login_field))
+            parts.append(f'<p>Signed in as <span id="signed-in-user">{html.escape(str(name))}</span></p>'
+                         '<form id="logout-form" method="post" action="/ui/logout"><button id="logout" type="submit">Log out</button></form>')
+        public = set(app.spec.get("public_pages") or [])
+        links = [p for p in app.spec.get("pages") or [] if e.user is not None or p in public or p == e._login_page()]
+        parts.append("<nav>" + " | ".join(f'<a id="nav-{slug(p)}" href="/page/{slug(p)}">{html.escape(p)}</a>' for p in links) + "</nav>")
+        parts.append(f'<p id="message" role="alert">{html.escape(e.message or "")}</p>')
+        if e.users and page == e._login_page():
+            parts.append(self.form("login-form", "/ui/login", "post", [(app.login_field, label(app.login_field)),
+                                                                       (app.password_field, label(app.password_field))], "login", "Log in"))
+        for q in app.spec.get("queries") or []:
+            if q.get("page") == page:
+                params = [q["match"]["input"]] if q.get("match") else ([q["key_input"]] if q.get("key_input") else [])
+                params += [i["name"] for i in q.get("inputs") or [] if i["name"] not in params]
+                parts.append(self.form(f"{slug(q['name'])}-form", f"/ui/query/{q['name']}", "get", [(p, label(p)) for p in params],
+                                        slug(q["name"]), q.get("label") or label(q["name"])))
+        for a in app.spec.get("actions") or []:
+            if a.get("page") == page:
+                fields = [(i["name"], label(i["name"])) for i in a.get("inputs") or []]
+                parts.append(self.form(f"{slug(a['name'])}-form", f"/ui/action/{a['name']}", "post", fields, slug(a["name"]),
+                                        a.get("label") or label(a["name"])))
+        if e.last:
+            parts.append('<dl id="result-details">' + "".join(f'<dt>{html.escape(label(k))}</dt><dd id="result-{slug(k)}">{html.escape(_text(v))}</dd>'
+                                                             for k, v in e.last.items()) + "</dl>")
+        shown = app.results.get(client)
+        if shown and shown["result"] is not None:
+            result = shown["result"]
+            if isinstance(result, dict):
+                parts.append('<dl id="details">' + "".join(f'<dt>{html.escape(label(k))}</dt><dd id="detail-{slug(k)}">{html.escape(_text(v))}</dd>'
+                                                           for k, v in result.items()) + "</dl>")
+            elif result:
+                cols = list(result[0].keys())
+                head = "".join(f"<th>{html.escape(label(c))}</th>" for c in cols)
+                rows = "".join("<tr>" + "".join(f'<td class="col-{slug(c)}">{html.escape(_text(r.get(c)))}</td>' for c in cols) + "</tr>" for r in result)
+                parts.append(f'<table id="results"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>')
+        return self.document(page, "".join(parts))
+
+
 def _status_of_action(action: dict) -> int:
     return 201 if any("create" in e for e in action.get("effects") or []) else 200
 
@@ -365,7 +423,7 @@ class Handler(BaseHTTPRequestHandler):
             page = pages.get(path[6:].strip("/"))
             if page is None:
                 app.leave(client)
-                return self._send(404, self._document("Page not found", '<p id="message">Page not found</p>'), "text/html", cookie)
+                return self._send(404, self.app.document("Page not found", '<p id="message">Page not found</p>'), "text/html", cookie)
             if not (params.get("shown") and page == e.page):  # "shown": the page a form just led to - keep its message
                 e.ui_open(page)
                 e.last = {}
@@ -381,7 +439,7 @@ class Handler(BaseHTTPRequestHandler):
             name = path[len("/ui/action/"):].strip("/")
             if name not in e.actions:
                 app.leave(client)
-                return self._send(404, self._document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
+                return self._send(404, self.app.document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
             form = self._body()
             e.last = {}
             e.ui_action(name, {k: v for k, v in form.items()})
@@ -390,74 +448,18 @@ class Handler(BaseHTTPRequestHandler):
             name = path[len("/ui/query/"):].strip("/")
             if name not in e.queries:
                 app.leave(client)
-                return self._send(404, self._document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
+                return self._send(404, self.app.document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
             result = e.ui_query(name, params)
             app.results[client] = {"query": name, "result": result}
         else:
             app.leave(client)
-            return self._send(404, self._document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
+            return self._send(404, self.app.document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
         if method == "POST":  # after a form: show the resulting page at its own address (refresh-safe)
             app.leave(client)
             return self._send(303, "", "text/html", {**cookie, "Location": f"/page/{slug(e.page)}?shown=1"})
-        body = self._render_page(client)
+        body = self.app.render_page(client)
         app.leave(client)
         self._send(200, body, "text/html", cookie)
-
-    def _document(self, title: str, content: str) -> str:
-        app_name = html.escape(self.app.spec.get("app_name", "Practice app"))
-        return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{html.escape(title)} - {app_name}</title>'
-                '<style>body{font-family:sans-serif;margin:24px;max-width:900px}form{margin:12px 0;padding:12px;border:1px solid #ccc}'
-                'label{display:block;margin-top:6px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}'
-                '#message{font-weight:bold}</style></head>'
-                f'<body><header><strong id="app-name">{app_name}</strong></header>{content}</body></html>')
-
-    def _form(self, form_id: str, action: str, method: str, fields: list[tuple[str, str]], button_id: str, button: str) -> str:
-        inputs = "".join(f'<label for="{html.escape(n)}">{html.escape(lbl)}</label><input id="{html.escape(n)}" name="{html.escape(n)}"'
-                         + (' type="password"' if n == self.app.password_field else "") + ">" for n, lbl in fields)
-        return (f'<form id="{form_id}" method="{method}" action="{action}">{inputs}'
-                f'<button id="{button_id}" type="submit">{html.escape(button)}</button></form>')
-
-    def _render_page(self, client: str) -> str:
-        app, e = self.app, self.app.engine
-        page = e.page
-        parts = [f'<h1 id="page-title">{html.escape(page)}</h1>']
-        if e.user is not None:
-            name = e.user.get((e.users or {}).get("name_field", app.login_field))
-            parts.append(f'<p>Signed in as <span id="signed-in-user">{html.escape(str(name))}</span></p>'
-                         '<form id="logout-form" method="post" action="/ui/logout"><button id="logout" type="submit">Log out</button></form>')
-        public = set(app.spec.get("public_pages") or [])
-        links = [p for p in app.spec.get("pages") or [] if e.user is not None or p in public or p == e._login_page()]
-        parts.append("<nav>" + " | ".join(f'<a id="nav-{slug(p)}" href="/page/{slug(p)}">{html.escape(p)}</a>' for p in links) + "</nav>")
-        parts.append(f'<p id="message" role="alert">{html.escape(e.message or "")}</p>')
-        if e.users and page == e._login_page():
-            parts.append(self._form("login-form", "/ui/login", "post", [(app.login_field, label(app.login_field)),
-                                                                       (app.password_field, label(app.password_field))], "login", "Log in"))
-        for q in app.spec.get("queries") or []:
-            if q.get("page") == page:
-                params = [q["match"]["input"]] if q.get("match") else ([q["key_input"]] if q.get("key_input") else [])
-                params += [i["name"] for i in q.get("inputs") or [] if i["name"] not in params]
-                parts.append(self._form(f"{slug(q['name'])}-form", f"/ui/query/{q['name']}", "get", [(p, label(p)) for p in params],
-                                        slug(q["name"]), q.get("label") or label(q["name"])))
-        for a in app.spec.get("actions") or []:
-            if a.get("page") == page:
-                fields = [(i["name"], label(i["name"])) for i in a.get("inputs") or []]
-                parts.append(self._form(f"{slug(a['name'])}-form", f"/ui/action/{a['name']}", "post", fields, slug(a["name"]),
-                                        a.get("label") or label(a["name"])))
-        if e.last:
-            parts.append('<dl id="result-details">' + "".join(f'<dt>{html.escape(label(k))}</dt><dd id="result-{slug(k)}">{html.escape(_text(v))}</dd>'
-                                                             for k, v in e.last.items()) + "</dl>")
-        shown = app.results.get(client)
-        if shown and shown["result"] is not None:
-            result = shown["result"]
-            if isinstance(result, dict):
-                parts.append('<dl id="details">' + "".join(f'<dt>{html.escape(label(k))}</dt><dd id="detail-{slug(k)}">{html.escape(_text(v))}</dd>'
-                                                           for k, v in result.items()) + "</dl>")
-            elif result:
-                cols = list(result[0].keys())
-                head = "".join(f"<th>{html.escape(label(c))}</th>" for c in cols)
-                rows = "".join("<tr>" + "".join(f'<td class="col-{slug(c)}">{html.escape(_text(r.get(c)))}</td>' for c in cols) + "</tr>" for r in result)
-                parts.append(f'<table id="results"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>')
-        return self._document(page, "".join(parts))
 
 
 def _text(value) -> str:
