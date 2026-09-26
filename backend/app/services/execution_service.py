@@ -228,14 +228,25 @@ def _javac_works(javac: str) -> bool:
         return False
 
 
-def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: int, *, unbuffered_python: bool) -> _PreparedRun:
+# Python's -I leaves the script's own folder off the import path; a Round 2
+# practice app's engine module sits there, so the file is run from a -c that
+# puts it back (tracebacks still name main.py and its real line numbers).
+_RUN_WITH_SIBLINGS = "import runpy, sys; sys.path.insert(0, ''); runpy.run_path('main.py', run_name='__main__')"
+
+
+def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: int, *, unbuffered_python: bool,
+                 extra_sources: list[str] | None = None) -> _PreparedRun:
     """Resolves `language` to a runnable command, compiling first for
     Java. Shared by run_code (batch) and start_interactive (the
     candidate's Run button) - the only difference between the two is
-    unbuffered_python (see start_interactive's -u flag comment)."""
+    unbuffered_python (see start_interactive's -u flag comment).
+    extra_sources: files placed next to the source (a practice app's engine) -
+    importable from Python, compiled with it in Java."""
     if language == "python":
-        interpreter = [PYTHON, "-I", "-u", str(source)] if unbuffered_python else [PYTHON, "-I", str(source)]
-        return _PreparedRun(run_cmd=interpreter)
+        flags = [PYTHON, "-I", "-u"] if unbuffered_python else [PYTHON, "-I"]
+        if extra_sources and source.name == "main.py":
+            return _PreparedRun(run_cmd=flags + ["-c", _RUN_WITH_SIBLINGS])
+        return _PreparedRun(run_cmd=flags + [str(source)])
     elif language == "javascript":
         node = shutil.which("node")
         if node is None:
@@ -253,7 +264,7 @@ def _prepare_run(language: str, source: Path, tmp_path: Path, timeout_seconds: i
         # fixed). Changing it here would also break the existing
         # compile-failure tests' subprocess.run stubs for no gain.
         compile_proc = subprocess.run(
-            [javac, source.name], cwd=tmp_path, capture_output=True, text=True,
+            [javac, source.name] + [n for n in extra_sources or [] if n.endswith(".java")], cwd=tmp_path, capture_output=True, text=True,
             timeout=timeout_seconds,
         )
         if compile_proc.returncode != 0:
@@ -308,10 +319,12 @@ def _run_subprocess(cmd: list[str], cwd: Path, stdin_text: str, timeout_seconds:
         return stdout, stderr, None, True
 
 
-def run_code(language: str, code: str, stdin: list[str]) -> ExecutionResult:
+def run_code(language: str, code: str, stdin: list[str], support_files: dict[str, str] | None = None) -> ExecutionResult:
     """Runs `code` once, feeding `stdin` (one value per line, in order)
     to the process's standard input - a single batch call, not a live
-    interactive session (see this module's docstring)."""
+    interactive session (see this module's docstring). support_files:
+    {plain file name: content} written next to it first (a Round 2 practice
+    app's engine file)."""
     filename = _SOURCE_FILENAME.get(language)
     if filename is None:
         raise ValueError(f"Unsupported language: {language}")
@@ -336,8 +349,14 @@ def run_code(language: str, code: str, stdin: list[str]) -> ExecutionResult:
             tmp_path = Path(tmp)
             source = tmp_path / filename
             source.write_text(code, encoding="utf-8")
+            extra = []
+            for name, content in (support_files or {}).items():
+                if Path(name).name != name or name == filename:  # a plain sibling file name only
+                    raise ValueError(f"bad support file name {name!r}")
+                (tmp_path / name).write_text(content, encoding="utf-8")
+                extra.append(name)
 
-            prepared = _prepare_run(language, source, tmp_path, timeout_seconds, unbuffered_python=False)
+            prepared = _prepare_run(language, source, tmp_path, timeout_seconds, unbuffered_python=False, extra_sources=extra)
             if prepared.infra_error:
                 return ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
             if prepared.compile_stderr is not None:

@@ -665,7 +665,7 @@ def practice_app_status(scenario_id: int, db: Session = Depends(get_db), hr: Use
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
     return {**practice_app_service.summary(scenario), "cannot_start": practice_app_service.can_start(scenario),
-            "steps": practice_app_service.generator.STEPS,
+            "steps": practice_app_service.engine_build.STEPS,
             "waiting_candidates": _candidates_waiting_for_round2(scenario, db) if scenario.round_number == 1 else 0}
 
 

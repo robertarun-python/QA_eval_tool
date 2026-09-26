@@ -16,7 +16,13 @@ SPEC = json.loads((Path(__file__).parent / "fixtures" / "practice_engine" / "lib
 LOGIN = [{"call": "setup"}, {"call": "UI.login", "args": ["testuser@library.test", "Test@123"], "expect": True}]
 
 
-RENDER = {"python": render.render_python, "javascript": render.render_javascript, "java": render.render_java}
+RENDER = {lang: (lambda spec, lang=lang: render.files(spec, lang)) for lang in render.LANGUAGES}
+
+
+def _inspect(language, spec, checklists):
+    """Runs checklists against the app exactly as candidates get it: their file plus the engine file next to it."""
+    candidate, support = RENDER[language](spec)
+    return checker.inspect({language: candidate}, checklists, {language: support})
 
 
 @pytest.fixture(params=sorted(RENDER), autouse=True)
@@ -27,7 +33,7 @@ def language(request):
 def _one(steps, language=None):
     """Runs one checklist in the language under test - every engine test runs in every language."""
     language = language or _LANGUAGE[0]
-    report = checker.inspect({language: RENDER[language](SPEC)}, [{"id": "c", "title": "c", "steps": steps}])
+    report = _inspect(language, SPEC, [{"id": "c", "title": "c", "steps": steps}])
     lang = report.languages[language]
     assert lang.error is None, lang.error
     result = lang.results[0]
@@ -122,11 +128,18 @@ def test_actions_only_on_their_page_and_teardown_removes_what_a_test_created():
                   {"call": "Database.count_loan", "expect": 5}])
 
 
-def test_the_generated_file_lists_accounts_helpers_and_failures_for_the_candidate():
-    code = render.render_python(SPEC)
-    head = code.split('"""')[1]
-    assert "testuser@library.test / Test@123 (Test User)" in head and "network_down: Network error" in head
-    assert "def borrow_book(book_id):" in code and "class Database:" in code and "# TODO: write your automated test(s) below" in code
+SIGNATURES = {"python": "UI.borrow_book(book_id)", "javascript": "UI.borrowBook(bookId)", "java": "boolean UI.borrowBook(Object bookId)"}
+
+
+def test_the_candidate_file_is_short_documents_every_helper_and_holds_no_answers(language):
+    candidate, support = RENDER[language](SPEC)
+    assert "testuser@library.test / Test@123 (Test User)" in candidate and "network_down" in candidate
+    assert SIGNATURES[language] in candidate and "TODO: write your automated test(s) below" in candidate
+    # The Round 2 assistant returns the whole file on every turn - it must stay small.
+    assert len(candidate) < 9000, len(candidate)
+    # The app's rules, messages and other data live in the engine file only.
+    for hidden in ("No copies available", "BK-002", "You have reached your borrowing limit"):
+        assert hidden not in candidate and hidden in "".join(support.values())
 
 
 # ---- one behaviour in every language: the values that most often differ between languages
@@ -158,7 +171,7 @@ CALC_EXPECT = {
 
 
 def test_numbers_money_dates_and_text_are_identical_in_every_language(language):
-    report = checker.inspect({language: RENDER[language](CALC)}, [{"id": "c", "title": "c", "steps": [
+    report = _inspect(language, CALC, [{"id": "c", "title": "c", "steps": [
         {"call": "setup"}, {"call": "API.calc", "args": ["straße\U0001F600"], "expect_includes": CALC_EXPECT}]}])
     lang = report.languages[language]
     assert lang.error is None, lang.error

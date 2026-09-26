@@ -46,7 +46,7 @@ class FakeAI:
         self.code = {"python": python or APP["python"], "javascript": javascript or APP["javascript"], "java": java or APP["java"]}
         self.fixes = fixes or {}                  # language -> list of replies, one per fix request
         self.checklists = checklists or [CHECKLISTS]
-        self.repairs = repairs or []              # replies to "these checklists keep failing", in order
+        self.repairs = repairs or []              # replies to "the checklists themselves may be what's wrong", in order
         self.prompts = []
 
     def __call__(self, prompt, max_tokens=4096):
@@ -55,7 +55,7 @@ class FakeAI:
             return json.dumps(_plan())
         if "writing machine-checkable CHECKLISTS" in prompt:
             return json.dumps(self.checklists.pop(0) if len(self.checklists) > 1 else self.checklists[0])
-        if "fixing the app's code hasn't helped" in prompt:
+        if "the checklists themselves may be what's wrong" in prompt:
             return json.dumps(self.repairs.pop(0)) if self.repairs else "[]"
         if "failed its automatic inspection" in prompt:
             language = next(l for l, name in generator.LANGUAGE_NAMES.items() if f"This {name} PRACTICE APP" in prompt)
@@ -89,7 +89,7 @@ def test_a_python_mistake_goes_back_to_the_ai_and_the_fix_is_accepted(monkeypatc
     # plan, checklists, python, a look at the failing checklist (they come first
     # now), the fix, two translations
     assert result.ok and result.ai_calls == 7, result.log
-    looked = next(i for i, p in enumerate(fake.prompts) if "fixing the app's code hasn't helped" in p)
+    looked = next(i for i, p in enumerate(fake.prompts) if "the checklists themselves may be what's wrong" in p)
     fixed = next(i for i, p in enumerate(fake.prompts) if "failed its automatic inspection" in p)
     assert looked < fixed
     fix_prompt = fake.prompts[fixed]
@@ -294,7 +294,7 @@ def test_a_checklist_that_contradicts_the_design_is_rewritten_not_fought(monkeyp
     result = _run(monkeypatch, fake)
     assert result.ok, result.log
     assert "rewrote 1 failing checklist(s): book-free-slot" in result.log
-    repair_prompt = next(p for p in fake.prompts if "fixing the app's code hasn't helped" in p)
+    repair_prompt = next(p for p in fake.prompts if "the checklists themselves may be what's wrong" in p)
     assert "Booked!" in repair_prompt and "book-free-slot" in repair_prompt
     assert '"id": "api-booking"' not in repair_prompt  # only the failing checklists are sent back
     assert next(c for c in result.checklists if c["id"] == "book-free-slot") == right
@@ -464,7 +464,7 @@ def test_an_unusable_checklist_recheck_does_not_end_the_build(monkeypatch):
     original = fake.__call__
 
     def call(prompt, max_tokens=4096):
-        if "fixing the app's code hasn't helped" in prompt:
+        if "the checklists themselves may be what's wrong" in prompt:
             fake.prompts.append(prompt)
             return fake_repairs.pop(0)
         return original(prompt, max_tokens)

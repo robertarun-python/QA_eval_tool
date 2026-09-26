@@ -1,9 +1,16 @@
 """
-Turns a validated scenario description into the practice-app file for each
-language - by template, never by the AI. The file keeps the long-standing
-shape (docstring, UI / API / Database helper groups, setup(), teardown(), the
-TODO block) that checker.py, the runners and candidate execution rely on, with
-the engine runtime embedded below the helpers.
+Turns a validated scenario description into the practice-app files for each
+language - by template, never by the AI. Two files per language:
+
+- the CANDIDATE FILE (main.py / main.js / Main.java): what the candidate sees
+  and edits and the Round 2 assistant rewrites - the app's accounts, pages and
+  every helper with what it does, one import line, and the TODO block. Short
+  on purpose: the assistant returns the whole file on every turn.
+- the ENGINE FILE (practice_engine.py / practice_engine.js /
+  PracticeEngine.java): the engine, the description and the helpers
+  (UI / API / Database / Test, setup, teardown), placed next to the candidate
+  file whenever it runs. Candidates test the app through its helpers, as
+  they would a real application - its rules and data aren't in their file.
 """
 import json
 import re
@@ -50,13 +57,19 @@ def helpers(spec: dict) -> list[dict]:
     for q in spec.get("queries") or []:
         params = query_params(q)
         doc = q.get("description") or q.get("label") or q["name"].replace("_", " ")
-        out.append({"call": f"UI.{snake(q['name'])}", "params": params, "doc": f"{doc} (on the {q.get('page', 'current')} page). Returns what is shown."})
-        out.append({"call": f"API.{snake(q['name'])}", "params": params, "doc": f"{doc}: {{ok, error, result, message}}."})
+        shown = ", ".join(q.get("show") or []) or "every field"
+        what = f"the {q['entity']} record" if q.get("key_input") else f"the list of {q['entity']} records"
+        where = f" (on the {q['page']} page)" if q.get("page") else ""
+        out.append({"call": f"UI.{snake(q['name'])}", "params": params, "doc": f"{doc}{where}. Returns {what} shown ({shown})."})
+        out.append({"call": f"API.{snake(q['name'])}", "params": params, "doc": f"{doc}: {{ok, error, result, message}}; result is {what} ({shown})."})
     for a in spec.get("actions") or []:
         params = action_params(a)
         doc = a.get("description") or a.get("label") or a["name"].replace("_", " ")
-        out.append({"call": f"UI.{snake(a['name'])}", "params": params, "doc": f"{doc} (on the {a.get('page', 'current')} page). True if it succeeded; see UI.visible_message()."})
-        out.append({"call": f"API.{snake(a['name'])}", "params": params, "doc": f"{doc}: {{ok, error, message, ...}}."})
+        where = f" (on the {a['page']} page)" if a.get("page") else ""
+        extra = "".join(f", {k}" for k in a.get("returns") or {})
+        out.append({"call": f"UI.{snake(a['name'])}", "params": params, "doc": f"{doc}{where}. True if it succeeded; see UI.visible_message()"
+                    + (f" and UI.last_result() ({extra[2:]})." if extra else ".")})
+        out.append({"call": f"API.{snake(a['name'])}", "params": params, "doc": f"{doc}: {{ok, error, message{extra}}}."})
     for entity in spec.get("entities") or {}:
         e = snake(entity)
         out += [
@@ -72,7 +85,19 @@ def helpers(spec: dict) -> list[dict]:
         {"call": "setup", "params": [], "doc": "Reset the app to its starting state. Call at the start of every test."},
         {"call": "teardown", "params": ["id"], "doc": "Remove one record your test created (by its id)."},
     ]
-    return out
+    order = {"UI": 0, "API": 1, "Database": 2, "Test": 3}
+    return sorted(out, key=lambda h: order.get(h["call"].split(".")[0] if "." in h["call"] else "", 4))  # grouped; stable within a group
+
+
+LANGUAGES = ("python", "javascript", "java")
+ENGINE_FILE = {"python": "practice_engine.py", "javascript": "practice_engine.js", "java": "PracticeEngine.java"}
+_GROUP_TITLES = {"UI": "What a user does and sees on the screens.", "API": "The same operations called directly; each returns a result.",
+                 "Database": "What is really stored - for checking your test's effect.", "Test": "Test-support hooks."}
+
+
+def files(spec: dict, language: str) -> tuple[str, dict[str, str]]:
+    """(the candidate file, {engine file name: its code}) for one language."""
+    return {"python": _python, "javascript": _javascript, "java": _java}[language](spec)
 
 
 def _accounts(spec: dict) -> list[str]:
@@ -85,55 +110,84 @@ def _accounts(spec: dict) -> list[str]:
             + (f" ({r.get(name)})" if name and r.get(name) else "") for r in rows]
 
 
+def _signature(h: dict, language: str, java_returns: dict) -> str:
+    group, _, name = h["call"].rpartition(".")
+    if language == "python":
+        return f"{h['call']}({', '.join(h['params'])})"
+    params = [camel(p) for p in h["params"]]
+    call = f"{group + '.' if group else ''}{camel(name)}"
+    if language == "java":
+        return f"{java_returns.get(h['call'], 'Object')} {call}({', '.join('Object ' + p for p in params)})"
+    return f"{call}({', '.join(params)})"
+
+
+def _doc(text: str, language: str) -> str:
+    """A helper's description in the language's own naming (UI.visibleMessage(), null)."""
+    if language == "python":
+        return text
+    text = re.sub(r"\b(UI|API|Database|Test)\.(\w+)\(", lambda m: f"{m.group(1)}.{camel(m.group(2))}(", text)
+    return re.sub(r"\bNone\b", "null", text)
+
+
 def _header_lines(spec: dict, language: str) -> list[str]:
-    lines = [f"Automation environment ({language}) - {spec['app_name']} - provided for you, already working.", "",
-             "A small simulated version of the application: its screens (UI), its API and its database run",
-             "in-process, so your automation runs the same way every time with no real network calls.", ""]
+    names = {"python": "Python", "javascript": "JavaScript", "java": "Java"}
+    lines = [f"Automation environment ({names[language]}) - {spec['app_name']} - provided for you, already working.", "",
+             "The application runs in-process (its screens, API and database), so your automation runs the same way",
+             "every time, with no real network calls. Test it through the helpers below, as you would a real application.", ""]
     accounts = _accounts(spec)
     if accounts:
-        lines += ["Test accounts:"] + [f"  {a}" for a in accounts] + [""]
+        lines += ["Test accounts (login / password):"] + [f"  {a}" for a in accounts] + [""]
     lines += [f"Web address: {spec.get('base_url', '')}", "Pages: " + ", ".join(spec.get("pages") or []), ""]
     if spec.get("faults"):
         lines += ["Simulated failures you can switch on with Test.simulate(...):"]
-        lines += [f"  {f['name']}: {f['message']}" for f in spec["faults"]] + [""]
-    lines += ["Write your automated test(s) at the bottom, under the TODO marker, using the helpers below.",
-              "Do not change the helpers or anything under 'engine internals'."]
+        lines += [f"  {f['name']}" for f in spec["faults"]] + [""]
+    lines += ["Records (for Database helpers):"]
+    for entity, e in (spec.get("entities") or {}).items():
+        lines += [f"  {entity} (key: {e.get('key', 'id')}): " + ", ".join(e.get("fields") or {})]
+    lines += [""]
+    java_returns = _java_returns(spec) if language == "java" else {}
+    lines += ["Helpers:"]
+    current = None
+    for h in helpers(spec):
+        group = h["call"].split(".")[0] if "." in h["call"] else "(test lifecycle)"
+        if group != current:
+            current = group
+            lines += ["", f"  {group}" + (f" - {_GROUP_TITLES[group]}" if group in _GROUP_TITLES else "")]
+        lines += [f"    {_signature(h, language, java_returns)}", f"        {_doc(h['doc'], language)}"]
+    if language != "python":
+        lines += ["", "Returned records use the field names shown by Database helpers (snake_case, e.g. available_copies)."]
+    lines += ["", "Start every test with setup(). Write your automated test(s) at the bottom, under the TODO marker."]
     return lines
 
 
 # ---------------------------------------------------------------------------- Python
 
-def render_python(spec: dict) -> str:
+def _python(spec: dict) -> tuple[str, dict[str, str]]:
     runtime = (_HERE / "runtime.py").read_text(encoding="utf-8")
     runtime = runtime.split('"""', 2)[2].lstrip("\n")  # drop the module docstring
     groups: dict[str, list[str]] = {"UI": [], "API": [], "Database": [], "Test": []}
     doc = {h["call"]: h["doc"] for h in helpers(spec)}
-    ui_extra = ["login", "logout", "signed_in_user"] if spec.get("users") else []
 
     def method(group: str, name: str, params: list[str], body: str) -> None:
-        text = doc.get(f"{group}.{name}", "")
-        groups[group].append(f"    @staticmethod\n    def {name}({', '.join(params)}):\n        {json.dumps(text)}\n        return {body}\n")
+        groups[group].append(f"    @staticmethod\n    def {name}({', '.join(params)}):\n        {json.dumps(doc.get(f'{group}.{name}', ''))}\n"
+                             f"        return {body}\n")
 
     method("UI", "open", ["page"], "_E.ui_open(page)")
     method("UI", "current_page", [], "_E.page")
     method("UI", "visible_message", [], "_E.message")
     method("UI", "last_result", [], "dict(_E.last)")
-    if "login" in ui_extra:
+    if spec.get("users"):
+        name_field = spec["users"].get("name_field", spec["users"].get("login_field", "email"))
         method("UI", "login", ["login", "password"], "_E.ui_login(login, password)")
         method("UI", "logout", [], "_E.ui_logout()")
-        name_field = spec["users"].get("name_field", spec["users"].get("login_field", "email"))
         method("UI", "signed_in_user", [], f"None if _E.user is None else _E.user.get({json.dumps(name_field)})")
         method("API", "login", ["login", "password"], "_E.api_login(login, password)")
-    for q in spec.get("queries") or []:
-        params = query_params(q)
-        args = "{" + ", ".join(f"{json.dumps(p)}: {p}" for p in params) + "}"
-        method("UI", snake(q["name"]), params, f"_E.ui_query({json.dumps(q['name'])}, {args})")
-        method("API", snake(q["name"]), params, f"_E.api_query({json.dumps(q['name'])}, {args})")
-    for a in spec.get("actions") or []:
-        params = action_params(a)
-        args = "{" + ", ".join(f"{json.dumps(p)}: {p}" for p in params) + "}"
-        method("UI", snake(a["name"]), params, f"_E.ui_action({json.dumps(a['name'])}, {args})")
-        method("API", snake(a["name"]), params, f"_E.api_action({json.dumps(a['name'])}, {args})")
+    for kind, ui, api, params_of in (("queries", "ui_query", "api_query", query_params), ("actions", "ui_action", "api_action", action_params)):
+        for item in spec.get(kind) or []:
+            params = params_of(item)
+            args = "{" + ", ".join(f"{json.dumps(p)}: {p}" for p in params) + "}"
+            method("UI", snake(item["name"]), params, f"_E.{ui}({json.dumps(item['name'])}, {args})")
+            method("API", snake(item["name"]), params, f"_E.{api}({json.dumps(item['name'])}, {args})")
     for entity in spec.get("entities") or {}:
         e, en = snake(entity), json.dumps(entity)
         method("Database", f"get_{e}", ["key"], f"_E.db_get({en}, key)")
@@ -144,29 +198,29 @@ def render_python(spec: dict) -> str:
     method("Test", "advance_minutes", ["minutes"], "_E.advance_minutes(minutes)")
     method("Test", "simulate", ["failure"], "_E.simulate(failure)")
 
-    titles = {"UI": "What a user does and sees on the screens.", "API": "The same operations called directly; each returns a result dict.",
-              "Database": "What is really stored - for checking your test's effect.", "Test": "Test-support hooks."}
-    parts = ['"""\n' + "\n".join(_header_lines(spec, "Python")) + '\n"""\n']
+    engine = ['"""The practice app (engine, data and helpers) - provided; not part of your test code."""\n', runtime]
+    engine.append(f"\n\nSPEC = __import__('json').loads({json.dumps(json.dumps(spec, ensure_ascii=False))})\n_E = Engine(SPEC)\n")
     for group, methods in groups.items():
-        parts.append(f"\nclass {group}:\n    {json.dumps(titles[group])}\n\n" + "\n".join(methods))
-    parts.append('\n\ndef setup():\n    """Reset the app to its starting state. Call at the start of every test."""\n    _E.reset()\n')
-    parts.append('\n\ndef teardown(id=None):\n    """Remove one record your test created (by its id)."""\n    _E.teardown(id)\n')
-    parts.append("\n\n# " + "=" * 76 + "\n# Engine internals - do not change anything below this line (up to the TODO block).\n# " + "=" * 76 + "\n")
-    parts.append(runtime)
-    parts.append(f"\n\nSPEC = __import__('json').loads({json.dumps(json.dumps(spec, ensure_ascii=False))})\n_E = Engine(SPEC)\n")
-    parts.append("\n\n# " + "-" * 75 + "\n# TODO: write your automated test(s) below, then call them from __main__.\n# " + "-" * 75 + "\n\n\nif __name__ == \"__main__\":\n    pass\n")
-    return "".join(parts)
+        engine.append(f"\n\nclass {group}:\n    {json.dumps(_GROUP_TITLES[group])}\n\n" + "\n".join(methods))
+    engine.append('\n\ndef setup():\n    """Reset the app to its starting state. Call at the start of every test."""\n    _E.reset()\n')
+    engine.append('\n\ndef teardown(id=None):\n    """Remove one record your test created (by its id)."""\n    _E.teardown(id)\n')
+
+    candidate = ('"""\n' + "\n".join(_header_lines(spec, "python")) + '\n"""\n'
+                 "from practice_engine import API, UI, Database, Test, setup, teardown  # the practice app - provided, already working\n"
+                 "\n\n# " + "-" * 75 + "\n# TODO: write your automated test(s) below, then call them from __main__.\n# " + "-" * 75
+                 + "\n\n\nif __name__ == \"__main__\":\n    pass\n")
+    return candidate, {ENGINE_FILE["python"]: "".join(engine)}
 
 
 # ---------------------------------------------------------------------------- JavaScript
 
-def render_javascript(spec: dict) -> str:
+def _javascript(spec: dict) -> tuple[str, dict[str, str]]:
     runtime = (_HERE / "runtime.js").read_text(encoding="utf-8")
     doc = {h["call"]: h["doc"] for h in helpers(spec)}
     groups: dict[str, list[str]] = {"UI": [], "API": [], "Database": [], "Test": []}
 
     def method(group: str, name: str, params: list[str], body: str, js_params: list[str] | None = None) -> None:
-        text = doc.get(f"{group}.{name}", "").replace("*/", "* /")
+        text = _doc(doc.get(f"{group}.{name}", ""), "javascript").replace("*/", "* /")
         signature = ", ".join(js_params if js_params is not None else [camel(p) for p in params])
         groups[group].append(f"  /** {text} */\n  {camel(name)}({signature}) {{ return {body}; }},\n")
 
@@ -178,19 +232,16 @@ def render_javascript(spec: dict) -> str:
     method("UI", "visible_message", [], "_E.message")
     method("UI", "last_result", [], "Object.assign({}, _E.last)")
     if spec.get("users"):
-        name_field = spec["users"].get("name_field", spec["users"].get("login_field", "email"))
+        name_field = json.dumps(spec["users"].get("name_field", spec["users"].get("login_field", "email")))
         method("UI", "login", ["login", "password"], "_E.uiLogin(login, password)")
         method("UI", "logout", [], "_E.uiLogout()")
-        method("UI", "signed_in_user", [], f"_E.user === null ? null : (_E.user[{json.dumps(name_field)}] === undefined ? null : _E.user[{json.dumps(name_field)}])")
+        method("UI", "signed_in_user", [], f"_E.user === null ? null : (_E.user[{name_field}] === undefined ? null : _E.user[{name_field}])")
         method("API", "login", ["login", "password"], "_E.apiLogin(login, password)")
-    for q in spec.get("queries") or []:
-        params = query_params(q)
-        method("UI", snake(q["name"]), params, f"_E.uiQuery({json.dumps(q['name'])}, {args_of(params)})")
-        method("API", snake(q["name"]), params, f"_E.apiQuery({json.dumps(q['name'])}, {args_of(params)})")
-    for a in spec.get("actions") or []:
-        params = action_params(a)
-        method("UI", snake(a["name"]), params, f"_E.uiAction({json.dumps(a['name'])}, {args_of(params)})")
-        method("API", snake(a["name"]), params, f"_E.apiAction({json.dumps(a['name'])}, {args_of(params)})")
+    for kind, ui, api, params_of in (("queries", "uiQuery", "apiQuery", query_params), ("actions", "uiAction", "apiAction", action_params)):
+        for item in spec.get(kind) or []:
+            params = params_of(item)
+            method("UI", snake(item["name"]), params, f"_E.{ui}({json.dumps(item['name'])}, {args_of(params)})")
+            method("API", snake(item["name"]), params, f"_E.{api}({json.dumps(item['name'])}, {args_of(params)})")
     for entity in spec.get("entities") or {}:
         e, en = snake(entity), json.dumps(entity)
         method("Database", f"get_{e}", ["key"], f"_E.dbGet({en}, key)")
@@ -201,19 +252,18 @@ def render_javascript(spec: dict) -> str:
     method("Test", "advance_minutes", ["minutes"], "_E.advanceMinutes(minutes)")
     method("Test", "simulate", ["failure"], "_E.simulate(failure)")
 
-    header = "\n".join(" * " + line if line else " *" for line in _header_lines(spec, "JavaScript")).replace("*/", "* /")
-    parts = [f"/**\n{header}\n */\n"]
-    titles = {"UI": "What a user does and sees on the screens.", "API": "The same operations called directly; each returns a result object.",
-              "Database": "What is really stored - for checking your test's effect.", "Test": "Test-support hooks."}
+    engine = ["// The practice app (engine, data and helpers) - provided; not part of your test code.\n", runtime,
+              f"\nconst SPEC = {json.dumps(spec, ensure_ascii=False)};\nconst _E = new Engine(SPEC);\n"]
     for group, methods in groups.items():
-        parts.append(f"\n// {titles[group]}\nconst {group} = {{\n" + "".join(methods) + "};\n")
-    parts.append("\n/** Reset the app to its starting state. Call at the start of every test. */\nfunction setup() { _E.reset(); }\n")
-    parts.append("\n/** Remove one record your test created (by its id). */\nfunction teardown(id = null) { _E.teardown(id); }\n")
-    parts.append("\n// " + "=" * 76 + "\n// Engine internals - do not change anything below this line (up to the TODO block).\n// " + "=" * 76 + "\n\n")
-    parts.append(runtime)
-    parts.append(f"\nconst SPEC = {json.dumps(spec, ensure_ascii=False)};\nconst _E = new Engine(SPEC);\n")
-    parts.append("\n// " + "-" * 75 + "\n// TODO: write your automated test(s) below.\n// " + "-" * 75 + "\n")
-    return "".join(parts)
+        engine.append(f"\n// {_GROUP_TITLES[group]}\nconst {group} = {{\n" + "".join(methods) + "};\n")
+    engine.append("\nfunction setup() { _E.reset(); }\nfunction teardown(id = null) { _E.teardown(id); }\n"
+                  "\nmodule.exports = { UI, API, Database, Test, setup, teardown };\n")
+
+    header = "\n".join(" * " + line if line else " *" for line in _header_lines(spec, "javascript")).replace("*/", "* /")
+    candidate = (f"/**\n{header}\n */\n"
+                 'const { UI, API, Database, Test, setup, teardown } = require("./practice_engine.js");  // the practice app - provided, already working\n'
+                 "\n// " + "-" * 75 + "\n// TODO: write your automated test(s) below.\n// " + "-" * 75 + "\n")
+    return candidate, {ENGINE_FILE["javascript"]: "".join(engine)}
 
 
 # ---------------------------------------------------------------------------- Java
@@ -226,80 +276,96 @@ def _java_string(text: str) -> str:
         elif ch == "\n":
             out.append("\\n")
         elif ord(ch) < 0x20 or ord(ch) > 0x7E:
-            out.append("\\u%04x" % ord(ch) if ord(ch) < 0x10000 else "".join("\\u%04x" % u for u in _utf16(ch)))
+            b = ch.encode("utf-16-be")
+            out.append("".join("\\u%04x" % int.from_bytes(b[i:i + 2], "big") for i in range(0, len(b), 2)))
         else:
             out.append(ch)
     return '"' + "".join(out) + '"'
 
 
-def _utf16(ch: str) -> list[int]:
-    b = ch.encode("utf-16-be")
-    return [int.from_bytes(b[i:i + 2], "big") for i in range(0, len(b), 2)]
+_ROW, _ROWS = "Map<String, Object>", "List<Map<String, Object>>"
 
 
-def render_java(spec: dict) -> str:
+def _java_returns(spec: dict) -> dict[str, str]:
+    out = {"UI.open": "boolean", "UI.current_page": "String", "UI.visible_message": "String", "UI.last_result": _ROW,
+           "UI.login": "boolean", "UI.logout": "boolean", "UI.signed_in_user": "Object", "API.login": _ROW,
+           "Database.outbox": _ROWS, "Test.advance_minutes": "String", "Test.simulate": "boolean", "setup": "void", "teardown": "void"}
+    for q in spec.get("queries") or []:
+        out[f"UI.{snake(q['name'])}"] = _ROW if q.get("key_input") else _ROWS
+        out[f"API.{snake(q['name'])}"] = _ROW
+    for a in spec.get("actions") or []:
+        out[f"UI.{snake(a['name'])}"] = "boolean"
+        out[f"API.{snake(a['name'])}"] = _ROW
+    for entity in spec.get("entities") or {}:
+        e = snake(entity)
+        out.update({f"Database.get_{e}": _ROW, f"Database.find_{e}": _ROWS, f"Database.count_{e}": "long", f"Database.all_{e}": _ROWS})
+    return out
+
+
+def _java(spec: dict) -> tuple[str, dict[str, str]]:
     runtime = (_HERE / "runtime_java.txt").read_text(encoding="utf-8")
     doc = {h["call"]: h["doc"] for h in helpers(spec)}
+    returns = _java_returns(spec)
     groups: dict[str, list[str]] = {"UI": [], "API": [], "Database": [], "Test": []}
-    obj, row, rows = "Object", "Map<String, Object>", "List<Map<String, Object>>"
 
-    def method(group: str, name: str, params: list[str], returns: str, body: str) -> None:
-        text = doc.get(f"{group}.{name}", "").replace("*/", "* /")
-        signature = ", ".join(f"Object {camel(p)}" for p in params)
-        cast = "" if returns in ("Object", "void") else f"({returns}) (Object) "
-        stmt = f"{body};" if returns == "void" else f"return {cast}{body};"
-        groups[group].append(f"        /** {text} */\n        @SuppressWarnings(\"unchecked\")\n"
-                             f"        public static {returns} {camel(name)}({signature}) {{ {stmt} }}\n")
+    def method(group: str, name: str, params: list[str], body: str) -> None:
+        text = _doc(doc.get(f"{group}.{name}", ""), "java").replace("*/", "* /")
+        kind = returns[f"{group}.{name}"]
+        cast = "" if kind == "Object" else f"({kind}) (Object) "
+        groups[group].append(f"    /** {text} */\n    @SuppressWarnings(\"unchecked\")\n"
+                             f"    public static {kind} {camel(name)}({', '.join(f'Object {camel(p)}' for p in params)}) {{ return {cast}{body}; }}\n")
 
     def args_of(params: list[str]) -> str:
-        return "inputs(" + ", ".join(f"{_java_string(p)}, {camel(p)}" for p in params) + ")"
+        return "PracticeEngine.inputs(" + ", ".join(f"{_java_string(p)}, {camel(p)}" for p in params) + ")"
 
-    method("UI", "open", ["page"], "boolean", "_E.uiOpen(page)")
-    method("UI", "current_page", [], "String", "_E.page")
-    method("UI", "visible_message", [], "String", "_E.message")
-    method("UI", "last_result", [], row, "new LinkedHashMap<>(_E.last)")
+    e_ = "PracticeEngine._E"
+    method("UI", "open", ["page"], f"{e_}.uiOpen(page)")
+    method("UI", "current_page", [], f"{e_}.page")
+    method("UI", "visible_message", [], f"{e_}.message")
+    method("UI", "last_result", [], f"new LinkedHashMap<>({e_}.last)")
     if spec.get("users"):
         name_field = _java_string(spec["users"].get("name_field", spec["users"].get("login_field", "email")))
-        method("UI", "login", ["login", "password"], "boolean", "_E.uiLogin(login, password)")
-        method("UI", "logout", [], "boolean", "_E.uiLogout()")
-        method("UI", "signed_in_user", [], obj, f"_E.user == null ? null : _E.user.get({name_field})")
-        method("API", "login", ["login", "password"], row, "_E.apiLogin(login, password)")
-    for q in spec.get("queries") or []:
-        params, n = query_params(q), _java_string(q["name"])
-        method("UI", snake(q["name"]), params, row if q.get("key_input") else rows, f"_E.uiQuery({n}, {args_of(params)})")
-        method("API", snake(q["name"]), params, row, f"_E.apiQuery({n}, {args_of(params)})")
-    for a in spec.get("actions") or []:
-        params, n = action_params(a), _java_string(a["name"])
-        method("UI", snake(a["name"]), params, "boolean", f"_E.uiAction({n}, {args_of(params)})")
-        method("API", snake(a["name"]), params, row, f"_E.apiAction({n}, {args_of(params)})")
+        method("UI", "login", ["login", "password"], f"{e_}.uiLogin(login, password)")
+        method("UI", "logout", [], f"{e_}.uiLogout()")
+        method("UI", "signed_in_user", [], f"{e_}.user == null ? null : {e_}.user.get({name_field})")
+        method("API", "login", ["login", "password"], f"{e_}.apiLogin(login, password)")
+    for kind, ui, api, params_of in (("queries", "uiQuery", "apiQuery", query_params), ("actions", "uiAction", "apiAction", action_params)):
+        for item in spec.get(kind) or []:
+            params, n = params_of(item), _java_string(item["name"])
+            method("UI", snake(item["name"]), params, f"{e_}.{ui}({n}, {args_of(params)})")
+            method("API", snake(item["name"]), params, f"{e_}.{api}({n}, {args_of(params)})")
     for entity in spec.get("entities") or {}:
         e, en = snake(entity), _java_string(entity)
-        method("Database", f"get_{e}", ["key"], row, f"_E.dbGet({en}, key)")
-        method("Database", f"find_{e}", ["field", "value"], rows, f"_E.dbFind({en}, field, value)")
-        method("Database", f"count_{e}", ["field", "value"], "long", f"_E.dbCount({en}, field, value)")
-        groups["Database"].append(f"        /** How many {entity} records are stored. */\n"
-                                  f"        public static long {camel('count_' + e)}() {{ return _E.dbCount({en}, null, null); }}\n")
-        method("Database", f"all_{e}", [], rows, f"_E.dbAll({en})")
-    method("Database", "outbox", [], rows, "_E.outboxCopy()")
-    method("Test", "advance_minutes", ["minutes"], "String", "_E.advanceMinutes(minutes)")
-    method("Test", "simulate", ["failure"], "boolean", "_E.simulate(failure)")
+        method("Database", f"get_{e}", ["key"], f"{e_}.dbGet({en}, key)")
+        method("Database", f"find_{e}", ["field", "value"], f"{e_}.dbFind({en}, field, value)")
+        method("Database", f"count_{e}", ["field", "value"], f"{e_}.dbCount({en}, field, value)")
+        groups["Database"].append(f"    /** How many {entity} records are stored. */\n"
+                                  f"    public static long {camel('count_' + e)}() {{ return {e_}.dbCount({en}, null, null); }}\n")
+        method("Database", f"all_{e}", [], f"{e_}.dbAll({en})")
+    method("Database", "outbox", [], f"{e_}.outboxCopy()")
+    method("Test", "advance_minutes", ["minutes"], f"{e_}.advanceMinutes(minutes)")
+    method("Test", "simulate", ["failure"], f"{e_}.simulate(failure)")
 
-    header = "\n".join(" * " + line if line else " *" for line in _header_lines(spec, "Java")).replace("*/", "* /")
-    titles = {"UI": "What a user does and sees on the screens.", "API": "The same operations called directly; each returns a result map.",
-              "Database": "What is really stored - for checking your test's effect.", "Test": "Test-support hooks."}
-    parts = ["import java.util.*;\n\n", f"/**\n{header}\n */\npublic class Main {{\n"]
-    for group, methods in groups.items():
-        parts.append(f"\n    /** {titles[group]} */\n    public static class {group} {{\n" + "\n".join(methods) + "    }\n")
-    parts.append("\n    /** Reset the app to its starting state. Call at the start of every test. */\n    public static void setup() { _E.reset(); }\n")
-    parts.append("\n    /** Remove one record your test created (by its id). */\n    public static void teardown(Object id) { _E.teardown(id); }\n")
-    parts.append("\n    /** Nothing to remove. */\n    public static void teardown() { }\n")
-    parts.append("\n    // " + "=" * 76 + "\n    // Engine internals - do not change anything below this line (up to the TODO block).\n    // " + "=" * 76 + "\n\n")
-    parts.append(runtime)
     text = json.dumps(spec, ensure_ascii=False)
     chunks = [text[i:i + 4000] for i in range(0, len(text), 4000)] or [""]
-    parts.append("\n    static String specText() {\n        StringBuilder b = new StringBuilder();\n"
-                 + "".join(f"        b.append({_java_string(c)});\n" for c in chunks)
-                 + "        return b.toString();\n    }\n\n    static final Engine _E = new Engine(map(Json.parse(specText())));\n")
-    parts.append("\n    // " + "-" * 75 + "\n    // TODO: write your automated test(s) below, then call them from main().\n    // " + "-" * 75 + "\n\n"
+    engine = ["// The practice app (engine, data and helpers) - provided; not part of your test code.\n",
+              "import java.util.*;\n\nfinal class PracticeEngine {\n", runtime,
+              "\n    static String specText() {\n        StringBuilder b = new StringBuilder();\n",
+              "".join(f"        b.append({_java_string(c)});\n" for c in chunks),
+              "        return b.toString();\n    }\n\n    static final Engine _E = new Engine(map(Json.parse(specText())));\n}\n"]
+    for group, methods in groups.items():
+        engine.append(f"\n/** {_GROUP_TITLES[group]} */\nfinal class {group} {{\n" + "\n".join(methods) + "}\n")
+    engine.append("\n/** Test lifecycle. */\nfinal class PracticeApp {\n"
+                  "    static void setup() { PracticeEngine._E.reset(); }\n"
+                  "    static void teardown(Object id) { PracticeEngine._E.teardown(id); }\n}\n")
+
+    header = "\n".join(" * " + line if line else " *" for line in _header_lines(spec, "java")).replace("*/", "* /")
+    candidate = ("import java.util.*;\n\n"
+                 f"/**\n{header}\n */\npublic class Main {{\n"
+                 "    /** Reset the app to its starting state. Call at the start of every test. */\n"
+                 "    public static void setup() { PracticeApp.setup(); }\n\n"
+                 "    /** Remove one record your test created (by its id). */\n"
+                 "    public static void teardown(Object id) { PracticeApp.teardown(id); }\n\n"
+                 "    // " + "-" * 71 + "\n    // TODO: write your automated test(s) below, then call them from main().\n    // " + "-" * 71 + "\n\n"
                  "    public static void main(String[] args) {\n    }\n}\n")
-    return "".join(parts)
+    return candidate, {ENGINE_FILE["java"]: "".join(engine)}

@@ -13,11 +13,19 @@ validator checks. No per-scenario code is written by the AI.
    description and the checklists (data). The runtime, the helper code
    candidates call, and all arithmetic, dates, money formatting and ordering
    are fixed code with tests.
-2. **Same file shape as before.** The generated file for each language keeps
-   the existing contract: `UI` / `API` / `Database` helper groups (plus a
-   `Test` group for test-support hooks), module-level `setup()` and
-   `teardown(id=None)`, the docstring, and the TODO block for candidate code.
-   `checker.py`, the runners, candidate execution and scoring are unchanged.
+2. **Two files per language.** The *candidate file* (main.py / main.js /
+   Main.java, about 5-7 KB) is what the candidate edits and the Round 2
+   assistant rewrites every turn: accounts, pages, record fields, every helper
+   with what it does, one import line and the TODO block. The *engine file*
+   (practice_engine.py / .js / PracticeEngine.java) holds the engine, the
+   description and the `UI` / `API` / `Database` / `Test` helpers,
+   `setup()` and `teardown(id=None)`; it is placed next to the candidate file
+   whenever code runs (`execution_service.run_code(support_files=...)`, the
+   checker's runners). Putting everything in one file made it ~45 KB, which
+   every assistant turn would have had to rewrite. Candidates test the app
+   through its helpers, as they would a real application; its rules and data
+   are not in their file. Older practice apps (one self-contained file) run
+   unchanged.
 3. **Three languages, one behaviour.** The Python, JavaScript and Java runtimes
    implement one specification and pass one shared conformance suite (same
    description + same checklists -> identical values). Anything that could

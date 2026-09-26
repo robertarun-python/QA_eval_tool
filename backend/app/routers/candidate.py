@@ -701,6 +701,14 @@ def _auto_environment_code(scenario: Scenario, language: str) -> str:
     return llm_service._load_prompt(_AUTO_LANGUAGE_HELPER_FILES[language])
 
 
+def _auto_environment_support(scenario: Scenario, language: str) -> dict[str, str]:
+    """Files placed next to the candidate's code when it runs - an
+    engine-built practice app's engine (practice_app.service.approve); none
+    for older practice apps, which are one self-contained file."""
+    support = ((scenario.config_json or {}).get("environment_support_by_language") or {}).get(language) or {}
+    return {str(k): str(v) for k, v in support.items()} if isinstance(support, dict) else {}
+
+
 def _ensure_auto_content(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> dict:
     """Seeds this submission's automation state on first access - /round/2/start
     is shared with the other round 2 flows and knows nothing about this mode.
@@ -1266,8 +1274,10 @@ def round2_automation_run(
     content = _apply_tc_code_edit(submission, content, db, row_index, payload.code if payload else None)
     row = _resolve_tc_row(content.get("selected") or [], row_index)
 
+    language = content.get("language", "python")
     result = execution_service.run_code(
-        language=content.get("language", "python"), code=row.get("code", ""), stdin=[],
+        language=language, code=row.get("code", ""), stdin=[],
+        support_files=_auto_environment_support(scenario, language),
     )
     last_run = {
         "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code,

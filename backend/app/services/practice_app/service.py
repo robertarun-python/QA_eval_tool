@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from ... import database
 from ...config import settings
 from ...models import RoundStatus, Scenario, ScenarioStatus, Submission
-from . import generator
+from . import engine_build, generator
 
 log = logging.getLogger(__name__)
 
@@ -120,8 +120,8 @@ def run_build(scenario_id: int) -> None:
             db.commit()
 
         try:
-            result = generator.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
-                                        progress=progress, reuse=_reusable_build(scenario))
+            result = engine_build.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
+                                           progress=progress, reuse=_reusable_build(scenario))
         except Exception as e:  # generator.generate already catches; this is a last resort
             result = generator.PracticeAppResult(error=f"{type(e).__name__}: {e}")
         rows = result.coverage()
@@ -154,6 +154,7 @@ def run_build(scenario_id: int) -> None:
                 "unsupported": result.unsupported,
                 "reference_hash": _reference_hash(scenario),
                 "env_code_by_language": result.env_code_by_language,
+                "support_by_language": result.support_by_language,
                 "ground_truth": generator.ground_truth(result.plan),
                 "log": result.log,
                 "coverage": rows,
@@ -251,6 +252,8 @@ def approve(round1: Scenario, db: Session) -> Scenario:
     config = {
         "mode": "ai_test_automation",
         "environment_code_by_language": build["env_code_by_language"],
+        # An engine-built app's engine file, placed next to the candidate's code when it runs.
+        "environment_support_by_language": build.get("support_by_language") or {},
         "paired_round1_scenario_id": round1.id,
         "paired_round1_title": round1.title,
         "practice_app_checklists": build["checklists"],

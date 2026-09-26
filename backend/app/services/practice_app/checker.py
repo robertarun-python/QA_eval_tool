@@ -170,22 +170,32 @@ def _run(cmd: list[str], stdin: str | None = None, cwd: Path | None = None) -> s
     return subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=_TIMEOUT_SECONDS, cwd=cwd)
 
 
-def _raw_python(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
+def _write_support(folder: Path, support: dict[str, str] | None) -> list[str]:
+    """The app's engine file(s), next to the candidate file - as when a candidate's code runs."""
+    for name, code in (support or {}).items():
+        (folder / name).write_text(code, encoding="utf-8")
+    return sorted(support or {})
+
+
+def _raw_python(env_code: str, checklists: list[dict], tmp: Path, support: dict[str, str] | None = None) -> list[dict]:
     env = tmp / "practice_app.py"
     env.write_text(env_code, encoding="utf-8")
-    proc = _run([sys.executable, str(HERE / "runner.py")], stdin=json.dumps({"env_path": str(env), "checklists": checklists}))
+    modules = [Path(n).stem for n in _write_support(tmp, support)]
+    proc = _run([sys.executable, str(HERE / "runner.py")],
+                stdin=json.dumps({"env_path": str(env), "checklists": checklists, "fresh_modules": modules}))
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[-600:] or "the Python runner failed")
     return json.loads(proc.stdout)
 
 
-def _raw_javascript(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
+def _raw_javascript(env_code: str, checklists: list[dict], tmp: Path, support: dict[str, str] | None = None) -> list[dict]:
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js is not installed on this server")
     env = tmp / "practice_app.js"
     env.write_text(env_code, encoding="utf-8")
-    proc = _run([node, str(HERE / "runner.js")], stdin=json.dumps({"env_path": str(env), "checklists": checklists}))
+    fresh = [str(tmp / n) for n in _write_support(tmp, support)]
+    proc = _run([node, str(HERE / "runner.js")], stdin=json.dumps({"env_path": str(env), "checklists": checklists, "fresh_modules": fresh}))
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[-600:] or "the JavaScript runner failed")
     return json.loads(proc.stdout)
@@ -205,7 +215,7 @@ def _java_arg(arg) -> str:
     return "s:" + base64.b64encode(str(arg).encode("utf-8")).decode()
 
 
-def _raw_java(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
+def _raw_java(env_code: str, checklists: list[dict], tmp: Path, support: dict[str, str] | None = None) -> list[dict]:
     javac, java = shutil.which("javac"), shutil.which("java")
     if not (javac and java):
         raise RuntimeError("Java is not installed on this server")
@@ -213,7 +223,8 @@ def _raw_java(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
     app_dir.mkdir()
     runner_dir.mkdir()
     (app_dir / "Main.java").write_text(env_code, encoding="utf-8")
-    for cmd in ([javac, "-nowarn", "-d", str(app_dir), str(app_dir / "Main.java")],
+    sources = [str(app_dir / "Main.java")] + [str(app_dir / n) for n in _write_support(app_dir, support) if n.endswith(".java")]
+    for cmd in ([javac, "-nowarn", "-d", str(app_dir)] + sources,
                 [javac, "-nowarn", "-d", str(runner_dir), str(HERE / "PracticeRunner.java")]):
         proc = _run(cmd)
         if proc.returncode != 0:
@@ -235,11 +246,11 @@ def _raw_java(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
 _RAW = {"python": _raw_python, "javascript": _raw_javascript, "java": _raw_java}
 
 
-def inspect_language(language: str, env_code: str, checklists: list[dict]) -> LanguageReport:
+def inspect_language(language: str, env_code: str, checklists: list[dict], support: dict[str, str] | None = None) -> LanguageReport:
     report = LanguageReport(language=language)
     with tempfile.TemporaryDirectory(prefix=f"practice_{language}_") as tmp:
         try:
-            raw = {r["id"]: r for r in _RAW[language](env_code, checklists, Path(tmp))}
+            raw = {r["id"]: r for r in _RAW[language](env_code, checklists, Path(tmp), support)}
         except (RuntimeError, subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
             report.error = f"couldn't run the {language} app: {e}"
             return report
@@ -247,12 +258,14 @@ def inspect_language(language: str, env_code: str, checklists: list[dict]) -> La
     return report
 
 
-def inspect(env_code_by_language: dict[str, str], checklists: list[dict]) -> InspectionReport:
+def inspect(env_code_by_language: dict[str, str], checklists: list[dict],
+            support_by_language: dict[str, dict[str, str]] | None = None) -> InspectionReport:
     """Runs every checklist in every language provided, and lists anywhere
     the languages disagree with each other - even where no checklist says
     what the right answer is, a candidate must get the same behaviour
-    whichever language they chose."""
-    reports = {lang: inspect_language(lang, code, checklists)
+    whichever language they chose. support_by_language: files placed next to
+    each language's file (an engine-built app's engine file)."""
+    reports = {lang: inspect_language(lang, code, checklists, (support_by_language or {}).get(lang))
                for lang, code in env_code_by_language.items() if lang in _RAW}
     differences = []
     runnable = [r for r in reports.values() if r.error is None]

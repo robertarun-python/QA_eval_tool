@@ -12,7 +12,7 @@ import pytest
 from app import database as database_module
 from app.models import Scenario
 from app.services import llm_service
-from app.services.practice_app import checker, generator, service
+from app.services.practice_app import checker, engine_build, generator, service
 
 from .conftest import HR_EMAIL, HR_PASSWORD, _auth, _login, _publish_round4_scenario, _publish_scenario
 
@@ -50,7 +50,7 @@ def _fake_factory(monkeypatch, ok=True, approvable=False):
         result.approvable = ok or approvable
         return result
 
-    monkeypatch.setattr(generator, "generate", generate)
+    monkeypatch.setattr(engine_build, "generate", generate)
     return calls
 
 
@@ -75,7 +75,7 @@ def test_status_starts_empty_and_lists_the_build_steps(client, monkeypatch, buil
     r1 = _r1(client, token, monkeypatch)
     data = client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()
     assert data["status"] == "none" and data["cannot_start"] is None
-    assert data["steps"] == generator.STEPS
+    assert data["steps"] == engine_build.STEPS
     assert "$" not in json.dumps(data)  # HR isn't shown the cost
 
 
@@ -94,7 +94,7 @@ def test_progress_is_saved_step_by_step_while_building(client, monkeypatch, buil
                 db.close()
         return generator.PracticeAppResult(ok=False, error="stopped for the test")
 
-    monkeypatch.setattr(generator, "generate", generate)
+    monkeypatch.setattr(engine_build, "generate", generate)
     client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     assert [(d["status"], d["step"], d["step_detail"]) for d in seen] == [
         ("building", 0, ""), ("building", 3, "27 of 28 pass - fixing (round 1 of 2)")]
@@ -143,6 +143,29 @@ def test_approving_creates_the_paired_round2_scenario_and_puts_it_live(client, m
     assert round2.environment_json["fields"] == {"Test account email": "qa.patient.demo@testportal.io"}
     assert round2.ui_mockup_json == {"screens": [{"name": "Login", "elements": [
         {"type": "label", "text": "Email Address"}, {"type": "input", "text": ""}, {"type": "button", "text": "Log In"}]}]}
+
+
+def test_an_engine_built_apps_engine_file_goes_to_round2_and_runs_beside_the_candidates_code(client, monkeypatch, builds_dir):
+    """The engine file travels build -> approval -> Round 2 scenario, and the
+    candidate's Run places it next to their code (routers/candidate)."""
+    from app.routers import candidate as candidate_router
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch)
+    real = engine_build.generate
+    support = {"python": {"practice_engine.py": "X = 1"}}
+
+    def with_engine(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.support_by_language = support
+        return result
+    monkeypatch.setattr(engine_build, "generate", with_engine)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    round2 = _db_scenario(res.json()["round2_scenario_id"])
+    assert round2.config_json["environment_support_by_language"] == support
+    assert candidate_router._auto_environment_support(round2, "python") == {"practice_engine.py": "X = 1"}
+    assert candidate_router._auto_environment_support(round2, "java") == {}
 
 
 def test_a_design_without_usable_screens_shows_none():
