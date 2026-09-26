@@ -46,4 +46,4 @@ backend/skills-lock.json
 practice_app_builds/
 
 # Selenium, Chrome for Testing, drivers - downloaded by tools/setup_vendor.sh, never committed
-vendor/
+vendor
