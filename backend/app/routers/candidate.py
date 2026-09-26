@@ -1037,10 +1037,27 @@ def _state_fingerprint(row: dict) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+_FILLER_WORDS = {"please", "pls", "can", "could", "would", "you", "the", "a", "an", "to", "and", "me", "for", "it", "this", "that", "just",
+                 "now", "again", "again,", "i", "want", "need", "kindly", "ok", "okay", "so", "then", "of", "my", "is", "are", "be"}
+_EXACT_VALUE_RE = re.compile(r"""["'][^"']*["']|\d+(?:\.\d+)?|[\w.+-]+@[\w.-]+""")
+
+
 def _same_message(a: str | None, b: str | None) -> bool:
+    """The same request again, even reworded ("write code to log in" / "please
+    write the code to log in again"): the same exact values (numbers, quoted
+    text, emails) and nearly the same meaningful words. A changed value
+    ("balance is 500" -> "600") is always a new request."""
     def norm(t: str | None) -> str:
         return " ".join((t or "").lower().split()).strip(" .!?")
-    return bool(norm(a)) and norm(a) == norm(b)
+    if not norm(a) or not norm(b):
+        return False
+    if norm(a) == norm(b):
+        return True
+    if sorted(_EXACT_VALUE_RE.findall(norm(a))) != sorted(_EXACT_VALUE_RE.findall(norm(b))):
+        return False
+    words = [{w.strip(".,!?;:") for w in norm(t).split()} - _FILLER_WORDS - {""} for t in (a, b)]
+    union = words[0] | words[1]
+    return bool(union) and len(words[0] & words[1]) / len(union) >= 0.8
 
 
 @router.post("/round/2/auto/turn", response_model=Round2AutomationTurnOut, status_code=201)
