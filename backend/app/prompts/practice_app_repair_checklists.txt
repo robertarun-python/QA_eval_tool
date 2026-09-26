@@ -1,7 +1,4 @@
-These CHECKLISTS for a practice app (a pretend application for a QA hiring assessment) keep failing, and fixing the app's code hasn't helped - the checklists themselves may be what's wrong. The DESIGN below is the truth: the app is built from it, and every checklist must be satisfiable by an app that follows it exactly.
-
-THE DESIGN:
-<<PLAN>>
+These CHECKLISTS for the practice app designed above keep failing, and fixing the app's code hasn't helped - the checklists themselves may be what's wrong. The DESIGN above is the truth: the app is built from it, and every checklist must be satisfiable by an app that follows it exactly.
 
 EACH FAILING CHECKLIST, the Round 1 test case it automates, and what went wrong when it ran:
 <<FAILING>>

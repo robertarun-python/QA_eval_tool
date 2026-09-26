@@ -58,7 +58,7 @@ class FakeAI:
         if "fixing the app's code hasn't helped" in prompt:
             return json.dumps(self.repairs.pop(0)) if self.repairs else "[]"
         if "failed its automatic inspection" in prompt:
-            language = next(l for l, name in generator.LANGUAGE_NAMES.items() if prompt.startswith(f"This {name} "))
+            language = next(l for l, name in generator.LANGUAGE_NAMES.items() if f"This {name} PRACTICE APP" in prompt)
             return f"```{language}\n{self.fixes[language].pop(0)}\n```"
         if "as a single Python file" in prompt:
             return f"```python\n{self.code['python']}\n```"
@@ -106,7 +106,7 @@ def test_a_translation_that_behaves_differently_is_sent_back_and_fixed(monkeypat
     fake = FakeAI(java=old_java, fixes={"java": [APP["java"]]})
     result = _run(monkeypatch, fake)
     assert result.ok, result.log
-    fix_prompt = next(p for p in fake.prompts if p.startswith("This Java "))
+    fix_prompt = next(p for p in fake.prompts if "This Java PRACTICE APP" in p)
     assert "UI.open" in fix_prompt
 
 
@@ -335,7 +335,7 @@ def test_translations_keep_string_values_like_field_names_as_in_python(monkeypat
     _run(monkeypatch, fake)
     rule = "must be exactly the same string as in the Python version"
     translations = [p for p in fake.prompts if "from Python to" in p]
-    js_fix = next(p for p in fake.prompts if p.startswith("This JavaScript "))
+    js_fix = next(p for p in fake.prompts if "This JavaScript PRACTICE APP" in p)
     assert len(translations) == 2 and all(rule in p for p in translations) and rule in js_fix
 
 
@@ -403,7 +403,7 @@ def test_an_app_with_one_unverified_case_is_finished_and_can_be_approved(monkeyp
     unverified = [r["title"] for r in result.coverage() if r["status"] == "fails"]
     assert unverified == ["Book an available slot and see the confirmation"]
     # the translations were never sent chasing the case Python itself fails
-    assert not any(p.startswith("This JavaScript ") or p.startswith("This Java ") for p in fake.prompts)
+    assert not any("This JavaScript PRACTICE APP" in p or "This Java PRACTICE APP" in p for p in fake.prompts)
 
 
 def test_an_unverified_high_priority_case_blocks_approval_and_translation(monkeypatch):
@@ -480,3 +480,20 @@ def test_no_recheck_is_paid_for_when_the_app_did_not_run(monkeypatch):
     result = _run(monkeypatch, fake)
     assert not result.ok
     assert not any("fixing the app's code hasn't helped" in p for p in fake.prompts)
+
+
+def test_build_prompts_share_one_cacheable_start(monkeypatch):
+    """The design (and, where used, the checklists) is the same text at the
+    start of every build call that works from it - read from the prompt cache
+    after the first call. The translations don't use the design and are unchanged."""
+    broken = APP["python"].replace('"Appointment confirmed"', '"Booked!"')
+    fake = FakeAI(python=broken, fixes={"python": [APP["python"]]})
+    _run(monkeypatch, fake)
+    B = llm_service.CACHE_BREAK
+    design_block = lambda p: p.split(B)[0]  # noqa: E731
+    uses_design = [p for p in fake.prompts if "designing a small PRACTICE APP" not in p and "from Python to" not in p]
+    assert len(uses_design) >= 4  # checklists, python, a look at the checklists, the fix
+    assert len({design_block(p) for p in uses_design}) == 1 and "THE PRACTICE APP'S DESIGN" in design_block(uses_design[0])
+    with_checklists = [p for p in uses_design if p.count(B) == 2]  # the python and fix calls
+    assert len(with_checklists) >= 2 and len({p.split(B)[1] for p in with_checklists}) == 1
+    assert not any(B in p for p in fake.prompts if "from Python to" in p)

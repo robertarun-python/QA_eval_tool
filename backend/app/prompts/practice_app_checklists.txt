@@ -1,7 +1,4 @@
-You are writing machine-checkable CHECKLISTS for a practice app used in a QA hiring assessment. Each checklist proves that one Round 1 reference test case can be automated against the practice app, and states exactly what the app must do.
-
-THE PRACTICE APP'S DESIGN (the only source of truth - use only these helpers, this data, these exact messages):
-<<PLAN>>
+You are writing machine-checkable CHECKLISTS for the practice app designed above. Each checklist proves that one Round 1 reference test case can be automated against the practice app, and states exactly what the app must do. The design above is the only source of truth - use only its helpers, its data and its exact messages.
 
 ROUND 1 REFERENCE TEST CASES - write exactly ONE checklist per test case, in this order, with "title" copied exactly:
 <<REFERENCE_CASES>>
