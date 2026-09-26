@@ -539,6 +539,14 @@ def update_round2_automation_environment(scenario_id: int, payload: Round2Automa
     round4-instructions: a candidate's test data shouldn't change under
     them mid-conversation."""
     scenario = _get_round2_automation_scenario_or_404(scenario_id, db)
+    config = scenario.config_json or {}
+    if config.get("paired_round1_scenario_id") or config.get("paired_round1_title"):
+        # The sheet describes the practice app's code exactly (and the scorer's
+        # ground truth is built from the same design): an edit here would tell
+        # candidates a login or data the app rejects.
+        raise HTTPException(400, "This Round 2 uses a practice app, and its reference sheet matches the app's code exactly - "
+                                 "it can't be edited. To change a login or data, change the Round 1 test cases and "
+                                 "generate Round 2 again.")
     _require_round2_automation_not_in_progress(scenario_id, db, background_tasks, "change this round's test environment")
 
     scenario.environment_json = Round2AutomationEnvironmentOut(fields=payload.fields, notes=payload.notes).model_dump()

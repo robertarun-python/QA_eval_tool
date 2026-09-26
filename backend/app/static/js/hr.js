@@ -1054,7 +1054,15 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound
 
       <details>
         <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>
-        ${scenario.environment_json ? `
+        ${scenario.environment_json && isPaired ? `
+          <div class="hint-box env-panel">
+            <dl class="env-fields">
+              ${Object.entries(scenario.environment_json.fields || {}).map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd>${escapeHtml(v)}</dd>`).join("")}
+            </dl>
+            ${scenario.environment_json.notes ? `<p class="muted">${escapeHtml(scenario.environment_json.notes)}</p>` : ""}
+            <p class="muted">Read-only: this sheet matches the practice app's code exactly. To change a login or data, change the Round 1 test cases and generate Round 2 again.</p>
+          </div>
+        ` : scenario.environment_json ? `
           <div class="hint-box env-panel">
             <dl class="env-fields" id="r4-env-fields-${scenario.id}">
               ${Object.entries(scenario.environment_json.fields || {}).map(([k, v]) => `

@@ -307,3 +307,80 @@ def test_a_reused_old_build_keeps_its_not_supported_cases(client, monkeypatch, b
         db.close()
     client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     assert calls[1]["reuse"]["unsupported"] == [{"title": "SMS reminder", "reason": "no SMS"}]
+
+
+def _approved_round2(client, token, monkeypatch, r1):
+    _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    assert res.status_code == 200, res.text
+    return res.json()["round2_scenario_id"]
+
+
+def _submission(scenario_id, status):
+    from datetime import datetime
+    from app.models import RoundStatus, Submission, User
+    from .conftest import CANDIDATE1_EMAIL
+    db = database_module.SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == CANDIDATE1_EMAIL).one()
+        db.add(Submission(user_id=user.id, scenario_id=scenario_id, round_number=2, status=RoundStatus(status),
+                          started_at=datetime.utcnow()))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_a_practice_apps_reference_sheet_cannot_be_edited(client, monkeypatch, builds_dir):
+    """D1: the sheet matches the app's code - an edit would tell candidates a login the app rejects."""
+    token = _hr(client)
+    round2_id = _approved_round2(client, token, monkeypatch, _r1(client, token, monkeypatch))
+    res = client.patch(f"/hr/scenarios/{round2_id}/round4-environment", cookies=_auth(token),
+                       json={"fields": {"Test account email": "someone.else@example.com"}, "notes": ""})
+    assert res.status_code == 400 and "can't be edited" in res.json()["detail"]
+    assert _db_scenario(round2_id).environment_json["fields"] == {"Test account email": "qa.patient.demo@testportal.io"}
+
+
+def test_a_new_round2_takes_its_time_limit_from_its_own_band(client, monkeypatch, builds_dir):
+    """D2: the template for a new paired Round 2 is the live Round 2 of the same band."""
+    token = _hr(client)
+    other_band = _publish_round4_scenario(client, token, monkeypatch, band="7+")
+    db = database_module.SessionLocal()
+    db.get(Scenario, other_band["id"]).time_limit_minutes = 99
+    db.commit()
+    db.close()
+    round2_id = _approved_round2(client, token, monkeypatch, _r1(client, token, monkeypatch))
+    assert _db_scenario(round2_id).time_limit_minutes != 99
+
+
+def test_reapproving_after_candidates_took_round2_makes_a_new_version(client, monkeypatch, builds_dir):
+    """D3: candidates' results stay tied to the app they actually used."""
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    first = _approved_round2(client, token, monkeypatch, r1)
+    _submission(first, "submitted")
+    before = _db_scenario(first).config_json
+    second = _approved_round2(client, token, monkeypatch, r1)
+    assert second != first
+    assert _db_scenario(first).config_json == before  # untouched
+    assert _db_scenario(second).title.endswith("(version 2)")
+    assert _db_scenario(second).is_live and not _db_scenario(first).is_live  # the newest version is the live one
+
+
+def test_reapproving_before_anyone_took_it_updates_in_place(client, monkeypatch, builds_dir):
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    assert _approved_round2(client, token, monkeypatch, r1) == _approved_round2(client, token, monkeypatch, r1)
+
+
+def test_approval_is_refused_while_a_candidate_is_mid_round2(client, monkeypatch, builds_dir):
+    """C8: it used to skip the switch silently while the card said "ready to approve"."""
+    token = _hr(client)
+    live_r2 = _publish_round4_scenario(client, token, monkeypatch)
+    _submission(live_r2["id"], "in_progress")
+    r1 = _r1(client, token, monkeypatch)  # live
+    _fake_factory(monkeypatch)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    assert res.status_code == 400 and "middle of Round 2" in res.json()["detail"]
+    assert _db_scenario(live_r2["id"]).is_live
