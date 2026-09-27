@@ -480,6 +480,7 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
     environments = (scenario.config_json or {}).get("environment_code_by_language") or {}
     environment_code = environments.get(language, "")
     for block in tc_evidence:
+        block["synchronisation"] = round2_automation_policy.synchronisation(block["final_code"])
         block["untraceable_literals"] = round2_automation_policy.untraceable_literals(
             block["final_code"], [block["design"]], environment_code=environment_code,
         )

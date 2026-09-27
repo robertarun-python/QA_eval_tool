@@ -391,3 +391,41 @@ def _test_units(language: str, code: str | None) -> int:
     if language == "python" and re.search(r"^assert\b", code or "", re.M):
         units += 1
     return units
+
+
+# ---- Synchronisation (waits) in browser tests ----------------------------------------------------
+# Handling waits is assessed from the code, not from whether one run happened
+# to pass (owner decision 2026-09-27): a browser test that clicks and then
+# reads the next page without waiting fails most - not all - of the time, so a
+# lucky pass must never earn credit, and the verdict must be the same for
+# everyone. Deterministic, no AI.
+_BROWSER_RE = re.compile(r"RemoteWebDriver|webdriver\.Remote|new\s+Builder\s*\(|ChromeDriver\s*\(|webdriver\.Chrome\s*\(")
+_NAVIGATING_RE = re.compile(r"\.click\s*\(|\.submit\s*\(|Keys\.(ENTER|RETURN)|\\n['\"]\s*\)")
+_EXPLICIT_RE = re.compile(r"WebDriverWait|FluentWait|\.until\s*\(|driver\.wait\s*\(|ExpectedConditions|expected_conditions|until\.\w+\(")
+_IMPLICIT_RE = re.compile(r"implicitlyWait|implicitly_wait|implicit\s*[:=]|setTimeouts\s*\(")
+_SLEEP_RE = re.compile(r"Thread\.sleep|time\.sleep|\bsleep\s*\(|setTimeout\s*\(")
+_COMMENT_LINE_RE = re.compile(r"^\s*(//|#|\*|/\*)")
+
+
+def synchronisation(code: str | None) -> dict:
+    """How a test's browser steps wait for pages: verdict is
+    "waits" (explicit or implicit waits), "fixed_sleeps_only" (works, but
+    brittle and slow), "no_waits" (clicks, then acts on the next page without
+    waiting - a real Selenium gap), "not_needed" (browser, but nothing that
+    loads a new page after a click), or "no_browser"."""
+    lines = [line for line in (code or "").splitlines() if not _COMMENT_LINE_RE.match(line)]
+    text = "\n".join(lines)
+    out: dict[str, object] = {"uses_browser": bool(_BROWSER_RE.search(text)), "navigating_actions": len(_NAVIGATING_RE.findall(text)),
+           "explicit_waits": len(_EXPLICIT_RE.findall(text)), "implicit_wait": bool(_IMPLICIT_RE.search(text)),
+           "fixed_sleeps": len(_SLEEP_RE.findall(text))}
+    if not out["uses_browser"]:
+        out["verdict"] = "no_browser"
+    elif out["explicit_waits"] or out["implicit_wait"]:
+        out["verdict"] = "waits"
+    elif out["navigating_actions"] == 0:
+        out["verdict"] = "not_needed"
+    elif out["fixed_sleeps"]:
+        out["verdict"] = "fixed_sleeps_only"
+    else:
+        out["verdict"] = "no_waits"
+    return out
