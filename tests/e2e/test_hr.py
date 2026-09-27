@@ -152,3 +152,10 @@ def test_hr_sees_the_reference_panel_candidates_get_in_round_2(app_page, e2e_ser
     assert screen.get_attribute("sandbox") == ""  # no scripts, no navigation, no form submission
     expect(preview.frame_locator("iframe.r4a-page-screen").first.locator("form#login-form")).to_be_visible()
     expect(preview.frame_locator("iframe.r4a-page-screen").first.locator("#login")).to_be_visible()
+    # The source reads like the browser's Inspect-element view: labelled so, one element per line, indented.
+    first_page = preview.locator("details.r4a-page-source").first
+    first_page.get_by_text("Page source - like Inspect element in the browser").click()
+    html = first_page.locator("pre.r4a-page-html").inner_text()
+    assert len(html.splitlines()) > 15, html[:300]
+    assert any(line.startswith("    ") and 'id="login"' in line for line in html.splitlines()), html[:600]
+    assert "<script" not in html.lower()
