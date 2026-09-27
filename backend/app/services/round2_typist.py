@@ -66,6 +66,9 @@ _STATUS_RE = re.compile(r"\b[1-5]\d\d\b")
 _METHOD_RE = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\b")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _NUMBER_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
+# What a program prints or logs is the program reporting what happened, not knowledge of the
+# application (measured: print(f"FAIL: got {actual_name}") withheld a strong candidate's code).
+_REPORTING_RE = re.compile(r"(?:\bprint|console\.(?:log|error)|System\.(?:out|err)\.print(?:ln|f)?|\bincomplete)\s*\((?:[^()\n]|\([^()\n]*\))*\)")
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*|\d+(?:\.\d+)?")
 
 # Never specific: the project conventions and the plumbing every test uses.
@@ -138,7 +141,8 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
         check(m)
     for m in _STATUS_RE.findall(text):
         check(m)
-    for literal in (_QUOTED_RE if code else _PROSE_QUOTED_RE).findall(text):
+    scanned = _REPORTING_RE.sub(" ", text) if code else text
+    for literal in (_QUOTED_RE if code else _PROSE_QUOTED_RE).findall(scanned):
         if literal.lower() in _GENERIC or literal.startswith("INCOMPLETE"):
             continue
         # a whole literal the candidate said is fine; otherwise every word in it must be theirs
@@ -148,7 +152,7 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
             if len(word) > 1 or word.isdigit():
                 check(word)
     if code:
-        stripped = _QUOTED_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", text))
+        stripped = _QUOTED_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", scanned))
         for n in _NUMBER_RE.findall(stripped):
             check(n)
     seen, out = set(), []

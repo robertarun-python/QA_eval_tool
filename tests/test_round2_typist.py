@@ -127,3 +127,12 @@ def test_a_waits_time_limit_is_not_an_invented_value():
     code = 'wait = WebDriverWait(driver, 10)\nwait.until(EC.title_contains("Home"))\ndriver.find_element(By.ID, "login").click()'
     assert round2_typist.unsaid(code, said, code=True) == []
     assert round2_typist.unsaid(code + "\nassert total == 3537", said, code=True) == ["3537"]  # other numbers still checked
+
+
+def test_what_a_program_prints_is_not_checked_as_app_knowledge():
+    """Measured: print/log text in the code (got {actual_name}, HTTP Error) withheld a strong candidate's code."""
+    said = "POST to PRACTICE_API_URL + login with JSON body email priya@library.test and password Pass@123. Expect status 200 and name is Priya."
+    code = ('body = json.dumps({"email": "priya@library.test", "password": "Pass@123"})\n'
+            'print(f"FAIL: expected name Priya, got {actual_name}")\nprint("HTTP Error", err)\nassert status == 200')
+    assert round2_typist.unsaid(code, said, code=True) == []
+    assert "/api/signin" in round2_typist.unsaid(code + '\nurl = "/api/signin"', said, code=True)  # app details still checked
