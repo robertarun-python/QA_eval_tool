@@ -68,7 +68,7 @@ def test_round2_ai_assisted_automation(app_page):
     assert first_line > 1
 
     page.click(".r4a-run-btn")
-    expect(page.locator("#r4a-run-result-0")).to_contain_text(re.compile("PASS|FAIL"))
+    expect(page.locator("#r4a-run-result-0")).to_contain_text(re.compile("PASS|FAIL|RAN - NOTHING REPORTED"))
 
     page.click("#r4a-submit-btn")
     expect(page.locator('button[onclick="loadRound(3)"]')).to_be_enabled()

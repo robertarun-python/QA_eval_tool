@@ -152,3 +152,73 @@ def test_a_candidate_goes_from_round1_to_a_passing_round2_run(app_page, e2e_serv
     expect(page.locator("#r4a-run-result-0")).to_contain_text(re.compile("PASS signed in as Test User"), timeout=90_000)
     page.click("#r4a-submit-btn")
     expect(page.locator('button[onclick="loadRound(3)"]')).to_be_enabled()
+
+
+def test_after_an_incomplete_run_the_candidate_is_told_why_and_answers_right_there(app_page, e2e_server):
+    """Owner's Round 2 (2026-09-28): the run stopped at an unfinished step and the only place to reply was
+    above the whole program - it looked like the conversation was over. The result now says which step
+    isn't finished and the reply box sits under it."""
+    _engine_round2(e2e_server)
+    _reset_persona(e2e_server)
+    page = app_page
+    login(page, PERSONA)
+    _open_round(page, 1)
+    page.click("text=Got it - Start Round 1")
+    row = page.locator("#tc-rows tr").first
+    row.locator(".tc-title").fill("Login with valid credentials")
+    row.locator(".tc-pre").fill("Server is up")
+    row.locator(".tc-steps").fill("Locate Customer id and enter CUST001\nClick on Log in button")
+    row.locator(".tc-data").fill("CUST001")
+    row.locator(".tc-expected").fill("User is logged in")
+    page.locator("#round1-submit-btn").click()
+    _open_round(page, 2)
+    page.select_option("#r4a-intro-language-select", "python")
+    page.click("#r4a-intro-start-btn")
+    page.select_option("#r4a-next-pick-select", index=1)
+    page.click("#r4a-automate-btn")
+    page.fill("#r4a-prompt-0", "Locate Customer id and enter CUST001, click on Log in button. Generate the code.")
+    page.click(".r4a-ask-btn")
+    page.locator("#r4a-code-0").fill('import sys\nprint("INCOMPLETE: Locate Customer id and enter CUST001")\nsys.exit(3)\n')
+    page.click(".r4a-run-btn")
+    result = page.locator("#r4a-run-result-0")
+    expect(result).to_contain_text("The run stopped at a step that isn't finished yet: Locate Customer id and enter CUST001", timeout=90_000)
+    box = page.locator("#r4a-prompt-0")
+    assert box.bounding_box()["y"] > result.bounding_box()["y"], "the reply box must sit under the run result"
+    expect(page.locator("body")).to_contain_text("Tell the assistant what to change or add")
+    box.fill("The Customer id field has id customer_id.")
+    page.click(".r4a-ask-btn")
+    expect(page.locator(".r4a-chat-log")).to_contain_text("The Customer id field has id customer_id.")
+
+
+def test_the_code_is_readable(app_page, e2e_server):
+    """Walkthrough (2026-09-28): the code panel's dark background was wiped by a CSS rule, leaving
+    pale code on white. The code's text must contrast with what is actually behind it."""
+    _engine_round2(e2e_server)
+    _reset_persona(e2e_server)
+    page = app_page
+    login(page, PERSONA)
+    _open_round(page, 1)
+    page.click("text=Got it - Start Round 1")
+    row = page.locator("#tc-rows tr").first
+    for sel, text in ((".tc-title", "Sign in"), (".tc-pre", "x"), (".tc-steps", "Open the app"), (".tc-data", "x"), (".tc-expected", "Signed in")):
+        row.locator(sel).fill(text)
+    page.locator("#round1-submit-btn").click()
+    _open_round(page, 2)
+    page.select_option("#r4a-intro-language-select", "java")
+    page.click("#r4a-intro-start-btn")
+    page.select_option("#r4a-next-pick-select", index=1)
+    page.click("#r4a-automate-btn")
+    page.fill("#r4a-prompt-0", "Open the app. Generate the code.")
+    page.click(".r4a-ask-btn")
+    expect(page.locator("#r4a-code-0")).to_be_visible()
+    ratio = page.evaluate("""() => {
+        const t = document.querySelector('#r4a-code-0');
+        const rgb = (s) => (s.match(/[\\d.]+/g) || []).map(Number);
+        let e = t, bg = null;
+        while (e) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length >= 3 && (c.length < 4 || c[3] > 0)) { bg = c; break; } e = e.parentElement; }
+        bg = bg || [255, 255, 255];
+        const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+                             return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+        const a = lum(rgb(getComputedStyle(t).color)), b = lum(bg);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); }""")
+    assert ratio >= 4.5, f"code text contrast {ratio:.2f}:1 is unreadable (WCAG asks for 4.5:1)"

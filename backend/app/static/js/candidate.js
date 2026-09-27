@@ -278,7 +278,7 @@ function showRoundIntro(n, timeLimitMinutes, environment) {
         <li>You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately.</li>
         <li>If time runs out, whatever you've written gets submitted automatically as it stands.</li>
         <li>Finished earlier? Submit yourself and move straight to the next round - no need to wait out the clock.</li>
-        ${hasEnvironment ? `<li>You'll see the app's web address, a test login and its main screens below - use them in your test data, and add your own test data and cases beyond them.</li>` : ""}
+        ${hasEnvironment ? `<li>Below the description you'll find the application's reference: its screens, API, database, test logins and business rules - use them for concrete steps and test data, and add your own cases beyond them.</li>` : ""}
       </ul>
       <div class="row">
         <button onclick="confirmStartRound(${n})">Got it - Start Round ${n}</button>
@@ -324,13 +324,12 @@ function showRound2AutomationIntro(timeLimitMinutes) {
       <ol>
         <li>Choose the language you'll automate in - locked for the rest of this round.</li>
         <li>Pick one or two of your own Round 1 test cases to automate.</li>
-        <li>Use the provided AI assistant to turn your design into working code against the provided environment.</li>
-        <li>Review everything it produces, and edit the code yourself where you disagree.</li>
-        <li>Run it and inspect the result.</li>
-        <li>Explain what the result actually proves.</li>
+        <li>Tell the AI assistant, step by step, what the test should do - including how to find each thing on the page (the words you see on it, or its id) and which exact values to use.</li>
+        <li>Review the code it writes, and edit it yourself where you disagree.</li>
+        <li>Run it, read the result, and tell the assistant what to change - as often as you need.</li>
         <li>Submit when satisfied.</li>
       </ol>
-      <p class="muted">The assistant will only encode what you already specified in Round 1 - it won't invent test cases, test data, or assertions. You are responsible for the final automation.</p>
+      <p class="muted">Everything about the application is in the <strong>Reference</strong> panel: its screens with page source (for ids), API, database, business rules and test controls. The assistant writes only what you tell it - it never guesses steps, data, checks or how to find things - and it tells you which of your steps still need more detail.</p>
       <p class="muted">AI-generated code may not always be clean, complete, correct, or reliable. You are responsible for reviewing and validating it.</p>
       <p class="muted">You'll have ${timeLimitMinutes} minutes once you click below - the timer starts immediately, after you pick a language.</p>
       <div class="field-row" style="align-items:center">
@@ -466,7 +465,9 @@ function round1EnvironmentReferenceHtml(environment, uiMockup) {
       <summary><strong>Reference: the application</strong> - its screens, API and database, to write concrete steps and test data</summary>
       ${round2AutomationPanelHtml(round1ReferencePanel)}
     </details>` : "";
-  return (round1ReferencePanel ? "" : mockupHtml) + envHtml + panelHtml;
+  // One reference box: with the application's panel, its first tab carries the address and logins
+  // (two boxes repeating the same login confused the walkthrough, 2026-09-28).
+  return round1ReferencePanel ? panelHtml : mockupHtml + envHtml;
 }
 
 function renderEntryForm(box, scenario, submission, environment, uiMockup) {

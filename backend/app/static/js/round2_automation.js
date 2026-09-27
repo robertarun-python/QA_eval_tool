@@ -101,25 +101,38 @@ function round2AutomationAutomateClicked() {
 }
 
 // Test cases are numbered from 1 on screen, as in Round 1; row indexes stay 0-based.
+// What to do after a run that didn't pass - never why it failed (the candidate judges that).
+function round2AutomationNextStepHtml(run, passed) {
+  if (passed || run.infra_error) return "";
+  const step = run.status === "incomplete" ? ((run.stdout || "").match(/INCOMPLETE:\s*(.+)/) || [])[1] : null;
+  const what = step
+    ? `The run stopped at a step that isn't finished yet: <strong>${escapeHtml(step.trim())}</strong>. Tell the assistant how to do it in the box below.`
+    : "The test ran and did not pass - read the log below, then tell the assistant what to change in the box below.";
+  return `<p class="result-state-detail r4a-next-step">${what}</p>`;
+}
+
 function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
   // "status" (new runs): passed only for a complete test that exited cleanly - a test with gaps is INCOMPLETE, never PASS.
   const passed = run.status ? run.status === "passed" : (run.exit_code === 0 && !run.timed_out && !run.infra_error);
-  const label = run.status === "incomplete" ? "INCOMPLETE" : (passed ? "PASS" : "FAIL");
+  const silent = passed && !(run.stdout || "").trim();  // ran cleanly but reported nothing - did it check anything?
+  const label = run.status === "incomplete" ? "INCOMPLETE" : (silent ? "RAN - NOTHING REPORTED" : (passed ? "PASS" : "FAIL"));
   const meta = [
     `Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}`,
     run.duration_ms !== null && run.duration_ms !== undefined ? `${run.duration_ms}ms` : null,
     run.ran_at ? new Date(run.ran_at).toLocaleString() : null,   // "where available" - absent on a run recorded before this field existed
   ].filter(Boolean).join(" · ");
   return `
-    <div class="result-state ${passed ? "is-pass" : "is-fail"}">
-      <span class="result-state-icon">${passed ? "✓" : "✕"}</span>
+    <div class="result-state ${silent ? "is-silent" : passed ? "is-pass" : "is-fail"}">
+      <span class="result-state-icon">${silent ? "?" : passed ? "✓" : "✕"}</span>
       <div class="result-state-body">
         <div class="result-state-label">${label} - Test case ${rowIndex + 1}</div>
         <p class="result-state-detail">${meta}</p>
         ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
-        ${passed ? `<p class="result-state-caveat">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
+        ${silent ? `<p class="result-state-detail">It ran without errors but printed nothing - make sure the test actually checks something and reports it.</p>`
+                 : passed ? `<p class="result-state-caveat">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
+        ${round2AutomationNextStepHtml(run, passed)}
         <details style="margin-top:0.6rem"${passed ? "" : " open"}>
           <summary>Execution log</summary>
           ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
@@ -137,7 +150,7 @@ function round2AutomationTurnsHtml(turns) {
       <div class="ai-turn-body">${escapeHtml(t.candidate_prompt)}</div>
     </div>
     <div class="ai-turn ai-turn-assistant">
-      <div class="ai-turn-role">Assistant &middot; ${escapeHtml(t.response_kind)}</div>
+      <div class="ai-turn-role">Assistant${t.response_kind === "code_edit" ? " &middot; wrote code" : t.response_kind === "refuse" ? " &middot; declined" : ""}</div>
       <div class="ai-turn-body">${escapeHtml(t.response_message)}</div>
     </div>`).join("")}</div>`;
 }
@@ -243,12 +256,15 @@ function round2PrettyHtml(source) {
 function round2AutomationPanelHtml(p) {
   const esc = escapeHtml;
   const cell = (v) => esc(v === null || v === undefined ? "" : String(v));
+  const hasConnect = (p.connect || []).length > 0;  // Round 2; Round 1 runs nothing, so just the address and logins
   const tab = (name, label, active) =>
     `<button class="tab${active ? " active" : ""}" data-r4a-ref-tab="${name}" onclick="round2AutomationReferenceTabClicked('${name}')">${label}</button>`;
   const panel = (name, html, active) => `<div class="tab-panel${active ? " active" : ""}" data-r4a-ref-panel="${name}">${html}</div>`;
   const connect = `
-    ${(p.connect || []).length ? `<p class="text-muted">Your test finds the application through these environment variables (set for every Run):</p>
-    <dl class="env-fields">${p.connect.map((c) => `<dt><code>${esc(c.name)}</code></dt><dd>${esc(c.meaning)}</dd>`).join("")}</dl>` : ""}
+    ${hasConnect ? `<p class="text-muted">Your test finds the application through these environment variables (set for every Run):</p>
+    <dl class="env-fields">${p.connect.map((c) => `<dt><code>${esc(c.name)}</code></dt><dd>${esc(c.meaning)}</dd>`).join("")}</dl>
+    ${p.web_address ? `<p class="text-muted">In the browser, the address Round 1 showed - <code>${esc(p.web_address)}</code> - opens the application too.</p>` : ""}`
+      : p.web_address ? `<dl class="env-fields"><dt>Web address</dt><dd><code>${esc(p.web_address)}</code></dd></dl>` : ""}
     ${(p.accounts || []).length ? `<h4>Test accounts</h4><table class="data-table"><thead><tr><th>Login</th><th>Password</th><th>Name</th></tr></thead><tbody>
       ${p.accounts.map((a) => `<tr><td>${cell(a.login)}</td><td>${cell(a.password)}</td><td>${cell(a.name)}</td></tr>`).join("")}</tbody></table>` : ""}
     ${(p.failures || []).length ? `<h4>Simulated failures</h4><p>${p.failures.map((f) => `<code>${esc(f)}</code>`).join(", ")} - switch one on with the test controls.</p>` : ""}`;
@@ -281,7 +297,7 @@ function round2AutomationPanelHtml(p) {
   return `
     <div class="surface">
       <div class="section-header"><h3>Reference - ${esc(p.app_name || "practice application")}</h3></div>
-      <div class="tabs" role="tablist">${tab("connect", "Connect & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${(p.rules || []).length ? tab("rules", "Business rules") : ""}${p.test_controls ? tab("controls", "Test controls") : ""}</div>
+      <div class="tabs" role="tablist">${tab("connect", hasConnect ? "Connect & accounts" : "Address & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${(p.rules || []).length ? tab("rules", "Business rules") : ""}${p.test_controls ? tab("controls", "Test controls") : ""}</div>
       ${panel("connect", connect, true)}${panel("pages", pages)}${panel("api", api)}${panel("database", db)}${(p.rules || []).length ? panel("rules", `<p class="text-muted">What the application does - the requirements a tester would be given. Exact on-screen messages aren't listed.</p><ol>${p.rules.map((r) => `<li>${esc(r)}</li>`).join("")}</ol>`) : ""}${p.test_controls ? panel("controls", controls) : ""}
     </div>`;
 }
@@ -395,15 +411,19 @@ function round2AutomationTcSectionHtml(row) {
 
       <div class="section-header"><h3>Your instruction &middot; AI conversation</h3></div>
       <div class="r4a-chat-log">${round2AutomationTurnsHtml(tc.turns)}</div>
-      <div class="field-row" style="margin-top:0.5rem; align-items:flex-start">
+
+      ${codeSectionHtml}
+
+      <!-- At the bottom, like a chat: after a Run the candidate is looking at the result, and a box
+           above the whole program read as "the conversation is over" (owner, 2026-09-28). -->
+      <div class="section-header" style="margin-top:var(--space-default)"><h3>${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</h3></div>
+      <div class="field-row" style="margin-top:0.25rem; align-items:flex-start">
         <div class="field" style="flex:1 1 20rem">
-          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
+          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
         </div>
         <button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button>
       </div>
       <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
-
-      ${codeSectionHtml}
     </div>`;
 }
 
@@ -461,7 +481,7 @@ function renderRound2AutomationLayout(box) {
       <div class="row" style="margin-top:var(--space-compact); margin-bottom:0">
         <span class="tag tag-accent">Language locked: ${escapeHtml(s.language)}</span>
       </div>
-      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it - your original design is kept exactly as you wrote it, and the assistant will only encode what you specify, never inventing test cases, data or assertions. Review everything it writes, edit the code yourself where you disagree, and run it. You can automate up to two, one at a time - you'll decide on a second only after finishing the first.</p>
+      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to two, one at a time - you'll decide on a second only after finishing the first.</p>
     </div>
 
     <div class="section-header"><h2>Your Round 1 test cases</h2></div>
