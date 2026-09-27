@@ -637,6 +637,7 @@ async function openScenarioDetail(id) {
       </table>
     </div>
     ${scenario.round_number === 1 ? `<div id="practice-app-panel" data-scenario-id="${scenario.id}"></div>` : ""}
+    ${[1, 2].includes(scenario.round_number) ? `<div id="candidate-reference-preview" data-scenario-id="${scenario.id}"></div>` : ""}
     ${isCodingReference && scenario.reference_json ? `<p class="muted"><strong>Expected approach:</strong> ${escapeHtml(scenario.reference_json.expected_approach || "")}</p>` : ""}
     ${isCodingReference && scenario.reference_json && scenario.reference_json.required_constructs && scenario.reference_json.required_constructs.length
       ? `<p class="muted"><strong>Required concepts:</strong> ${escapeHtml(scenario.reference_json.required_constructs.join(", "))}</p>`
@@ -669,6 +670,7 @@ async function openScenarioDetail(id) {
     <p id="scenario-detail-status" class="muted"></p>
   `;
   if (scenario.round_number === 1) loadPracticeAppPanel(scenario.id);
+  if (scenario.round_number === 2) loadCandidateReferencePreview(scenario.id);
   // The panel sits below the scenario list, often off-screen - without this,
   // Review (or Create) looked like it did nothing.
   box.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -684,6 +686,23 @@ async function openScenarioDetail(id) {
 
 let practiceAppPollTimer = null;
 
+// HR sees the Round 2 reference panel exactly as candidates do (same drawing code):
+// a Round 2 scenario's live one, or the one a Round 1's ready build brings once approved.
+async function loadCandidateReferencePreview(id) {
+  const box = document.getElementById("candidate-reference-preview");
+  if (!box || Number(box.dataset.scenarioId) !== id) return;
+  try {
+    const d = await api(`/hr/scenarios/${id}/candidate-reference`);
+    if (!d.reference_panel) { box.innerHTML = ""; return; }
+    const note = d.source === "live" ? "This is what candidates see in Round 2 right now."
+      : "This is what candidates will see in Round 2 once this build is approved - check it before approving.";
+    box.innerHTML = `<details class="surface"><summary><strong>What candidates see in Round 2</strong> - reference panel</summary>
+      <p class="muted">${note}</p>${round2AutomationPanelHtml(d.reference_panel)}</details>`;
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+  }
+}
+
 async function loadPracticeAppPanel(id) {
   clearTimeout(practiceAppPollTimer);
   const box = document.getElementById("practice-app-panel");
@@ -697,6 +716,7 @@ async function loadPracticeAppPanel(id) {
   }
   box.innerHTML = renderPracticeAppPanel(id, data);
   if (data.status === "building") practiceAppPollTimer = setTimeout(() => loadPracticeAppPanel(id), 5000);
+  else loadCandidateReferencePreview(id);
 }
 
 function practiceAppCoverageTable(rows) {
@@ -1106,6 +1126,12 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound
         ? \`This round's test environment &amp; reference screens are auto-generated from <strong>\${escapeHtml(groundedInTitle)}</strong> - the round 1 scenario currently live. They resync automatically whenever a different round 1 scenario goes live here.\`
         : \`No round 1 scenario is currently live - the environment/screens below fell back to this scenario's own description instead. They'll resync automatically once one is published.\`}</p>`}
 
+      ${scenario.config_json && scenario.config_json.reference_panel ? `
+      <details class="surface" id="candidate-reference-preview" open>
+        <summary><strong>What candidates see in Round 2</strong> - reference panel</summary>
+        <p class="muted">This is what candidates see in Round 2 right now - built from the practice app itself, never written by the AI.</p>
+        ${round2AutomationPanelHtml(scenario.config_json.reference_panel)}
+      </details>` : `
       <details>
         <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>
         ${scenario.environment_json && isPaired ? `
@@ -1138,6 +1164,7 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound
           ${scenario.config_json && scenario.config_json.paired_round1_title ? "" : `<button id="r4-regen-btn-${scenario.id}" onclick="regenerateRound2AutomationReference(${scenario.id})">Regenerate environment &amp; screens</button>`}
         </div>
       </details>
+      `}
 
       <p id="r4-status-${scenario.id}" class="muted"></p>
     </div>

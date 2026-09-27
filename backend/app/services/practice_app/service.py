@@ -213,6 +213,23 @@ def _run_build(scenario_id: int, recorded: dict | None = None) -> None:
         db.close()
 
 
+def candidate_reference(scenario: Scenario) -> dict | None:
+    """The Round 2 reference panel exactly as candidates get it, for HR to check:
+    a Round 2 scenario's own (what is live), or for a Round 1 scenario the one its
+    latest ready build would bring once approved. None for older practice apps."""
+    from ..practice_engine import reference
+    if scenario.round_number == 2:
+        panel = (scenario.config_json or {}).get("reference_panel")
+        return {"reference_panel": panel, "source": "live"} if isinstance(panel, dict) else None
+    if scenario.round_number != 1 or summary(scenario).get("status") != "ready":
+        return None
+    try:
+        spec = (json.loads(_build_file(scenario.id).read_text(encoding="utf-8")).get("plan") or {}).get("engine_spec")
+    except (OSError, ValueError):
+        return None
+    return {"reference_panel": reference.reference_panel(spec), "source": "latest build"} if isinstance(spec, dict) else None
+
+
 def _reference_hash(scenario: Scenario) -> str:
     return hashlib.sha256(json.dumps(scenario.reference_json, sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
