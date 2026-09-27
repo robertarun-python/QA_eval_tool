@@ -10,6 +10,8 @@ candidate's own Round 1 test cases say to expect, and what their automation
 must find out by running.
 """
 import copy
+import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -81,10 +83,48 @@ def accounts(spec: dict) -> list[dict]:
              "name": r.get(users.get("name_field")) if users.get("name_field") else None} for r in rows]
 
 
+def _sample_result(app, page: str):
+    """What the page shows the test user - their loans, their payments, one
+    record's details - so a screen reads like the real app, not an empty form
+    (owner, 2026-09-27: "account number, EMI amount missing"). A lookup is tried
+    with the starting records' own ids (the test user's loan, their account...)
+    for the page it belongs to or the page it opens. Only the starting data
+    (already on the Database tab); a refused lookup shows nothing, so no message
+    of the app's - the answer key - ever appears."""
+    e = app.engine
+    ids = [r.get(e._key(ent)) for ent, rows in e.store.items() for r in (rows or [])[:5]]
+    queries = [q for q in app.spec.get("queries") or [] if q.get("next_page") == page] + \
+              [q for q in app.spec.get("queries") or [] if q.get("page") == page and q.get("next_page") != page]
+    for q in queries:
+        params = [q["match"]["input"]] if q.get("match") else ([q["key_input"]] if q.get("key_input") else [])
+        params += [i["name"] for i in q.get("inputs") or [] if i["name"] not in params]
+        if q.get("match") and (q["match"].get("blank") or "all") != "all":
+            continue  # a search needs a term - there's no neutral one to show
+        # A lookup reading a choice made earlier in the session ("the selected loan") is
+        # shown as if the user had chosen one of their own records.
+        session_keys = sorted(set(re.findall(r'"session":\s*"([^"]+)"', json.dumps(q))))
+        for value in ([None] if not params and not session_keys else ids):
+            inputs = {p: "" for p in params}
+            if value is not None and params:
+                inputs[params[0]] = value
+            saved = dict(e.session)
+            e.session.update({k: value for k in session_keys})
+            try:
+                result, _ = e.run_query(q["name"], inputs)
+            except Exception:  # noqa: BLE001 - refused or unusable: show nothing
+                continue
+            finally:
+                e.session.clear()
+                e.session.update(saved)
+            if result:
+                return {"query": q["name"], "result": result}
+    return None
+
+
 def page_sources(spec: dict) -> list[dict]:
     """Each page's HTML as the application serves it (to a signed-in user,
-    except the sign-in page and public pages) - with no message showing and
-    no results yet."""
+    except the sign-in page and public pages) - with no message showing, and
+    the page's first lookup showing the test user's own data (_sample_result)."""
     with tempfile.TemporaryDirectory(prefix="practice_reference_") as tmp:
         app = PracticeApp(spec, str(Path(tmp) / "reference.db"))
         e = app.engine
@@ -98,7 +138,13 @@ def page_sources(spec: dict) -> list[dict]:
                 who = signed_in[0]["login"]
                 e.user = next((r for r in e.store[e.users["entity"]] if r.get(app.login_field) == who), None)
             e.page, e.message, e.last = page, "", {}
+            sample = _sample_result(app, page) if e.user is not None or page in public else None
+            app.results.pop("reference", None)
+            if sample:
+                app.results["reference"] = sample
+            e.page, e.message, e.last = page, "", {}
             out.append({"name": page, "path": f"/page/{slug(page)}", "source": app.render_page("reference")})
+            app.results.pop("reference", None)
             app.leave("reference")
         return out
 

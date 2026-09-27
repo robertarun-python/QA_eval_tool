@@ -254,7 +254,9 @@ function round2AutomationPanelHtml(p) {
     ${(p.failures || []).length ? `<h4>Simulated failures</h4><p>${p.failures.map((f) => `<code>${esc(f)}</code>`).join(", ")} - switch one on with the test controls.</p>` : ""}`;
   // Each page as it looks in a browser, then its source (for element ids). The screen is
   // shown in a locked-down frame: no scripts, and its links and forms can't go anywhere.
-  const screen = (source) => String(source || "").replace(/<head>/i, '<head><base target="_blank">');
+  // A picture of the page: nothing in it can be clicked (a link used to load an empty page into the frame).
+  const screen = (source) => String(source || "").replace(/<head>/i,
+    '<head><base target="_blank"><style>a,button,input,select,textarea,label{pointer-events:none!important}</style>');
   const pages = (p.pages || []).map((pg, i) => `
     <details class="r4a-page-source" ${i === 0 ? "open" : ""}><summary>${esc(pg.name)} <span class="muted">${esc(pg.path)}</span></summary>
       <iframe class="r4a-page-screen" sandbox="" referrerpolicy="no-referrer" title="${escapeAttr(pg.name)} page"

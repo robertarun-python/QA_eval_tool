@@ -48,3 +48,4 @@ process.stdout.write(vm.runInContext("round2AutomationPanelHtml(panel)", ctx));
     frames = re.findall(r'<iframe class="r4a-page-screen" sandbox="" [^>]*srcdoc="([^"]*)"', out)
     assert len(frames) == len(panel["pages"]) and all("&lt;form" in f or "&lt;html" in f for f in frames)
     assert out.count("<iframe") == len(frames)  # no frame without the sandbox
+    assert all("pointer-events:none" in f for f in frames)  # a picture: clicking a link used to blank the frame
