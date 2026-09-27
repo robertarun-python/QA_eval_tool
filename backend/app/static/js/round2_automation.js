@@ -208,6 +208,38 @@ function round2AutomationSaveTestDataClicked(rowIndex) {
 // The real practice environment's reference panel (built by code from the
 // scenario description - practice_engine/reference.py): what a tester would be
 // given on a real project, never the app's rules or messages.
+// A page's HTML laid out like the browser's Inspect-element view: one element per line,
+// indented by nesting. Read with DOMParser (inert - nothing in it runs); on any problem
+// the source is shown as it came.
+const _VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+function round2PrettyHtml(source) {
+  try {
+    const doc = new DOMParser().parseFromString(String(source || ""), "text/html");
+    const lines = [];
+    const open = (el) => `<${el.tagName.toLowerCase()}${[...el.attributes].map((a) => ` ${a.name}="${a.value}"`).join("")}>`;
+    const walk = (node, depth) => {
+      const pad = "  ".repeat(depth);
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          const text = child.textContent.replace(/\s+/g, " ").trim();
+          if (text) lines.push(pad + text);
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          const tag = child.tagName.toLowerCase();
+          const onlyText = child.childNodes.length === 1 && child.firstChild.nodeType === Node.TEXT_NODE;
+          if (_VOID_TAGS.has(tag)) lines.push(pad + open(child));
+          else if (!child.childNodes.length) lines.push(`${pad}${open(child)}</${tag}>`);
+          else if (onlyText) lines.push(`${pad}${open(child)}${child.textContent.replace(/\s+/g, " ").trim()}</${tag}>`);
+          else { lines.push(pad + open(child)); walk(child, depth + 1); lines.push(`${pad}</${tag}>`); }
+        }
+      }
+    };
+    walk(doc.documentElement.parentNode, 0);
+    return lines.join("\n") || String(source || "");
+  } catch (e) {
+    return String(source || "");
+  }
+}
+
 function round2AutomationPanelHtml(p) {
   const esc = escapeHtml;
   const cell = (v) => esc(v === null || v === undefined ? "" : String(v));
@@ -227,7 +259,7 @@ function round2AutomationPanelHtml(p) {
     <details class="r4a-page-source" ${i === 0 ? "open" : ""}><summary>${esc(pg.name)} <span class="muted">${esc(pg.path)}</span></summary>
       <iframe class="r4a-page-screen" sandbox="" referrerpolicy="no-referrer" title="${escapeAttr(pg.name)} page"
         srcdoc="${escapeAttr(screen(pg.source))}" style="width:100%;height:320px;border:1px solid var(--border, #ccc);border-radius:6px;background:#fff"></iframe>
-      <details><summary class="muted">Page source (element ids for your locators)</summary><pre class="code-block">${esc(pg.source)}</pre></details>
+      <details><summary class="muted">Page source - like Inspect element in the browser</summary><pre class="code-block r4a-page-html">${esc(round2PrettyHtml(pg.source))}</pre></details>
     </details>`).join("");
   const api = `
     <p class="text-muted">${esc(p.api_sign_in || "")} ${esc(p.api_errors || "")}</p>
