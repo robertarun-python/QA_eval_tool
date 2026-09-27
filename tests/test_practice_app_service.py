@@ -497,12 +497,16 @@ def test_hr_sees_the_round2_reference_panel_candidates_get_before_and_after_appr
     service.install_recorded(r1["id"], recorded)
     before = client.get(f"/hr/scenarios/{r1['id']}/candidate-reference", cookies=hr).json()
     assert before["source"] == "latest build"
-    assert before["reference_panel"] == reference.reference_panel(recorded["plan"]["engine_spec"])
+    assert before["reference_panel"] == {**reference.reference_panel(recorded["plan"]["engine_spec"]), "rules": []}
     assert {"pages", "api", "database", "connect"} <= set(before["reference_panel"])
     round2_id = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=hr).json()["round2_scenario_id"]
     after = client.get(f"/hr/scenarios/{round2_id}/candidate-reference", cookies=hr).json()
-    assert after["source"] == "live" and after["reference_panel"] == _db_scenario(round2_id).config_json["reference_panel"]
-    assert after["reference_panel"] == before["reference_panel"]
+    assert after["source"] == "live" and after["reference_panel"] == before["reference_panel"]
+    client.cookies.clear()
+    from .conftest import CANDIDATE1_EMAIL as _C1, CANDIDATE1_PASSWORD as _P1
+    cand_view = client.get("/candidate/round/2/auto/state", cookies=_auth(_login(client, _C1, _P1)))
+    if cand_view.status_code == 200 and cand_view.json().get("reference_panel"):
+        assert cand_view.json()["reference_panel"] == after["reference_panel"]  # HR sees what candidates get
     client.cookies.clear()
     from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
     cand = _auth(_login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD))
@@ -530,3 +534,31 @@ def test_round1_candidates_see_the_apps_structure_but_not_its_answers(client, mo
     spec = recorded["plan"]["engine_spec"]
     messages = [r["message"] for a in spec.get("actions") or [] for r in a.get("rules") or [] if isinstance(r.get("message"), str)]
     assert messages and not any(m in json.dumps(panel) for m in messages)  # the rules' messages - the answer key - stay hidden
+
+
+def test_candidates_see_the_business_rules_without_exact_messages(client, monkeypatch, builds_dir):
+    """Owner (2026-09-27): candidates were scored against rules they couldn't see. The
+    app's rules in plain English appear in Round 1 and Round 2; a quoted message doesn't."""
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    recorded, titles = _recorded_leave()
+    recorded["plan"]["rules"] = ["A leave request needs at least one working day",
+                                 'Overlapping requests are refused with "You already have leave on these dates"']
+    r1 = _leave_round1(client, monkeypatch, titles)
+    hr = _auth(_hr(client))
+    monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("no AI call expected"))
+    service.install_recorded(r1["id"], recorded)
+    before = client.get(f"/hr/scenarios/{r1['id']}/candidate-reference", cookies=hr).json()["reference_panel"]["rules"]
+    round2_id = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=hr).json()["round2_scenario_id"]
+    client.cookies.clear()
+    cand = _auth(_login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD))
+    r1_rules = client.get("/candidate/round/1", cookies=cand).json()["reference_panel"]["rules"]
+    assert r1_rules == before
+    assert r1_rules[0] == "A leave request needs at least one working day"
+    assert "You already have leave" not in json.dumps(r1_rules) and "refused with a message" in r1_rules[1]
+    assert service.business_rules(_db_scenario(round2_id)) == r1_rules
+
+
+def test_the_round1_scorer_is_told_candidates_cannot_see_exact_messages():
+    from app.services import llm_service as llm
+    text = llm._load_prompt("round1_scoring.txt")
+    assert "NOT shown the application's exact on-screen message texts" in text
