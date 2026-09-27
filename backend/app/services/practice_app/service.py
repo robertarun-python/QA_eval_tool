@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from ... import database
 from ...config import settings
 from ...models import RoundStatus, Scenario, ScenarioStatus, Submission
+from .. import llm_service
 from . import generator
 
 log = logging.getLogger(__name__)
@@ -103,7 +104,13 @@ def start_build(scenario: Scenario, db: Session) -> dict:
 
 def run_build(scenario_id: int) -> None:
     """The background job: runs the factory and records the outcome. Never
-    raises - a failure is recorded for HR to see."""
+    raises - a failure is recorded for HR to see. Its AI calls are recorded
+    as Round 2 set-up for this scenario (llm_service.call_context)."""
+    with llm_service.call_context(round_number=2, scenario_id=scenario_id):
+        _run_build(scenario_id)
+
+
+def _run_build(scenario_id: int) -> None:
     db = database.SessionLocal()
     try:
         scenario = db.get(Scenario, scenario_id)

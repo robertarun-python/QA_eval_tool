@@ -19,6 +19,9 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 # Tool-use output stays at its code default (off) whatever .env says - the
 # tests pin the behaviour they check.
 os.environ["LLM_TOOL_OUTPUT"] = "false"
+# The lasting AI call record goes to a throwaway file, never the real one.
+import tempfile
+os.environ["AI_CALL_LOG_PATH"] = os.path.join(tempfile.mkdtemp(prefix="qa_eval_tests_"), "ai_calls.jsonl")
 if os.environ.get("RUN_LLM_REPLAY") != "1":
     os.environ["ANTHROPIC_API_KEY"] = ""
 
@@ -185,14 +188,14 @@ def _auth(token):
     return {"qa_eval_token": token}
 
 
-def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Login form"):
+def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Login form", description="desc"):
     from app.services import llm_service
     generator_name = _REFERENCE_GENERATOR_BY_ROUND[round_number]
     monkeypatch.setattr(llm_service, generator_name, lambda **kwargs: _FAKE_REFERENCE_BY_ROUND[round_number]())
 
     scenario = client.post(
         "/hr/scenarios",
-        json={"round_number": round_number, "title": title, "description": "desc", "experience_band": band, "time_limit_minutes": 30},
+        json={"round_number": round_number, "title": title, "description": description, "experience_band": band, "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     ).json()
     client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))

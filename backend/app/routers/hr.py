@@ -18,7 +18,7 @@ import traceback
 import difflib
 from collections import Counter
 from contextlib import contextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile, File
 from fpdf import FPDF
@@ -99,7 +99,7 @@ def _app_settings_out(app_settings: AppSettings) -> AppSettingsOut:
 
 
 @router.get("/ai-health")
-def ai_health(hr: User = Depends(require_hr)):
+def ai_health(db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     """Recent AI calls since the server started (metadata only - never
     prompts or replies): counts by outcome and the latest calls, so a
     failure the candidate saw as "trouble responding" can be traced to its
@@ -111,15 +111,52 @@ def ai_health(hr: User = Depends(require_hr)):
     problems = [c for c in calls if c["outcome"] not in ("ok", "fake")]
     from ..config import settings as app_config
     mode = "fake" if app_config.llm_fake_mode else ("real (tool output)" if app_config.llm_tool_output else "real")
-    # What the calls cost, from their token counts (list prices of the model in
-    # use, per million: input, output, cache read = 0.1x input, cache write = 1.25x).
+    # What the calls cost, from their token counts at the list prices of the
+    # model in use (llm_service.call_cost_usd).
     tokens = {k: sum(c.get(k) or 0 for c in calls) for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")}
-    price_in, price_out = 3.0, 15.0
-    cost = (tokens["input_tokens"] * price_in + tokens["output_tokens"] * price_out
-            + tokens["cache_read_tokens"] * price_in * 0.1 + tokens["cache_write_tokens"] * price_in * 1.25) / 1e6
-    saved = tokens["cache_read_tokens"] * price_in * 0.9 / 1e6
+    model = app_config.claude_model
+    cost = sum(llm_service.call_cost_usd(model, c) or 0 for c in calls)
+    saved = sum(llm_service.cache_saving_usd(model, c) for c in calls)
     return {"mode": mode, "total": len(calls), "by_outcome": by_outcome, "recent_problems": problems[:20], "recent_calls": calls[:30],
-            "tokens": tokens, "estimated_cost_usd": round(cost, 2), "saved_by_cache_usd": round(saved, 2)}
+            "tokens": tokens, "estimated_cost_usd": round(cost, 2), "saved_by_cache_usd": round(saved, 2),
+            "lasting": _lasting_ai_cost(db)}
+
+
+def _lasting_ai_cost(db: Session) -> dict:
+    """Totals from the lasting call record (llm_service.read_call_log), which
+    survives restarts: all time, today and the last 7 days (UTC), per day,
+    per round and the ten costliest candidates."""
+    entries = llm_service.read_call_log()
+    by_day: dict[str, dict] = {}
+    by_round: dict[str, float] = {}
+    by_candidate: dict[int, dict] = {}
+    total = 0.0
+    for entry in entries:
+        usd = entry.get("cost_usd") or 0.0
+        total += usd
+        day = by_day.setdefault(str(entry.get("at", ""))[:10], {"usd": 0.0, "calls": 0})
+        day["usd"] += usd
+        day["calls"] += 1
+        round_key = str(entry["round_number"]) if entry.get("round_number") is not None else "none"
+        by_round[round_key] = by_round.get(round_key, 0.0) + usd
+        if entry.get("user_id") is not None:
+            candidate = by_candidate.setdefault(entry["user_id"], {"usd": 0.0, "calls": 0})
+            candidate["usd"] += usd
+            candidate["calls"] += 1
+    today = datetime.utcnow().date()
+    week = {(today - timedelta(days=n)).isoformat() for n in range(7)}
+    top = sorted(by_candidate.items(), key=lambda item: item[1]["usd"], reverse=True)[:10]
+    emails = dict(db.query(User.id, User.email).filter(User.id.in_([user_id for user_id, _ in top])).all()) if top else {}
+    return {
+        "calls": len(entries),
+        "unpriced_calls": sum(1 for e in entries if e.get("cost_usd") is None),
+        "all_time_usd": round(total, 4),
+        "today_usd": round(by_day.get(today.isoformat(), {}).get("usd", 0.0), 4),
+        "last_7_days_usd": round(sum(v["usd"] for k, v in by_day.items() if k in week), 4),
+        "by_day": [{"day": k, "usd": round(v["usd"], 4), "calls": v["calls"]} for k, v in sorted(by_day.items(), reverse=True)[:14]],
+        "by_round": {k: round(v, 4) for k, v in sorted(by_round.items())},
+        "top_candidates": [{"user_id": user_id, "email": emails.get(user_id), "usd": round(v["usd"], 4), "calls": v["calls"]} for user_id, v in top],
+    }
 
 
 @router.get("/settings", response_model=AppSettingsOut)
@@ -191,7 +228,8 @@ def _generate_reference(scenario: Scenario, db: Session) -> None:
     scenario's reference fields unset rather than corrupting anything -
     HR sees a clean error and can hit "Regenerate" to retry."""
     try:
-        _generate_reference_unsafe(scenario, db)
+        with llm_service.call_context(round_number=scenario.round_number, scenario_id=scenario.id):
+            _generate_reference_unsafe(scenario, db)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "Reference generation failed - try again.")
@@ -245,8 +283,30 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
         # A fresh AI-generated sheet, not HR's own edit anymore - see
         # environment_hr_edited and update_round2_automation_environment below.
         scenario.environment_hr_edited = False
+        _remember_environment(scenario, app_description)
     db.commit()
     db.refresh(scenario)
+
+
+# A Round 2 scenario keeps the environment and screens last generated from a
+# few Round 1 texts (config_json["environment_cache"], keyed by
+# llm_service.round2_automation_environment_source_key), so a Round 1
+# scenario going live again reuses them instead of two more AI calls.
+_ENVIRONMENT_CACHE_SIZE = 5
+
+
+def _remember_environment(scenario: Scenario, app_description: str) -> None:
+    """Stores the scenario's just-generated (never HR-edited) environment and
+    screens under the fingerprint of what they were generated from."""
+    key = llm_service.round2_automation_environment_source_key(app_description)
+    config = dict(scenario.config_json or {})
+    cache = dict(config.get("environment_cache") or {})
+    cache.pop(key, None)
+    cache[key] = {"environment_json": scenario.environment_json, "ui_mockup_json": scenario.ui_mockup_json}
+    while len(cache) > _ENVIRONMENT_CACHE_SIZE:
+        cache.pop(next(iter(cache)))
+    config["environment_cache"] = cache
+    scenario.config_json = config
 
 
 def _resync_round2_automation_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
@@ -307,13 +367,23 @@ def _resync_round2_automation_reference_for_band(round1_scenario: Scenario, db: 
         # test case and round 4 automation both key off the same login.
         # This resync must not silently overwrite that; only HR's own
         # "Regenerate" button (regenerate_reference) is allowed to.
-        if not live_round2_automation.environment_hr_edited:
-            live_round2_automation.environment_json = llm_service.generate_round2_automation_environment(
-                app_description=round1_scenario.description,
-            )
-        live_round2_automation.ui_mockup_json = llm_service.generate_round2_automation_ui_mockup(
-            app_description=round1_scenario.description,
-        )
+        key = llm_service.round2_automation_environment_source_key(round1_scenario.description)
+        stored = ((live_round2_automation.config_json or {}).get("environment_cache") or {}).get(key)
+        if stored:
+            if not live_round2_automation.environment_hr_edited:
+                live_round2_automation.environment_json = stored["environment_json"]
+            live_round2_automation.ui_mockup_json = stored["ui_mockup_json"]
+        else:
+            with llm_service.call_context(round_number=2, scenario_id=live_round2_automation.id):
+                if not live_round2_automation.environment_hr_edited:
+                    live_round2_automation.environment_json = llm_service.generate_round2_automation_environment(
+                        app_description=round1_scenario.description,
+                    )
+                live_round2_automation.ui_mockup_json = llm_service.generate_round2_automation_ui_mockup(
+                    app_description=round1_scenario.description,
+                )
+            if not live_round2_automation.environment_hr_edited:
+                _remember_environment(live_round2_automation, round1_scenario.description)
         db.commit()
     except Exception:
         db.rollback()
@@ -1189,11 +1259,12 @@ def candidate_summary(candidate_id: int, background_tasks: BackgroundTasks, db: 
         raise HTTPException(400, "This candidate hasn't started any round yet - nothing to summarize.")
 
     band = candidate.experience_band.value if candidate.experience_band else "unspecified"
-    result = llm_service.generate_candidate_summary(
-        candidate_email=candidate.email,
-        experience_band=band,
-        rounds=rounds,
-    )
+    with llm_service.call_context(user_id=candidate.id):
+        result = llm_service.generate_candidate_summary(
+            candidate_email=candidate.email,
+            experience_band=band,
+            rounds=rounds,
+        )
     # Validated before ever being persisted - a malformed generation (a
     # missing did_well/missed key, an oversized bullet) must never sail
     # into the DB only to blow up the next time GET/the PDF tries to read
