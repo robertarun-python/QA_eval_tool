@@ -108,6 +108,7 @@ headless new --headless=new select from where and or not null is count set updat
 limit as on join like in true false none api page ui step check result expected actual got value values the a an to of
 normalize-space following following-sibling preceding preceding-sibling ancestor descendant parent self text contains
 starts-with input button label link span div
+for type name class value placeholder aria-label title href role tag
 """.split()}
 _GENERIC_NUMBERS = {"0", "1", "2", "3", "-1", "100"}  # indexes, exit codes, percentages - never application values
 
@@ -244,7 +245,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     )
     note = ""
     reply, code = "", None
-    for attempt in range(2):
+    for attempt in range(3):
         raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
         reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
         code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
@@ -254,6 +255,11 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         if not bad and reply and not _repeats(reply, earlier) and not missing_code:
             break
         bad_code = unsaid(code, said, code=True)
+        if attempt == 1 and bad_code:
+            # Still guessing after one reminder (realistic check, 2026-09-27: a button found by a guessed
+            # type="submit" twice, the candidate left with "I need more from you"): the plainest instruction.
+            note = _LAST_CODE_NOTE.format(terms=", ".join(bad_code))
+            continue
         note = (_CODE_NOTE.format(terms=", ".join(bad_code)) if bad_code
                 else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
@@ -276,8 +282,11 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
 
 
 _XPATH_LITERAL_RE = re.compile(r""""\(?\.?//(?:[^"\\\n]|\\.)*"|'\(?\.?//(?:[^'\\\n]|\\.)*'""")
-_TODO_NOTE = ("Before this can run, tell me for each of these steps of yours how to find it on the screen "
-              "(what you see on it, or its id) or which exact value to use:")
+_LAST_CODE_NOTE = ("\n\nYour code still used things the candidate never said: {terms}. Find every element ONLY by what the "
+                   "candidate gave - the exact text or label they named (\"the Log in button\" is the button whose text is "
+                   "Log in), or an id they gave - and use only their values. Anything else becomes incomplete(\"<their words>\").")
+_TODO_NOTE = ("Before this can run, tell me for each of these steps of yours how to find it "
+              "(the words you see on it, or its id) or which exact value to use:")
 _INCOMPLETE_RE = re.compile(r"""incomplete\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)')\s*\)""")
 
 

@@ -19,7 +19,7 @@ class Model:
 
     def __call__(self, prompt, max_tokens=None, schema=None):
         self.prompts.append(prompt)
-        return self.replies.pop(0)
+        return self.replies.pop(0) if len(self.replies) > 1 else self.replies[0]  # the last reply repeats
 
 
 def _turn(monkeypatch, model, prompt, conversation=()):
@@ -198,3 +198,18 @@ def test_a_field_found_by_the_label_the_candidate_named_is_not_withheld(monkeypa
     out = _turn(monkeypatch, Model({"reply": "Done.", "code": guessed}, {"reply": "Done.", "code": guessed}),
                 "Enter CUST001 in the field labelled Customer id. Generate the code.")
     assert out["code_after"] is None  # an id they never gave is still a guess
+
+
+
+def test_a_third_plainest_try_when_the_code_keeps_guessing(monkeypatch):
+    """Realistic check (2026-09-27): asked to click "the Log in button", the model found it by a guessed
+    type="submit" twice and the candidate was left with a vague "I need more". A third try is told plainly
+    to find elements only by what the candidate gave; a label's `for` attribute is not a guess."""
+    guess = {"reply": "Done.", "code": 'driver.findElement(By.cssSelector("button[type=\'submit\']")).click();'}
+    good = {"reply": "Done.", "code": 'driver.findElement(By.xpath("//button[contains(text(), \'Log in\')]")).click();'}
+    model = Model(guess, guess, good)
+    out = _turn(monkeypatch, model, "Click the Log in button. Generate the code.")
+    assert out["code_after"] == good["code"]
+    assert "ONLY by what the candidate gave" in model.prompts[2]
+    label = 'driver.findElement(By.xpath("//input[@id=(//label[contains(text(), \'Customer id\')]/@for)]")).sendKeys("CUST001");'
+    assert round2_typist.unsaid(label, "Enter CUST001 in the field labelled Customer id.", code=True) == []
