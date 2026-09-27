@@ -34,7 +34,8 @@ INCOMPLETE_EXIT = 3
 
 CONVENTIONS = {
     "java": ("One file, public class Main with a main method. Browser: org.openqa.selenium RemoteWebDriver with "
-             "new URL(System.getenv(\"SELENIUM_GRID_URL\")) and ChromeOptions --headless=new. API: java.net.http.HttpClient. "
+             "new URL(System.getenv(\"SELENIUM_GRID_URL\")) and ChromeOptions --headless=new. API: java.net.http.HttpClient; "
+             "for JSON, org.json (JSONObject), Gson or Jackson are available - use the one the candidate names. "
              "Database: java.sql.DriverManager.getConnection(\"jdbc:sqlite:\" + System.getenv(\"PRACTICE_DB\")). "
              "Define static void incomplete(String step) that prints \"INCOMPLETE: \" + step and calls System.exit(3)."),
     "python": ("One script. Browser: selenium webdriver.Remote(os.environ[\"SELENIUM_GRID_URL\"], options=ChromeOptions with "
@@ -124,6 +125,11 @@ _NOTE = ("\n\nYour previous draft named things the candidate never said: {terms}
 _WRITE_NOTE = ("\n\nThey asked for the code: write the complete program now. For every step they didn't say how to do, put "
                "incomplete(\"<their own words for that step>\") where it belongs. Don't list or describe what is missing.")
 _REPEAT_NOTE = "\n\nYour previous draft repeated a sentence you already wrote in this conversation. Say it differently."
+# The code named things the candidate never said (measured, Java check 2026-09-27: asked "Generate it" with no
+# element ids given, the model guessed locators both times): the step goes in as incomplete() instead.
+_CODE_NOTE = ("\n\nYour previous code used things the candidate never said: {terms}. Write the program again without "
+              "them: every step whose element, address, value or check they didn't give becomes incomplete(\"<their own "
+              "words for that step>\"). Don't mention what is missing in your reply.")
 
 
 def candidate_text(design: dict | None, conversation: list[dict], prompt: str) -> str:
@@ -239,13 +245,18 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         missing_code = allow_code and code is None
         if not bad and reply and not _repeats(reply, earlier) and not missing_code:
             break
-        note = _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE)
+        bad_code = unsaid(code, said, code=True)
+        note = (_CODE_NOTE.format(terms=", ".join(bad_code)) if bad_code
+                else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
         if unsaid(code, said, code=True):
             code = None
-        if not reply or unsaid(reply, said, code=False) or _repeats(reply, earlier):
-            reply = _pick(_BLOCKED if code is None and allow_code else _ASK, used)
+        if code is None and allow_code:
+            # No code reaches them: a reply saying "here's the code" would be a broken promise.
+            reply = _pick(_BLOCKED, used)
+        elif not reply or unsaid(reply, said, code=False) or _repeats(reply, earlier):
+            reply = _pick(_ASK, used)
     if code is not None:
         return {"response_kind": "code_edit", "response_message": reply, "code_after": code}
     return {"response_kind": "clarify", "response_message": reply, "code_after": None}

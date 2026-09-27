@@ -152,3 +152,17 @@ def test_when_asked_for_code_a_reply_without_code_is_asked_again(monkeypatch):
     second = {"reply": "Here is the code for what you said.", "code": 'incomplete("log in as Priya")'}
     out = _turn(monkeypatch, Model(first, second), "Log in as Priya. Generate it.")
     assert out["response_kind"] == "code_edit" and out["code_after"] == 'incomplete("log in as Priya")'
+
+
+def test_withheld_code_never_leaves_a_reply_promising_code(monkeypatch):
+    """Real Java check (2026-09-27): a weak candidate said "Generate it." with no element
+    ids; the model guessed locators both times, the code was rightly withheld - but its
+    reply "I'll write the code now" still went out, promising code that never came."""
+    guessed = {"reply": "Got it, you're asking me to generate it. I'll write the code now.",
+               "code": 'driver.findElement(By.id("username")).sendKeys("priya@library.test");'}
+    model = Model(guessed, guessed)
+    out = _turn(monkeypatch, model, "Generate it.", [{"candidate_prompt": "Automate TC-01.", "response_message": "Got it."}])
+    assert out["code_after"] is None
+    assert "write the code now" not in out["response_message"]
+    assert out["response_message"] in round2_typist._BLOCKED
+    assert "incomplete(" in model.prompts[1]  # the retry was told to mark the unsaid steps incomplete

@@ -39,6 +39,13 @@ class EnvironmentUnavailable(RuntimeError):
     infrastructure problem, never the candidate's."""
 
 
+# The Java libraries a candidate's test may use (tools/setup_vendor.sh): Selenium, SQLite, and the
+# JSON libraries Java API tests use - measured (2026-09-27): the assistant's Java API test used
+# org.json's JSONObject and didn't compile without it.
+JAVA_JARS = ("selenium-server.jar", "sqlite-jdbc.jar", "json.jar", "gson.jar",
+             "jackson-databind.jar", "jackson-core.jar", "jackson-annotations.jar")
+
+
 def vendor() -> Path:
     return Path(settings.vendor_dir)
 
@@ -174,7 +181,7 @@ def run(language: str, code: str, spec: dict, browser: bool = True) -> execution
                 ports=(server.port,), read_dirs=(str(v),), rw_dirs=(tmp,),  # the practice server is the only door
                 env={"PRACTICE_APP_URL": server.url, "PRACTICE_API_URL": server.url + "api/", "PRACTICE_DB": str(server.db),
                      **({"SELENIUM_GRID_URL": server.url + "wd/hub"} if grid else {})},
-                java_classpath=(str(v / "selenium-server.jar"), str(v / "sqlite-jdbc.jar")),
+                java_classpath=tuple(str(v / jar) for jar in JAVA_JARS if (v / jar).exists()),
                 python_path=(str(v / "python"),), node_path=str(v / "node" / "node_modules"),
                 timeout_seconds=settings.practice_run_timeout_seconds)
             return execution_service.run_code(language, code, [], access=access)
