@@ -200,3 +200,40 @@ def test_a_check_against_a_wrong_saved_value_fails():
     report = _inspect(_LANGUAGE[0], SPEC, [{"id": "c", "title": "c", "steps": LOGIN + [
         {"call": "Database.count_loan", "save_as": "before"}, {"call": "Database.count_book", "expect": {"ref": "before"}}]}])
     assert not report.languages[_LANGUAGE[0]].results[0].passed
+
+
+def test_a_value_a_check_step_saved_can_be_passed_to_the_app_in_every_language():
+    """Measured (FASTag build): a check step saved an id under a new name and a
+    later step passed it to the app - Python's runner crashed, JavaScript's used null."""
+    _one(LOGIN + [{"call": "Database.all_book", "save_as": "books"},
+                  {"check": {"ref": "books.0.id"}, "save_as": "first_id"},
+                  {"call": "UI.open", "args": ["Search"]},
+                  {"call": "UI.open_book", "args": [{"ref": "first_id"}], "expect_includes": {"id": "BK-001"}}])
+
+
+BILLS = {
+    "app_name": "Power", "base_url": "https://power.example.test", "now": "2024-03-20T10:00", "pages": ["Home"], "home_page": "Home",
+    "entities": {"Consumer": {"key": "number", "fields": {"number": "string", "status": "string"}},
+                 "Bill": {"key": "id", "fields": {"id": "string", "consumer": "string", "amount": "money", "due": "date"}}},
+    "data": {"Consumer": [{"number": "1234567890", "status": "Active"}, {"number": "9876543210", "status": "Disconnected"}],
+             "Bill": [{"id": "B1", "consumer": "1234567890", "amount": 1845.5, "due": "2024-03-15"},
+                      {"id": "B2", "consumer": "9876543210", "amount": 500, "due": "2024-03-30"}]},
+    "queries": [{"name": "fetch_bill", "entity": "Bill", "inputs": [{"name": "consumer_number"}],
+                 "load": [{"as": "consumer", "entity": "Consumer", "key": {"input": "consumer_number"}, "missing": "No bill found for this consumer number"}],
+                 "rules": [{"when": {"eq": [{"field": "consumer.status"}, "Disconnected"]}, "message": "This connection is disconnected"}],
+                 "where": {"eq": [{"field": "row.consumer"}, {"field": "consumer.number"}]},
+                 "show": ["id", "amount", {"name": "late_fee", "value": {"if": [{"gt": [{"today": True}, {"field": "row.due"}]},
+                                                                           {"round": [{"mul": [{"field": "row.amount"}, 0.02]}, 2]}, 0]}}]}],
+}
+
+
+def test_a_lookup_can_load_a_related_record_for_its_rules_and_columns():
+    """Measured (Bill build): 'fetch the bill for this consumer, refuse a disconnected one, add the late fee'."""
+    lang = _LANGUAGE[0]
+    report = _inspect(lang, BILLS, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"},
+        {"call": "API.fetch_bill", "args": ["1234567890"], "expect": {"ok": True, "error": None, "result": [{"id": "B1", "amount": 1845.5, "late_fee": 36.91}], "message": None}},
+        {"call": "API.fetch_bill", "args": ["9876543210"], "expect_includes": {"ok": False, "error": "This connection is disconnected"}},
+        {"call": "API.fetch_bill", "args": ["1111111111"], "expect_includes": {"ok": False, "error": "No bill found for this consumer number"}}]}])
+    result = report.languages[lang].results[0]
+    assert report.languages[lang].error is None and result.passed, result.failures

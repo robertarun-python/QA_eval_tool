@@ -645,6 +645,12 @@
             if (loginDefault(query)) checkSession();
             checkInputs(query.get("inputs"), inputs);
             Map<String, Map<String, Object>> aliases = new LinkedHashMap<>();
+            for (Object l : query.get("load") == null ? List.of() : list(query.get("load"))) {  // related records, as for actions
+                Map<String, Object> load = map(l);
+                Map<String, Object> record = findByKey(str(load.get("entity")), ev(load.get("key"), inputs, aliases));
+                if (record == null) throw new Refused(str(load.get("missing")));
+                aliases.put(str(load.get("as")), record);
+            }
             checkRules(query.get("rules"), inputs, aliases);
             String entity = str(query.get("entity"));
             if (query.get("key_input") != null) {

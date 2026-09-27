@@ -59,14 +59,26 @@ def plan_view(spec: dict, extra: dict | None = None) -> dict:
     summary, plain-English rules, reference sheet, screens."""
     extra = extra or {}
     action_names = {a["name"] for a in spec.get("actions") or []}
+    storing = {a["name"] for a in spec.get("actions") or [] if _stores(a)}
+    key_queries = {q["name"] for q in spec.get("queries") or [] if q.get("key_input")}
+    list_queries = {q["name"] for q in spec.get("queries") or [] if not q.get("key_input")}
     helpers = []
     for h in render.helpers(spec):
         layer, _, name = h["call"].rpartition(".")
         if not layer:
             layer = "global"
         tf = (layer == "UI" and (name in ("open", "login", "logout") or name in action_names)) or h["call"] == "Test.simulate"
-        helpers.append({"layer": layer, "name": name, "params": h["params"], "returns": _TRUE_FALSE if tf else _returns(h["call"]),
-                        "behaviour": h["doc"], "changes_data": layer in ("UI", "API") and name in action_names})
+        returns = _TRUE_FALSE if tf else _returns(h["call"])
+        if layer == "UI" and name in key_queries:
+            returns = "the record shown (an object), or null when there is none - never true/false"
+        elif layer == "UI" and name in list_queries:
+            returns = "a list of the records shown ([] when there are none) - never true/false"
+        elif layer == "API" and name in key_queries | list_queries:
+            returns = "an object {ok, error, result, message}"
+        # Only actions that change stored records must be checked in the Database - one that just
+        # remembers a choice (a delivery slot in the session) has nothing there to check.
+        helpers.append({"layer": layer, "name": name, "params": h["params"], "returns": returns,
+                        "behaviour": h["doc"], "changes_data": layer in ("UI", "API") and name in storing})
     users = spec.get("users") or {}
     accounts = []
     if users:
@@ -89,6 +101,17 @@ def plan_view(spec: dict, extra: dict | None = None) -> dict:
         "screens": extra.get("screens") or [],
         "engine_spec": spec,
     }
+
+
+def _stores(node) -> bool:
+    """Whether an action (anywhere in its effects, rules' "then", if / for_each) changes stored records."""
+    if isinstance(node, dict):
+        if any(k in node for k in ("set", "create", "delete")):
+            return True
+        return any(_stores(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_stores(v) for v in node)
+    return False
 
 
 def _returns(call: str) -> str:

@@ -16,7 +16,7 @@ TOP_KEYS = {"app_name", "base_url", "now", "entities", "data", "users", "pages",
 USER_KEYS = {"entity", "login_field", "password_field", "name_field", "session_minutes", "blocked_when", "messages", "page", "lockout"}
 USER_MESSAGES = {"required_login", "required_password", "invalid", "blocked", "expired", "need_login"}
 QUERY_KEYS = {"name", "label", "description", "page", "entity", "match", "inputs", "key_input", "missing", "where", "order_by", "show",
-              "none_message", "next_page", "requires_login", "rules", "as"}
+              "none_message", "next_page", "requires_login", "rules", "as", "load"}
 _ITEM = "(list item)"  # the pseudo record type of a for_each over a list: its one field is "value"
 MATCH_KEYS = {"input", "fields", "mode", "blank", "max_length", "too_long"}
 ACTION_KEYS = {"name", "label", "description", "page", "requires_login", "inputs", "load", "rules", "effects", "message", "returns", "next_page"}
@@ -47,8 +47,16 @@ PAIR_OPS = {"add", "sub", "mul", "div", "add_days", "add_months", "days_between"
 
 
 def problems(spec) -> list[str]:
-    """Every problem in the description, as plain sentences; [] if it is valid."""
-    return _Checker(spec).run()
+    """Every problem in the description, as plain sentences; [] if it is valid.
+    Never raises: an AI reply of an unexpected shape is a problem to send back
+    (measured: a dict where a name was expected crashed two builds)."""
+    checker = _Checker(spec)
+    try:
+        return checker.run()
+    except Exception as error:  # noqa: BLE001 - any shape the format doesn't allow
+        where = f" (after: {checker.out[-1]})" if checker.out else ""
+        return checker.out + [f"description: a part has a shape the format doesn't allow ({type(error).__name__}: {error}){where} - "
+                              "use exactly the keys and value types shown in the format"]
 
 
 def regex_problem(pattern) -> str | None:
@@ -226,7 +234,8 @@ class _Checker:
             self.err("users", "must be an object")
             return
         for k in sorted(set(users) - USER_KEYS):
-            self.err("users", f"unknown key {k!r}")
+            self.err("users", f"unknown key {k!r} - users may only have {', '.join(sorted(USER_KEYS))}; anything else (e.g. extra login "
+                              "rules) goes in actions")
         entity = users.get("entity")
         if entity not in self.entities:
             self.err("users", f"entity {entity!r} is not one of the entities")
@@ -367,8 +376,9 @@ class _Checker:
             first = [key_input]
             self.message(q.get("missing"), f"{where} missing")
         self.params(first + [n for n in extra if n not in first], where)
-        self.rules(q.get("rules"), where, {"inputs": set(first + extra), "aliases": {}})
-        scope = {"inputs": set(first + extra), "aliases": {"row": entity}}
+        loaded = self.loads(q.get("load"), where, {"inputs": set(first + extra), "aliases": {}})
+        self.rules(q.get("rules"), where, {"inputs": set(first + extra), "aliases": dict(loaded)})
+        scope = {"inputs": set(first + extra), "aliases": {**loaded, "row": entity}}
         if q.get("as") is not None:
             if not isinstance(q["as"], str) or not NAME.fullmatch(q["as"]) or q["as"] == "row":
                 self.err(where, "as must be a lower_snake_case name for each record (not row)")
@@ -397,14 +407,7 @@ class _Checker:
         names = self.input_checks(a.get("inputs"), where)
         self.params(names, where)
         scope = {"inputs": set(names), "aliases": {}}
-        for j, load in enumerate(a.get("load") or []):
-            w = f"{where} load[{j}]"
-            if not isinstance(load, dict) or load.get("entity") not in self.entities or not isinstance(load.get("as"), str):
-                self.err(w, "needs as, an entity that exists, key and missing")
-                continue
-            self.expr(load.get("key"), f"{w} key", scope)
-            self.message(load.get("missing"), f"{w} missing")
-            scope["aliases"][load["as"]] = load["entity"]
+        scope["aliases"].update(self.loads(a.get("load"), where, scope))
         self.rules(a.get("rules"), where, scope)
         for j, effect in enumerate(a.get("effects") or []):
             self.effect(effect, f"{where} effect {j + 1}", scope)
@@ -458,6 +461,25 @@ class _Checker:
                 self.expr(rule.get("message"), f"{w} message", inner)
             for k, effect in enumerate(rule.get("then") or []):
                 self.effect(effect, f"{w} then {k + 1}", {"inputs": inner["inputs"], "aliases": dict(inner["aliases"])})
+
+    def loads(self, loads, where: str, scope: dict) -> dict:
+        """Records an action or lookup loads first: {alias: entity}."""
+        found: dict = {}
+        if loads is None:
+            return found
+        if not isinstance(loads, list):
+            self.err(where, "load must be a list of {as, entity, key, missing}")
+            return found
+        for j, load in enumerate(loads):
+            w = f"{where} load[{j}]"
+            if not isinstance(load, dict) or not isinstance(load.get("entity"), str) or load["entity"] not in self.entities \
+                    or not isinstance(load.get("as"), str):
+                self.err(w, "needs as, an entity that exists, key and missing")
+                continue
+            self.expr(load.get("key"), f"{w} key", {"inputs": scope["inputs"], "aliases": {**scope["aliases"], **found}})
+            self.message(load.get("missing"), f"{w} missing")
+            found[load["as"]] = load["entity"]
+        return found
 
     def effect(self, effect, where: str, scope: dict) -> None:
         if not isinstance(effect, dict) or len(effect) != 1:
@@ -638,7 +660,8 @@ class _Checker:
             self.expr(arg[0], where, scope)
             if op == "matches":
                 if not isinstance(arg[1], str):
-                    self.err(where, 'matches needs [value, "fixed regular expression text"] - the pattern must be written out, not an expression')
+                    self.err(where, 'matches needs [value, "fixed regular expression text"] - the pattern must be written out, not an expression; '
+                                    'for several requirements (e.g. an upper-case letter AND a digit) use one input check or rule per requirement')
                     return
                 p = regex_problem(arg[1])
                 if p:

@@ -110,3 +110,22 @@ def test_matches_with_a_non_literal_pattern_gets_an_actionable_message():
     spec = copy.deepcopy(SPEC)
     _action(spec, "borrow_book")["rules"].append({"when": {"matches": [{"input": "book_id"}, {"input": "book_id"}]}, "message": "x"})
     assert any("must be written out" in p for p in validate.problems(spec))
+
+
+def test_query_loads_are_checked_like_action_loads():
+    from tests.test_practice_engine import BILLS
+    assert validate.problems(BILLS) == []
+    broken = copy.deepcopy(BILLS)
+    broken["queries"][0]["load"][0]["entity"] = "Customer"
+    assert any("load[0]" in p for p in validate.problems(broken))
+
+
+def test_only_actions_that_change_stored_records_must_be_checked_in_the_database():
+    from app.services.practice_app import engine_build
+    spec = copy.deepcopy(SPEC)
+    spec["actions"].append({"name": "pick_slot", "inputs": [{"name": "slot"}],
+                            "effects": [{"set_session": {"key": "slot", "value": {"input": "slot"}}}], "message": "Slot selected"})
+    plan = engine_build.plan_view(spec)
+    by_name = {(h["layer"], h["name"]): h for h in plan["helpers"]}
+    assert by_name[("UI", "pick_slot")]["changes_data"] is False and by_name[("UI", "borrow_book")]["changes_data"] is True
+    assert "never true/false" in by_name[("UI", "search_books")]["returns"]

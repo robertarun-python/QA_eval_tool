@@ -442,6 +442,11 @@ class Engine {
     if (query.requires_login !== undefined ? query.requires_login : !!this.users) this.checkSession();
     this.checkInputs(query.inputs || [], inputs);
     const ctx = { inputs, aliases: {} };
+    for (const load of query.load || []) {  // related records, as for actions
+      const record = this.findByKey(load.entity, this.ev(load.key, ctx));
+      if (!record) throw new Refused(load.missing);
+      ctx.aliases[load.as] = record;
+    }
     this.checkRules(query.rules || [], ctx);
     const entity = query.entity;
     if (query.key_input) {

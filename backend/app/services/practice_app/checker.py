@@ -161,8 +161,36 @@ def _with_refs(expected, saved: dict):
 
 def for_runner(checklist: dict) -> dict:
     """What the language runners run: only the steps that call a helper -
-    "check" steps (a look at a value saved earlier) are judged here."""
-    return {**checklist, "steps": [s for s in checklist["steps"] if "check" not in s]}
+    "check" steps (a look at a value saved earlier) are judged here. A name a
+    check step saved is rewritten, in later arguments, into the path it points
+    to, so every runner can resolve it (measured: a check-saved id passed to
+    the app crashed Python's runner and became null in JavaScript's)."""
+    aliases: dict[str, str] = {}
+
+    def unalias(path: str) -> str:
+        first, _, rest = str(path).partition(".")
+        if first in aliases:
+            return unalias(aliases[first] + ("." + rest if rest else ""))
+        return str(path)
+
+    def rewrite(value):
+        if isinstance(value, dict):
+            if set(value) == {"ref"}:
+                return {"ref": unalias(value["ref"])}
+            return {k: rewrite(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [rewrite(v) for v in value]
+        return value
+
+    steps = []
+    for step in checklist["steps"]:
+        if "check" in step:
+            ref = step["check"].get("ref") if isinstance(step["check"], dict) else None
+            if step.get("save_as") and ref is not None:
+                aliases[step["save_as"]] = unalias(ref)
+            continue
+        steps.append({**step, "args": rewrite(step.get("args") or [])} if step.get("args") else step)
+    return {**checklist, "steps": steps}
 
 
 def _judge(checklist: dict, raw: dict) -> ChecklistResult:

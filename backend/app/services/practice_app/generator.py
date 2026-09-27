@@ -277,6 +277,31 @@ def _missing_start_record_problem(checklist: dict, plan: dict, changing: set[str
     return None
 
 
+class _BadShape(Exception):
+    pass
+
+
+def _shape_problem(c, helpers: set[str]) -> None:
+    """A checklist the rest of the checks can safely read, or _BadShape saying
+    what is wrong - never a crash on an AI reply of an unexpected shape."""
+    if not isinstance(c, dict):
+        raise _BadShape("a checklist must be an object with id, title and steps")
+    name = c.get("id")
+    if c.get("unsupported"):
+        return
+    if not isinstance(c.get("steps"), list):
+        raise _BadShape(f"checklist {name!r} needs a list of steps")
+    for n, step in enumerate(c["steps"], start=1):
+        if not isinstance(step, dict):
+            raise _BadShape(f"checklist {name!r} step {n} must be an object")
+        if "call" in step and not isinstance(step["call"], str):
+            raise _BadShape(f"checklist {name!r} step {n}: \"call\" must be a helper name such as \"UI.login\"")
+        if not isinstance(step.get("args", []), list):
+            raise _BadShape(f"checklist {name!r} step {n}: \"args\" must be a list")
+        if "save_as" in step and not isinstance(step["save_as"], str):
+            raise _BadShape(f"checklist {name!r} step {n}: \"save_as\" must be a name")
+
+
 def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict]) -> tuple[list, list, list[str]]:
     """Splits the AI's checklists into runnable ones and unsupported cases,
     and lists problems: a call to a helper the plan doesn't have, a missing
@@ -289,6 +314,15 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
     true_false = _true_false_helpers(plan)
     runnable, unsupported, problems, seen = [], [], [], set()
     for c in checklists if isinstance(checklists, list) else []:
+        if isinstance(c, dict) and c.get("id") is not None and not isinstance(c["id"], str):
+            c = {**c, "id": str(c["id"])}
+        if isinstance(c, dict) and c.get("title") is not None and not isinstance(c["title"], str):
+            c = {**c, "title": str(c["title"])}
+        try:
+            _shape_problem(c, helpers)
+        except _BadShape as bad:
+            problems.append(str(bad))
+            continue
         if not isinstance(c, dict) or not c.get("id"):
             problems.append("a checklist has no id")
             continue
@@ -314,21 +348,24 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
         elif any(s.get("call") in changing for s in c["steps"]) and not any(
                 (s.get("call") or "").startswith("Database.") for s in c["steps"]):
             problems.append(f"checklist {c['id']!r} changes data but never checks the Database layer")
-        elif ref_problem := _ref_problem(c, true_false):
-            problems.append(ref_problem)
-        elif start_problem := _missing_start_record_problem(c, plan, changing):
-            problems.append(start_problem)
         else:
-            runnable.append(c)
-    covered = {(c.get("title") or "").strip().lower() for c in runnable} | {u["title"].strip().lower() for u in unsupported}
+            try:
+                deeper = _ref_problem(c, true_false) or _missing_start_record_problem(c, plan, changing)
+            except Exception as error:  # noqa: BLE001 - any shape the format doesn't allow
+                deeper = f"checklist {c['id']!r} has a part of an unexpected shape ({type(error).__name__}: {error})"
+            if deeper:
+                problems.append(deeper)
+            else:
+                runnable.append(c)
+    covered = {str(c.get("title") or "").strip().lower() for c in runnable} | {str(u["title"]).strip().lower() for u in unsupported}
     for case in reference_cases:
-        if (case.get("title") or "").strip().lower() not in covered:
+        if str(case.get("title") or "").strip().lower() not in covered:
             problems.append(f"no checklist for reference test case {case.get('title')!r}")
     return runnable, unsupported, problems
 
 
 def _title_key(item) -> str:
-    return (item.get("title") or "").strip().lower() if isinstance(item, dict) else ""
+    return str(item.get("title") or "").strip().lower() if isinstance(item, dict) else ""
 
 
 def merge_checklist_retry(first: list, first_valid: list[dict], retried) -> list:
@@ -337,18 +374,18 @@ def merge_checklist_retry(first: list, first_valid: list[dict], retried) -> list
     wrong or missed. A full retry used to replace everything - the Beneficiary
     build's first attempt had one bad checklist, its retry broke six good ones
     (an invented "assert" step) and those test cases were dropped."""
-    valid_ids = {c["id"] for c in first_valid}
-    good = lambda c: isinstance(c, dict) and (c.get("id") in valid_ids or c.get("unsupported"))  # noqa: E731
+    valid_ids = {str(c["id"]) for c in first_valid}
+    good = lambda c: isinstance(c, dict) and (str(c.get("id")) in valid_ids or c.get("unsupported"))  # noqa: E731
     covered = {_title_key(c) for c in first if good(c)}
-    used_ids = {c.get("id") for c in first if good(c)}
+    used_ids = {str(c.get("id")) for c in first if good(c)}
     replacements = {}
     for c in retried if isinstance(retried, list) else []:
         if isinstance(c, dict) and _title_key(c) not in covered and _title_key(c) not in replacements:
-            if c.get("id") in used_ids:
+            if str(c.get("id")) in used_ids:
                 # The AI numbers ids c1..cN on each attempt, so a missed case
                 # usually reuses a good checklist's id - keep it under a new one.
                 c = {**c, "id": f"{c.get('id')}-retry"}
-            used_ids.add(c.get("id"))
+            used_ids.add(str(c.get("id")))
             replacements[_title_key(c)] = c
     merged = []
     for c in first:  # in the first attempt's order, each bad one swapped for its retry
@@ -374,7 +411,7 @@ def accept_repairs(plan: dict, checklists: list[dict], repaired, failing_ids: se
     by_id = {c["id"]: c for c in checklists}
     accepted = {}
     for item in repaired if isinstance(repaired, list) else []:
-        original = by_id.get(item.get("id")) if isinstance(item, dict) else None
+        original = by_id.get(item.get("id")) if isinstance(item, dict) and isinstance(item.get("id"), str) else None
         if original is None or item["id"] not in failing_ids or item == original:
             continue
         if (item.get("title") or "") != (original.get("title") or ""):
@@ -382,7 +419,10 @@ def accept_repairs(plan: dict, checklists: list[dict], repaired, failing_ids: se
         runnable, _, problems = validate_checklists(plan, [item], [])
         if problems or runnable != [item]:
             continue
-        checks, db_checks = _check_counts(item)
+        try:
+            checks, db_checks = _check_counts(item)
+        except (TypeError, AttributeError):
+            continue
         original_checks, original_db_checks = _check_counts(original)
         if checks >= original_checks and db_checks >= original_db_checks:
             accepted[item["id"]] = item

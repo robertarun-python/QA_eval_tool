@@ -26,6 +26,7 @@ queries (read-only - search, lists, details):
  "inputs": [extra inputs, with checks like actions], "where": <condition on row.<field>>, "order_by": [{"field": "title", "desc": false}],
  "show": [fields returned for each record], "none_message": "<message when nothing matches>", "next_page": "<page>"}
 - Matching is always case-insensitive and ignores surrounding spaces. One record by key instead of a search: "key_input": "book_id", "missing": "<message>" (no match).
+- A query can "load" related records first, exactly like an action ({"as", "entity", "key", "missing"}), for its rules, where and calculated columns (e.g. fetch a bill by consumer number, then refuse a disconnected account).
 - Query "rules" (same form as action rules) refuse the lookup: roles ("Only admins can ..."), "Results are not published yet".
 - Calculated columns: a "show" item can be {"name": "grade", "value": <expression on row.<field>>}; give the query "as": "<name>" to refer to its record inside a count/sum/exists (where "row" is that entity's row).
 - UI.<query> works only on its "page" (else the visible message is "<label> is not available on this page"); omit "page" for a query usable anywhere.

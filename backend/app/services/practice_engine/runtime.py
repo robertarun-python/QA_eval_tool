@@ -611,6 +611,11 @@ class Engine:
             self._check_session()
         self._check_inputs(query.get("inputs") or [], inputs)
         ctx = {"inputs": inputs, "aliases": {}}
+        for load in query.get("load") or []:  # related records, as for actions
+            record = self._by_key(load["entity"], self.ev(load["key"], ctx))
+            if record is None:
+                raise _Refused(load["missing"], status=404)
+            ctx["aliases"][load["as"]] = record
         self._check_rules(query.get("rules") or [], ctx)
         entity = query["entity"]
         if query.get("key_input"):
