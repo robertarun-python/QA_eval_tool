@@ -19,6 +19,9 @@ os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 # Tool-use output stays at its code default (off) whatever .env says - the
 # tests pin the behaviour they check.
 os.environ["LLM_TOOL_OUTPUT"] = "false"
+# The lasting AI call record goes to a throwaway file, never the real one.
+import tempfile
+os.environ["AI_CALL_LOG_PATH"] = os.path.join(tempfile.mkdtemp(prefix="qa_eval_tests_"), "ai_calls.jsonl")
 if os.environ.get("RUN_LLM_REPLAY") != "1":
     os.environ["ANTHROPIC_API_KEY"] = ""
 

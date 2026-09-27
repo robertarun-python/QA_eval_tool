@@ -11,8 +11,10 @@ import hashlib
 import json
 import re
 import sys
+import threading
 import time
 from collections import deque
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -66,7 +68,11 @@ def _get_client() -> anthropic.Anthropic:
 
 
 def _load_prompt(filename: str) -> str:
-    return (PROMPTS_DIR / filename).read_text(encoding="utf-8")
+    text = (PROMPTS_DIR / filename).read_text(encoding="utf-8")
+    # The lasting call record names the prompt a call was made from: the
+    # prompt file loaded last before the call (see _record_call).
+    _LAST_PROMPT.set((filename, _prompt_hash(text)))
+    return text
 
 
 def _prompt_hash(prompt_text: str) -> str:
@@ -168,6 +174,106 @@ def _record_call(outcome: str, *, started: float | None = None, max_tokens: int 
     }
     _CALL_LOG.append(entry)
     print("[llm] " + " ".join(f"{k}={v}" for k, v in entry.items() if v not in (None, "")), file=sys.stderr)
+    model = settings.claude_model
+    lasting = {**entry, "model": model, "cost_usd": call_cost_usd(model, entry), **_CALL_CONTEXT.get()}
+    prompt = _LAST_PROMPT.get()
+    if prompt:
+        lasting["prompt_file"], lasting["prompt_hash"] = prompt
+    _append_call_log(lasting)
+
+
+# ---- The lasting call record (settings.ai_call_log_path) ----
+# Every call is also appended as one JSON line to a file that survives
+# restarts, with its model, cost and what it was for (call_context), for the
+# totals on HR's AI health card. A file, not a table: scoring can hold an
+# SQLite write open while it waits for the model, and a row written to the
+# same database from here would wait behind it and be lost.
+_CALL_CONTEXT: contextvars.ContextVar = contextvars.ContextVar("ai_call_context", default={})
+_LAST_PROMPT: contextvars.ContextVar = contextvars.ContextVar("ai_call_prompt", default=None)
+_CALL_LOG_LOCK = threading.Lock()
+
+# List prices per million tokens (US$), September 2026: input, output, cache
+# read. A 5-minute cache write is 1.25x input. A model not listed here gets no
+# price (cost_usd None) rather than a guessed one - add it when it's adopted.
+_PRICES_PER_MILLION = {
+    "claude-haiku-4-5": (1.0, 5.0, 0.1),
+    "claude-sonnet-4-5": (3.0, 15.0, 0.3),
+    "claude-sonnet-4-6": (3.0, 15.0, 0.3),
+    "claude-sonnet-5": (2.0, 10.0, 0.2),
+    "claude-opus-4-8": (5.0, 25.0, 0.5),
+    "claude-opus-5": (5.0, 25.0, 0.5),
+    "claude-opus-5-5": (4.0, 20.0, 0.2),
+}
+
+
+def _prices(model: str) -> tuple | None:
+    """A model's prices - a dated id (claude-sonnet-4-5-20250929) prices as its model."""
+    for name in sorted(_PRICES_PER_MILLION, key=len, reverse=True):
+        if model == name or model.startswith(name + "-"):
+            return _PRICES_PER_MILLION[name]
+    return None
+
+
+def call_cost_usd(model: str, entry: dict) -> float | None:
+    """What one call cost, from its token counts; None when unknown."""
+    prices = _prices(model or "")
+    if prices is None or entry.get("input_tokens") is None or entry.get("output_tokens") is None:
+        return None
+    price_in, price_out, price_cache_read = prices
+    return (entry["input_tokens"] * price_in + entry["output_tokens"] * price_out
+            + (entry.get("cache_read_tokens") or 0) * price_cache_read
+            + (entry.get("cache_write_tokens") or 0) * price_in * 1.25) / 1e6
+
+
+def cache_saving_usd(model: str, entry: dict) -> float:
+    """What reading from the cache saved on one call, against full input price."""
+    prices = _prices(model or "")
+    if prices is None:
+        return 0.0
+    return (entry.get("cache_read_tokens") or 0) * (prices[0] - prices[2]) / 1e6
+
+
+@contextmanager
+def call_context(**fields):
+    """Labels every AI call made inside it - round_number, scenario_id,
+    submission_id, user_id - in the lasting record. Nested labels add up."""
+    token = _CALL_CONTEXT.set({**_CALL_CONTEXT.get(), **{k: v for k, v in fields.items() if v is not None}})
+    try:
+        yield
+    finally:
+        _CALL_CONTEXT.reset(token)
+
+
+def _append_call_log(entry: dict) -> None:
+    """Never raises: a record that can't be written must not break the call."""
+    path = settings.ai_call_log_path
+    if not path:
+        return
+    try:
+        line = json.dumps(entry, ensure_ascii=False, default=str)
+        with _CALL_LOG_LOCK, open(path, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception as e:
+        print(f"[llm] couldn't write the AI call record to {path}: {e}", file=sys.stderr)
+
+
+def read_call_log() -> list[dict]:
+    """Every recorded call, oldest first. A damaged line (a write cut off by
+    a crash) is skipped."""
+    path = settings.ai_call_log_path
+    entries = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(entry, dict):
+                    entries.append(entry)
+    except (OSError, TypeError):
+        pass
+    return entries
 
 
 def recent_calls() -> list[dict]:

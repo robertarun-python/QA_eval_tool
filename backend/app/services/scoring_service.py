@@ -626,7 +626,9 @@ def score_submission_in_background(submission_id: int) -> None:
         # text sitting next to a fresh, real score.
         submission.scoring_error = None
         try:
-            scorer(db, submission)
+            with llm_service.call_context(round_number=submission.round_number, scenario_id=submission.scenario_id,
+                                          submission_id=submission.id, user_id=submission.user_id):
+                scorer(db, submission)
             # A fresh score means the candidate's cross-round HR summary
             # (routers/hr.py's POST/GET .../summary) is now describing a
             # superseded attempt - drop it rather than let HR read a
