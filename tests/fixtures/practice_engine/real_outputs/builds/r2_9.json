@@ -1059,5 +1059,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "login with valid credentials": "User is successfully logged in and redirected to dashboard/home page",
+  "login with invalid password": "Login fails with error message 'Invalid username or password' or similar. User remains on login page",
+  "login with empty credentials": "Validation error displayed, login button disabled or form validation prevents submission",
+  "select active credit card from card list": "Card details are displayed showing card number (masked), current status as 'Active', and available actions",
+  "temporarily block an active credit card": "Card status changes to 'Blocked' or 'Temporarily Blocked', success confirmation message displayed",
+  "verify card status displays as blocked after blocking": "Card status consistently shows as 'Blocked' or 'Temporarily Blocked' across all views",
+  "unblock a temporarily blocked card": "Card status changes back to 'Active', confirmation message displayed indicating successful unblock",
+  "attempt transaction on a blocked card": "Transaction is declined with appropriate message indicating card is blocked",
+  "try to block an already blocked card": "Block option should be disabled/grayed out or not available. If available, should show message that card is already blocked",
+  "select correct card when multiple cards exist": "The correct card is displayed with matching last 4 digits, expiry date, and card type",
+  "check blocked card persistence after logout and login": "Card status remains 'Blocked' and persists across sessions",
+  "login with sql injection attempt": "Login fails, no SQL error exposed, input is sanitized or rejected"
+ }
 }

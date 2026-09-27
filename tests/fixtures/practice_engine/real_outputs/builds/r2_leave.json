@@ -1557,5 +1557,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "apply casual leave for weekdays": "Request pending, 3 days",
+  "weekend not counted": "2 days counted",
+  "half day leave": "0.5 day",
+  "half day over several dates": "Error: Half day is for a single date",
+  "more days than balance": "Error: Insufficient casual leave balance (2 left)",
+  "overlapping leave": "Error: You already have leave on these dates",
+  "reason required": "Error: Please enter a reason",
+  "manager approves leave": "Status Approved, balance reduced, employee emailed",
+  "manager rejects without comment": "Error: A comment is required to reject",
+  "employee tries to approve": "Error: Only managers can approve leave",
+  "cancel pending leave": "Status Cancelled, balance unchanged",
+  "cancel approved leave": "Error: Approved leave can't be cancelled here"
+ }
 }

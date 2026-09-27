@@ -98,7 +98,8 @@ class PracticeAppResult:
     error: str | None = None
     reference_titles: list = field(default_factory=list)   # every Round 1 test case, so none can go missing from the report
     approvable: bool = False  # see approval_problem()
-    high_priority_titles: set = field(default_factory=set)  # the Round 1 test cases marked High priority
+    high_priority_titles: set = field(default_factory=set)
+    reference_expected: dict = field(default_factory=dict)  # title (lower case) -> the Round 1 expected result, for reference_conflicts  # the Round 1 test cases marked High priority
 
     def verified(self) -> tuple[int, int]:
         """(test cases that work in every language, all test cases). "Not
@@ -135,6 +136,13 @@ class PracticeAppResult:
             outcomes = results.get(c["id"], [])
             works = bool(outcomes) and all(r.passed for r in outcomes) and len(outcomes) == len(self.report.languages)
             failures = [f for r in outcomes for f in r.failures]
+            conflicts = reference_conflicts(self.reference_expected.get(str(c.get("title", "")).strip().lower(), ""), c) if works else []
+            if conflicts:
+                # Checks pass, but against a different value than the Round 1 test case states: one of the two is
+                # wrong (Loan TC-2 said the whole EMI comes off the loan, TC-10 only the principal; the build quietly
+                # used TC-10's figure for both). Not verified until HR corrects the test case or the build.
+                rows.append({"title": c.get("title", c["id"]), "status": "differs from its test case", "details": conflicts[:3]})
+                continue
             rows.append({"title": c.get("title", c["id"]), "status": "works" if works else "fails", "details": failures[:3]})
         for u in self.unsupported:
             rows.append({"title": u["title"], "status": "not supported", "details": [u["reason"]]})
@@ -143,6 +151,57 @@ class PracticeAppResult:
             if title.strip().lower() not in listed:
                 rows.append({"title": title, "status": "fails", "details": ["the factory couldn't write a valid checklist for it"]})
         return rows
+
+
+_DATE_TEXT_RE = re.compile(r"\b\d{1,2}[-/ ](?:[A-Za-z]{3,9}|\d{1,2})[-/ ]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?\b|\b\d{1,2}:\d{2}\b")
+# digits joined to letters or symbols are part of an id or a password (LN-45678, Pass@123), not an amount
+_AMOUNT_RE = re.compile(r"(?<![\w.@#$&*-])(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w@#$&*-])")
+NEAR = 0.03  # "says 1,19,750, checks 1,21,200" is 1.2% apart; two different amounts rarely sit this close
+
+
+def _amounts(text: str) -> list[float]:
+    """Amounts and counts of 10 or more written in a text - not dates, times or
+    the digits of ids like LN-45678 or TXN987654321."""
+    out = []
+    for m in _AMOUNT_RE.findall(_DATE_TEXT_RE.sub(" ", text or "")):
+        value = float(m.replace(",", ""))
+        if value >= 10:
+            out.append(value)
+    return out
+
+
+def _checked_values(node) -> set[float]:
+    """Every number a checklist uses: its arguments and what it expects, including numbers written inside texts."""
+    found: set[float] = set()
+    if isinstance(node, bool):
+        return found
+    if isinstance(node, (int, float)):
+        found.add(float(node))
+    elif isinstance(node, str):
+        found.update(_amounts(node))
+    elif isinstance(node, dict):
+        for v in node.values():
+            found |= _checked_values(v)
+    elif isinstance(node, list):
+        for v in node:
+            found |= _checked_values(v)
+    return found
+
+
+def reference_conflicts(expected_result: str, checklist: dict) -> list[str]:
+    """Amounts the Round 1 expected result states that the checklist doesn't
+    use, where it uses a close but different one instead."""
+    checked = _checked_values(checklist.get("steps") or [])
+    out = []
+    for stated in dict.fromkeys(_amounts(expected_result)):
+        if any(abs(stated - v) < 0.005 for v in checked):
+            continue
+        near = [v for v in checked if v >= 10 and abs(stated - v) <= NEAR * stated]
+        if near:
+            used = min(near, key=lambda v: abs(stated - v))
+            out.append(f"the test case states {stated:,.2f}; the practice app checks {used:,.2f} instead - "
+                       "make the Round 1 test case and the app agree")
+    return out
 
 
 def _shared_context(plan_text: str, checklists_text: str | None = None) -> str:

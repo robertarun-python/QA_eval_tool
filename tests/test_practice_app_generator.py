@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 from app.services import execution_service, llm_service
+from types import SimpleNamespace
+
 from app.services.practice_app import checker, generator
 
 pytestmark = pytest.mark.skipif(
@@ -497,3 +499,31 @@ def test_build_prompts_share_one_cacheable_start(monkeypatch):
     with_checklists = [p for p in uses_design if p.count(B) == 2]  # the python and fix calls
     assert len(with_checklists) >= 2 and len({p.split(B)[1] for p in with_checklists}) == 1
     assert not any(B in p for p in fake.prompts if "from Python to" in p)
+
+
+LOAN_TC2 = ("Payment successful message displayed with transaction reference (e.g., TXN987654321), account SAV-1001 debited "
+            "₹5,250.00, new balance ₹9,750.00, loan outstanding reduced to ₹1,19,750.00, next EMI date updated to 15-Mar-2025")
+LOAN_TC2_CHECKS = {"title": "TC-2", "steps": [
+    {"call": "UI.pay_emi", "args": ["LN-45678", "SAV-1001", 5250], "expect": True},
+    {"call": "Database.get_account", "args": ["SAV-1001"], "expect_includes": {"balance": 9750.0}},
+    {"call": "Database.get_loan", "args": ["LN-45678"], "expect_includes": {"outstanding_balance": 121200.0, "next_emi_date": "2025-03-15"}}]}
+
+
+def test_a_test_case_whose_amount_the_build_checks_differently_is_flagged():
+    """Loan TC-2 said the whole EMI comes off the loan (1,19,750), TC-10 only
+    the principal (1,21,200); the real build used 1,21,200 for both and called
+    TC-2 working. Ids (LN-45678, TXN...), passwords and dates are not amounts."""
+    [conflict] = generator.reference_conflicts(LOAN_TC2, LOAN_TC2_CHECKS)
+    assert "119,750.00" in conflict and "121,200.00" in conflict
+    assert generator.reference_conflicts(LOAN_TC2.replace("1,19,750.00", "1,21,200.00"), LOAN_TC2_CHECKS) == []
+    assert generator.reference_conflicts("Welcome, Pass@121 on 15-03-2025 for LN-121199", LOAN_TC2_CHECKS) == []
+
+
+def test_a_conflicting_high_priority_case_is_not_verified_and_blocks_approval():
+    checks = dict(LOAN_TC2_CHECKS, id="c1")
+    result = generator.PracticeAppResult(checklists=[checks], reference_titles=["TC-2"], high_priority_titles={"tc-2"},
+                                         reference_expected={"tc-2": LOAN_TC2})
+    result.report = SimpleNamespace(languages={"python": SimpleNamespace(results=[SimpleNamespace(id="c1", passed=True, failures=[])])})
+    [row] = result.coverage()
+    assert row["status"] == "differs from its test case" and "119,750.00" in row["details"][0]
+    assert result.verified() == (0, 1) and result.unverified_high_priority() == ["TC-2"]

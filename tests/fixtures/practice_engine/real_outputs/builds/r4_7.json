@@ -1399,5 +1399,17 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "valid fastag detected and toll deducted successfully": "FASTag detected, correct toll amount deducted, barrier opens, transaction recorded with timestamp and balance updated",
+  "insufficient balance in fastag account": "Transaction declined, barrier remains closed, alert/notification sent, vehicle directed to cash lane or recharge",
+  "toll calculation for car (4-wheeler)": "Correct toll amount for Car category deducted (verify against toll rate card)",
+  "toll calculation for heavy commercial vehicle": "Higher toll amount applicable to HCV is deducted correctly",
+  "vehicle with expired/inactive fastag": "Transaction declined, barrier closed, vehicle redirected to manual lane, error logged",
+  "fastag vehicle mismatch - wrong vehicle using tag": "Mismatch detected, transaction blocked, alert raised, vehicle stopped for verification",
+  "balance exactly equal to toll amount": "Transaction successful, full amount deducted, final balance = ₹0, barrier opens, low balance alert triggered",
+  "transaction details recorded correctly": "Transaction log contains: timestamp, toll plaza location, vehicle number, amount deducted, balance, transaction ID. User receives confirmation",
+  "balance update reflection in linked account": "Account balance updated to ₹440, transaction appears in statement with correct details",
+  "fastag with balance just below toll amount": "Transaction declined due to insufficient balance, barrier closed, low balance notification sent"
+ }
 }

@@ -1132,5 +1132,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "login with valid credentials": "User is successfully logged in and redirected to dashboard/home page",
+  "login with incorrect password": "Error message displayed indicating invalid credentials. User remains on login page",
+  "login with unregistered email": "Error message shown - user not found or invalid credentials",
+  "login with empty credentials": "Validation error shown for required fields, login not attempted",
+  "search doctor by valid specialty": "List of doctors with matching specialty is displayed with their basic info",
+  "search doctor by name": "Matching doctor(s) displayed in results",
+  "view doctor profile details": "Doctor profile shows name, specialty, years of experience, consultation fee, and other relevant details",
+  "check available slots for current date": "Available time slots for today are displayed (or message if no slots available)",
+  "view availability for future dates": "Available time slots shown for selected future date",
+  "book appointment with available slot": "Appointment is booked successfully and confirmation message/page shown",
+  "verify appointment confirmation details": "Confirmation shows doctor name, specialty, appointment date, time, consultation fee, and booking reference/ID",
+  "try booking already booked slot": "Error message that slot is no longer available, user can select another slot"
+ }
 }

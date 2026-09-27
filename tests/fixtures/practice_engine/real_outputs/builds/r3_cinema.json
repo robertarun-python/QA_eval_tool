@@ -2011,5 +2011,18 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "book two regular seats": "Booked; total Rs 570.80 (500 + 60 fee + 10.80 GST); seats shown as sold",
+  "seven seats refused": "Error: You can book at most 6 seats",
+  "already sold seat": "Error: Seat B5 is not available",
+  "held seat can't be taken by another user": "Error: Seat C1 is not available",
+  "hold released after 10 minutes": "Held for user 2",
+  "pay after hold expired": "Error: Your seat hold has expired",
+  "recliner pricing": "Total Rs 485.40",
+  "booking after show start": "Error: Booking is closed for this show",
+  "invalid seat code": "Error: Seat Z99 does not exist",
+  "duplicate seat in selection": "Error: Seat A1 selected twice",
+  "payment gateway timeout": "Error: Payment failed; seats stay held"
+ }
 }

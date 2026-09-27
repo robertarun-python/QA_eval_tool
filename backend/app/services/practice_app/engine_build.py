@@ -197,6 +197,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
     result = PracticeAppResult(
         reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")],
         high_priority_titles={(c.get("title") or "").strip().lower() for c in reference_cases if c.get("priority") == "High"},
+        reference_expected={(c.get("title") or "").strip().lower(): str(c.get("expected_result") or "") for c in reference_cases},
     )
     cases_text = _format_cases(reference_cases)
     by_title = {(c.get("title") or "").strip().lower(): c for c in reference_cases}
