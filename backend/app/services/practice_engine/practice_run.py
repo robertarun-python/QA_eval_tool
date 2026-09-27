@@ -51,26 +51,62 @@ def grid_url() -> str:
     return f"http://127.0.0.1:{settings.selenium_grid_port}"
 
 
-def _grid_ready() -> bool:
+def _grid_state() -> tuple[bool, bool]:
+    """(the Grid answers, it has a browser node ready)."""
     try:
-        with urllib.request.urlopen(grid_url() + "/status", timeout=2) as res:
-            return bool(json.loads(res.read())["value"]["ready"])
+        with urllib.request.urlopen(grid_url() + "/status", timeout=3) as res:
+            return True, bool(json.loads(res.read())["value"]["ready"])
     except (OSError, ValueError, KeyError):
-        return False
+        return False, False
+
+
+def _grid_ready() -> bool:
+    return _grid_state()[1]
+
+
+def _stop_grid() -> None:
+    """Stops the Grid on our port (ours: it runs from vendor/ with our config)."""
+    global _grid
+    if _grid is not None and _grid.poll() is None:
+        _grid.terminate()
+        try:
+            _grid.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            _grid.kill()
+    subprocess.run(["pkill", "-f", f"{vendor() / 'selenium-server.jar'} standalone"], capture_output=True)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and _grid_state()[0]:
+        time.sleep(0.5)
+    _grid = None
 
 
 def ensure_grid(timeout_seconds: float = 60) -> str:
     """The Selenium Grid's address, starting it if it isn't running."""
     global _grid
     with _GRID_LOCK:
-        if _grid_ready():
+        answers, ready = _grid_state()
+        if ready:
             return grid_url()
+        if answers:
+            # Running, but its browser node is marked down (seen after the machine slept): give it a
+            # moment to recover, then restart it rather than fail the Run or start a second one.
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                time.sleep(1)
+                if _grid_ready():
+                    return grid_url()
+            _stop_grid()
         jar, driver, chrome = vendor() / "selenium-server.jar", vendor() / "chromedriver-mac-arm64" / "chromedriver", _chrome_binary()
         missing = [str(p) for p in (jar, driver, chrome) if not p.exists()]
         if missing:
             raise EnvironmentUnavailable("browser tools are not installed (run tools/setup_vendor.sh): " + ", ".join(missing))
         config = vendor() / "grid.toml"
-        stereotype = json.dumps({"browserName": "chrome", "goog:chromeOptions": {"binary": str(chrome)}})
+        # Background throttling off: with other browser windows active, Chrome treats a headless page as
+        # in the background - timers slow down and clicks can be dropped (found when the practice Runs
+        # followed the app's own browser tests). Standard for automation grids.
+        stereotype = json.dumps({"browserName": "chrome", "goog:chromeOptions": {"binary": str(chrome), "args": [
+            "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding"]}})
         config.write_text(
             f'[server]\nport = {settings.selenium_grid_port}\nhost = "127.0.0.1"\n\n'
             '[node]\nselenium-manager = false\noverride-max-sessions = true\nmax-sessions = 4\ndetect-drivers = false\n'

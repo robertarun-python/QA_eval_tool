@@ -33,7 +33,8 @@ from ..schemas import (
     Round2AutomationSubmitCreate, Round2AutomationTCSubmitEntry, Round2AutomationRunOut, Round2AutomationTCStateOut,
 )
 from ..dependencies import require_candidate
-from ..services import llm_service, execution_service, round_scenarios
+from ..services import llm_service, execution_service, round_scenarios, round2_typist
+from ..services.practice_engine import practice_run
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
@@ -701,6 +702,14 @@ def _auto_environment_code(scenario: Scenario, language: str) -> str:
     return llm_service._load_prompt(_AUTO_LANGUAGE_HELPER_FILES[language])
 
 
+def _practice_spec(scenario: Scenario) -> dict | None:
+    """The scenario description of a Round 2 built on the real practice
+    environment (practice_engine.server) - None for older practice apps. It
+    switches on the typing assistant and the environment Run."""
+    spec = (scenario.config_json or {}).get("practice_spec")
+    return spec if isinstance(spec, dict) else None
+
+
 def _auto_environment_support(scenario: Scenario, language: str) -> dict[str, str]:
     """Files placed next to the candidate's code when it runs - an
     engine-built practice app's engine (practice_app.service.approve); none
@@ -1096,6 +1105,13 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
         {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind")} for t in turns
     ]
     language = content.get("language", "python")
+    if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
+        try:
+            response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt)
+        except Exception:
+            traceback.print_exc()
+            raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+        return _record_round2_turn(submission, content, selected, row, turns, payload.candidate_prompt, db, response)
     environment_code = _auto_environment_code(scenario, language)
     is_first_generation = not _tc_is_unlocked(row)
 
@@ -1139,9 +1155,9 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
                     current_code=row.get("code", ""),
                     conversation_so_far=conversation_so_far,
                     candidate_prompt=payload.candidate_prompt,
-                    # No planted flaw when the language can't run here: the
-                    # candidate could only catch it by running the test.
-                    inject_flaw=execution_service.toolchain_available(language),
+                    # No planted flaw (owner decision 2026-09-27): the candidate's own
+                    # instructions and mistakes are what is assessed.
+                    inject_flaw=False,
                 )
         else:
             response = llm_service.round2_automation_turn(
@@ -1292,10 +1308,18 @@ def round2_automation_run(
     row = _resolve_tc_row(content.get("selected") or [], row_index)
 
     language = content.get("language", "python")
-    result = execution_service.run_code(
-        language=language, code=row.get("code", ""), stdin=[],
-        support_files=_auto_environment_support(scenario, language),
-    )
+    spec = _practice_spec(scenario)
+    if spec is not None:  # the real practice environment: fresh app, browser, API, database
+        try:
+            result = practice_run.run(language, row.get("code", ""), spec)
+        except practice_run.EnvironmentUnavailable:
+            traceback.print_exc()
+            result = execution_service.ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
+    else:
+        result = execution_service.run_code(
+            language=language, code=row.get("code", ""), stdin=[],
+            support_files=_auto_environment_support(scenario, language),
+        )
     last_run = {
         "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code,
         "timed_out": result.timed_out, "infra_error": result.infra_error,
@@ -1303,6 +1327,7 @@ def round2_automation_run(
         # and simply discarded before now; ran_at is stamped here since
         # run_code itself has no reason to know wall-clock time.
         "duration_ms": result.duration_ms, "ran_at": datetime.utcnow().isoformat(),
+        "status": round2_typist.run_status(result.exit_code, result.stdout, result.timed_out, result.infra_error),
     }
     selected = content.get("selected") or []
     updated_selected = [{**r, "last_run": last_run} if r["index"] == row_index else r for r in selected]

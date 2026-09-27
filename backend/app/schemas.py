@@ -925,6 +925,9 @@ class Round2AutomationRunOut(BaseModel):
     # snapshot (the last run), same as every field above it.
     duration_ms: Optional[int] = None
     ran_at: Optional[datetime] = None
+    # passed / failed / incomplete / timed_out / error - "passed" only for a
+    # complete test that exited cleanly (services/round2_typist.run_status).
+    status: Optional[str] = None
 
 
 class Round2AutomationTCStateOut(BaseModel):

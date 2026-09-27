@@ -103,7 +103,9 @@ function round2AutomationAutomateClicked() {
 // Test cases are numbered from 1 on screen, as in Round 1; row indexes stay 0-based.
 function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
-  const passed = run.exit_code === 0 && !run.timed_out && !run.infra_error;
+  // "status" (new runs): passed only for a complete test that exited cleanly - a test with gaps is INCOMPLETE, never PASS.
+  const passed = run.status ? run.status === "passed" : (run.exit_code === 0 && !run.timed_out && !run.infra_error);
+  const label = run.status === "incomplete" ? "INCOMPLETE" : (passed ? "PASS" : "FAIL");
   const meta = [
     `Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}`,
     run.duration_ms !== null && run.duration_ms !== undefined ? `${run.duration_ms}ms` : null,
@@ -113,7 +115,7 @@ function round2AutomationRunResultHtml(rowIndex, run) {
     <div class="result-state ${passed ? "is-pass" : "is-fail"}">
       <span class="result-state-icon">${passed ? "✓" : "✕"}</span>
       <div class="result-state-body">
-        <div class="result-state-label">${passed ? "PASS" : "FAIL"} - Test case ${rowIndex + 1}</div>
+        <div class="result-state-label">${label} - Test case ${rowIndex + 1}</div>
         <p class="result-state-detail">${meta}</p>
         ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}

@@ -225,3 +225,33 @@ def test_a_browser_test_without_waits_fails_every_time_and_with_waits_passes_eve
         assert without.exit_code != 0 and "UI: Book borrowed" not in without.stdout
         with_waits = practice_run.run("python", PYTHON, SPEC)
         assert "UI: Book borrowed successfully. Due date: 24-Feb-2024" in with_waits.stdout, with_waits.stderr[-600:]
+
+
+def test_a_grid_whose_browser_node_is_stuck_down_is_restarted_not_duplicated(monkeypatch):
+    """Seen after the machine slept: the Grid answered but its node was 'down'; the
+    old check started a second Grid, which couldn't get the port, and Runs failed."""
+    if not (practice_run.vendor() / "selenium-server.jar").exists():
+        pytest.skip("browser tools not installed")
+    events = []
+    clock = iter(range(0, 10_000, 5))  # every look at the clock moves 5 s on
+
+    def state():
+        if "started" in events:
+            return True, True  # the fresh Grid is ready
+        if "stopped" in events:
+            return False, False
+        return True, False  # answering, node stuck down
+
+    class FakeProcess:
+        def __init__(self, cmd, **kwargs):
+            events.append("started")
+
+        def poll(self):
+            return None
+    monkeypatch.setattr(practice_run, "_grid_state", state)
+    monkeypatch.setattr(practice_run, "_stop_grid", lambda: events.append("stopped"))
+    monkeypatch.setattr(practice_run.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(practice_run.time, "sleep", lambda s: None)
+    monkeypatch.setattr(practice_run.time, "monotonic", lambda: next(clock))
+    assert practice_run.ensure_grid() == practice_run.grid_url()
+    assert events == ["stopped", "started"]
