@@ -111,6 +111,7 @@ async function loadRound(n) {
 
 function renderRoundView(box, n, state) {
   const { scenario, submission, environment, ui_mockup } = state;
+  round1ReferencePanel = state.reference_panel || null;
 
   if (!scenario) {
     box.innerHTML = `<h3>Round ${n}: ${ROUND_LABELS[n]}</h3><div class="empty-state">Not available yet - check back once HR has published this round's scenario.</div>`;
@@ -296,6 +297,7 @@ async function startRound(n) {
   const submission = await api(`/candidate/round/${n}/start`, { method: "POST" });
   const state = await api(`/candidate/round/${n}`);
   const box = document.getElementById("round-view");
+  round1ReferencePanel = state.reference_panel || null;
   renderRoundEntry(n, box, state.scenario, submission, state.environment, state.ui_mockup);
 }
 
@@ -438,6 +440,10 @@ function round1DraftPayload() {
 // never the only allowed values (see the pre-start note in
 // showRoundIntro). Same markup as round2AutomationReferenceHtml's env block,
 // just without the edit controls - this view is read-only.
+// Round 1's look at the app its Round 2 runs on (RoundStateOut.reference_panel): screens, API
+// and database - the same panel Round 2 shows, without the test controls. Set with each state load.
+let round1ReferencePanel = null;
+
 function round1EnvironmentReferenceHtml(environment, uiMockup) {
   const mockupHtml = uiMockup ? `
     <details class="hint-box mockup-details" open>
@@ -455,7 +461,12 @@ function round1EnvironmentReferenceHtml(environment, uiMockup) {
       ${environment.notes ? `<p>${escapeHtml(environment.notes)}</p>` : ""}
     </details>
   ` : "";
-  return mockupHtml + envHtml;
+  const panelHtml = round1ReferencePanel ? `
+    <details class="hint-box" open>
+      <summary><strong>Reference: the application</strong> - its screens, API and database, to write concrete steps and test data</summary>
+      ${round2AutomationPanelHtml(round1ReferencePanel)}
+    </details>` : "";
+  return (round1ReferencePanel ? "" : mockupHtml) + envHtml + panelHtml;
 }
 
 function renderEntryForm(box, scenario, submission, environment, uiMockup) {
