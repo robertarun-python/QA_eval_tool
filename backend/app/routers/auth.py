@@ -141,6 +141,12 @@ def logout(request: Request, response: Response, background_tasks: BackgroundTas
     user = db.get(User, int(payload["sub"]))
     if user is None:
         return
+    # A session a later login replaced (another device, an old tab) only signs
+    # itself out: measured 2026-09-27, a replaced session's automatic 401
+    # logout ended the round the candidate had just started in their CURRENT
+    # session, as "logged out before completing" - Round 1 lost, twice.
+    if payload.get("sid") != user.active_session_id:
+        return
     # Best-effort hygiene, not what actually enforces anything (a later
     # login already overwrites this regardless) - just avoids a session id
     # lingering as "active" once its own cookie is gone.

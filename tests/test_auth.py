@@ -184,3 +184,33 @@ def test_candidate_can_log_in_with_derived_username(client, monkeypatch):
     # Logging in with the full email still works too - both columns are checked.
     res = client.post("/auth/login", json={"identifier": "jane.doe@example.com", "password": "idfc@jane"})
     assert res.status_code == 200
+
+
+def test_a_replaced_sessions_logout_never_ends_the_current_sessions_round(client, monkeypatch):
+    """Measured 2026-09-27: a candidate was signed in again elsewhere; the old
+    session's automatic 401 logout closed the Round 1 just started in the new
+    session as "logged out before completing" - twice. An old session now only
+    signs itself out; the current session's own logout still ends the round."""
+    from app.services import llm_service
+    hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
+    _publish_scenario(client, hr_token, monkeypatch)
+    monkeypatch.setattr(llm_service, "score_round1_submission",
+                        lambda **kwargs: {"coverage_score": 0, "misses": [], "final_score": 0, "feedback_text": "x"})
+
+    old_session = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    new_session = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)  # a later login elsewhere
+    client.cookies.clear()
+    assert client.post("/candidate/round/1/start", cookies=_auth(new_session)).status_code == 201
+
+    client.cookies.clear()
+    assert client.post("/auth/logout", cookies=_auth(old_session)).status_code == 204
+    client.cookies.clear()
+    state = client.get("/candidate/round/1", cookies=_auth(new_session))
+    assert state.status_code == 200, "the current session must still be signed in"
+    assert state.json()["submission"]["status"] == "in_progress"
+
+    client.cookies.clear()
+    assert client.post("/auth/logout", cookies=_auth(new_session)).status_code == 204  # its own logout still ends it
+    again = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
+    client.cookies.clear()
+    assert client.get("/candidate/round/1", cookies=_auth(again)).json()["submission"]["status"] != "in_progress"
