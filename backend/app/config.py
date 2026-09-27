@@ -82,6 +82,15 @@ class Settings(BaseSettings):
     # card (kept in ai_budget.json next to the call record). See
     # llm_service.check_budget.
     ai_monthly_limit_usd: float = 10.0
+    # For test and measurement runs only - both off for the live tool, where
+    # HR's "build again" must really ask again and nobody should wait:
+    # ai_reuse_replies answers a request identical to an earlier one from the
+    # saved reply for free (ai_replies/ next to the call record);
+    # ai_batch_jobs sends each call through the Message Batches API at half
+    # price, answered within minutes to an hour. See llm_service._send.
+    ai_reuse_replies: bool = False
+    ai_batch_jobs: bool = False
+    ai_batch_max_wait_seconds: int = 7200
 
     # Seed-default only now, not read anywhere at request time: the
     # migration (migrate_bulk_candidates.py) uses this once to populate

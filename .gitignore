@@ -8,6 +8,8 @@ qa_eval.db
 *.db.bak-*
 # The lasting AI call record (settings.ai_call_log_path) - local data, not source.
 ai_calls.jsonl
+backend/ai_replies/
+backend/ai_budget.json
 .pytest_cache/
 .DS_Store
 

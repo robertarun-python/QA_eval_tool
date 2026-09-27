@@ -175,7 +175,11 @@ def _record_call(outcome: str, *, started: float | None = None, max_tokens: int 
     _CALL_LOG.append(entry)
     print("[llm] " + " ".join(f"{k}={v}" for k, v in entry.items() if v not in (None, "")), file=sys.stderr)
     model = settings.claude_model
-    lasting = {**entry, "model": model, "cost_usd": call_cost_usd(model, entry), **_CALL_CONTEXT.get()}
+    cost, pricing = call_cost_usd(model, entry), _PRICING.get()
+    if pricing and message is not None:
+        entry["pricing"] = pricing
+        cost = 0.0 if pricing == "reused" else None if cost is None else cost * BATCH_DISCOUNT
+    lasting = {**entry, "model": model, "cost_usd": cost, **_CALL_CONTEXT.get()}
     prompt = _LAST_PROMPT.get()
     if prompt:
         lasting["prompt_file"], lasting["prompt_hash"] = prompt
@@ -339,6 +343,69 @@ def check_budget() -> None:
                           "HR can raise the limit on the AI health card in Settings.")
 
 
+# ---- Cheaper test runs: saved replies and half-price batches ----
+# How the call being recorded was paid: "reused" (a saved reply, free) or
+# "batch" (half price); read by _record_call.
+_PRICING: contextvars.ContextVar = contextvars.ContextVar("ai_call_pricing", default="")
+BATCH_DISCOUNT = 0.5
+
+
+def _reply_dir() -> Path:
+    return Path(settings.ai_call_log_path or "ai_calls.jsonl").with_name("ai_replies")
+
+
+def _request_key(params: dict) -> str:
+    return hashlib.sha256(json.dumps(params, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+def _send(client, timeout, params: dict):
+    """One request to the model. With ai_reuse_replies an identical earlier
+    request is answered from its saved reply (free); with ai_batch_jobs the
+    request goes through the Message Batches API at half price."""
+    _PRICING.set("")
+    key = _request_key(params) if settings.ai_reuse_replies else None
+    if key:
+        try:
+            saved = json.loads((_reply_dir() / f"{key}.json").read_text(encoding="utf-8"))
+            _PRICING.set("reused")
+            return anthropic.types.Message.model_validate(saved)
+        except (OSError, ValueError):
+            pass
+    if settings.ai_batch_jobs:
+        message = _via_batch(params)
+        _PRICING.set("batch")
+    else:
+        message = client.messages.create(timeout=timeout, **params)
+    if key and getattr(message, "stop_reason", None) != "max_tokens":
+        try:
+            _reply_dir().mkdir(parents=True, exist_ok=True)
+            (_reply_dir() / f"{key}.json").write_text(json.dumps(message.model_dump(mode="json")), encoding="utf-8")
+        except (OSError, AttributeError, TypeError):
+            pass
+    return message
+
+
+def _via_batch(params: dict):
+    """A single request through the Message Batches API: half price, answered
+    when the batch ends (usually minutes, at most settings.ai_batch_max_wait_seconds)."""
+    client = _get_client()
+    batch = client.messages.batches.create(requests=[{"custom_id": "call", "params": params}])
+    waited, pause = 0, 5
+    while batch.processing_status != "ended":
+        if waited >= settings.ai_batch_max_wait_seconds:
+            client.messages.batches.cancel(batch.id)
+            raise TimeoutError(f"the half-price batch wasn't answered within {waited} s")
+        time.sleep(pause)
+        waited += pause
+        pause = min(pause * 2, 60)
+        batch = client.messages.batches.retrieve(batch.id)
+    for entry in client.messages.batches.results(batch.id):
+        if entry.result.type == "succeeded":
+            return entry.result.message
+        raise RuntimeError(f"the half-price batch request {entry.result.type}: {getattr(entry.result, 'error', '')}")
+    raise RuntimeError("the half-price batch ended without a result")
+
+
 def recent_calls() -> list[dict]:
     """Newest first - for HR's AI health card."""
     return list(reversed(_CALL_LOG))
@@ -454,14 +521,13 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
         client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
-            message = client.messages.create(
+            message = _send(client, timeout, dict(
                 model=settings.claude_model,
                 max_tokens=budget,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": _user_content(prompt)}],
-                timeout=timeout,
                 **extra,
-            )
+            ))
         except Exception as e:
             _record_call("api_error", started=started, max_tokens=budget, detail=f"{type(e).__name__}: {e}")
             raise
@@ -563,12 +629,11 @@ def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict
         client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
-            message = client.messages.create(
+            message = _send(client, timeout, dict(
                 model=settings.claude_model, max_tokens=budget, system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": _user_content(prompt + _TOOL_NOTE)}],
-                tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME},
-                timeout=timeout, **extra,
-            )
+                tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME}, **extra,
+            ))
         except Exception as e:
             _record_call("api_error", started=started, max_tokens=budget, detail=f"tool: {type(e).__name__}: {e}")
             raise
