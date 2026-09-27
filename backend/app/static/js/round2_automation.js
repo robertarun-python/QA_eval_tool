@@ -220,9 +220,15 @@ function round2AutomationPanelHtml(p) {
     ${(p.accounts || []).length ? `<h4>Test accounts</h4><table class="data-table"><thead><tr><th>Login</th><th>Password</th><th>Name</th></tr></thead><tbody>
       ${p.accounts.map((a) => `<tr><td>${cell(a.login)}</td><td>${cell(a.password)}</td><td>${cell(a.name)}</td></tr>`).join("")}</tbody></table>` : ""}
     ${(p.failures || []).length ? `<h4>Simulated failures</h4><p>${p.failures.map((f) => `<code>${esc(f)}</code>`).join(", ")} - switch one on with the test controls.</p>` : ""}`;
-  const pages = (p.pages || []).map((pg) => `
-    <details class="r4a-page-source"><summary>${esc(pg.name)} <span class="muted">${esc(pg.path)}</span></summary>
-      <pre class="code-block">${esc(pg.source)}</pre></details>`).join("");
+  // Each page as it looks in a browser, then its source (for element ids). The screen is
+  // shown in a locked-down frame: no scripts, and its links and forms can't go anywhere.
+  const screen = (source) => String(source || "").replace(/<head>/i, '<head><base target="_blank">');
+  const pages = (p.pages || []).map((pg, i) => `
+    <details class="r4a-page-source" ${i === 0 ? "open" : ""}><summary>${esc(pg.name)} <span class="muted">${esc(pg.path)}</span></summary>
+      <iframe class="r4a-page-screen" sandbox="" referrerpolicy="no-referrer" title="${escapeAttr(pg.name)} page"
+        srcdoc="${escapeAttr(screen(pg.source))}" style="width:100%;height:320px;border:1px solid var(--border, #ccc);border-radius:6px;background:#fff"></iframe>
+      <details><summary class="muted">Page source (element ids for your locators)</summary><pre class="code-block">${esc(pg.source)}</pre></details>
+    </details>`).join("");
   const api = `
     <p class="text-muted">${esc(p.api_sign_in || "")} ${esc(p.api_errors || "")}</p>
     <table class="data-table"><thead><tr><th>Method</th><th>Path</th><th>Body / query fields</th><th>Success</th><th>Returns</th><th>Sign-in</th></tr></thead><tbody>

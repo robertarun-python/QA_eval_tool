@@ -145,3 +145,10 @@ def test_hr_sees_the_reference_panel_candidates_get_in_round_2(app_page, e2e_ser
     expect(preview).to_contain_text("/api/login")
     preview.get_by_role("button", name="Database").click()
     expect(preview.locator('[data-r4a-ref-panel="database"]')).to_be_visible()
+    # Pages are shown as screens (a locked-down frame), with the source folded underneath.
+    preview.get_by_role("button", name="Pages").click()
+    screen = preview.locator("iframe.r4a-page-screen").first
+    expect(screen).to_be_visible()
+    assert screen.get_attribute("sandbox") == ""  # no scripts, no navigation, no form submission
+    expect(preview.frame_locator("iframe.r4a-page-screen").first.locator("form#login-form")).to_be_visible()
+    expect(preview.frame_locator("iframe.r4a-page-screen").first.locator("#login")).to_be_visible()
