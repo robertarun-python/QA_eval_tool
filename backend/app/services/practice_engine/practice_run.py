@@ -43,7 +43,8 @@ class EnvironmentUnavailable(RuntimeError):
 # JSON libraries Java API tests use - measured (2026-09-27): the assistant's Java API test used
 # org.json's JSONObject and didn't compile without it.
 JAVA_JARS = ("selenium-server.jar", "sqlite-jdbc.jar", "json.jar", "gson.jar",
-             "jackson-databind.jar", "jackson-core.jar", "jackson-annotations.jar")
+             "jackson-databind.jar", "jackson-core.jar", "jackson-annotations.jar",
+             "junit-jupiter-api.jar", "junit-platform-commons.jar", "opentest4j.jar", "testng.jar")  # assertEquals from JUnit 5 / TestNG
 
 
 def vendor() -> Path:

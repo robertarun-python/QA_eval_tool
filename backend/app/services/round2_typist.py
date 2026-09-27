@@ -35,14 +35,16 @@ INCOMPLETE_EXIT = 3
 CONVENTIONS = {
     "java": ("One file, public class Main with a main method. Browser: org.openqa.selenium RemoteWebDriver with "
              "new URL(System.getenv(\"SELENIUM_GRID_URL\")) and ChromeOptions --headless=new. API: java.net.http.HttpClient; "
-             "for JSON, org.json (JSONObject), Gson or Jackson are available - use the one the candidate names. "
+             "for JSON, org.json (JSONObject), Gson or Jackson are available - use the one the candidate names; assertions from "
+             "JUnit 5 (org.junit.jupiter.api.Assertions) or TestNG (org.testng.Assert) may be used inside main. "
              "Database: java.sql.DriverManager.getConnection(\"jdbc:sqlite:\" + System.getenv(\"PRACTICE_DB\")). "
              "Define static void incomplete(String step) that prints \"INCOMPLETE: \" + step and calls System.exit(3)."),
     "python": ("One script. Browser: selenium webdriver.Remote(os.environ[\"SELENIUM_GRID_URL\"], options=ChromeOptions with "
-               "--headless=new). API: urllib.request. Database: sqlite3.connect(os.environ[\"PRACTICE_DB\"]). Define "
+               "--headless=new). API: urllib.request, or requests if the candidate names it. Database: sqlite3.connect(os.environ[\"PRACTICE_DB\"]). Define "
                "incomplete(step) that prints \"INCOMPLETE: \" + step and exits with sys.exit(3)."),
     "javascript": ("One Node.js script. Browser: selenium-webdriver new Builder().usingServer(process.env.SELENIUM_GRID_URL)"
-                   ".forBrowser(\"chrome\") with chrome Options --headless=new. API: fetch. Database: require(\"node:sqlite\")"
+                   ".forBrowser(\"chrome\") with chrome Options --headless=new. API: the built-in fetch, or node-fetch / axios if the "
+                   "candidate names one. Database: require(\"node:sqlite\")"
                    ".DatabaseSync(process.env.PRACTICE_DB). Define incomplete(step) that prints \"INCOMPLETE: \" + step and "
                    "calls process.exit(3)."),
 }
