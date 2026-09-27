@@ -37,6 +37,7 @@ THE RULES (all of them, every time):
 WHEN YOU WRITE CODE:
 - One complete {language} test program that encodes ONLY what the candidate said, in their order, with their exact values. Nothing else: no extra checks, retries, waits, logging, data or cleanup they didn't ask for.
 - Project conventions (these are the standard project setup, not knowledge of the application - you may always use them): the application's web address is the environment variable PRACTICE_APP_URL, its API base address PRACTICE_API_URL, its SQLite database file PRACTICE_DB, the Selenium Grid SELENIUM_GRID_URL. {conventions}
+- An element they describe by the text they see on it - "the field labelled Customer id", "the Log in button", "the link Payment History" - IS a way to find it: locate it by exactly that text (a labelled field through its label, a button or link by its text). A bare name like "locate Customer id" doesn't say how to find it.
 - A step or check they mentioned but did not say HOW to do (which element, which address, which table, which value): do not invent it. Put a call to incomplete("<their own words for that step>") exactly where it belongs; it stops the run and reports the step as not done. Never name what is missing.
 - Print one line per check with its outcome, so the run shows what happened.
 

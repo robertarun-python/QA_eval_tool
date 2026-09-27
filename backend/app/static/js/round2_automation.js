@@ -281,8 +281,8 @@ function round2AutomationPanelHtml(p) {
   return `
     <div class="surface">
       <div class="section-header"><h3>Reference - ${esc(p.app_name || "practice application")}</h3></div>
-      <div class="tabs" role="tablist">${tab("connect", "Connect & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${p.test_controls ? tab("controls", "Test controls") : ""}</div>
-      ${panel("connect", connect, true)}${panel("pages", pages)}${panel("api", api)}${panel("database", db)}${p.test_controls ? panel("controls", controls) : ""}
+      <div class="tabs" role="tablist">${tab("connect", "Connect & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${(p.rules || []).length ? tab("rules", "Business rules") : ""}${p.test_controls ? tab("controls", "Test controls") : ""}</div>
+      ${panel("connect", connect, true)}${panel("pages", pages)}${panel("api", api)}${panel("database", db)}${(p.rules || []).length ? panel("rules", `<p class="text-muted">What the application does - the requirements a tester would be given. Exact on-screen messages aren't listed.</p><ol>${p.rules.map((r) => `<li>${esc(r)}</li>`).join("")}</ol>`) : ""}${p.test_controls ? panel("controls", controls) : ""}
     </div>`;
 }
 

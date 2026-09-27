@@ -106,6 +106,8 @@ PRACTICE_APP_URL PRACTICE_API_URL PRACTICE_DB SELENIUM_GRID_URL INCOMPLETE PASS 
 Content-Type application json application/json Authorization Bearer token utf-8 UTF-8 jdbc sqlite jdbc:sqlite: chrome
 headless new --headless=new select from where and or not null is count set update insert into values delete order by asc desc
 limit as on join like in true false none api page ui step check result expected actual got value values the a an to of
+normalize-space following following-sibling preceding preceding-sibling ancestor descendant parent self text contains
+starts-with input button label link span div
 """.split()}
 _GENERIC_NUMBERS = {"0", "1", "2", "3", "-1", "100"}  # indexes, exit codes, percentages - never application values
 
@@ -171,7 +173,9 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
 
     for m in _EMAIL_RE.findall(text):
         check(m)
-    for m in _PATH_RE.findall(text):
+    # An XPath in code ("//label[normalize-space()='Password']/following::input") is a locator, not an
+    # address: its "/following" isn't a path. Its words are still checked with the other literals below.
+    for m in _PATH_RE.findall(_XPATH_LITERAL_RE.sub('""', text) if code else text):
         check(m)
     for m in _METHOD_RE.findall(text):
         check(m)
@@ -262,8 +266,30 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         elif not reply or unsaid(reply, said, code=False) or _repeats(reply, earlier):
             reply = _pick(_ASK, used)
     if code is not None:
+        todo = _still_to_do(code, said)
+        if todo:
+            # Said by the tool, not left to the model: the owner's Round 2 (2026-09-27) got code
+            # full of incomplete() with no word about why, and was left guessing.
+            reply = (reply + "\n\n" + _TODO_NOTE + "\n" + "\n".join(f"{i}. {t}" for i, t in enumerate(todo, 1))).strip()
         return {"response_kind": "code_edit", "response_message": reply, "code_after": code}
     return {"response_kind": "clarify", "response_message": reply, "code_after": None}
+
+
+_XPATH_LITERAL_RE = re.compile(r""""\(?\.?//(?:[^"\\\n]|\\.)*"|'\(?\.?//(?:[^'\\\n]|\\.)*'""")
+_TODO_NOTE = ("Before this can run, tell me for each of these steps of yours how to find it on the screen "
+              "(what you see on it, or its id) or which exact value to use:")
+_INCOMPLETE_RE = re.compile(r"""incomplete\(\s*(?:"((?:[^"\\\n]|\\.)*)"|'((?:[^'\\\n]|\\.)*)')\s*\)""")
+
+
+def _still_to_do(code: str, said: str) -> list[str]:
+    """The candidate's own step words the program still marks incomplete() - listed for
+    them in the reply. A step worded with anything they never said is left out."""
+    steps = []
+    for a, b in _INCOMPLETE_RE.findall(code or ""):
+        step = " ".join(re.sub(r"\\(.)", r"\1", a or b).split())
+        if step and step not in steps and not unsaid(f'"{step}"', said, code=False):
+            steps.append(step)
+    return steps[:10]
 
 
 def _design_text(design: dict | None) -> str:

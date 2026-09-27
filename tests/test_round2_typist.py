@@ -176,3 +176,25 @@ def test_a_comment_is_not_a_path_but_a_path_in_a_comment_still_is():
         assert round2_typist.unsaid(starter, said, code=True) == [], language
     assert round2_typist.unsaid("// sign in\nx = 1;", said, code=True) == []
     assert "/api/login" in round2_typist.unsaid("// call /api/login\nx = 1;", said, code=True)
+
+
+def test_code_with_gaps_tells_the_candidate_which_of_their_steps_need_a_how(monkeypatch):
+    """The owner's Round 2 (2026-09-27): code full of incomplete() and no word why."""
+    code = 'driver.get(System.getenv("PRACTICE_APP_URL"));\nincomplete("Locate Customer id and enter CUST001");\nincomplete("Click on Log in button");'
+    out = _turn(monkeypatch, Model({"reply": "Here's the code.", "code": code}),
+                "Open PRACTICE_APP_URL. Locate Customer id and enter CUST001. Click on Log in button. Generate the code.")
+    assert out["code_after"] == code
+    msg = out["response_message"]
+    assert round2_typist._TODO_NOTE in msg and "1. Locate Customer id and enter CUST001" in msg and "2. Click on Log in button" in msg
+
+
+def test_a_field_found_by_the_label_the_candidate_named_is_not_withheld(monkeypatch):
+    code = ('driver.findElement(By.xpath("//label[normalize-space()=\'Customer id\']/following::input[1]")).sendKeys("CUST001");\n'
+            'driver.findElement(By.xpath("//button[normalize-space()=\'Log in\']")).click();')
+    out = _turn(monkeypatch, Model({"reply": "Done.", "code": code}),
+                "Enter CUST001 in the field labelled Customer id and click the Log in button. Generate the code.")
+    assert out["code_after"] == code
+    guessed = 'driver.findElement(By.xpath("//input[@id=\'cust_id\']")).sendKeys("CUST001");'
+    out = _turn(monkeypatch, Model({"reply": "Done.", "code": guessed}, {"reply": "Done.", "code": guessed}),
+                "Enter CUST001 in the field labelled Customer id. Generate the code.")
+    assert out["code_after"] is None  # an id they never gave is still a guess

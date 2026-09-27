@@ -18,6 +18,7 @@ is where every Round 2 code path already reads its environment from.
 """
 import hashlib
 import json
+import re
 import logging
 import time
 from datetime import datetime, timedelta
@@ -213,6 +214,25 @@ def _run_build(scenario_id: int, recorded: dict | None = None) -> None:
         db.close()
 
 
+_QUOTED = re.compile(r"""["“'‘][^"“”'‘’\n]{4,}["”'’]""")
+
+
+def business_rules(round2: Scenario) -> list[str]:
+    """The app's rules in plain English - what a tester gets as requirements, so
+    candidates design tests instead of guessing hidden rules (owner, 2026-09-27).
+    Anything quoted - an exact message - is left out: that wording is the answer key.
+    Kept at approval; for an app approved before that, read from its build."""
+    config = round2.config_json or {}
+    rules = config.get("business_rules")
+    if rules is None and config.get("paired_round1_scenario_id"):
+        try:
+            build = json.loads(_build_file(int(config["paired_round1_scenario_id"])).read_text(encoding="utf-8"))
+            rules = (build.get("plan") or {}).get("rules")
+        except (OSError, ValueError, TypeError):
+            rules = None
+    return [" ".join(_QUOTED.sub("a message", str(r)).split()) for r in rules or [] if str(r).strip()][:40]
+
+
 def candidate_reference(scenario: Scenario) -> dict | None:
     """The Round 2 reference panel exactly as candidates get it, for HR to check:
     a Round 2 scenario's own (what is live), or for a Round 1 scenario the one its
@@ -220,14 +240,18 @@ def candidate_reference(scenario: Scenario) -> dict | None:
     from ..practice_engine import reference
     if scenario.round_number == 2:
         panel = reference.current_panel(scenario.config_json)
-        return {"reference_panel": panel, "source": "live"} if isinstance(panel, dict) else None
+        return {"reference_panel": {**panel, "rules": business_rules(scenario)}, "source": "live"} if isinstance(panel, dict) else None
     if scenario.round_number != 1 or summary(scenario).get("status") != "ready":
         return None
     try:
-        spec = (json.loads(_build_file(scenario.id).read_text(encoding="utf-8")).get("plan") or {}).get("engine_spec")
+        plan = json.loads(_build_file(scenario.id).read_text(encoding="utf-8")).get("plan") or {}
     except (OSError, ValueError):
         return None
-    return {"reference_panel": reference.reference_panel(spec), "source": "latest build"} if isinstance(spec, dict) else None
+    spec = plan.get("engine_spec")
+    if not isinstance(spec, dict):
+        return None
+    rules = [" ".join(_QUOTED.sub("a message", str(r)).split()) for r in plan.get("rules") or [] if str(r).strip()][:40]
+    return {"reference_panel": {**reference.reference_panel(spec), "rules": rules}, "source": "latest build"}
 
 
 def _reference_hash(scenario: Scenario) -> str:
@@ -317,6 +341,8 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         # the web address and the design's main test account - nothing built
         # from the Round 1 answer key.
         "round1_sheet": _round1_sheet(plan),
+        # The app's rules in plain English, shown to candidates (business_rules)
+        "business_rules": [str(r) for r in plan.get("rules") or [] if str(r).strip()],
     }
     if spec is not None:
         # The real practice environment: candidates' tests reach the app through its pages, API and
