@@ -59,6 +59,9 @@ def _target(namespace, call):
 def main():
     job = json.load(sys.stdin)
     source = open(job["env_path"], encoding="utf-8").read()
+    fresh = job.get("fresh_modules") or []  # the app's own engine module, next to it
+    if fresh:
+        sys.path.insert(0, str(__import__("pathlib").Path(job["env_path"]).parent))
     try:
         code = compile(source, "practice_app.py", "exec")
     except SyntaxError as e:
@@ -66,6 +69,8 @@ def main():
     results = []
     for checklist in job["checklists"]:
         namespace = {"__name__": "practice_app"}  # not __main__: the app's own main block stays idle
+        for name in fresh:  # loaded again for every checklist, so each starts from the app's starting data
+            sys.modules.pop(name, None)
         steps = []
         try:
             if code is None:

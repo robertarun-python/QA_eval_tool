@@ -1,0 +1,663 @@
+{
+ "label": "r1_1",
+ "title": "Doctor Appointment System",
+ "recorded": "5/12",
+ "spec": {
+  "app_name": "Doctor Appointment System",
+  "base_url": "https://appointments.example.test",
+  "now": "2024-03-15T10:00",
+  "entities": {
+   "Patient": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "mobile": "string"
+    }
+   },
+   "Doctor": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "name": "string",
+     "specialty": "string",
+     "experience_years": "int",
+     "consultation_fee": "money"
+    }
+   },
+   "Slot": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "doctor_id": "string",
+     "slot_date": "date",
+     "slot_time": "string",
+     "status": "string"
+    }
+   },
+   "Appointment": {
+    "key": "id",
+    "id_format": "APT-{n:03}",
+    "fields": {
+     "id": "string",
+     "patient_email": "string",
+     "doctor_id": "string",
+     "doctor_name": "string",
+     "specialty": "string",
+     "appointment_date": "date",
+     "appointment_time": "string",
+     "consultation_fee": "money",
+     "status": "string",
+     "booked_at": "datetime"
+    }
+   }
+  },
+  "data": {
+   "Patient": [
+    {
+     "email": "patient@test.com",
+     "password": "Patient@123",
+     "name": "John Smith",
+     "mobile": "9876543210"
+    },
+    {
+     "email": "another@test.com",
+     "password": "Pass@456",
+     "name": "Jane Doe",
+     "mobile": "9876543211"
+    }
+   ],
+   "Doctor": [
+    {
+     "id": "DOC-001",
+     "name": "Dr. Sarah Johnson",
+     "specialty": "Cardiology",
+     "experience_years": 15,
+     "consultation_fee": 500.0
+    },
+    {
+     "id": "DOC-002",
+     "name": "Dr. Michael Chen",
+     "specialty": "Cardiology",
+     "experience_years": 10,
+     "consultation_fee": 450.0
+    },
+    {
+     "id": "DOC-003",
+     "name": "Dr. Priya Sharma",
+     "specialty": "Dermatology",
+     "experience_years": 8,
+     "consultation_fee": 400.0
+    },
+    {
+     "id": "DOC-004",
+     "name": "Dr. Robert Williams",
+     "specialty": "Orthopedics",
+     "experience_years": 12,
+     "consultation_fee": 600.0
+    }
+   ],
+   "Slot": [
+    {
+     "id": "SLT-001",
+     "doctor_id": "DOC-001",
+     "slot_date": "2024-03-15",
+     "slot_time": "14:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-002",
+     "doctor_id": "DOC-001",
+     "slot_date": "2024-03-15",
+     "slot_time": "15:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-003",
+     "doctor_id": "DOC-001",
+     "slot_date": "2024-03-20",
+     "slot_time": "10:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-004",
+     "doctor_id": "DOC-001",
+     "slot_date": "2024-03-20",
+     "slot_time": "11:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-005",
+     "doctor_id": "DOC-001",
+     "slot_date": "2024-03-22",
+     "slot_time": "09:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-006",
+     "doctor_id": "DOC-002",
+     "slot_date": "2024-03-20",
+     "slot_time": "14:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-007",
+     "doctor_id": "DOC-003",
+     "slot_date": "2024-03-21",
+     "slot_time": "10:00",
+     "status": "Available"
+    },
+    {
+     "id": "SLT-008",
+     "doctor_id": "DOC-004",
+     "slot_date": "2024-03-18",
+     "slot_time": "16:00",
+     "status": "Available"
+    }
+   ],
+   "Appointment": [
+    {
+     "id": "APT-001",
+     "patient_email": "another@test.com",
+     "doctor_id": "DOC-002",
+     "doctor_name": "Dr. Michael Chen",
+     "specialty": "Cardiology",
+     "appointment_date": "2024-03-16",
+     "appointment_time": "10:00",
+     "consultation_fee": 450.0,
+     "status": "Confirmed",
+     "booked_at": "2024-03-14T09:00"
+    }
+   ]
+  },
+  "users": {
+   "entity": "Patient",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Search Doctors",
+   "Doctor Profile",
+   "Book Appointment",
+   "Appointment Confirmation"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "search_doctors_by_specialty",
+    "label": "Search by specialty",
+    "page": "Search Doctors",
+    "entity": "Doctor",
+    "match": {
+     "input": "specialty",
+     "fields": [
+      "specialty"
+     ],
+     "mode": "equals",
+     "blank": "all"
+    },
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "specialty",
+     "experience_years",
+     "consultation_fee"
+    ],
+    "none_message": "No doctors found for this specialty"
+   },
+   {
+    "name": "search_doctors_by_name",
+    "label": "Search by name",
+    "page": "Search Doctors",
+    "entity": "Doctor",
+    "match": {
+     "input": "name",
+     "fields": [
+      "name"
+     ],
+     "mode": "contains",
+     "blank": "all"
+    },
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "specialty",
+     "experience_years",
+     "consultation_fee"
+    ],
+    "none_message": "No doctors found with this name"
+   },
+   {
+    "name": "view_doctor_profile",
+    "label": "View profile",
+    "page": "Search Doctors",
+    "entity": "Doctor",
+    "key_input": "doctor_id",
+    "missing": "Doctor not found",
+    "next_page": "Doctor Profile",
+    "show": [
+     "id",
+     "name",
+     "specialty",
+     "experience_years",
+     "consultation_fee"
+    ]
+   },
+   {
+    "name": "view_available_slots",
+    "label": "Available slots",
+    "page": "Doctor Profile",
+    "entity": "Slot",
+    "inputs": [
+     {
+      "name": "doctor_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Doctor ID is required"
+       }
+      ]
+     },
+     {
+      "name": "slot_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Date is required"
+       }
+      ]
+     }
+    ],
+    "where": {
+     "and": [
+      {
+       "eq": [
+        {
+         "field": "row.doctor_id"
+        },
+        {
+         "input": "doctor_id"
+        }
+       ]
+      },
+      {
+       "eq": [
+        {
+         "field": "row.slot_date"
+        },
+        {
+         "input": "slot_date"
+        }
+       ]
+      },
+      {
+       "eq": [
+        {
+         "field": "row.status"
+        },
+        "Available"
+       ]
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "slot_time"
+     }
+    ],
+    "show": [
+     "id",
+     "slot_date",
+     "slot_time",
+     "status"
+    ],
+    "none_message": "No slots available for this date"
+   }
+  ],
+  "actions": [
+   {
+    "name": "book_appointment",
+    "label": "Book Appointment",
+    "page": "Doctor Profile",
+    "inputs": [
+     {
+      "name": "slot_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please select a time slot"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "slot",
+      "entity": "Slot",
+      "key": {
+       "input": "slot_id"
+      },
+      "missing": "Slot not found"
+     },
+     {
+      "as": "doctor",
+      "entity": "Doctor",
+      "key": {
+       "field": "slot.doctor_id"
+      },
+      "missing": "Doctor not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "slot.status"
+        },
+        "Available"
+       ]
+      },
+      "message": "This slot is no longer available"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "slot",
+       "field": "status",
+       "value": "Booked"
+      }
+     },
+     {
+      "create": {
+       "entity": "Appointment",
+       "as": "appointment",
+       "values": {
+        "patient_email": {
+         "user": "email"
+        },
+        "doctor_id": {
+         "field": "doctor.id"
+        },
+        "doctor_name": {
+         "field": "doctor.name"
+        },
+        "specialty": {
+         "field": "doctor.specialty"
+        },
+        "appointment_date": {
+         "field": "slot.slot_date"
+        },
+        "appointment_time": {
+         "field": "slot.slot_time"
+        },
+        "consultation_fee": {
+         "field": "doctor.consultation_fee"
+        },
+        "status": "Confirmed",
+        "booked_at": {
+         "now": true
+        }
+       }
+      }
+     }
+    ],
+    "message": "Appointment booked successfully",
+    "next_page": "Appointment Confirmation",
+    "returns": {
+     "appointment_id": {
+      "field": "appointment.id"
+     },
+     "doctor_name": {
+      "field": "appointment.doctor_name"
+     },
+     "specialty": {
+      "field": "appointment.specialty"
+     },
+     "appointment_date": {
+      "field": "appointment.appointment_date"
+     },
+     "appointment_time": {
+      "field": "appointment.appointment_time"
+     },
+     "consultation_fee": {
+      "field": "appointment.consultation_fee"
+     }
+    }
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "login-valid-credentials",
+   "title": "Login with valid credentials",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "patient@test.com",
+      "Patient@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Home"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "John Smith"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "login-incorrect-password",
+   "title": "Login with incorrect password",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "patient@test.com",
+      "WrongPassword"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Login"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid email or password"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "login-unregistered-email",
+   "title": "Login with unregistered email",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "nonexistent@test.com",
+      "AnyPassword123"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Login"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid email or password"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "book-already-booked-slot",
+   "title": "Try booking already booked slot",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "patient@test.com",
+      "Patient@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search Doctors"
+     ]
+    },
+    {
+     "call": "UI.view_doctor_profile",
+     "args": [
+      "DOC-001"
+     ]
+    },
+    {
+     "call": "UI.book_appointment",
+     "args": [
+      "SLT-003"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.logout"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "another@test.com",
+      "Pass@456"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search Doctors"
+     ]
+    },
+    {
+     "call": "UI.view_doctor_profile",
+     "args": [
+      "DOC-001"
+     ]
+    },
+    {
+     "call": "UI.book_appointment",
+     "args": [
+      "SLT-003"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "This slot is no longer available"
+    },
+    {
+     "call": "Database.count_appointment",
+     "args": [
+      "patient_email",
+      "another@test.com"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "login-empty-credentials",
+   "title": "Login with empty credentials",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "",
+      ""
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Login"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "required"
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

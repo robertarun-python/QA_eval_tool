@@ -1,0 +1,24 @@
+const { Builder, By, until } = require("selenium-webdriver");
+const chrome = require("selenium-webdriver/chrome");
+
+function incomplete(step) {
+  console.log("INCOMPLETE: " + step);
+  process.exit(3);
+}
+
+(async () => {
+  const options = new chrome.Options().addArguments("--headless=new");
+  const driver = await new Builder().forBrowser("chrome").usingServer(process.env.SELENIUM_GRID_URL).setChromeOptions(options).build();
+  try {
+    await driver.get(process.env.PRACTICE_APP_URL);
+    await driver.findElement(By.id("email")).sendKeys("priya@library.test");
+    await driver.findElement(By.id("password")).sendKeys("Pass@123");
+    await driver.findElement(By.id("login")).click();
+    await driver.wait(until.titleContains("Home"), 10000);
+    const shown = await driver.findElement(By.id("signed-in-user")).getText();
+    if (shown.includes("Priya")) console.log("PASS: signed-in-user shows Priya");
+    else { console.log(`FAIL: signed-in-user shows '${shown}', expected Priya`); process.exitCode = 1; }
+  } finally {
+    await driver.quit();
+  }
+})();

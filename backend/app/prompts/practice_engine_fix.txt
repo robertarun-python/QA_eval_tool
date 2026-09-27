@@ -1,0 +1,10 @@
+Some checklists above fail against the practice app. The app is run by a proven engine from the DESCRIPTION in the design above ("engine_spec"); the engine is correct, so a failure means the description doesn't yet do what the Round 1 test case needs (the checklists were already checked and are right).
+
+FAILING CHECKLISTS, each with its Round 1 test case and what went wrong:
+<<FAILING>>
+
+Correct the description so these pass, without breaking what works: a missing rule or check, a message worded differently from the test case, a rule in the wrong order, a missing starting record, a wrong page, a value computed differently. Keep every name (entities, fields, queries, actions, inputs, pages) the checklists use, and keep the format exactly as described earlier.
+
+If a failure is the CHECKLIST's fault and not the description's (it expects something no reasonable app for this test case would do), don't change the description for it - say so instead.
+
+Respond with ONLY a JSON object: {"spec": {the complete corrected description}} - or, if no failure is the description's fault, {"checklist_problem": "<one sentence>"}

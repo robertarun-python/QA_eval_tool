@@ -11,6 +11,7 @@ A checklist is a list of steps. Each step calls one helper:
   "expect_includes": an object with some of the fields, a list with some of the items, or a substring;
   "expect_excludes": the same, but must NOT be there.
   A step with no check just has to run without error.
+- To compare with a value saved earlier (e.g. "the count after equals the count before", "the name shown equals the name returned earlier" - equality only, no arithmetic), use {"ref": "name.field"} inside "expect"/"expect_includes", or a check step that calls nothing: {"check": {"ref": "name.field"}, "expect": ...}. Every step either calls a helper or is such a check.
 
 Rules:
 - Start every checklist with {"call": "setup"}. Use exact values from the design - never invent data the design doesn't have.

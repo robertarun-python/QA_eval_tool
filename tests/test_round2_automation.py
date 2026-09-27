@@ -1440,10 +1440,10 @@ def test_inject_flaw_adds_the_flaw_instruction_only_when_requested(monkeypatch):
     assert "FOR THIS RESPONSE ONLY" not in captured["prompt"]
 
 
-def test_only_the_first_generation_for_a_tc_gets_the_flaw_instruction(client, monkeypatch):
-    """End to end through the router's gate: the first /turn call for a
-    fresh test case must ask the generator to inject a flaw; a follow-up
-    /turn call on the now-unlocked test case must not."""
+def test_no_generation_gets_the_flaw_instruction(client, monkeypatch):
+    """The deliberately planted flaw was dropped (owner decision 2026-09-27):
+    the candidate's own instructions and mistakes are what is assessed, so
+    neither the first nor a later generation is asked to plant one."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)
     _select(client, cand_token, (0,))
@@ -1459,7 +1459,7 @@ def test_only_the_first_generation_for_a_tc_gets_the_flaw_instruction(client, mo
     monkeypatch.setattr(llm_service, "_call_claude", _capture)
     res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "encode step 1"}, cookies=_auth(cand_token))
     assert res.status_code == 201 and res.json()["response_kind"] == "code_edit"
-    assert "FOR THIS RESPONSE ONLY" in prompts[-1]
+    assert "FOR THIS RESPONSE ONLY" not in prompts[-1]
 
     res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "now encode step 2"}, cookies=_auth(cand_token))
     assert res.status_code == 201 and res.json()["response_kind"] == "code_edit"

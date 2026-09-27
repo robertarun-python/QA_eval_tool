@@ -1,0 +1,2015 @@
+{
+ "label": "r3_cinema",
+ "title": "Movie Ticket Booking",
+ "recorded": "11/12",
+ "spec": {
+  "app_name": "Movie Ticket Booking",
+  "base_url": "https://moviebooking.example.test",
+  "now": "2024-02-10T17:00",
+  "entities": {
+   "User": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string"
+    }
+   },
+   "Show": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "movie": "string",
+     "show_time": "datetime",
+     "status": "string"
+    }
+   },
+   "Seat": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "show_id": "string",
+     "seat_code": "string",
+     "seat_type": "string",
+     "price": "money",
+     "status": "string",
+     "held_by": "string",
+     "held_at": "datetime"
+    }
+   },
+   "Booking": {
+    "key": "id",
+    "id_format": "BK-{n:03}",
+    "fields": {
+     "id": "string",
+     "user_email": "string",
+     "show_id": "string",
+     "seats": "string",
+     "ticket_amount": "money",
+     "convenience_fee": "money",
+     "gst": "money",
+     "total_amount": "money",
+     "booked_at": "datetime",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "email": "user1@test.com",
+     "password": "Pass@123",
+     "name": "User One"
+    },
+    {
+     "email": "user2@test.com",
+     "password": "Pass@456",
+     "name": "User Two"
+    }
+   ],
+   "Show": [
+    {
+     "id": "SH-001",
+     "movie": "The Great Adventure",
+     "show_time": "2024-02-10T18:30",
+     "status": "Open"
+    },
+    {
+     "id": "SH-002",
+     "movie": "Comedy Night",
+     "show_time": "2024-02-10T16:30",
+     "status": "Open"
+    }
+   ],
+   "Seat": [
+    {
+     "id": "ST-001",
+     "show_id": "SH-001",
+     "seat_code": "A1",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-002",
+     "show_id": "SH-001",
+     "seat_code": "A2",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-003",
+     "show_id": "SH-001",
+     "seat_code": "A3",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-004",
+     "show_id": "SH-001",
+     "seat_code": "A4",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-005",
+     "show_id": "SH-001",
+     "seat_code": "A5",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-006",
+     "show_id": "SH-001",
+     "seat_code": "A6",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-007",
+     "show_id": "SH-001",
+     "seat_code": "A7",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-008",
+     "show_id": "SH-001",
+     "seat_code": "B5",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-009",
+     "show_id": "SH-001",
+     "seat_code": "C1",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-010",
+     "show_id": "SH-001",
+     "seat_code": "R1",
+     "seat_type": "Recliner",
+     "price": 450.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    },
+    {
+     "id": "ST-011",
+     "show_id": "SH-002",
+     "seat_code": "A1",
+     "seat_type": "Regular",
+     "price": 250.0,
+     "status": "Available",
+     "held_by": "",
+     "held_at": null
+    }
+   ],
+   "Booking": []
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Show Details",
+   "Seat Selection",
+   "Payment",
+   "Booking Confirmation"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "list_shows",
+    "label": "Shows",
+    "page": "Home",
+    "entity": "Show",
+    "where": {
+     "eq": [
+      {
+       "field": "row.status"
+      },
+      "Open"
+     ]
+    },
+    "order_by": [
+     {
+      "field": "show_time"
+     }
+    ],
+    "show": [
+     "id",
+     "movie",
+     "show_time"
+    ],
+    "none_message": "No shows available"
+   },
+   {
+    "name": "show_details",
+    "label": "Show details",
+    "page": "Home",
+    "entity": "Show",
+    "key_input": "show_id",
+    "missing": "Show not found",
+    "next_page": "Show Details",
+    "show": [
+     "id",
+     "movie",
+     "show_time",
+     "status"
+    ]
+   },
+   {
+    "name": "seat_map",
+    "label": "Seat map",
+    "page": "Show Details",
+    "entity": "Seat",
+    "as": "seat_query",
+    "inputs": [
+     {
+      "name": "show_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Show is required"
+       }
+      ]
+     }
+    ],
+    "where": {
+     "eq": [
+      {
+       "field": "row.show_id"
+      },
+      {
+       "input": "show_id"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "seat_code"
+     }
+    ],
+    "show": [
+     "seat_code",
+     "seat_type",
+     {
+      "name": "display_status",
+      "value": {
+       "if": [
+        {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Held"
+           ]
+          },
+          {
+           "gt": [
+            {
+             "minutes_since": {
+              "field": "row.held_at"
+             }
+            },
+            10
+           ]
+          }
+         ]
+        },
+        "Available",
+        {
+         "field": "row.status"
+        }
+       ]
+      }
+     }
+    ],
+    "none_message": "No seats found"
+   }
+  ],
+  "actions": [
+   {
+    "name": "select_seats",
+    "label": "Select Seats",
+    "page": "Show Details",
+    "inputs": [
+     {
+      "name": "show_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Show is required"
+       }
+      ]
+     },
+     {
+      "name": "seats",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please select at least one seat"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "show",
+      "entity": "Show",
+      "key": {
+       "input": "show_id"
+      },
+      "missing": "Show not found"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "ge": [
+        {
+         "now": true
+        },
+        {
+         "field": "show.show_time"
+        }
+       ]
+      },
+      "message": "Booking is closed for this show"
+     },
+     {
+      "when": {
+       "gt": [
+        {
+         "length": {
+          "split": [
+           {
+            "input": "seats"
+           },
+           ","
+          ]
+         }
+        },
+        6
+       ]
+      },
+      "message": "You can book at most 6 seats"
+     },
+     {
+      "for_each": {
+       "list": {
+        "split": [
+         {
+          "input": "seats"
+         },
+         ","
+        ]
+       },
+       "as": "s"
+      },
+      "when": {
+       "gt": [
+        {
+         "occurrences": [
+          {
+           "split": [
+            {
+             "input": "seats"
+            },
+            ","
+           ]
+          },
+          {
+           "field": "s.value"
+          }
+         ]
+        },
+        1
+       ]
+      },
+      "message": {
+       "format": [
+        "Seat {code} selected twice",
+        {
+         "code": {
+          "field": "s.value"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "for_each": {
+       "list": {
+        "split": [
+         {
+          "input": "seats"
+         },
+         ","
+        ]
+       },
+       "as": "s"
+      },
+      "unless": {
+       "exists": {
+        "entity": "Seat",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.show_id"
+            },
+            {
+             "input": "show_id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.seat_code"
+            },
+            {
+             "field": "s.value"
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": {
+       "format": [
+        "Seat {code} does not exist",
+        {
+         "code": {
+          "field": "s.value"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "for_each": {
+       "list": {
+        "split": [
+         {
+          "input": "seats"
+         },
+         ","
+        ]
+       },
+       "as": "s"
+      },
+      "when": {
+       "exists": {
+        "entity": "Seat",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.show_id"
+            },
+            {
+             "input": "show_id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.seat_code"
+            },
+            {
+             "field": "s.value"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Sold"
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": {
+       "format": [
+        "Seat {code} is not available",
+        {
+         "code": {
+          "field": "s.value"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "for_each": {
+       "list": {
+        "split": [
+         {
+          "input": "seats"
+         },
+         ","
+        ]
+       },
+       "as": "s"
+      },
+      "when": {
+       "exists": {
+        "entity": "Seat",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.show_id"
+            },
+            {
+             "input": "show_id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.seat_code"
+            },
+            {
+             "field": "s.value"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Held"
+           ]
+          },
+          {
+           "le": [
+            {
+             "minutes_since": {
+              "field": "row.held_at"
+             }
+            },
+            10
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": {
+       "format": [
+        "Seat {code} is not available",
+        {
+         "code": {
+          "field": "s.value"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "for_each": {
+       "entity": "Seat",
+       "where": {
+        "and": [
+         {
+          "eq": [
+           {
+            "field": "row.show_id"
+           },
+           {
+            "input": "show_id"
+           }
+          ]
+         },
+         {
+          "in": [
+           {
+            "field": "row.seat_code"
+           },
+           {
+            "split": [
+             {
+              "input": "seats"
+             },
+             ","
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       "as": "seat",
+       "effects": [
+        {
+         "set": {
+          "record": "seat",
+          "field": "status",
+          "value": "Held"
+         }
+        },
+        {
+         "set": {
+          "record": "seat",
+          "field": "held_by",
+          "value": {
+           "user": "email"
+          }
+         }
+        },
+        {
+         "set": {
+          "record": "seat",
+          "field": "held_at",
+          "value": {
+           "now": true
+          }
+         }
+        }
+       ]
+      }
+     },
+     {
+      "set_session": {
+       "key": "show_id",
+       "value": {
+        "input": "show_id"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "seats",
+       "value": {
+        "input": "seats"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "hold_time",
+       "value": {
+        "now": true
+       }
+      }
+     }
+    ],
+    "message": "Seats selected successfully",
+    "next_page": "Seat Selection"
+   },
+   {
+    "name": "make_payment",
+    "label": "Pay",
+    "page": "Seat Selection",
+    "inputs": [],
+    "load": [
+     {
+      "as": "show",
+      "entity": "Show",
+      "key": {
+       "session": "show_id"
+      },
+      "missing": "Show not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "not": {
+        "empty": {
+         "session": "hold_time"
+        }
+       }
+      },
+      "message": "No seats selected"
+     },
+     {
+      "when": {
+       "gt": [
+        {
+         "minutes_since": {
+          "session": "hold_time"
+         }
+        },
+        10
+       ]
+      },
+      "message": "Your seat hold has expired"
+     }
+    ],
+    "effects": [
+     {
+      "for_each": {
+       "entity": "Seat",
+       "where": {
+        "and": [
+         {
+          "eq": [
+           {
+            "field": "row.show_id"
+           },
+           {
+            "session": "show_id"
+           }
+          ]
+         },
+         {
+          "in": [
+           {
+            "field": "row.seat_code"
+           },
+           {
+            "split": [
+             {
+              "session": "seats"
+             },
+             ","
+            ]
+           }
+          ]
+         }
+        ]
+       },
+       "as": "seat",
+       "effects": [
+        {
+         "set": {
+          "record": "seat",
+          "field": "status",
+          "value": "Sold"
+         }
+        },
+        {
+         "set": {
+          "record": "seat",
+          "field": "held_by",
+          "value": ""
+         }
+        },
+        {
+         "set": {
+          "record": "seat",
+          "field": "held_at",
+          "value": ""
+         }
+        }
+       ]
+      }
+     },
+     {
+      "create": {
+       "entity": "Booking",
+       "as": "booking",
+       "values": {
+        "user_email": {
+         "user": "email"
+        },
+        "show_id": {
+         "session": "show_id"
+        },
+        "seats": {
+         "session": "seats"
+        },
+        "ticket_amount": {
+         "round": [
+          {
+           "sum": {
+            "entity": "Seat",
+            "where": {
+             "and": [
+              {
+               "eq": [
+                {
+                 "field": "row.show_id"
+                },
+                {
+                 "session": "show_id"
+                }
+               ]
+              },
+              {
+               "in": [
+                {
+                 "field": "row.seat_code"
+                },
+                {
+                 "split": [
+                  {
+                   "session": "seats"
+                  },
+                  ","
+                 ]
+                }
+               ]
+              }
+             ]
+            },
+            "field": "price"
+           }
+          },
+          2
+         ]
+        },
+        "convenience_fee": {
+         "round": [
+          {
+           "mul": [
+            {
+             "length": {
+              "split": [
+               {
+                "session": "seats"
+               },
+               ","
+              ]
+             }
+            },
+            30
+           ]
+          },
+          2
+         ]
+        },
+        "gst": {
+         "round": [
+          {
+           "mul": [
+            {
+             "mul": [
+              {
+               "length": {
+                "split": [
+                 {
+                  "session": "seats"
+                 },
+                 ","
+                ]
+               }
+              },
+              30
+             ]
+            },
+            0.18
+           ]
+          },
+          2
+         ]
+        },
+        "total_amount": {
+         "round": [
+          {
+           "add": [
+            {
+             "add": [
+              {
+               "sum": {
+                "entity": "Seat",
+                "where": {
+                 "and": [
+                  {
+                   "eq": [
+                    {
+                     "field": "row.show_id"
+                    },
+                    {
+                     "session": "show_id"
+                    }
+                   ]
+                  },
+                  {
+                   "in": [
+                    {
+                     "field": "row.seat_code"
+                    },
+                    {
+                     "split": [
+                      {
+                       "session": "seats"
+                      },
+                      ","
+                     ]
+                    }
+                   ]
+                  }
+                 ]
+                },
+                "field": "price"
+               }
+              },
+              {
+               "mul": [
+                {
+                 "length": {
+                  "split": [
+                   {
+                    "session": "seats"
+                   },
+                   ","
+                  ]
+                 }
+                },
+                30
+               ]
+              }
+             ]
+            },
+            {
+             "mul": [
+              {
+               "mul": [
+                {
+                 "length": {
+                  "split": [
+                   {
+                    "session": "seats"
+                   },
+                   ","
+                  ]
+                 }
+                },
+                30
+               ]
+              },
+              0.18
+             ]
+            }
+           ]
+          },
+          2
+         ]
+        },
+        "booked_at": {
+         "now": true
+        },
+        "status": "Confirmed"
+       }
+      }
+     },
+     {
+      "clear_session": "show_id"
+     },
+     {
+      "clear_session": "seats"
+     },
+     {
+      "clear_session": "hold_time"
+     }
+    ],
+    "message": "Booking confirmed",
+    "next_page": "Booking Confirmation",
+    "returns": {
+     "booking_id": {
+      "field": "booking.id"
+     },
+     "total_amount": {
+      "field": "booking.total_amount"
+     }
+    }
+   }
+  ],
+  "faults": [
+   {
+    "name": "payment_timeout",
+    "applies_to": [
+     "make_payment"
+    ],
+    "message": "Payment failed"
+   }
+  ]
+ },
+ "checklists": [
+  {
+   "id": "book-two-regular-seats",
+   "title": "Book two regular seats",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "A1,A2"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seats selected successfully"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Seat Selection"
+    },
+    {
+     "call": "UI.make_payment",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Booking confirmed"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Booking Confirmation"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "total_amount": 570.8
+     }
+    },
+    {
+     "call": "Database.find_booking",
+     "args": [
+      "id",
+      {
+       "ref": "result.booking_id"
+      }
+     ],
+     "save_as": "booking_records"
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.total_amount"
+     },
+     "expect": 570.8
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.ticket_amount"
+     },
+     "expect": 500.0
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.convenience_fee"
+     },
+     "expect": 60.0
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.gst"
+     },
+     "expect": 10.8
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.seats"
+     },
+     "expect": "A1,A2"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A1"
+     ],
+     "save_as": "seat_a1"
+    },
+    {
+     "check": {
+      "ref": "seat_a1.0.status"
+     },
+     "expect": "Sold"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A2"
+     ],
+     "save_as": "seat_a2"
+    },
+    {
+     "check": {
+      "ref": "seat_a2.0.status"
+     },
+     "expect": "Sold"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "seven-seats-refused",
+   "title": "Seven seats refused",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "A1,A2,A3,A4,A5,A6,A7"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "You can book at most 6 seats"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "status",
+      "Held"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "already-sold-seat",
+   "title": "Already sold seat",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "B5"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.make_payment",
+     "expect": true
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "B5"
+     ],
+     "save_as": "seat_b5_sold"
+    },
+    {
+     "check": {
+      "ref": "seat_b5_sold.0.status"
+     },
+     "expect": "Sold"
+    },
+    {
+     "call": "UI.logout",
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user2@test.com",
+      "Pass@456"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "B5"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seat B5 is not available"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "B5"
+     ],
+     "save_as": "seat_b5_final"
+    },
+    {
+     "check": {
+      "ref": "seat_b5_final.0.status"
+     },
+     "expect": "Sold"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "held-seat-cant-be-taken",
+   "title": "Held seat can't be taken by another user",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "C1"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "C1"
+     ],
+     "save_as": "seat_c1_held"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_held.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_held.0.held_by"
+     },
+     "expect": "user1@test.com"
+    },
+    {
+     "call": "UI.logout",
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user2@test.com",
+      "Pass@456"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "C1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seat C1 is not available"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "C1"
+     ],
+     "save_as": "seat_c1_final"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_final.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_final.0.held_by"
+     },
+     "expect": "user1@test.com"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "hold-released-after-10-minutes",
+   "title": "Hold released after 10 minutes",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "C1"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "C1"
+     ],
+     "save_as": "seat_c1_held"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_held.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      11
+     ]
+    },
+    {
+     "call": "UI.logout",
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user2@test.com",
+      "Pass@456"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "C1"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seats selected successfully"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "C1"
+     ],
+     "save_as": "seat_c1_user2"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_user2.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "check": {
+      "ref": "seat_c1_user2.0.held_by"
+     },
+     "expect": "user2@test.com"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "pay-after-hold-expired",
+   "title": "Pay after hold expired",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "A1,A2"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A1"
+     ],
+     "save_as": "seat_a1_held"
+    },
+    {
+     "check": {
+      "ref": "seat_a1_held.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      11
+     ]
+    },
+    {
+     "call": "UI.make_payment",
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Your seat hold has expired"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "expect": 0
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A1"
+     ],
+     "save_as": "seat_a1_final"
+    },
+    {
+     "check": {
+      "ref": "seat_a1_final.0.status"
+     },
+     "expect": "Held"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "recliner-pricing",
+   "title": "Recliner pricing",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "R1"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.make_payment",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Booking confirmed"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "total_amount": 485.4
+     }
+    },
+    {
+     "call": "Database.find_booking",
+     "args": [
+      "id",
+      {
+       "ref": "result.booking_id"
+      }
+     ],
+     "save_as": "booking_records"
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.total_amount"
+     },
+     "expect": 485.4
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.ticket_amount"
+     },
+     "expect": 450.0
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.convenience_fee"
+     },
+     "expect": 30.0
+    },
+    {
+     "check": {
+      "ref": "booking_records.0.gst"
+     },
+     "expect": 5.4
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "booking-after-show-start",
+   "title": "Booking after show start",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      90
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "A1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Booking is closed for this show"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "status",
+      "Held"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "invalid-seat-code",
+   "title": "Invalid seat code",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "Z99"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seat Z99 does not exist"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "status",
+      "Held"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "duplicate-seat-in-selection",
+   "title": "Duplicate seat in selection",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "A1,A1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seat A1 selected twice"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "status",
+      "Held"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "payment-gateway-timeout",
+   "title": "Payment gateway timeout",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user1@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Show Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_seats",
+     "args": [
+      "SH-001",
+      "A1,A2"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A1"
+     ],
+     "save_as": "seat_a1_held"
+    },
+    {
+     "check": {
+      "ref": "seat_a1_held.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "call": "Test.simulate",
+     "args": [
+      "payment_timeout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.make_payment",
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment failed"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "expect": 0
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A1"
+     ],
+     "save_as": "seat_a1_final"
+    },
+    {
+     "check": {
+      "ref": "seat_a1_final.0.status"
+     },
+     "expect": "Held"
+    },
+    {
+     "call": "Database.find_seat",
+     "args": [
+      "seat_code",
+      "A2"
+     ],
+     "save_as": "seat_a2_final"
+    },
+    {
+     "check": {
+      "ref": "seat_a2_final.0.status"
+     },
+     "expect": "Held"
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

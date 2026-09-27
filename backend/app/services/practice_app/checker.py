@@ -127,6 +127,72 @@ def _short(value) -> str:
     return text if len(text) <= 160 else text[:157] + "..."
 
 
+class _Unresolved(Exception):
+    pass
+
+
+def _lookup(path: str, saved: dict):
+    """A saved value by "name.field.0.field" path (plain data, as the runners return it)."""
+    first, *rest = str(path).split(".")
+    if first not in saved:
+        raise _Unresolved(f"{{\"ref\": \"{path}\"}} - no earlier step saved {first!r}")
+    value = saved[first]
+    for part in rest:
+        if isinstance(value, list) and part.isdigit():
+            value = value[int(part)] if int(part) < len(value) else None
+        elif isinstance(value, dict):
+            value = value.get(part)
+        else:
+            value = None
+    return value
+
+
+def _with_refs(expected, saved: dict):
+    """An expectation with every {"ref": ...} replaced by the saved value it names -
+    e.g. "the count now equals the count saved before"."""
+    if isinstance(expected, dict):
+        if set(expected) == {"ref"}:
+            return _lookup(expected["ref"], saved)
+        return {k: _with_refs(v, saved) for k, v in expected.items()}
+    if isinstance(expected, list):
+        return [_with_refs(v, saved) for v in expected]
+    return expected
+
+
+def for_runner(checklist: dict) -> dict:
+    """What the language runners run: only the steps that call a helper -
+    "check" steps (a look at a value saved earlier) are judged here. A name a
+    check step saved is rewritten, in later arguments, into the path it points
+    to, so every runner can resolve it (measured: a check-saved id passed to
+    the app crashed Python's runner and became null in JavaScript's)."""
+    aliases: dict[str, str] = {}
+
+    def unalias(path: str) -> str:
+        first, _, rest = str(path).partition(".")
+        if first in aliases:
+            return unalias(aliases[first] + ("." + rest if rest else ""))
+        return str(path)
+
+    def rewrite(value):
+        if isinstance(value, dict):
+            if set(value) == {"ref"}:
+                return {"ref": unalias(value["ref"])}
+            return {k: rewrite(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [rewrite(v) for v in value]
+        return value
+
+    steps = []
+    for step in checklist["steps"]:
+        if "check" in step:
+            ref = step["check"].get("ref") if isinstance(step["check"], dict) else None
+            if step.get("save_as") and ref is not None:
+                aliases[step["save_as"]] = unalias(ref)
+            continue
+        steps.append({**step, "args": rewrite(step.get("args") or [])} if step.get("args") else step)
+    return {**checklist, "steps": steps}
+
+
 def _judge(checklist: dict, raw: dict) -> ChecklistResult:
     result = ChecklistResult(id=checklist["id"], title=checklist.get("title", checklist["id"]), passed=True)
     if raw.get("load_error"):
@@ -134,21 +200,40 @@ def _judge(checklist: dict, raw: dict) -> ChecklistResult:
         result.failures.append(f"the app failed to load: {raw['load_error']}")
         return result
     outcomes = raw.get("steps", [])
+    saved: dict = {}
+    ran = 0  # helper calls consumed from the runner's outcomes
     for n, step in enumerate(checklist["steps"], start=1):
-        where = f"step {n} ({step['call']})"
-        if n > len(outcomes):
-            result.passed = False
-            result.failures.append(f"{where} never ran - an earlier step failed")
-            break
-        outcome = outcomes[n - 1]
-        if "error" in outcome:
-            result.values.append({"error": True})
-            if not step.get("expect_error"):
+        where = f"step {n} ({step.get('call') or 'check'})"
+        if "check" in step:
+            try:
+                value = _with_refs(step["check"], saved)
+            except _Unresolved as missing:
                 result.passed = False
-                result.failures.append(f"{where} failed: {outcome['error']}")
-            continue
-        value = outcome.get("value")
+                result.failures.append(f"{where} refers to {missing}")
+                break
+        else:
+            if ran >= len(outcomes):
+                result.passed = False
+                result.failures.append(f"{where} never ran - an earlier step failed")
+                break
+            outcome = outcomes[ran]
+            ran += 1
+            if "error" in outcome:
+                result.values.append({"error": True})
+                if not step.get("expect_error"):
+                    result.passed = False
+                    result.failures.append(f"{where} failed: {outcome['error']}")
+                continue
+            value = outcome.get("value")
         result.values.append(value)
+        if step.get("save_as"):
+            saved[step["save_as"]] = value
+        try:
+            step = {**step, **{k: _with_refs(step[k], saved) for k in ("expect", "expect_includes", "expect_excludes") if k in step}}
+        except _Unresolved as missing:
+            result.passed = False
+            result.failures.append(f"{where} expects {missing}")
+            continue
         if step.get("expect_error"):
             result.passed = False
             result.failures.append(f"{where} should have failed, but returned {_short(value)}")
@@ -170,22 +255,32 @@ def _run(cmd: list[str], stdin: str | None = None, cwd: Path | None = None) -> s
     return subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=_TIMEOUT_SECONDS, cwd=cwd)
 
 
-def _raw_python(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
+def _write_support(folder: Path, support: dict[str, str] | None) -> list[str]:
+    """The app's engine file(s), next to the candidate file - as when a candidate's code runs."""
+    for name, code in (support or {}).items():
+        (folder / name).write_text(code, encoding="utf-8")
+    return sorted(support or {})
+
+
+def _raw_python(env_code: str, checklists: list[dict], tmp: Path, support: dict[str, str] | None = None) -> list[dict]:
     env = tmp / "practice_app.py"
     env.write_text(env_code, encoding="utf-8")
-    proc = _run([sys.executable, str(HERE / "runner.py")], stdin=json.dumps({"env_path": str(env), "checklists": checklists}))
+    modules = [Path(n).stem for n in _write_support(tmp, support)]
+    proc = _run([sys.executable, str(HERE / "runner.py")],
+                stdin=json.dumps({"env_path": str(env), "checklists": checklists, "fresh_modules": modules}))
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[-600:] or "the Python runner failed")
     return json.loads(proc.stdout)
 
 
-def _raw_javascript(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
+def _raw_javascript(env_code: str, checklists: list[dict], tmp: Path, support: dict[str, str] | None = None) -> list[dict]:
     node = shutil.which("node")
     if not node:
         raise RuntimeError("Node.js is not installed on this server")
     env = tmp / "practice_app.js"
     env.write_text(env_code, encoding="utf-8")
-    proc = _run([node, str(HERE / "runner.js")], stdin=json.dumps({"env_path": str(env), "checklists": checklists}))
+    fresh = [str(tmp / n) for n in _write_support(tmp, support)]
+    proc = _run([node, str(HERE / "runner.js")], stdin=json.dumps({"env_path": str(env), "checklists": checklists, "fresh_modules": fresh}))
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip()[-600:] or "the JavaScript runner failed")
     return json.loads(proc.stdout)
@@ -205,7 +300,7 @@ def _java_arg(arg) -> str:
     return "s:" + base64.b64encode(str(arg).encode("utf-8")).decode()
 
 
-def _raw_java(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
+def _raw_java(env_code: str, checklists: list[dict], tmp: Path, support: dict[str, str] | None = None) -> list[dict]:
     javac, java = shutil.which("javac"), shutil.which("java")
     if not (javac and java):
         raise RuntimeError("Java is not installed on this server")
@@ -213,7 +308,8 @@ def _raw_java(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
     app_dir.mkdir()
     runner_dir.mkdir()
     (app_dir / "Main.java").write_text(env_code, encoding="utf-8")
-    for cmd in ([javac, "-nowarn", "-d", str(app_dir), str(app_dir / "Main.java")],
+    sources = [str(app_dir / "Main.java")] + [str(app_dir / n) for n in _write_support(app_dir, support) if n.endswith(".java")]
+    for cmd in ([javac, "-nowarn", "-d", str(app_dir)] + sources,
                 [javac, "-nowarn", "-d", str(runner_dir), str(HERE / "PracticeRunner.java")]):
         proc = _run(cmd)
         if proc.returncode != 0:
@@ -235,11 +331,11 @@ def _raw_java(env_code: str, checklists: list[dict], tmp: Path) -> list[dict]:
 _RAW = {"python": _raw_python, "javascript": _raw_javascript, "java": _raw_java}
 
 
-def inspect_language(language: str, env_code: str, checklists: list[dict]) -> LanguageReport:
+def inspect_language(language: str, env_code: str, checklists: list[dict], support: dict[str, str] | None = None) -> LanguageReport:
     report = LanguageReport(language=language)
     with tempfile.TemporaryDirectory(prefix=f"practice_{language}_") as tmp:
         try:
-            raw = {r["id"]: r for r in _RAW[language](env_code, checklists, Path(tmp))}
+            raw = {r["id"]: r for r in _RAW[language](env_code, [for_runner(c) for c in checklists], Path(tmp), support)}
         except (RuntimeError, subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
             report.error = f"couldn't run the {language} app: {e}"
             return report
@@ -247,12 +343,14 @@ def inspect_language(language: str, env_code: str, checklists: list[dict]) -> La
     return report
 
 
-def inspect(env_code_by_language: dict[str, str], checklists: list[dict]) -> InspectionReport:
+def inspect(env_code_by_language: dict[str, str], checklists: list[dict],
+            support_by_language: dict[str, dict[str, str]] | None = None) -> InspectionReport:
     """Runs every checklist in every language provided, and lists anywhere
     the languages disagree with each other - even where no checklist says
     what the right answer is, a candidate must get the same behaviour
-    whichever language they chose."""
-    reports = {lang: inspect_language(lang, code, checklists)
+    whichever language they chose. support_by_language: files placed next to
+    each language's file (an engine-built app's engine file)."""
+    reports = {lang: inspect_language(lang, code, checklists, (support_by_language or {}).get(lang))
                for lang, code in env_code_by_language.items() if lang in _RAW}
     differences = []
     runnable = [r for r in reports.values() if r.error is None]
@@ -268,7 +366,7 @@ def inspect(env_code_by_language: dict[str, str], checklists: list[dict]) -> Ins
             for lang, value in values.items():
                 if not _same(value, first):
                     differences.append(
-                        f"{checklist['id']} step {n + 1} ({step['call']}): {first_lang} gave {_short(first)}, "
+                        f"{checklist['id']} step {n + 1} ({step.get('call') or 'check'}): {first_lang} gave {_short(first)}, "
                         f"{lang} gave {_short(value)}"
                     )
                     break

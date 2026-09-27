@@ -141,7 +141,7 @@ def _accepts_temperature(model: str) -> bool:
 # only: never the prompt or the reply. The history resets on a server
 # restart; the log lines don't.
 _CALL_LOG: deque = deque(maxlen=500)
-_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_call_claude_tool", "_record_call"}
+_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_call_claude_tool", "_record_call", "check_budget"}
 
 
 def _calling_function() -> str:
@@ -175,7 +175,11 @@ def _record_call(outcome: str, *, started: float | None = None, max_tokens: int 
     _CALL_LOG.append(entry)
     print("[llm] " + " ".join(f"{k}={v}" for k, v in entry.items() if v not in (None, "")), file=sys.stderr)
     model = settings.claude_model
-    lasting = {**entry, "model": model, "cost_usd": call_cost_usd(model, entry), **_CALL_CONTEXT.get()}
+    cost, pricing = call_cost_usd(model, entry), _PRICING.get()
+    if pricing and message is not None:
+        entry["pricing"] = pricing
+        cost = 0.0 if pricing == "reused" else None if cost is None else cost * BATCH_DISCOUNT
+    lasting = {**entry, "model": model, "cost_usd": cost, **_CALL_CONTEXT.get()}
     prompt = _LAST_PROMPT.get()
     if prompt:
         lasting["prompt_file"], lasting["prompt_hash"] = prompt
@@ -253,6 +257,7 @@ def _append_call_log(entry: dict) -> None:
         line = json.dumps(entry, ensure_ascii=False, default=str)
         with _CALL_LOG_LOCK, open(path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
+        _add_month_spend(entry)
     except Exception as e:
         print(f"[llm] couldn't write the AI call record to {path}: {e}", file=sys.stderr)
 
@@ -274,6 +279,131 @@ def read_call_log() -> list[dict]:
     except (OSError, TypeError):
         pass
     return entries
+
+
+# ---- The monthly spending limit ----
+# The owner pays for every call from a limited income: once this calendar
+# month's recorded spend reaches the limit, no new AI work starts (builds,
+# HR generation, new tests). A candidate already in a test may go 10% over,
+# so nobody is cut off mid-answer. Only calls recorded in ai_calls.jsonl count.
+CANDIDATE_GRACE = 1.10
+_MONTH_SPEND = {"month": None, "usd": 0.0}
+_MONTH_LOCK = threading.Lock()
+
+
+class AIBudgetReached(RuntimeError):
+    """This month's AI spending limit is reached - no call was made or paid."""
+
+
+def _budget_path() -> Path:
+    return Path(settings.ai_call_log_path or "ai_calls.jsonl").with_name("ai_budget.json")
+
+
+def monthly_limit_usd() -> float:
+    try:
+        value = json.loads(_budget_path().read_text(encoding="utf-8")).get("monthly_usd")
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+            return float(value)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return float(settings.ai_monthly_limit_usd)
+
+
+def set_monthly_limit_usd(usd: float) -> None:
+    _budget_path().write_text(json.dumps({"monthly_usd": round(float(usd), 2)}), encoding="utf-8")
+
+
+def month_spent_usd() -> float:
+    """This calendar month's (UTC) recorded spend; read from the file once a
+    month, then kept up to date as calls are recorded."""
+    month = datetime.utcnow().strftime("%Y-%m")
+    with _MONTH_LOCK:
+        if _MONTH_SPEND["month"] != month:
+            _MONTH_SPEND.update(month=month, usd=sum(e.get("cost_usd") or 0.0 for e in read_call_log()
+                                                     if str(e.get("at", "")).startswith(month)))
+        return _MONTH_SPEND["usd"]
+
+
+def _add_month_spend(entry: dict) -> None:
+    month_spent_usd()  # make sure the month is loaded
+    with _MONTH_LOCK:
+        if str(entry.get("at", "")).startswith(_MONTH_SPEND["month"] or "-"):
+            _MONTH_SPEND["usd"] += entry.get("cost_usd") or 0.0
+
+
+def check_budget() -> None:
+    """Raises AIBudgetReached before a call once the month's limit is used up."""
+    limit, spent = monthly_limit_usd(), month_spent_usd()
+    in_a_test = any(_CALL_CONTEXT.get().get(k) is not None for k in ("submission_id", "user_id"))
+    if spent < limit * (CANDIDATE_GRACE if in_a_test else 1):
+        return
+    _CALL_LOG.append({"at": datetime.utcnow().isoformat(timespec="seconds") + "Z", "caller": _calling_function(),
+                      "outcome": "budget_reached", "detail": f"spent ${spent:.2f} of the ${limit:.2f} monthly limit"})
+    raise AIBudgetReached(f"This month's AI spending limit (${limit:.2f}) has been reached, so no AI call was made. "
+                          "HR can raise the limit on the AI health card in Settings.")
+
+
+# ---- Cheaper test runs: saved replies and half-price batches ----
+# How the call being recorded was paid: "reused" (a saved reply, free) or
+# "batch" (half price); read by _record_call.
+_PRICING: contextvars.ContextVar = contextvars.ContextVar("ai_call_pricing", default="")
+BATCH_DISCOUNT = 0.5
+
+
+def _reply_dir() -> Path:
+    return Path(settings.ai_call_log_path or "ai_calls.jsonl").with_name("ai_replies")
+
+
+def _request_key(params: dict) -> str:
+    return hashlib.sha256(json.dumps(params, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+def _send(client, timeout, params: dict):
+    """One request to the model. With ai_reuse_replies an identical earlier
+    request is answered from its saved reply (free); with ai_batch_jobs the
+    request goes through the Message Batches API at half price."""
+    _PRICING.set("")
+    key = _request_key(params) if settings.ai_reuse_replies else None
+    if key:
+        try:
+            saved = json.loads((_reply_dir() / f"{key}.json").read_text(encoding="utf-8"))
+            _PRICING.set("reused")
+            return anthropic.types.Message.model_validate(saved)
+        except (OSError, ValueError):
+            pass
+    if settings.ai_batch_jobs:
+        message = _via_batch(params)
+        _PRICING.set("batch")
+    else:
+        message = client.messages.create(timeout=timeout, **params)
+    if key and getattr(message, "stop_reason", None) != "max_tokens":
+        try:
+            _reply_dir().mkdir(parents=True, exist_ok=True)
+            (_reply_dir() / f"{key}.json").write_text(json.dumps(message.model_dump(mode="json")), encoding="utf-8")
+        except (OSError, AttributeError, TypeError):
+            pass
+    return message
+
+
+def _via_batch(params: dict):
+    """A single request through the Message Batches API: half price, answered
+    when the batch ends (usually minutes, at most settings.ai_batch_max_wait_seconds)."""
+    client = _get_client()
+    batch = client.messages.batches.create(requests=[{"custom_id": "call", "params": params}])
+    waited, pause = 0, 5
+    while batch.processing_status != "ended":
+        if waited >= settings.ai_batch_max_wait_seconds:
+            client.messages.batches.cancel(batch.id)
+            raise TimeoutError(f"the half-price batch wasn't answered within {waited} s")
+        time.sleep(pause)
+        waited += pause
+        pause = min(pause * 2, 60)
+        batch = client.messages.batches.retrieve(batch.id)
+    for entry in client.messages.batches.results(batch.id):
+        if entry.result.type == "succeeded":
+            return entry.result.message
+        raise RuntimeError(f"the half-price batch request {entry.result.type}: {getattr(entry.result, 'error', '')}")
+    raise RuntimeError("the half-price batch ended without a result")
 
 
 def recent_calls() -> list[dict]:
@@ -383,6 +513,7 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     if settings.llm_fake_mode:
         _record_call("fake", max_tokens=max_tokens, detail="fake AI mode - scripted reply")
         return fake_llm.reply_text(_calling_function(), _without_cache_breaks(prompt))
+    check_budget()
     base_client = _get_client()
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     budget = max_tokens
@@ -390,14 +521,13 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
         client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
-            message = client.messages.create(
+            message = _send(client, timeout, dict(
                 model=settings.claude_model,
                 max_tokens=budget,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": _user_content(prompt)}],
-                timeout=timeout,
                 **extra,
-            )
+            ))
         except Exception as e:
             _record_call("api_error", started=started, max_tokens=budget, detail=f"{type(e).__name__}: {e}")
             raise
@@ -492,18 +622,18 @@ def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict
     call - already-parsed fields, so a code file inside it can't break JSON."""
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     tool = {"name": _TOOL_NAME, "description": "Submit your reply - its arguments are the reply's fields.", "input_schema": schema}
+    check_budget()
     base_client = _get_client()
     budget = max_tokens
     for _ in range(2):
         client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
-            message = client.messages.create(
+            message = _send(client, timeout, dict(
                 model=settings.claude_model, max_tokens=budget, system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": _user_content(prompt + _TOOL_NOTE)}],
-                tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME},
-                timeout=timeout, **extra,
-            )
+                tools=[tool], tool_choice={"type": "tool", "name": _TOOL_NAME}, **extra,
+            ))
         except Exception as e:
             _record_call("api_error", started=started, max_tokens=budget, detail=f"tool: {type(e).__name__}: {e}")
             raise

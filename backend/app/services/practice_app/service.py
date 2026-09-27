@@ -29,7 +29,7 @@ from ... import database
 from ...config import settings
 from ...models import RoundStatus, Scenario, ScenarioStatus, Submission
 from .. import llm_service
-from . import generator
+from . import engine_build, generator
 
 log = logging.getLogger(__name__)
 
@@ -62,8 +62,19 @@ def _build_file(scenario_id: int) -> Path:
     return BUILDS_DIR / f"scenario_{scenario_id}" / "latest.json"
 
 
+# Builds running in THIS server process. A summary saying "building" for a
+# scenario not in here was cut off (the server restarted or crashed): it is
+# reported as failed straight away, so HR can start it again, instead of
+# showing "building" until STALE_AFTER.
+_RUNNING: set[int] = set()
+INTERRUPTED = "The build stopped because the server restarted. Please start it again."
+
+
 def summary(scenario: Scenario) -> dict:
-    return dict((scenario.config_json or {}).get("practice_app") or {"status": "none"})
+    data = dict((scenario.config_json or {}).get("practice_app") or {"status": "none"})
+    if data.get("status") == "building" and scenario.id not in _RUNNING:
+        data.update(status="failed", error=INTERRUPTED)
+    return data
 
 
 def _set_summary(scenario: Scenario, data: dict) -> None:
@@ -89,6 +100,7 @@ def can_start(scenario: Scenario) -> str | None:
 
 
 def start_build(scenario: Scenario, db: Session) -> dict:
+    _RUNNING.add(scenario.id)  # before the summary says "building" - run_build removes it when it ends
     data = {"status": "building", "started_at": datetime.utcnow().isoformat(timespec="seconds"), "step": 0, "step_detail": ""}
     previous = summary(scenario)
     if previous.get("approved_round2_scenario_id"):
@@ -110,7 +122,22 @@ def run_build(scenario_id: int) -> None:
         _run_build(scenario_id)
 
 
-def _run_build(scenario_id: int) -> None:
+def install_recorded(scenario_id: int, recorded: dict) -> dict:
+    """Installs a build already paid for (a measurement run's {"plan",
+    "checklists", "unsupported"}) as this scenario's latest build, re-checked
+    with today's engine in every language - no AI call, nothing paid. HR then
+    approves it as usual. Returns the scenario's practice-app summary."""
+    with llm_service.call_context(round_number=2, scenario_id=scenario_id):
+        _run_build(scenario_id, recorded=recorded)
+    db = database.SessionLocal()
+    try:
+        return summary(db.get(Scenario, scenario_id))
+    finally:
+        db.close()
+
+
+def _run_build(scenario_id: int, recorded: dict | None = None) -> None:
+    _RUNNING.add(scenario_id)
     db = database.SessionLocal()
     try:
         scenario = db.get(Scenario, scenario_id)
@@ -127,8 +154,9 @@ def _run_build(scenario_id: int) -> None:
             db.commit()
 
         try:
-            result = generator.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
-                                        progress=progress, reuse=_reusable_build(scenario))
+            result = engine_build.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
+                                           progress=progress, reuse=recorded or _reusable_build(scenario),
+                                           ai_allowed=recorded is None)
         except Exception as e:  # generator.generate already catches; this is a last resort
             result = generator.PracticeAppResult(error=f"{type(e).__name__}: {e}")
         rows = result.coverage()
@@ -161,6 +189,8 @@ def _run_build(scenario_id: int) -> None:
                 "unsupported": result.unsupported,
                 "reference_hash": _reference_hash(scenario),
                 "env_code_by_language": result.env_code_by_language,
+                "support_by_language": result.support_by_language,
+                "ai_exchanges": result.exchanges,
                 "ground_truth": generator.ground_truth(result.plan),
                 "log": result.log,
                 "coverage": rows,
@@ -179,6 +209,7 @@ def _run_build(scenario_id: int) -> None:
         log.exception("practice app build for scenario %s crashed", scenario_id)
         db.rollback()
     finally:
+        _RUNNING.discard(scenario_id)
         db.close()
 
 
@@ -255,9 +286,12 @@ def approve(round1: Scenario, db: Session) -> Scenario:
 
     plan = build["plan"]
     sheet = plan.get("reference_sheet") or {}
+    spec = plan.get("engine_spec") if isinstance(plan.get("engine_spec"), dict) else None
     config = {
         "mode": "ai_test_automation",
         "environment_code_by_language": build["env_code_by_language"],
+        # An engine-built app's engine file, placed next to the candidate's code when it runs.
+        "environment_support_by_language": build.get("support_by_language") or {},
         "paired_round1_scenario_id": round1.id,
         "paired_round1_title": round1.title,
         "practice_app_checklists": build["checklists"],
@@ -267,6 +301,18 @@ def approve(round1: Scenario, db: Session) -> Scenario:
         # from the Round 1 answer key.
         "round1_sheet": _round1_sheet(plan),
     }
+    if spec is not None:
+        # The real practice environment: candidates' tests reach the app through its pages, API and
+        # database (practice_engine.practice_run), the typing assistant writes their code, and the
+        # reference panel is built from the description - never from the AI.
+        from ..practice_engine import reference
+        from .. import round2_typist
+        config.update({
+            "practice_spec": spec,
+            "reference_panel": reference.reference_panel(spec),
+            "environment_code_by_language": dict(round2_typist.STARTERS),
+            "environment_support_by_language": {},
+        })
     reference = {"ground_truth": build["ground_truth"], "validation_notes": validation_notes(unverified)}
     environment = {"fields": {str(k): str(v) for k, v in (sheet.get("fields") or {}).items()},
                    "notes": str(sheet.get("notes") or "Only this data exists in the practice app.")}
@@ -289,7 +335,7 @@ def approve(round1: Scenario, db: Session) -> Scenario:
     round2.config_json = config
     round2.reference_json = reference
     round2.environment_json = environment
-    round2.ui_mockup_json = screens_for(plan)
+    round2.ui_mockup_json = None if spec is not None else screens_for(plan)  # the panel shows the real pages instead
     round2.environment_hr_edited = True  # never regenerated by the Round 1 resync
     db.flush()
 

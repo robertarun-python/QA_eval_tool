@@ -32,6 +32,13 @@ because they were broken once and it cost time and money (2026-09-25).
   `git update-ref refs/heads/main <sha>` + `git switch main`. Work on anything
   large in a separate `git worktree` outside the project folder.
 
+## Before calling anything done
+- Apply the failure-first review (.claude/skills/failure-first-review/SKILL.md):
+  promises first, the failure checklist, randomised sequence tests, a mutation
+  check that proves the tests catch deliberate breaks, and a plain list of
+  what is not covered. Tests that only check each feature as intended missed
+  an undo bug on 2026-09-26.
+
 ## Tests
 - Offline suite (no AI calls): `.venv/bin/python -m pytest -q tests` - also runs
   on GitHub for every push (`.github/workflows/tests.yml`).

@@ -9,6 +9,8 @@ and every call is counted.
 """
 import json
 
+import pytest
+
 from app.routers import candidate as candidate_router
 from app.services import llm_service
 
@@ -108,3 +110,23 @@ def test_one_turn_at_a_time_per_test_case(client, monkeypatch):
     finally:
         lock.release()
     assert _say(client, cand, "Encode my test").status_code == 201
+
+
+@pytest.mark.parametrize("first, again", [
+    ("write code to log in and check the dashboard", "Please write the code to log in and check the dashboard again."),
+    ("Automate step 2", "can you automate step 2 now"),
+    ("check the balance is 500", "Check that the balance is 500 please"),
+])
+def test_a_reworded_repeat_counts_as_the_same_message(first, again):
+    assert candidate_router._same_message(first, again)
+
+
+@pytest.mark.parametrize("first, again", [
+    ("check the balance is 500", "check the balance is 600"),
+    ("log in as 'asha@corp.test'", "log in as 'ben@corp.test'"),
+    ("automate step 2", "automate step 3"),
+    ("write code to log in", "write code to log out and check the login page"),
+    ("check the error message", "check the stored record in the database instead"),
+])
+def test_a_changed_value_or_a_new_request_is_never_a_repeat(first, again):
+    assert not candidate_router._same_message(first, again)

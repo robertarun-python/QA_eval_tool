@@ -4,6 +4,7 @@
 // JavaScript app's camelCase names (UI.searchDoctors) are found too.
 const fs = require("fs");
 const vm = require("vm");
+const { createRequire } = require("module");
 
 const snake = (name) => String(name).replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 const camel = (name) => String(name).replace(/_([a-z0-9])/g, (_, c) => c.toUpperCase());
@@ -42,7 +43,9 @@ const shim = "\n;globalThis.__practice = {" +
 
 const results = [];
 for (const checklist of job.checklists) {
-  const context = vm.createContext({ console, require });
+  // The app's own engine module, next to it - loaded again for every checklist.
+  for (const path of job.fresh_modules || []) delete require.cache[fs.realpathSync(path)];
+  const context = vm.createContext({ console, require: createRequire(job.env_path) });
   try {
     vm.runInContext(source + shim, context, { filename: "practice_app.js" });
   } catch (e) {

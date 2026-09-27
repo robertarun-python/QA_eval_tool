@@ -12,7 +12,7 @@ import pytest
 from app import database as database_module
 from app.models import Scenario
 from app.services import llm_service
-from app.services.practice_app import checker, generator, service
+from app.services.practice_app import checker, engine_build, generator, service
 
 from .conftest import HR_EMAIL, HR_PASSWORD, _auth, _login, _publish_round4_scenario, _publish_scenario
 
@@ -40,7 +40,7 @@ def builds_dir(tmp_path, monkeypatch):
 def _fake_factory(monkeypatch, ok=True, approvable=False):
     calls = []
 
-    def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
+    def generate(title, description, cases, known_facts=None, progress=None, reuse=None, ai_allowed=True):
         calls.append({"title": title, "cases": cases, "known_facts": known_facts, "reuse": reuse})
         result = generator.PracticeAppResult(ok=ok, plan=PLAN, checklists=CHECKLISTS, env_code_by_language=dict(APP),
                                              ai_calls=5, reference_titles=[c["title"] for c in CHECKLISTS])
@@ -50,7 +50,7 @@ def _fake_factory(monkeypatch, ok=True, approvable=False):
         result.approvable = ok or approvable
         return result
 
-    monkeypatch.setattr(generator, "generate", generate)
+    monkeypatch.setattr(engine_build, "generate", generate)
     return calls
 
 
@@ -75,7 +75,7 @@ def test_status_starts_empty_and_lists_the_build_steps(client, monkeypatch, buil
     r1 = _r1(client, token, monkeypatch)
     data = client.get(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token)).json()
     assert data["status"] == "none" and data["cannot_start"] is None
-    assert data["steps"] == generator.STEPS
+    assert data["steps"] == engine_build.STEPS
     assert "$" not in json.dumps(data)  # HR isn't shown the cost
 
 
@@ -84,7 +84,7 @@ def test_progress_is_saved_step_by_step_while_building(client, monkeypatch, buil
     r1 = _r1(client, token, monkeypatch)
     seen = []
 
-    def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
+    def generate(title, description, cases, known_facts=None, progress=None, reuse=None, ai_allowed=True):
         for step, detail in [(0, ""), (3, "27 of 28 pass - fixing (round 1 of 2)")]:
             progress(step, detail)
             db = database_module.SessionLocal()
@@ -94,7 +94,7 @@ def test_progress_is_saved_step_by_step_while_building(client, monkeypatch, buil
                 db.close()
         return generator.PracticeAppResult(ok=False, error="stopped for the test")
 
-    monkeypatch.setattr(generator, "generate", generate)
+    monkeypatch.setattr(engine_build, "generate", generate)
     client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     assert [(d["status"], d["step"], d["step_detail"]) for d in seen] == [
         ("building", 0, ""), ("building", 3, "27 of 28 pass - fixing (round 1 of 2)")]
@@ -143,6 +143,29 @@ def test_approving_creates_the_paired_round2_scenario_and_puts_it_live(client, m
     assert round2.environment_json["fields"] == {"Test account email": "qa.patient.demo@testportal.io"}
     assert round2.ui_mockup_json == {"screens": [{"name": "Login", "elements": [
         {"type": "label", "text": "Email Address"}, {"type": "input", "text": ""}, {"type": "button", "text": "Log In"}]}]}
+
+
+def test_an_engine_built_apps_engine_file_goes_to_round2_and_runs_beside_the_candidates_code(client, monkeypatch, builds_dir):
+    """The engine file travels build -> approval -> Round 2 scenario, and the
+    candidate's Run places it next to their code (routers/candidate)."""
+    from app.routers import candidate as candidate_router
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch)
+    real = engine_build.generate
+    support = {"python": {"practice_engine.py": "X = 1"}}
+
+    def with_engine(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.support_by_language = support
+        return result
+    monkeypatch.setattr(engine_build, "generate", with_engine)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    round2 = _db_scenario(res.json()["round2_scenario_id"])
+    assert round2.config_json["environment_support_by_language"] == support
+    assert candidate_router._auto_environment_support(round2, "python") == {"practice_engine.py": "X = 1"}
+    assert candidate_router._auto_environment_support(round2, "java") == {}
 
 
 def test_a_design_without_usable_screens_shows_none():
@@ -384,3 +407,79 @@ def test_approval_is_refused_while_a_candidate_is_mid_round2(client, monkeypatch
     res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
     assert res.status_code == 400 and "middle of Round 2" in res.json()["detail"]
     assert _db_scenario(live_r2["id"]).is_live
+
+
+def test_approving_an_engine_built_app_puts_round2_on_the_real_environment(client, monkeypatch, builds_dir):
+    from pathlib import Path as _Path
+
+    from app.services import round2_typist
+    spec = json.loads((_Path(__file__).parent / "fixtures" / "practice_engine" / "library_spec.json").read_text())
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch)
+    real = engine_build.generate
+
+    def engine_plan(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.plan = {**result.plan, "engine_spec": spec}
+        return result
+    monkeypatch.setattr(engine_build, "generate", engine_plan)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    assert res.status_code == 200, res.text
+    round2 = _db_scenario(res.json()["round2_scenario_id"])
+    config = round2.config_json
+    assert config["practice_spec"] == spec
+    assert config["environment_code_by_language"] == round2_typist.STARTERS and config["environment_support_by_language"] == {}
+    panel = config["reference_panel"]
+    assert panel["app_name"] == spec["app_name"] and any(a["path"] == "/api/borrow-book" for a in panel["api"])
+    assert "No copies available" not in json.dumps(panel)
+    assert round2.ui_mockup_json is None  # the panel shows the real pages instead of a drawn sketch
+
+
+def _recorded_leave():
+    entry = json.loads((Path(__file__).parent / "fixtures/practice_engine/real_outputs/builds/r2_leave.json").read_text())
+    checklists = [{k: v for k, v in c.items() if k != "recorded_pass"} for c in entry["checklists"]]
+    return {"plan": {"engine_spec": entry["spec"]}, "checklists": checklists, "unsupported": []}, [c["title"] for c in checklists]
+
+
+def _leave_round1(client, monkeypatch, titles):
+    r1 = _r1(client, _hr(client), monkeypatch, title="Employee Leave Management")
+    db = database_module.SessionLocal()
+    try:
+        s = db.get(Scenario, r1["id"])
+        s.reference_json = [{"title": t, "priority": "Medium", "steps": "", "expected_result": ""} for t in titles]
+        db.commit()
+    finally:
+        db.close()
+    return r1
+
+
+def test_a_build_already_paid_for_installs_without_any_ai_call(client, monkeypatch, builds_dir):
+    """Measurement builds were paid for; installing one re-checks it with
+    today's engine in all three languages and must never call the AI."""
+    recorded, titles = _recorded_leave()
+    r1 = _leave_round1(client, monkeypatch, titles)
+    monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("the install called the AI"))
+    data = service.install_recorded(r1["id"], recorded)
+    assert (data["status"], data["working"], data["total"]) == ("ready", 12, 12)
+    assert service.approve(_db_scenario(r1["id"]), database_module.SessionLocal()).round_number == 2
+
+
+def test_a_recorded_build_covering_only_some_test_cases_is_not_ready(client, monkeypatch, builds_dir):
+    """This morning's builds used 12 of an older scenario's 25-28 test cases;
+    installed, they must say so rather than look complete."""
+    recorded, titles = _recorded_leave()
+    r1 = _leave_round1(client, monkeypatch, titles + [f"Extra case {n}" for n in range(12)])
+    monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("the install called the AI"))
+    data = service.install_recorded(r1["id"], recorded)
+    assert (data["status"], data["working"], data["total"]) == ("not_ready", 12, 24)
+
+
+def test_a_recorded_build_that_no_longer_checks_out_is_refused_plainly(client, monkeypatch, builds_dir):
+    recorded, titles = _recorded_leave()
+    recorded["plan"]["engine_spec"] = {"app_name": "broken"}
+    r1 = _leave_round1(client, monkeypatch, titles)
+    monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("the install called the AI"))
+    data = service.install_recorded(r1["id"], recorded)
+    assert data["status"] == "failed" and "no longer pass today's checks" in data["error"]

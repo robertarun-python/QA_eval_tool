@@ -158,7 +158,14 @@ public class PracticeRunner {
         String[] parts = target.split("\\.");
         String className = "Main";
         for (int i = 0; i < parts.length - 1; i++) className += "$" + parts[i];
-        Class<?> owner = Class.forName(className, true, loader);
+        Class<?> owner;
+        try {
+            owner = Class.forName(className, true, loader);
+        } catch (ClassNotFoundException e) {
+            // An engine-built app: its helper groups are top-level classes (UI, API...) next to Main.
+            if (parts.length < 2) throw e;
+            owner = Class.forName(String.join("$", java.util.Arrays.copyOf(parts, parts.length - 1)), true, loader);
+        }
         String name = parts[parts.length - 1];
         for (Method m : owner.getDeclaredMethods()) {
             if (!(m.getName().equals(name) || m.getName().equals(camel(name)))) continue;

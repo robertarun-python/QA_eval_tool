@@ -1,0 +1,319 @@
+"""
+The practice-app engine (services/practice_engine): a scenario description
+runs on one proven runtime, and the generated file keeps the shape checker.py
+and candidate execution rely on. Checked here through the real checker with
+checklists for the Library app's Round 1 test cases. No AI calls.
+"""
+import json
+from pathlib import Path
+
+import pytest
+
+from app.services.practice_app import checker
+from app.services.practice_engine import render
+
+SPEC = json.loads((Path(__file__).parent / "fixtures" / "practice_engine" / "library_spec.json").read_text())
+LOGIN = [{"call": "setup"}, {"call": "UI.login", "args": ["testuser@library.test", "Test@123"], "expect": True}]
+
+
+RENDER = {lang: (lambda spec, lang=lang: render.files(spec, lang)) for lang in render.LANGUAGES}
+
+
+def _inspect(language, spec, checklists):
+    """Runs checklists against the app exactly as candidates get it: their file plus the engine file next to it."""
+    candidate, support = RENDER[language](spec)
+    return checker.inspect({language: candidate}, checklists, {language: support})
+
+
+@pytest.fixture(params=sorted(RENDER), autouse=True)
+def language(request):
+    return request.param
+
+
+def _one(steps, language=None):
+    """Runs one checklist in the language under test - every engine test runs in every language."""
+    language = language or _LANGUAGE[0]
+    report = _inspect(language, SPEC, [{"id": "c", "title": "c", "steps": steps}])
+    lang = report.languages[language]
+    assert lang.error is None, lang.error
+    result = lang.results[0]
+    assert result.passed, f"[{language}] {result.failures}"
+
+
+_LANGUAGE = ["python"]
+
+
+@pytest.fixture(autouse=True)
+def _current_language(language):
+    _LANGUAGE[0] = language
+
+
+def test_login_valid_invalid_empty_and_blocked():
+    _one(LOGIN + [{"call": "UI.current_page", "expect": "Home"}, {"call": "UI.signed_in_user", "expect": "Test User"}])
+    _one([{"call": "setup"}, {"call": "UI.login", "args": ["testuser@library.test", "wrong"], "expect": False},
+          {"call": "UI.visible_message", "expect": "Invalid email or password"}, {"call": "UI.current_page", "expect": "Login"}])
+    _one([{"call": "setup"}, {"call": "UI.login", "args": ["", "x"], "expect": False}, {"call": "UI.visible_message", "expect": "Email is required"}])
+    _one([{"call": "setup"}, {"call": "UI.login", "args": ["blocked@library.test", "Block@123"], "expect": False},
+          {"call": "UI.visible_message", "expect": "Your membership is suspended"}])
+    _one([{"call": "setup"}, {"call": "API.login", "args": ["TESTUSER@library.test", "Test@123"], "expect_includes": {"ok": True, "user": "Test User"}}])
+
+
+def test_search_partial_case_insensitive_no_results_blank_and_long():
+    search = LOGIN + [{"call": "UI.open", "args": ["Search"], "expect": True}]
+    _one(search + [{"call": "UI.search_books", "args": ["fitzgerald"], "expect": [
+        {"id": "BK-001", "title": "The Great Gatsby", "author": "F. Scott Fitzgerald", "isbn": "978-0-7432-7356-5", "available_copies": 3},
+        {"id": "BK-006", "title": "This Side of Paradise", "author": "F. Scott Fitzgerald", "isbn": "978-0-684-84248-6", "available_copies": 2}]}])
+    _one(search + [{"call": "UI.search_books", "args": ["zzz"], "expect": []}, {"call": "UI.visible_message", "expect": "No books found"}])
+    _one(search + [{"call": "UI.search_books", "args": ["  "], "expect": []}, {"call": "UI.visible_message", "expect": "Please enter a title, author or ISBN"}])
+    _one(search + [{"call": "UI.search_books", "args": ["x" * 101], "expect": []},
+                   {"call": "UI.visible_message", "expect": "Search text must be 100 characters or fewer"}])
+    _one(search + [{"call": "UI.search_books", "args": ["' OR 1=1 --"], "expect": []}])  # injection text is just text
+
+
+def test_borrow_updates_stock_creates_a_loan_with_the_due_date_and_emails():
+    _one(LOGIN + [
+        {"call": "UI.open", "args": ["Search"]},
+        {"call": "UI.open_book", "args": ["BK-001"], "expect_includes": {"available_copies": 3}},
+        {"call": "UI.current_page", "expect": "Book Details"},
+        {"call": "UI.borrow_book", "args": ["BK-001"], "expect": True},
+        {"call": "UI.visible_message", "expect": "Book borrowed successfully. Due date: 24-Feb-2024"},
+        {"call": "UI.current_page", "expect": "Borrow Confirmation"},
+        {"call": "UI.last_result", "expect": {"loan_id": "LN-006", "due_on": "2024-02-24"}},
+        {"call": "Database.get_book", "args": ["BK-001"], "expect_includes": {"available_copies": 2}},
+        {"call": "Database.get_loan", "args": ["LN-006"], "expect_includes": {"member": "testuser@library.test", "status": "Borrowed"}},
+        {"call": "Database.outbox", "expect": [{"channel": "email", "to": "testuser@library.test", "subject": "Borrowed: The Great Gatsby"}]},
+    ])
+
+
+def test_refusals_change_nothing():
+    _one(LOGIN + [{"call": "UI.open", "args": ["Search"]}, {"call": "UI.open_book", "args": ["BK-002"]},
+                  {"call": "UI.borrow_book", "args": ["BK-002"], "expect": False},
+                  {"call": "UI.visible_message", "expect": "No copies available"},
+                  {"call": "Database.count_loan", "expect": 5}])
+    _one([{"call": "setup"}, {"call": "UI.login", "args": ["maxuser@library.test", "Max@123"]},
+          {"call": "UI.open", "args": ["Search"]}, {"call": "API.borrow_book", "args": ["BK-003"],
+                                                   "expect_includes": {"ok": False, "error": "You have already borrowed this book"}},
+          {"call": "API.borrow_book", "args": ["BK-002"], "expect_includes": {"ok": False, "error": "No copies available"}}])
+    _one(LOGIN + [{"call": "Test.simulate", "args": ["network_down"]},
+                  {"call": "API.borrow_book", "args": ["BK-001"], "expect_includes": {"ok": False, "error": "Network error. Please try again."}},
+                  {"call": "Database.get_book", "args": ["BK-001"], "expect_includes": {"available_copies": 3}}])
+
+
+def test_limit_boundary_return_and_borrow_again():
+    _one([{"call": "setup"}, {"call": "UI.login", "args": ["maxuser@library.test", "Max@123"]},
+          {"call": "API.borrow_book", "args": ["BK-002"], "expect_includes": {"ok": False}},
+          {"call": "UI.open", "args": ["My Books"]},
+          {"call": "UI.my_loans", "save_as": "loans"},
+          {"call": "UI.return_book", "args": [{"ref": "loans.0.id"}], "expect": True},
+          {"call": "UI.visible_message", "expect": "Book returned successfully"},
+          {"call": "Database.get_book", "args": ["BK-003"], "expect_includes": {"available_copies": 5}},
+          {"call": "API.borrow_book", "args": ["BK-003"], "expect_includes": {"ok": True, "loan_id": "LN-006"}},
+          {"call": "API.borrow_book", "args": ["BK-001"], "expect_includes": {"ok": False, "error": "You have already borrowed this book"}}])
+
+
+def test_session_expiry_and_login_required():
+    _one([{"call": "setup"}, {"call": "UI.open", "args": ["Search"], "expect": False}, {"call": "UI.visible_message", "expect": "Please log in first"}])
+    _one(LOGIN + [{"call": "Test.advance_minutes", "args": [31]}, {"call": "UI.open", "args": ["Search"], "expect": False},
+                  {"call": "UI.visible_message", "expect": "Your session has expired. Please log in again."},
+                  {"call": "UI.current_page", "expect": "Login"}])
+
+
+def test_actions_only_on_their_page_and_teardown_removes_what_a_test_created():
+    _one(LOGIN + [{"call": "UI.borrow_book", "args": ["BK-001"], "expect": False},
+                  {"call": "UI.visible_message", "expect": "Borrow is not available on this page"}])
+    _one(LOGIN + [{"call": "API.borrow_book", "args": ["BK-001"], "save_as": "r"},
+                  {"call": "teardown", "args": [{"ref": "r.loan_id"}]},
+                  {"call": "Database.count_loan", "expect": 5},
+                  {"call": "teardown", "args": ["LN-001"]},  # seed data is never removed
+                  {"call": "Database.count_loan", "expect": 5}])
+
+
+SIGNATURES = {"python": "UI.borrow_book(book_id)", "javascript": "UI.borrowBook(bookId)", "java": "boolean UI.borrowBook(Object bookId)"}
+
+
+def test_the_candidate_file_is_short_documents_every_helper_and_holds_no_answers(language):
+    candidate, support = RENDER[language](SPEC)
+    assert "testuser@library.test / Test@123 (Test User)" in candidate and "network_down" in candidate
+    assert SIGNATURES[language] in candidate and "TODO: write your automated test(s) below" in candidate
+    # The Round 2 assistant returns the whole file on every turn - it must stay small.
+    assert len(candidate) < 9000, len(candidate)
+    # The app's rules, messages and other data live in the engine file only.
+    for hidden in ("No copies available", "BK-002", "You have reached your borrowing limit"):
+        assert hidden not in candidate and hidden in "".join(support.values())
+
+
+# ---- one behaviour in every language: the values that most often differ between languages
+CALC = {
+    "app_name": "Calculator", "base_url": "https://calc.example.test", "now": "2024-02-10T10:00",
+    "pages": ["Home"], "home_page": "Home",
+    "entities": {"Txn": {"key": "id", "fields": {"id": "string", "amount": "money"}}},
+    "data": {"Txn": [{"id": "T1", "amount": 0.1}, {"id": "T2", "amount": 0.2}, {"id": "T3", "amount": 1234.555}]},
+    "actions": [{"name": "calc", "inputs": [{"name": "text"}], "returns": {
+        "round_2675": {"round": 2.675}, "round_1005": {"round": [1.005, 2]}, "round_0": {"round": [2.5, 0]},
+        "tenth_times_3": {"mul": [0.1, 3]}, "ten_by_4": {"div": [10, 4]}, "sum": {"sum": {"entity": "Txn", "field": "amount"}},
+        "inr": {"format_money": [1234567.5, "INR"]}, "usd": {"format_money": [1234567.5, "USD"]},
+        "neg": {"format_money": [-50, "INR"]}, "small": {"format_money": [999, "INR"]}, "gbp": {"format_money": [0.005, "GBP"]},
+        "leap": {"format_date": ["2024-02-29", "DD-Mon-YYYY"]}, "us": {"format_date": ["2024-02-09", "MM/DD/YYYY"]},
+        "month_end": {"add_months": ["2024-01-31", 1]}, "year_end": {"add_days": ["2024-12-31", 1]},
+        "between": {"days_between": ["2024-01-01", "2024-03-01"]}, "today": {"today": True},
+        "text": {"format": ["{a} and {b}", {"a": {"div": [10, 4]}, "b": 3}]}, "concat": {"concat": ["x", 2.5, True, None]},
+        "upper": {"upper": {"input": "text"}}, "length": {"length": {"input": "text"}},
+        "trim": {"trim": "  a b  "}, "ordered": {"lt": ["apple", "banana"]}, "digits": {"matches": ["١٢", "\\d+"]},
+        "word": {"matches": [{"input": "text"}, "\\w+"]}, "upper_zero": {"upper": 0}, "lower_money": {"lower": 2.5}, "len_money": {"length": 2.5}, "len_none": {"length": None}, "trim_none": {"trim": None},
+        "monthly_rate": {"div": [{"div": [10.5, 12]}, 100]}, "emi_factor": {"round": [{"mul": [100000, {"div": [10.5, 1200]}]}, 2]},
+        "money_text": {"format": ["{m}", {"m": 1234.855}]}, "weekday": {"weekday": "2024-03-16"}, "working": {"working_days": ["2024-03-15", "2024-03-18"]},
+        "time": {"time": "2024-03-15T16:05"}, "between_min": {"minutes_between": ["2024-03-15T10:00", "2024-03-17T09:30"]},
+        "seats": {"split": [" A1, A2 ,,A3 ", ","]}, "dupes": {"occurrences": [{"split": ["A1,a1,B2", ","]}, "A1"]}}}],
+}
+CALC_EXPECT = {
+    "ok": True, "round_2675": 2.68, "round_1005": 1.01, "round_0": 3, "tenth_times_3": 0.3, "ten_by_4": 2.5, "sum": 1234.855,
+    "inr": "₹12,34,567.50", "usd": "$1,234,567.50", "neg": "-₹50.00", "small": "₹999.00", "gbp": "£0.01",
+    "leap": "29-Feb-2024", "us": "02/09/2024", "month_end": "2024-02-29", "year_end": "2025-01-01", "between": 60, "today": "2024-02-10",
+    "text": "2.50 and 3", "concat": "x2.50true", "upper": "STRASSE\U0001F600", "length": 7, "trim": "a b", "ordered": True,
+    "digits": False, "word": False, "upper_zero": "0", "lower_money": "2.50", "len_money": 4, "len_none": 0, "trim_none": "", "monthly_rate": 0.00875, "emi_factor": 875, "money_text": "1234.86", "weekday": "Sat", "working": 2,
+    "time": "16:05", "between_min": 2850, "seats": ["A1", "A2", "A3"], "dupes": 2,
+}
+
+
+def test_numbers_money_dates_and_text_are_identical_in_every_language(language):
+    report = _inspect(language, CALC, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"}, {"call": "API.calc", "args": ["straße\U0001F600"], "expect_includes": CALC_EXPECT}]}])
+    lang = report.languages[language]
+    assert lang.error is None, lang.error
+    assert lang.results[0].passed, f"[{language}] {lang.results[0].failures}"
+
+
+def test_a_check_can_compare_with_a_value_saved_earlier():
+    """Measured 2026-09-27: 'the loan count is unchanged' was written as
+    expect {"ref": "before"} and failed a correct app; the Doctor build's
+    checklists invented steps that called nothing to do such comparisons."""
+    _one(LOGIN + [{"call": "Database.count_loan", "save_as": "before"},
+                  {"call": "UI.open", "args": ["Search"]}, {"call": "UI.open_book", "args": ["BK-002"]},
+                  {"call": "UI.borrow_book", "args": ["BK-002"], "expect": False},
+                  {"call": "Database.count_loan", "expect": {"ref": "before"}},
+                  {"call": "Database.get_book", "args": ["BK-002"], "save_as": "book"},
+                  {"check": {"ref": "book.available_copies"}, "expect": 0},
+                  {"call": "Database.get_book", "args": ["BK-002"], "expect_includes": {"title": {"ref": "book.title"}}}])
+
+
+def test_a_check_against_a_wrong_saved_value_fails():
+    report = _inspect(_LANGUAGE[0], SPEC, [{"id": "c", "title": "c", "steps": LOGIN + [
+        {"call": "Database.count_loan", "save_as": "before"}, {"call": "Database.count_book", "expect": {"ref": "before"}}]}])
+    assert not report.languages[_LANGUAGE[0]].results[0].passed
+
+
+def test_a_value_a_check_step_saved_can_be_passed_to_the_app_in_every_language():
+    """Measured (FASTag build): a check step saved an id under a new name and a
+    later step passed it to the app - Python's runner crashed, JavaScript's used null."""
+    _one(LOGIN + [{"call": "Database.all_book", "save_as": "books"},
+                  {"check": {"ref": "books.0.id"}, "save_as": "first_id"},
+                  {"call": "UI.open", "args": ["Search"]},
+                  {"call": "UI.open_book", "args": [{"ref": "first_id"}], "expect_includes": {"id": "BK-001"}}])
+
+
+BILLS = {
+    "app_name": "Power", "base_url": "https://power.example.test", "now": "2024-03-20T10:00", "pages": ["Home"], "home_page": "Home",
+    "entities": {"Consumer": {"key": "number", "fields": {"number": "string", "status": "string"}},
+                 "Bill": {"key": "id", "fields": {"id": "string", "consumer": "string", "amount": "money", "due": "date"}}},
+    "data": {"Consumer": [{"number": "1234567890", "status": "Active"}, {"number": "9876543210", "status": "Disconnected"}],
+             "Bill": [{"id": "B1", "consumer": "1234567890", "amount": 1845.5, "due": "2024-03-15"},
+                      {"id": "B2", "consumer": "9876543210", "amount": 500, "due": "2024-03-30"}]},
+    "queries": [{"name": "fetch_bill", "entity": "Bill", "inputs": [{"name": "consumer_number"}],
+                 "load": [{"as": "consumer", "entity": "Consumer", "key": {"input": "consumer_number"}, "missing": "No bill found for this consumer number"}],
+                 "rules": [{"when": {"eq": [{"field": "consumer.status"}, "Disconnected"]}, "message": "This connection is disconnected"}],
+                 "where": {"eq": [{"field": "row.consumer"}, {"field": "consumer.number"}]},
+                 "show": ["id", "amount", {"name": "late_fee", "value": {"if": [{"gt": [{"today": True}, {"field": "row.due"}]},
+                                                                           {"round": [{"mul": [{"field": "row.amount"}, 0.02]}, 2]}, 0]}}]}],
+}
+
+
+def test_a_lookup_can_load_a_related_record_for_its_rules_and_columns():
+    """Measured (Bill build): 'fetch the bill for this consumer, refuse a disconnected one, add the late fee'."""
+    lang = _LANGUAGE[0]
+    report = _inspect(lang, BILLS, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"},
+        {"call": "API.fetch_bill", "args": ["1234567890"], "expect": {"ok": True, "error": None, "result": [{"id": "B1", "amount": 1845.5, "late_fee": 36.91}], "message": None}},
+        {"call": "API.fetch_bill", "args": ["9876543210"], "expect_includes": {"ok": False, "error": "This connection is disconnected"}},
+        {"call": "API.fetch_bill", "args": ["1111111111"], "expect_includes": {"ok": False, "error": "No bill found for this consumer number"}}]}])
+    result = report.languages[lang].results[0]
+    assert report.languages[lang].error is None and result.passed, result.failures
+
+
+CHECKOUT = {
+    "app_name": "Shop", "base_url": "https://shop.example.test", "now": "2024-03-20T10:00", "pages": ["Login", "Home"], "home_page": "Home",
+    "entities": {"User": {"key": "email", "fields": {"email": "string", "password": "string", "locked_until": "datetime", "used": "string"}},
+                 "Order": {"key": "id", "id_format": "OR-{n:03}", "fields": {"id": "string", "total": "money"}}},
+    "data": {"User": [{"email": "a@s.test", "password": "A@1", "locked_until": None, "used": "SAVE10,FLAT200"}], "Order": []},
+    "users": {"entity": "User", "blocked_when": {"lt": [{"now": True}, {"field": "user.locked_until"}]}},
+    "actions": [{"name": "checkout", "inputs": [{"name": "subtotal"}, {"name": "coupon"}],
+                 "load": [{"as": "me", "entity": "User", "key": {"user": "email"}, "missing": "No user"}],
+                 "compute": [{"name": "discount", "value": {"if": [{"eq": [{"input": "coupon"}, "SAVE10"]}, {"round": [{"mul": [{"input": "subtotal"}, 0.1]}, 2]}, 0]}},
+                             {"name": "taxable", "value": {"sub": [{"input": "subtotal"}, {"var": "discount"}]}},
+                             {"name": "gst", "value": {"round": [{"mul": [{"var": "taxable"}, 0.18]}, 2]}},
+                             {"name": "total", "value": {"add": [{"var": "taxable"}, {"var": "gst"}]}}],
+                 "rules": [{"when": {"contains": [{"split": [{"field": "me.used"}, ","]}, {"input": "coupon"}]}, "message": "Coupon already used"},
+                           {"when": {"ends_with": [{"input": "coupon"}, "X"]}, "message": "Bad coupon"}],
+                 "effects": [{"create": {"entity": "Order", "as": "o", "values": {"total": {"var": "total"}}}}],
+                 "message": {"format": ["Total {t}", {"t": {"var": "total"}}]}, "returns": {"total": {"var": "total"}, "gst": {"var": "gst"}}}],
+}
+
+
+def test_named_values_contains_and_missing_values_behave_the_same_in_every_language():
+    """Measured gaps: checkout totals need named intermediate values (Shop), a value in a list/text
+    (Bus, Security), and a comparison with an empty 'locked until' crashed sign-in (Security)."""
+    lang = _LANGUAGE[0]
+    report = _inspect(lang, CHECKOUT, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"}, {"call": "UI.login", "args": ["a@s.test", "A@1"], "expect": True},
+        {"call": "API.checkout", "args": [2998, "WELCOME"], "expect": {"ok": True, "error": None, "message": "Total 3537.64", "total": 3537.64, "gst": 539.64}},
+        {"call": "API.checkout", "args": [2998, "SAVE20"], "expect_includes": {"ok": True, "total": 3537.64}},
+        {"call": "API.checkout", "args": [2998, "FLAT200"], "expect_includes": {"ok": False, "error": "Coupon already used"}},
+        {"call": "API.checkout", "args": [2998, "TAX"], "expect_includes": {"ok": False, "error": "Bad coupon"}},
+        {"call": "Database.count_order", "expect": 2}]}])
+    result = report.languages[lang].results[0]
+    assert report.languages[lang].error is None and result.passed, result.failures
+
+
+def _i(name):
+    return {"input": name}
+
+
+EVERYDAY = {
+    "app_name": "Calc", "base_url": "https://calc.example.test", "now": "2024-03-20T10:00", "pages": ["Home"], "home_page": "Home",
+    "entities": {"Note": {"key": "id", "fields": {"id": "string"}}}, "data": {"Note": []},
+    "actions": [{"name": "calc", "inputs": [{"name": "a"}, {"name": "b"}, {"name": "text"}, {"name": "born"}, {"name": "on"}],
+                 "compute": [{"name": "r", "value": {"div": [10.5, 1200]}}, {"name": "f", "value": {"pow": [{"add": [1, {"var": "r"}]}, 240]}}],
+                 "effects": [], "message": "done",
+                 "returns": {"min": {"min": [_i("a"), _i("b")]}, "max": {"max": [_i("a"), _i("b")]}, "mod": {"mod": [_i("a"), _i("b")]},
+                             "abs": {"abs": _i("a")}, "floor": {"floor": _i("a")}, "ceil": {"ceil": _i("a")},
+                             "pow0": {"pow": [_i("a"), 0]}, "pow3": {"pow": [_i("a"), 3]},
+                             "last4": {"slice": [_i("text"), -4]}, "mid": {"slice": [_i("text"), 1, 3]}, "far": {"slice": [_i("text"), 50]},
+                             "head": {"slice": [_i("text"), -100, 2]}, "age": {"years_between": [_i("born"), _i("on")]}, "day": {"date": {"now": True}},
+                             "emi": {"round": [{"div": [{"mul": [{"mul": [500000, {"var": "r"}]}, {"var": "f"}]}, {"sub": [{"var": "f"}, 1]}]}, 2]},
+                             "masked": {"concat": ["XXXX-", {"slice": [_i("text"), -4]}]}}}],
+}
+
+
+def _calc(a, b, text, born, on, **expected):
+    return {"call": "API.calc", "args": [a, b, text, born, on], "expect": {"ok": True, "error": None, "message": "done", "day": "2024-03-20",
+                                                                          "pow0": 1, "emi": 4991.9, **expected}}
+
+
+def test_everyday_rule_words_give_the_same_answer_in_every_language():
+    """Predicted, not yet met in a paid build: the words the AI reached for
+    ("let") were missing from the format, and the same happens with a discount
+    cap (min), an EMI (pow), a masked card (slice), an age (years_between).
+    EMI of 5,00,000 at 10.5% for 240 months is 4991.8994 exactly -> 4991.90."""
+    lang = _LANGUAGE[0]
+    report = _inspect(lang, EVERYDAY, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"},
+        _calc(-7, 3, "4111111111111234", "2006-03-21", "2024-03-20", min=-7, max=3, mod=2, abs=7, floor=-7, ceil=-7, pow3=-343,
+              last4="1234", mid="11", far="", head="41", age=17, masked="XXXX-1234"),
+        _calc(7.5, 2, "héllo😀ab", "2004-02-29", "2024-02-28", min=2, max=7.5, mod=1.5, abs=7.5, floor=7, ceil=8, pow3=421.875,
+              last4="o😀ab", mid="él", far="", head="hé", age=19, masked="XXXX-o😀ab"),
+        _calc(-2.5, 0.1, "ab", "2006-03-20", "2024-03-20", min=-2.5, max=0.1, mod=0, abs=2.5, floor=-3, ceil=-2, pow3=-15.625,
+              last4="ab", mid="b", far="", head="ab", age=18, masked="XXXX-ab"),
+        {"call": "API.calc", "args": [2, 0, "x", "2024-03-20", "2006-03-20"], "expect_includes": {"ok": False, "error": "Cannot divide by zero"}},
+        # 1e300 cubed is beyond any number: the same refusal everywhere, never a crash or "Infinity"
+        {"call": "API.calc", "args": [1e300, 2, "x", "2024-03-20", "2006-03-20"], "expect_includes": {"ok": False, "error": "That number is too large"}}]}])
+    result = report.languages[lang].results[0]
+    assert report.languages[lang].error is None and result.passed, result.failures

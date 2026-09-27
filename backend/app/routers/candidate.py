@@ -33,7 +33,8 @@ from ..schemas import (
     Round2AutomationSubmitCreate, Round2AutomationTCSubmitEntry, Round2AutomationRunOut, Round2AutomationTCStateOut,
 )
 from ..dependencies import require_candidate
-from ..services import llm_service, execution_service, round_scenarios
+from ..services import llm_service, execution_service, round_scenarios, round2_typist
+from ..services.practice_engine import practice_run
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
@@ -705,6 +706,22 @@ def _auto_environment_code(scenario: Scenario, language: str) -> str:
     return llm_service._load_prompt(_AUTO_LANGUAGE_HELPER_FILES[language])
 
 
+def _practice_spec(scenario: Scenario) -> dict | None:
+    """The scenario description of a Round 2 built on the real practice
+    environment (practice_engine.server) - None for older practice apps. It
+    switches on the typing assistant and the environment Run."""
+    spec = (scenario.config_json or {}).get("practice_spec")
+    return spec if isinstance(spec, dict) else None
+
+
+def _auto_environment_support(scenario: Scenario, language: str) -> dict[str, str]:
+    """Files placed next to the candidate's code when it runs - an
+    engine-built practice app's engine (practice_app.service.approve); none
+    for older practice apps, which are one self-contained file."""
+    support = ((scenario.config_json or {}).get("environment_support_by_language") or {}).get(language) or {}
+    return {str(k): str(v) for k, v in support.items()} if isinstance(support, dict) else {}
+
+
 def _ensure_auto_content(scenario: Scenario, submission: Submission, candidate: User, db: Session) -> dict:
     """Seeds this submission's automation state on first access - /round/2/start
     is shared with the other round 2 flows and knows nothing about this mode.
@@ -785,6 +802,7 @@ def _build_auto_state(scenario: Scenario, submission: Submission, candidate: Use
         environment_code=_auto_environment_code(scenario, language) if language else "",
         environment=scenario.environment_json,
         ui_mockup=scenario.ui_mockup_json,
+        reference_panel=(scenario.config_json or {}).get("reference_panel") if _practice_spec(scenario) is not None else None,
         tc_state=[_auto_tc_state_out(r) for r in selected],
     )
 
@@ -1033,10 +1051,27 @@ def _state_fingerprint(row: dict) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
+_FILLER_WORDS = {"please", "pls", "can", "could", "would", "you", "the", "a", "an", "to", "and", "me", "for", "it", "this", "that", "just",
+                 "now", "again", "again,", "i", "want", "need", "kindly", "ok", "okay", "so", "then", "of", "my", "is", "are", "be"}
+_EXACT_VALUE_RE = re.compile(r"""["'][^"']*["']|\d+(?:\.\d+)?|[\w.+-]+@[\w.-]+""")
+
+
 def _same_message(a: str | None, b: str | None) -> bool:
+    """The same request again, even reworded ("write code to log in" / "please
+    write the code to log in again"): the same exact values (numbers, quoted
+    text, emails) and nearly the same meaningful words. A changed value
+    ("balance is 500" -> "600") is always a new request."""
     def norm(t: str | None) -> str:
         return " ".join((t or "").lower().split()).strip(" .!?")
-    return bool(norm(a)) and norm(a) == norm(b)
+    if not norm(a) or not norm(b):
+        return False
+    if norm(a) == norm(b):
+        return True
+    if sorted(_EXACT_VALUE_RE.findall(norm(a))) != sorted(_EXACT_VALUE_RE.findall(norm(b))):
+        return False
+    words = [{w.strip(".,!?;:") for w in norm(t).split()} - _FILLER_WORDS - {""} for t in (a, b)]
+    union = words[0] | words[1]
+    return bool(union) and len(words[0] & words[1]) / len(union) >= 0.8
 
 
 @router.post("/round/2/auto/turn", response_model=Round2AutomationTurnOut, status_code=201)
@@ -1077,6 +1112,13 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
         {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind")} for t in turns
     ]
     language = content.get("language", "python")
+    if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
+        try:
+            response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt)
+        except Exception:
+            traceback.print_exc()
+            raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
+        return _record_round2_turn(submission, content, selected, row, turns, payload.candidate_prompt, db, response)
     environment_code = _auto_environment_code(scenario, language)
     is_first_generation = not _tc_is_unlocked(row)
 
@@ -1120,9 +1162,9 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
                     current_code=row.get("code", ""),
                     conversation_so_far=conversation_so_far,
                     candidate_prompt=payload.candidate_prompt,
-                    # No planted flaw when the language can't run here: the
-                    # candidate could only catch it by running the test.
-                    inject_flaw=execution_service.toolchain_available(language),
+                    # No planted flaw (owner decision 2026-09-27): the candidate's own
+                    # instructions and mistakes are what is assessed.
+                    inject_flaw=False,
                 )
         else:
             response = llm_service.round2_automation_turn(
@@ -1272,9 +1314,19 @@ def round2_automation_run(
     content = _apply_tc_code_edit(submission, content, db, row_index, payload.code if payload else None)
     row = _resolve_tc_row(content.get("selected") or [], row_index)
 
-    result = execution_service.run_code(
-        language=content.get("language", "python"), code=row.get("code", ""), stdin=[],
-    )
+    language = content.get("language", "python")
+    spec = _practice_spec(scenario)
+    if spec is not None:  # the real practice environment: fresh app, browser, API, database
+        try:
+            result = practice_run.run(language, row.get("code", ""), spec)
+        except practice_run.EnvironmentUnavailable:
+            traceback.print_exc()
+            result = execution_service.ExecutionResult(stdout="", stderr="", exit_code=None, timed_out=False, infra_error=True)
+    else:
+        result = execution_service.run_code(
+            language=language, code=row.get("code", ""), stdin=[],
+            support_files=_auto_environment_support(scenario, language),
+        )
     last_run = {
         "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.exit_code,
         "timed_out": result.timed_out, "infra_error": result.infra_error,
@@ -1282,6 +1334,7 @@ def round2_automation_run(
         # and simply discarded before now; ran_at is stamped here since
         # run_code itself has no reason to know wall-clock time.
         "duration_ms": result.duration_ms, "ran_at": datetime.utcnow().isoformat(),
+        "status": round2_typist.run_status(result.exit_code, result.stdout, result.timed_out, result.infra_error),
     }
     selected = content.get("selected") or []
     updated_selected = [{**r, "last_run": last_run} if r["index"] == row_index else r for r in selected]

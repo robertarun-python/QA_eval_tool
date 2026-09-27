@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import database
 from .models import Scenario
-from .services.practice_app import generator
+from .services.practice_app import engine_build, generator
 
 _EXTENSIONS = {"python": "py", "javascript": "js", "java": "java"}
 
@@ -48,17 +48,19 @@ def main(argv=None) -> int:
 
     print(f"Round 1 scenario: {title} ({len(cases)} reference test cases)")
     if not args.yes:
-        print("This makes paid AI calls (typically 5, at most about 11). Re-run with --yes to go ahead.")
+        print("This makes paid AI calls (typically 2, at most about 8). Re-run with --yes to go ahead.")
         return 1
 
     started = time.monotonic()
-    result = generator.generate(title, description, cases)
+    result = engine_build.generate(title, description, cases)
     minutes = (time.monotonic() - started) / 60
 
     out = args.out or Path("practice_app_builds") / f"{args.round1_scenario}_{datetime.now():%Y%m%d_%H%M%S}"
     out.mkdir(parents=True, exist_ok=True)
     for language, code in result.env_code_by_language.items():
         (out / f"practice_app.{_EXTENSIONS[language]}").write_text(code, encoding="utf-8")
+        for name, support in result.support_by_language.get(language, {}).items():
+            (out / name).write_text(support, encoding="utf-8")
     (out / "design.json").write_text(json.dumps(result.plan, indent=1, ensure_ascii=False), encoding="utf-8")
     (out / "checklists.json").write_text(json.dumps(result.checklists, indent=1, ensure_ascii=False), encoding="utf-8")
     (out / "coverage.json").write_text(json.dumps(result.coverage(), indent=1, ensure_ascii=False), encoding="utf-8")

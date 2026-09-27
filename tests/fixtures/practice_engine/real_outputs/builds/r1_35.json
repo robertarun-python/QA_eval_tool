@@ -1,0 +1,1454 @@
+{
+ "label": "r1_35",
+ "title": "Beneficiary Management",
+ "recorded": "12/12",
+ "spec": {
+  "app_name": "Beneficiary Management System",
+  "base_url": "https://beneficiary.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "User": {
+    "key": "account_id",
+    "fields": {
+     "account_id": "string",
+     "password": "string",
+     "name": "string",
+     "status": "string"
+    }
+   },
+   "Beneficiary": {
+    "key": "id",
+    "id_format": "BEN-{n:03}",
+    "fields": {
+     "id": "string",
+     "user_account": "string",
+     "name": "string",
+     "account_number": "string",
+     "ifsc": "string",
+     "account_type": "string",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "account_id": "USER001",
+     "password": "Pass@123",
+     "name": "Test User",
+     "status": "Active"
+    }
+   ],
+   "Beneficiary": [
+    {
+     "id": "BEN-001",
+     "user_account": "USER001",
+     "name": "Existing Beneficiary",
+     "account_number": "1234567890123456",
+     "ifsc": "SBIN0001234",
+     "account_type": "Savings",
+     "status": "Active"
+    },
+    {
+     "id": "BEN-002",
+     "user_account": "USER001",
+     "name": "Test User",
+     "account_number": "9999888877776666",
+     "ifsc": "HDFC0001122",
+     "account_type": "Savings",
+     "status": "Active"
+    },
+    {
+     "id": "BEN-003",
+     "user_account": "USER001",
+     "name": "Pending User",
+     "account_number": "1111222233334444",
+     "ifsc": "ICIC0001234",
+     "account_type": "Current",
+     "status": "Pending Approval"
+    },
+    {
+     "id": "BEN-004",
+     "user_account": "USER001",
+     "name": "Active User",
+     "account_number": "5544332211009988",
+     "ifsc": "AXIS0001234",
+     "account_type": "Savings",
+     "status": "Active"
+    }
+   ]
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "account_id",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Account ID is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid account ID or password",
+    "blocked": "Your account is blocked",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Beneficiary Management",
+   "Add Beneficiary",
+   "OTP Verification",
+   "Beneficiary List",
+   "Fund Transfer",
+   "Delete Confirmation"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "list_beneficiaries",
+    "label": "Beneficiary List",
+    "page": "Beneficiary List",
+    "entity": "Beneficiary",
+    "where": {
+     "eq": [
+      {
+       "field": "row.user_account"
+      },
+      {
+       "user": "account_id"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "account_number",
+     "ifsc",
+     "account_type",
+     "status"
+    ]
+   },
+   {
+    "name": "get_beneficiary",
+    "label": "Get Beneficiary",
+    "entity": "Beneficiary",
+    "key_input": "beneficiary_id",
+    "missing": "Beneficiary not found",
+    "show": [
+     "id",
+     "name",
+     "account_number",
+     "ifsc",
+     "account_type",
+     "status"
+    ],
+    "requires_login": true
+   },
+   {
+    "name": "list_active_beneficiaries",
+    "label": "Active Beneficiaries",
+    "page": "Fund Transfer",
+    "entity": "Beneficiary",
+    "where": {
+     "and": [
+      {
+       "eq": [
+        {
+         "field": "row.user_account"
+        },
+        {
+         "user": "account_id"
+        }
+       ]
+      },
+      {
+       "eq": [
+        {
+         "field": "row.status"
+        },
+        "Active"
+       ]
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "account_number",
+     "status"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "submit_beneficiary",
+    "label": "Submit",
+    "page": "Add Beneficiary",
+    "inputs": [
+     {
+      "name": "beneficiary_name",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Beneficiary name is required"
+       }
+      ]
+     },
+     {
+      "name": "account_number",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Account number is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]+",
+        "message": "Account number must contain only digits"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{9,18}",
+        "message": "Account number must be between 9-18 digits"
+       }
+      ]
+     },
+     {
+      "name": "ifsc_code",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "IFSC code is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[A-Z]{4}0[A-Z0-9]{6}",
+        "message": "Invalid IFSC code format. IFSC must be 11 characters"
+       }
+      ]
+     },
+     {
+      "name": "account_type",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Account type is required"
+       },
+       {
+        "rule": "one_of",
+        "value": [
+         "Savings",
+         "Current"
+        ],
+        "message": "Account type must be Savings or Current"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "exists": {
+        "entity": "Beneficiary",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.user_account"
+            },
+            {
+             "user": "account_id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.account_number"
+            },
+            {
+             "input": "account_number"
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": "Beneficiary with this account number already exists"
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "pending_beneficiary_name",
+       "value": {
+        "input": "beneficiary_name"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "pending_account_number",
+       "value": {
+        "input": "account_number"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "pending_ifsc",
+       "value": {
+        "input": "ifsc_code"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "pending_account_type",
+       "value": {
+        "input": "account_type"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "otp",
+       "value": "123456"
+      }
+     },
+     {
+      "set_session": {
+       "key": "otp_sent_at",
+       "value": {
+        "now": true
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "sms",
+       "to": {
+        "user": "account_id"
+       },
+       "body": "Your OTP is 123456"
+      }
+     }
+    ],
+    "message": "OTP sent. Please verify to complete beneficiary addition.",
+    "next_page": "OTP Verification"
+   },
+   {
+    "name": "verify_otp_add",
+    "label": "Verify",
+    "page": "OTP Verification",
+    "inputs": [
+     {
+      "name": "otp",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "OTP is required"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "gt": [
+        {
+         "minutes_since": {
+          "session": "otp_sent_at"
+         }
+        },
+        5
+       ]
+      },
+      "message": "OTP has expired. Please request a new OTP"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "input": "otp"
+        },
+        {
+         "session": "otp"
+        }
+       ]
+      },
+      "message": "Invalid OTP. Please try again"
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Beneficiary",
+       "as": "beneficiary",
+       "values": {
+        "user_account": {
+         "user": "account_id"
+        },
+        "name": {
+         "session": "pending_beneficiary_name"
+        },
+        "account_number": {
+         "session": "pending_account_number"
+        },
+        "ifsc": {
+         "session": "pending_ifsc"
+        },
+        "account_type": {
+         "session": "pending_account_type"
+        },
+        "status": "Active"
+       }
+      }
+     },
+     {
+      "clear_session": "pending_beneficiary_name"
+     },
+     {
+      "clear_session": "pending_account_number"
+     },
+     {
+      "clear_session": "pending_ifsc"
+     },
+     {
+      "clear_session": "pending_account_type"
+     },
+     {
+      "clear_session": "otp"
+     },
+     {
+      "clear_session": "otp_sent_at"
+     }
+    ],
+    "message": "Beneficiary added successfully",
+    "next_page": "Beneficiary List",
+    "returns": {
+     "beneficiary_id": {
+      "field": "beneficiary.id"
+     },
+     "status": {
+      "field": "beneficiary.status"
+     }
+    }
+   },
+   {
+    "name": "initiate_delete",
+    "label": "Delete",
+    "page": "Beneficiary List",
+    "inputs": [
+     {
+      "name": "beneficiary_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Beneficiary ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "beneficiary",
+      "entity": "Beneficiary",
+      "key": {
+       "input": "beneficiary_id"
+      },
+      "missing": "Beneficiary not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "beneficiary.user_account"
+        },
+        {
+         "user": "account_id"
+        }
+       ]
+      },
+      "message": "You can only delete your own beneficiaries"
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "delete_beneficiary_id",
+       "value": {
+        "input": "beneficiary_id"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "delete_otp",
+       "value": "789012"
+      }
+     },
+     {
+      "set_session": {
+       "key": "delete_otp_sent_at",
+       "value": {
+        "now": true
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "sms",
+       "to": {
+        "user": "account_id"
+       },
+       "body": "Your OTP for deletion is 789012"
+      }
+     }
+    ],
+    "message": "OTP sent. Please verify to confirm deletion.",
+    "next_page": "Delete Confirmation"
+   },
+   {
+    "name": "verify_otp_delete",
+    "label": "Verify",
+    "page": "Delete Confirmation",
+    "inputs": [
+     {
+      "name": "otp",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "OTP is required"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "gt": [
+        {
+         "minutes_since": {
+          "session": "delete_otp_sent_at"
+         }
+        },
+        5
+       ]
+      },
+      "message": "OTP has expired. Please request a new OTP"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "input": "otp"
+        },
+        {
+         "session": "delete_otp"
+        }
+       ]
+      },
+      "message": "Invalid OTP. Please try again"
+     }
+    ],
+    "load": [
+     {
+      "as": "beneficiary",
+      "entity": "Beneficiary",
+      "key": {
+       "session": "delete_beneficiary_id"
+      },
+      "missing": "Beneficiary not found"
+     }
+    ],
+    "effects": [
+     {
+      "delete": {
+       "record": "beneficiary"
+      }
+     },
+     {
+      "clear_session": "delete_beneficiary_id"
+     },
+     {
+      "clear_session": "delete_otp"
+     },
+     {
+      "clear_session": "delete_otp_sent_at"
+     }
+    ],
+    "message": "Beneficiary deleted",
+    "next_page": "Beneficiary List"
+   },
+   {
+    "name": "initiate_transfer",
+    "label": "Transfer",
+    "page": "Fund Transfer",
+    "inputs": [
+     {
+      "name": "beneficiary_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please select a beneficiary"
+       }
+      ]
+     },
+     {
+      "name": "amount",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Amount is required"
+       },
+       {
+        "rule": "number",
+        "message": "Amount must be a valid number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Amount must be greater than zero"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "beneficiary",
+      "entity": "Beneficiary",
+      "key": {
+       "input": "beneficiary_id"
+      },
+      "missing": "Beneficiary not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "beneficiary.user_account"
+        },
+        {
+         "user": "account_id"
+        }
+       ]
+      },
+      "message": "Invalid beneficiary"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "beneficiary.status"
+        },
+        "Active"
+       ]
+      },
+      "message": "Cannot transfer to unapproved beneficiary. Please wait for approval"
+     }
+    ],
+    "effects": [],
+    "message": "Transfer initiated successfully"
+   }
+  ],
+  "faults": [
+   {
+    "name": "network_error",
+    "applies_to": [
+     "submit_beneficiary",
+     "verify_otp_add",
+     "initiate_delete",
+     "verify_otp_delete"
+    ],
+    "message": "Network error. Please try again later."
+   }
+  ]
+ },
+ "checklists": [
+  {
+   "id": "add-new-beneficiary-valid",
+   "title": "Add a new beneficiary with all valid details",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Rajesh Kumar",
+      "9876543210123456",
+      "SBIN0001234",
+      "Savings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "OTP sent. Please verify to complete beneficiary addition."
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "OTP Verification"
+    },
+    {
+     "call": "UI.verify_otp_add",
+     "args": [
+      "123456"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Beneficiary added successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Beneficiary List"
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ],
+     "save_as": "beneficiary"
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ],
+     "expect_includes": {
+      "name": "Rajesh Kumar",
+      "account_number": "9876543210123456",
+      "ifsc": "SBIN0001234",
+      "account_type": "Savings",
+      "status": "Active",
+      "user_account": "USER001"
+     }
+    },
+    {
+     "call": "teardown",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-beneficiary-missing-name",
+   "title": "Add beneficiary without entering mandatory beneficiary name",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "",
+      "9876543210987654",
+      "HDFC0001122",
+      "Savings"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Beneficiary name is required"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Add Beneficiary"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "9876543210987654"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-beneficiary-invalid-account-short",
+   "title": "Add beneficiary with invalid account number format - less than minimum digits",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Priya Sharma",
+      "12345678",
+      "ICIC0001234",
+      "Savings"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Account number must be between 9-18 digits"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Add Beneficiary"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "12345678"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-beneficiary-invalid-account-alpha",
+   "title": "Add beneficiary with invalid account number - contains alphabets",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Amit Patel",
+      "12345ABC67890",
+      "SBIN0005678",
+      "Savings"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Account number must contain only digits"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Add Beneficiary"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "12345ABC67890"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-beneficiary-invalid-ifsc",
+   "title": "Add beneficiary with invalid IFSC code format",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Sneha Reddy",
+      "5566778899001122",
+      "HDFC001",
+      "Savings"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid IFSC code format. IFSC must be 11 characters"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Add Beneficiary"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "5566778899001122"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-duplicate-beneficiary",
+   "title": "Attempt to add duplicate beneficiary with same account number",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Rajesh Kumar",
+      "1234567890123456",
+      "SBIN0001234",
+      "Savings"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Beneficiary with this account number already exists"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Add Beneficiary"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "1234567890123456"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "delete-existing-beneficiary",
+   "title": "Delete an existing beneficiary",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Beneficiary List"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      "BEN-002"
+     ],
+     "expect_includes": {
+      "name": "Test User",
+      "account_number": "9999888877776666"
+     }
+    },
+    {
+     "call": "UI.initiate_delete",
+     "args": [
+      "BEN-002"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "OTP sent. Please verify to confirm deletion."
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Delete Confirmation"
+    },
+    {
+     "call": "UI.verify_otp_delete",
+     "args": [
+      "789012"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Beneficiary deleted"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Beneficiary List"
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      "BEN-002"
+     ],
+     "expect": null
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-beneficiary-incorrect-otp",
+   "title": "Add beneficiary with incorrect OTP",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Vikram Singh",
+      "4455667788990011",
+      "AXIS0001234",
+      "Savings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "OTP sent. Please verify to complete beneficiary addition."
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "OTP Verification"
+    },
+    {
+     "call": "UI.verify_otp_add",
+     "args": [
+      "000000"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid OTP. Please try again"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "OTP Verification"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "4455667788990011"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "add-beneficiary-expired-otp",
+   "title": "Add beneficiary with expired OTP",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Meera Joshi",
+      "7788990011223344",
+      "KOTA0001234",
+      "Savings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "OTP sent. Please verify to complete beneficiary addition."
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "OTP Verification"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      10
+     ]
+    },
+    {
+     "call": "UI.verify_otp_add",
+     "args": [
+      "123456"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "OTP has expired. Please request a new OTP"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "OTP Verification"
+    },
+    {
+     "call": "Database.count_beneficiary",
+     "args": [
+      "account_number",
+      "7788990011223344"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "transfer-to-unapproved-beneficiary",
+   "title": "Attempt transaction to unapproved beneficiary",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Fund Transfer"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      "BEN-003"
+     ],
+     "expect_includes": {
+      "name": "Pending User",
+      "status": "Pending Approval"
+     }
+    },
+    {
+     "call": "UI.initiate_transfer",
+     "args": [
+      "BEN-003",
+      "5000.00"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Cannot transfer to unapproved beneficiary. Please wait for approval"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Fund Transfer"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "verify-beneficiary-status-after-addition",
+   "title": "Verify beneficiary status after successful addition",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Add Beneficiary"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_beneficiary",
+     "args": [
+      "Status Check User",
+      "2233445566778899",
+      "SBIN0001234",
+      "Savings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.verify_otp_add",
+     "args": [
+      "123456"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Beneficiary List"
+    },
+    {
+     "call": "UI.get_beneficiary",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ],
+     "save_as": "beneficiary"
+    },
+    {
+     "call": "UI.get_beneficiary",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ],
+     "expect_includes": {
+      "status": "Active"
+     }
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ],
+     "expect_includes": {
+      "name": "Status Check User",
+      "account_number": "2233445566778899",
+      "status": "Active"
+     }
+    },
+    {
+     "call": "teardown",
+     "args": [
+      {
+       "ref": "result.beneficiary_id"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "verify-transaction-eligibility-active",
+   "title": "Verify transaction eligibility for active beneficiary",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "USER001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Fund Transfer"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_beneficiary",
+     "args": [
+      "BEN-004"
+     ],
+     "expect_includes": {
+      "name": "Active User",
+      "account_number": "5544332211009988",
+      "status": "Active"
+     }
+    },
+    {
+     "call": "UI.list_active_beneficiaries",
+     "save_as": "active_list"
+    },
+    {
+     "call": "UI.list_active_beneficiaries",
+     "expect_includes": [
+      {
+       "id": "BEN-004",
+       "name": "Active User",
+       "account_number": "5544332211009988",
+       "status": "Active"
+      }
+     ]
+    },
+    {
+     "call": "UI.initiate_transfer",
+     "args": [
+      "BEN-004",
+      "1000.00"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Transfer initiated successfully"
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

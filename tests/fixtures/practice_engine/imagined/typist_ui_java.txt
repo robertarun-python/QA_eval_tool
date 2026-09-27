@@ -1,0 +1,39 @@
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.remote.RemoteWebDriver;
+import org.openqa.selenium.support.ui.ExpectedConditions;
+import org.openqa.selenium.support.ui.WebDriverWait;
+import java.net.URL;
+import java.time.Duration;
+
+public class LoginTest {
+    static void incomplete(String step) {
+        System.out.println("INCOMPLETE: " + step);
+        System.exit(3);
+    }
+
+    public static void main(String[] args) throws Exception {
+        ChromeOptions options = new ChromeOptions();
+        options.addArguments("--headless=new");
+        WebDriver driver = new RemoteWebDriver(new URL(System.getenv("SELENIUM_GRID_URL")), options);
+        try {
+            driver.get(System.getenv("PRACTICE_APP_URL"));
+            driver.findElement(By.id("email")).sendKeys("priya@library.test");
+            driver.findElement(By.id("password")).sendKeys("Pass@123");
+            driver.findElement(By.id("login")).click();
+            new WebDriverWait(driver, Duration.ofSeconds(10)).until(ExpectedConditions.titleContains("Home"));
+            WebElement user = driver.findElement(By.id("signed-in-user"));
+            String shown = user.getText();
+            if (shown.contains("Priya")) {
+                System.out.println("PASS: signed-in-user shows Priya");
+            } else {
+                System.out.println("FAIL: signed-in-user shows '" + shown + "', expected Priya");
+                System.exit(1);
+            }
+        } finally {
+            driver.quit();
+        }
+    }
+}

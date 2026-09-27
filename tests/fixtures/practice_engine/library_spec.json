@@ -1,0 +1,583 @@
+{
+ "app_name": "Library Management System",
+ "base_url": "https://library.example.test",
+ "now": "2024-02-10T10:00",
+ "entities": {
+  "Member": {
+   "key": "email",
+   "fields": {
+    "email": "string",
+    "password": "string",
+    "name": "string",
+    "status": "string",
+    "borrow_limit": "int"
+   }
+  },
+  "Book": {
+   "key": "id",
+   "fields": {
+    "id": "string",
+    "title": "string",
+    "author": "string",
+    "isbn": "string",
+    "total_copies": "int",
+    "available_copies": "int"
+   }
+  },
+  "Loan": {
+   "key": "id",
+   "id_format": "LN-{n:03}",
+   "fields": {
+    "id": "string",
+    "member": "string",
+    "book": "string",
+    "title": "string",
+    "borrowed_on": "date",
+    "due_on": "date",
+    "status": "string"
+   }
+  }
+ },
+ "data": {
+  "Member": [
+   {
+    "email": "testuser@library.test",
+    "password": "Test@123",
+    "name": "Test User",
+    "status": "Active",
+    "borrow_limit": 5
+   },
+   {
+    "email": "maxuser@library.test",
+    "password": "Max@123",
+    "name": "Max User",
+    "status": "Active",
+    "borrow_limit": 5
+   },
+   {
+    "email": "blocked@library.test",
+    "password": "Block@123",
+    "name": "Blocked User",
+    "status": "Suspended",
+    "borrow_limit": 5
+   }
+  ],
+  "Book": [
+   {
+    "id": "BK-001",
+    "title": "The Great Gatsby",
+    "author": "F. Scott Fitzgerald",
+    "isbn": "978-0-7432-7356-5",
+    "total_copies": 5,
+    "available_copies": 3
+   },
+   {
+    "id": "BK-002",
+    "title": "To Kill a Mockingbird",
+    "author": "Harper Lee",
+    "isbn": "978-0-06-112008-4",
+    "total_copies": 3,
+    "available_copies": 0
+   },
+   {
+    "id": "BK-003",
+    "title": "1984",
+    "author": "George Orwell",
+    "isbn": "978-0-452-28423-4",
+    "total_copies": 4,
+    "available_copies": 4
+   },
+   {
+    "id": "BK-004",
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "isbn": "978-0-14-143951-8",
+    "total_copies": 2,
+    "available_copies": 2
+   },
+   {
+    "id": "BK-005",
+    "title": "The Catcher in the Rye",
+    "author": "J.D. Salinger",
+    "isbn": "978-0-316-76948-0",
+    "total_copies": 3,
+    "available_copies": 1
+   },
+   {
+    "id": "BK-006",
+    "title": "This Side of Paradise",
+    "author": "F. Scott Fitzgerald",
+    "isbn": "978-0-684-84248-6",
+    "total_copies": 2,
+    "available_copies": 2
+   }
+  ],
+  "Loan": [
+   {
+    "id": "LN-001",
+    "member": "maxuser@library.test",
+    "book": "BK-003",
+    "title": "1984",
+    "borrowed_on": "2024-02-01",
+    "due_on": "2024-02-15",
+    "status": "Borrowed"
+   },
+   {
+    "id": "LN-002",
+    "member": "maxuser@library.test",
+    "book": "BK-004",
+    "title": "Pride and Prejudice",
+    "borrowed_on": "2024-02-01",
+    "due_on": "2024-02-15",
+    "status": "Borrowed"
+   },
+   {
+    "id": "LN-003",
+    "member": "maxuser@library.test",
+    "book": "BK-005",
+    "title": "The Catcher in the Rye",
+    "borrowed_on": "2024-02-01",
+    "due_on": "2024-02-15",
+    "status": "Borrowed"
+   },
+   {
+    "id": "LN-004",
+    "member": "maxuser@library.test",
+    "book": "BK-006",
+    "title": "This Side of Paradise",
+    "borrowed_on": "2024-02-01",
+    "due_on": "2024-02-15",
+    "status": "Borrowed"
+   },
+   {
+    "id": "LN-005",
+    "member": "maxuser@library.test",
+    "book": "BK-001",
+    "title": "The Great Gatsby",
+    "borrowed_on": "2024-02-01",
+    "due_on": "2024-02-15",
+    "status": "Borrowed"
+   }
+  ]
+ },
+ "users": {
+  "entity": "Member",
+  "login_field": "email",
+  "password_field": "password",
+  "name_field": "name",
+  "session_minutes": 30,
+  "blocked_when": {
+   "eq": [
+    {
+     "field": "user.status"
+    },
+    "Suspended"
+   ]
+  },
+  "messages": {
+   "required_login": "Email is required",
+   "required_password": "Password is required",
+   "invalid": "Invalid email or password",
+   "blocked": "Your membership is suspended",
+   "expired": "Your session has expired. Please log in again.",
+   "need_login": "Please log in first"
+  }
+ },
+ "pages": [
+  "Login",
+  "Home",
+  "Search",
+  "Book Details",
+  "My Books",
+  "Borrow Confirmation"
+ ],
+ "home_page": "Home",
+ "queries": [
+  {
+   "name": "search_books",
+   "label": "Search",
+   "page": "Search",
+   "entity": "Book",
+   "match": {
+    "input": "term",
+    "fields": [
+     "title",
+     "author",
+     "isbn"
+    ],
+    "mode": "contains",
+    "blank": "error:Please enter a title, author or ISBN",
+    "max_length": 100,
+    "too_long": "Search text must be 100 characters or fewer"
+   },
+   "order_by": [
+    {
+     "field": "title"
+    }
+   ],
+   "show": [
+    "id",
+    "title",
+    "author",
+    "isbn",
+    "available_copies"
+   ],
+   "none_message": "No books found"
+  },
+  {
+   "name": "open_book",
+   "label": "Book details",
+   "page": "Search",
+   "entity": "Book",
+   "key_input": "book_id",
+   "missing": "Book not found",
+   "next_page": "Book Details",
+   "show": [
+    "id",
+    "title",
+    "author",
+    "isbn",
+    "total_copies",
+    "available_copies"
+   ]
+  },
+  {
+   "name": "my_loans",
+   "label": "My borrowed books",
+   "page": "My Books",
+   "entity": "Loan",
+   "where": {
+    "and": [
+     {
+      "eq": [
+       {
+        "field": "row.member"
+       },
+       {
+        "user": "email"
+       }
+      ]
+     },
+     {
+      "eq": [
+       {
+        "field": "row.status"
+       },
+       "Borrowed"
+      ]
+     }
+    ]
+   },
+   "order_by": [
+    {
+     "field": "borrowed_on"
+    }
+   ],
+   "show": [
+    "id",
+    "title",
+    "borrowed_on",
+    "due_on",
+    "status"
+   ]
+  }
+ ],
+ "actions": [
+  {
+   "name": "borrow_book",
+   "label": "Borrow",
+   "page": "Book Details",
+   "inputs": [
+    {
+     "name": "book_id",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Choose a book first"
+      }
+     ]
+    }
+   ],
+   "load": [
+    {
+     "as": "book",
+     "entity": "Book",
+     "key": {
+      "input": "book_id"
+     },
+     "missing": "Book not found"
+    }
+   ],
+   "rules": [
+    {
+     "unless": {
+      "gt": [
+       {
+        "field": "book.available_copies"
+       },
+       0
+      ]
+     },
+     "message": "No copies available"
+    },
+    {
+     "when": {
+      "exists": {
+       "entity": "Loan",
+       "where": {
+        "and": [
+         {
+          "eq": [
+           {
+            "field": "row.member"
+           },
+           {
+            "user": "email"
+           }
+          ]
+         },
+         {
+          "eq": [
+           {
+            "field": "row.book"
+           },
+           {
+            "field": "book.id"
+           }
+          ]
+         },
+         {
+          "eq": [
+           {
+            "field": "row.status"
+           },
+           "Borrowed"
+          ]
+         }
+        ]
+       }
+      }
+     },
+     "message": "You have already borrowed this book"
+    },
+    {
+     "unless": {
+      "lt": [
+       {
+        "count": {
+         "entity": "Loan",
+         "where": {
+          "and": [
+           {
+            "eq": [
+             {
+              "field": "row.member"
+             },
+             {
+              "user": "email"
+             }
+            ]
+           },
+           {
+            "eq": [
+             {
+              "field": "row.status"
+             },
+             "Borrowed"
+            ]
+           }
+          ]
+         }
+        }
+       },
+       {
+        "user": "borrow_limit"
+       }
+      ]
+     },
+     "message": "You have reached your borrowing limit of 5 books"
+    }
+   ],
+   "effects": [
+    {
+     "set": {
+      "record": "book",
+      "field": "available_copies",
+      "value": {
+       "sub": [
+        {
+         "field": "book.available_copies"
+        },
+        1
+       ]
+      }
+     }
+    },
+    {
+     "create": {
+      "entity": "Loan",
+      "as": "loan",
+      "values": {
+       "member": {
+        "user": "email"
+       },
+       "book": {
+        "field": "book.id"
+       },
+       "title": {
+        "field": "book.title"
+       },
+       "borrowed_on": {
+        "today": true
+       },
+       "due_on": {
+        "add_days": [
+         {
+          "today": true
+         },
+         14
+        ]
+       },
+       "status": "Borrowed"
+      }
+     }
+    },
+    {
+     "send": {
+      "channel": "email",
+      "to": {
+       "user": "email"
+      },
+      "subject": {
+       "concat": [
+        "Borrowed: ",
+        {
+         "field": "book.title"
+        }
+       ]
+      }
+     }
+    }
+   ],
+   "message": {
+    "format": [
+     "Book borrowed successfully. Due date: {due}",
+     {
+      "due": {
+       "format_date": [
+        {
+         "field": "loan.due_on"
+        },
+        "DD-Mon-YYYY"
+       ]
+      }
+     }
+    ]
+   },
+   "next_page": "Borrow Confirmation",
+   "returns": {
+    "loan_id": {
+     "field": "loan.id"
+    },
+    "due_on": {
+     "field": "loan.due_on"
+    }
+   }
+  },
+  {
+   "name": "return_book",
+   "label": "Return",
+   "page": "My Books",
+   "inputs": [
+    {
+     "name": "loan_id",
+     "checks": [
+      {
+       "rule": "required",
+       "message": "Choose a loan"
+      }
+     ]
+    }
+   ],
+   "load": [
+    {
+     "as": "loan",
+     "entity": "Loan",
+     "key": {
+      "input": "loan_id"
+     },
+     "missing": "Loan not found"
+    },
+    {
+     "as": "book",
+     "entity": "Book",
+     "key": {
+      "field": "loan.book"
+     },
+     "missing": "Book not found"
+    }
+   ],
+   "rules": [
+    {
+     "unless": {
+      "and": [
+       {
+        "eq": [
+         {
+          "field": "loan.member"
+         },
+         {
+          "user": "email"
+         }
+        ]
+       },
+       {
+        "eq": [
+         {
+          "field": "loan.status"
+         },
+         "Borrowed"
+        ]
+       }
+      ]
+     },
+     "message": "This book is not borrowed by you"
+    }
+   ],
+   "effects": [
+    {
+     "set": {
+      "record": "loan",
+      "field": "status",
+      "value": "Returned"
+     }
+    },
+    {
+     "set": {
+      "record": "book",
+      "field": "available_copies",
+      "value": {
+       "add": [
+        {
+         "field": "book.available_copies"
+        },
+        1
+       ]
+      }
+     }
+    }
+   ],
+   "message": "Book returned successfully"
+  }
+ ],
+ "faults": [
+  {
+   "name": "network_down",
+   "applies_to": [
+    "borrow_book",
+    "return_book"
+   ],
+   "message": "Network error. Please try again."
+  }
+ ]
+}

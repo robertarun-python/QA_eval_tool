@@ -102,7 +102,9 @@ def test_hr_report_keeps_the_planted_flaw():
     assert out["content"]["selected"][0]["turns"][0]["planted_flaw"] == _FLAW
 
 
-def test_first_generation_stores_the_flaw_but_never_sends_it_to_the_candidate(client, monkeypatch):
+def test_no_flaw_is_planted_any_more(client, monkeypatch):
+    """Dropped by the owner (2026-09-27): the candidate's own instructions and
+    mistakes are what is assessed. Nothing is planted, stored or shown."""
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     cand_token = _reach_automation_round(client, hr_token, monkeypatch)
     _select(client, cand_token)
@@ -119,7 +121,7 @@ def test_first_generation_stores_the_flaw_but_never_sends_it_to_the_candidate(cl
         stored = submission.content["selected"][0]["turns"][-1]
     finally:
         db.close()
-    assert stored["planted_flaw"] == _FLAW
+    assert "planted_flaw" not in stored
 
 
 def test_no_flaw_is_planted_when_the_language_cannot_run(client, monkeypatch):

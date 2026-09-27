@@ -103,7 +103,9 @@ function round2AutomationAutomateClicked() {
 // Test cases are numbered from 1 on screen, as in Round 1; row indexes stay 0-based.
 function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
-  const passed = run.exit_code === 0 && !run.timed_out && !run.infra_error;
+  // "status" (new runs): passed only for a complete test that exited cleanly - a test with gaps is INCOMPLETE, never PASS.
+  const passed = run.status ? run.status === "passed" : (run.exit_code === 0 && !run.timed_out && !run.infra_error);
+  const label = run.status === "incomplete" ? "INCOMPLETE" : (passed ? "PASS" : "FAIL");
   const meta = [
     `Exit code: ${run.exit_code === null || run.exit_code === undefined ? "-" : run.exit_code}`,
     run.duration_ms !== null && run.duration_ms !== undefined ? `${run.duration_ms}ms` : null,
@@ -113,7 +115,7 @@ function round2AutomationRunResultHtml(rowIndex, run) {
     <div class="result-state ${passed ? "is-pass" : "is-fail"}">
       <span class="result-state-icon">${passed ? "✓" : "✕"}</span>
       <div class="result-state-body">
-        <div class="result-state-label">${passed ? "PASS" : "FAIL"} - Test case ${rowIndex + 1}</div>
+        <div class="result-state-label">${label} - Test case ${rowIndex + 1}</div>
         <p class="result-state-detail">${meta}</p>
         ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
@@ -203,8 +205,50 @@ function round2AutomationSaveTestDataClicked(rowIndex) {
 // candidate actually needs right now is on screen. Switching is pure
 // client-side visibility (round2AutomationReferenceTabClicked below) - never
 // re-fetches or re-derives anything.
+// The real practice environment's reference panel (built by code from the
+// scenario description - practice_engine/reference.py): what a tester would be
+// given on a real project, never the app's rules or messages.
+function round2AutomationPanelHtml(p) {
+  const esc = escapeHtml;
+  const cell = (v) => esc(v === null || v === undefined ? "" : String(v));
+  const tab = (name, label, active) =>
+    `<button class="tab${active ? " active" : ""}" data-r4a-ref-tab="${name}" onclick="round2AutomationReferenceTabClicked('${name}')">${label}</button>`;
+  const panel = (name, html, active) => `<div class="tab-panel${active ? " active" : ""}" data-r4a-ref-panel="${name}">${html}</div>`;
+  const connect = `
+    <p class="text-muted">Your test finds the application through these environment variables (set for every Run):</p>
+    <dl class="env-fields">${(p.connect || []).map((c) => `<dt><code>${esc(c.name)}</code></dt><dd>${esc(c.meaning)}</dd>`).join("")}</dl>
+    ${(p.accounts || []).length ? `<h4>Test accounts</h4><table class="data-table"><thead><tr><th>Login</th><th>Password</th><th>Name</th></tr></thead><tbody>
+      ${p.accounts.map((a) => `<tr><td>${cell(a.login)}</td><td>${cell(a.password)}</td><td>${cell(a.name)}</td></tr>`).join("")}</tbody></table>` : ""}
+    ${(p.failures || []).length ? `<h4>Simulated failures</h4><p>${p.failures.map((f) => `<code>${esc(f)}</code>`).join(", ")} - switch one on with the test controls.</p>` : ""}`;
+  const pages = (p.pages || []).map((pg) => `
+    <details class="r4a-page-source"><summary>${esc(pg.name)} <span class="muted">${esc(pg.path)}</span></summary>
+      <pre class="code-block">${esc(pg.source)}</pre></details>`).join("");
+  const api = `
+    <p class="text-muted">${esc(p.api_sign_in || "")} ${esc(p.api_errors || "")}</p>
+    <table class="data-table"><thead><tr><th>Method</th><th>Path</th><th>Body / query fields</th><th>Success</th><th>Returns</th><th>Sign-in</th></tr></thead><tbody>
+      ${(p.api || []).map((r) => `<tr><td>${cell(r.method)}</td><td><code>${cell(r.path)}</code></td><td>${cell([...(r.body || []), ...(r.query || [])].join(", "))}</td>
+        <td>${cell(r.success)}</td><td>${cell((r.returns || []).join(", "))}${r.fields ? ` <span class="muted">(${cell(r.fields.join(", "))})</span>` : ""}</td>
+        <td>${r.sign_in ? "yes" : "no"}</td></tr>`).join("")}</tbody></table>`;
+  const db = (p.database || []).map((t) => {
+    const cols = (t.columns || []).map((c) => c.name);
+    return `<details class="r4a-table"><summary><code>${esc(t.table)}</code> <span class="muted">key ${esc(t.key)} &middot; ${t.rows.length} starting rows</span></summary>
+      <p class="muted">${(t.columns || []).map((c) => `${esc(c.name)} ${esc(c.type)}`).join(", ")}</p>
+      <div class="table-scroll"><table class="data-table"><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join("")}</tr></thead><tbody>
+        ${(t.rows || []).map((row) => `<tr>${cols.map((c) => `<td>${cell(row[c])}</td>`).join("")}</tr>`).join("")}</tbody></table></div></details>`;
+  }).join("");
+  const controls = `<table class="data-table"><thead><tr><th>Method</th><th>Path (on PRACTICE_APP_URL)</th><th>Body</th><th>What it does</th></tr></thead><tbody>
+    ${(p.test_controls || []).map((c) => `<tr><td>${cell(c.method)}</td><td><code>${cell(c.path)}</code></td><td>${cell((c.body || []).join(", "))}</td><td>${cell(c.meaning)}</td></tr>`).join("")}</tbody></table>`;
+  return `
+    <div class="surface">
+      <div class="section-header"><h3>Reference - ${esc(p.app_name || "practice application")}</h3></div>
+      <div class="tabs" role="tablist">${tab("connect", "Connect & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${tab("controls", "Test controls")}</div>
+      ${panel("connect", connect, true)}${panel("pages", pages)}${panel("api", api)}${panel("database", db)}${panel("controls", controls)}
+    </div>`;
+}
+
 function round2AutomationReferenceHtml() {
   const s = round2AutomationState;
+  if (s.reference_panel) return round2AutomationPanelHtml(s.reference_panel);
   const hasMockup = !!s.ui_mockup;
   const hasEnv = !!(s.environment && Object.keys(s.environment.fields || {}).length > 0);
   if (!hasMockup && !hasEnv) return "";

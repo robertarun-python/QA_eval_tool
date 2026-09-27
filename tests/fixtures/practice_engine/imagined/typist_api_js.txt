@@ -1,0 +1,16 @@
+function incomplete(step) {
+  console.log("INCOMPLETE: " + step);
+  process.exit(3);
+}
+
+(async () => {
+  const response = await fetch(process.env.PRACTICE_API_URL + "login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email: "priya@library.test", password: "Pass@123" }),
+  });
+  const data = await response.json();
+  console.log(response.status === 200 ? "PASS: status is 200" : `FAIL: status is ${response.status}, expected 200`);
+  console.log(data.name === "Priya" ? "PASS: name in the reply is Priya" : `FAIL: name in the reply is ${data.name}`);
+  if (response.status !== 200 || data.name !== "Priya") process.exitCode = 1;
+})();

@@ -203,8 +203,26 @@ function formatScenarioDescription(description) {
   return html;
 }
 
+// A request with no answer at all (a dropped connection that never errors)
+// must not leave the page waiting forever. Longer than any legitimate
+// request: an AI reply may take several minutes for HR's long generations.
+const API_TIMEOUT_MS = 10 * 60 * 1000;
+const NETWORK_ERROR_MESSAGE = "Couldn't reach the server - check your internet connection and try again. Anything already saved is safe.";
+const TIMEOUT_MESSAGE = "The server took too long to answer - please try again. Anything already saved is safe.";
+
 async function api(path, opts = {}) {
-  const res = await fetch(path, { headers: jsonHeaders(), ...opts });
+  // fetch() rejects with a bare "Failed to fetch" when the network is down
+  // or the server is unreachable - never shown to people as-is.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch(path, { headers: jsonHeaders(), signal: controller.signal, ...opts });
+  } catch (e) {
+    throw new Error(e && e.name === "AbortError" ? TIMEOUT_MESSAGE : NETWORK_ERROR_MESSAGE);
+  } finally {
+    clearTimeout(timer);
+  }
   if (res.status === 401) {
     // The session cookie is missing/expired, or (see dependencies.
     // get_current_user) a later login elsewhere has invalidated it mid-

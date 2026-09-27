@@ -2,6 +2,7 @@
 App entrypoint. Run with: uvicorn app.main:app --reload (from backend/).
 Interactive API docs land at http://127.0.0.1:8000/docs once running.
 """
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -13,6 +14,8 @@ from .config import settings
 from .database import Base, engine
 from .services import fake_llm
 from .routers import auth, hr, candidate, progressive
+
+log = logging.getLogger(__name__)
 
 # Creates tables on first run if they don't exist yet. Fine for a POC;
 # a real project would use Alembic migrations instead once the schema
@@ -38,6 +41,16 @@ app = FastAPI(title="QA Eval Tool", version="0.1.0")
 # matters for this deployment: wrap request.stream() and cut it off
 # after MAX_REQUEST_BODY_BYTES actual bytes, not just checking the header.
 MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024
+
+
+@app.exception_handler(Exception)
+async def unexpected_error(request: Request, exc: Exception):
+    """Any error no route handled: logged in full on the server, and the page
+    gets a plain message (JSON, so the page shows it) - never a bare
+    "Internal Server Error" or a stack trace."""
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse({"detail": "Something went wrong on our side. Please try again - if it keeps happening, tell the HR team."},
+                        status_code=500)
 
 
 @app.exception_handler(OverflowError)

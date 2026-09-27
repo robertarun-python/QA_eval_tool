@@ -1,0 +1,27 @@
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+public class LoginApiTest {
+    static void incomplete(String step) {
+        System.out.println("INCOMPLETE: " + step);
+        System.exit(3);
+    }
+
+    public static void main(String[] args) throws Exception {
+        String url = System.getenv("PRACTICE_API_URL") + "login";
+        String body = "{\"email\": \"priya@library.test\", \"password\": \"Pass@123\"}";
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        int status = response.statusCode();
+        System.out.println(status == 200 ? "PASS: status is 200" : "FAIL: status is " + status + ", expected 200");
+        boolean named = response.body().contains("\"name\":\"Priya\"") || response.body().contains("\"name\": \"Priya\"");
+        System.out.println(named ? "PASS: name in the reply is Priya" : "FAIL: name in the reply is not Priya: " + response.body());
+        if (status != 200 || !named) System.exit(1);
+    }
+}

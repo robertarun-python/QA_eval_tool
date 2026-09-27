@@ -78,6 +78,19 @@ class Settings(BaseSettings):
     # never prompts or replies) - the record behind HR's AI health totals,
     # kept across restarts. See llm_service._append_call_log. Blank = off.
     ai_call_log_path: str = str(_BACKEND_DIR / "ai_calls.jsonl")
+    # The monthly AI spending limit (US$) until HR sets one on the AI health
+    # card (kept in ai_budget.json next to the call record). See
+    # llm_service.check_budget.
+    ai_monthly_limit_usd: float = 10.0
+    # For test and measurement runs only - both off for the live tool, where
+    # HR's "build again" must really ask again and nobody should wait:
+    # ai_reuse_replies answers a request identical to an earlier one from the
+    # saved reply for free (ai_replies/ next to the call record);
+    # ai_batch_jobs sends each call through the Message Batches API at half
+    # price, answered within minutes to an hour. See llm_service._send.
+    ai_reuse_replies: bool = False
+    ai_batch_jobs: bool = False
+    ai_batch_max_wait_seconds: int = 7200
 
     # Seed-default only now, not read anywhere at request time: the
     # migration (migrate_bulk_candidates.py) uses this once to populate
@@ -115,6 +128,14 @@ class Settings(BaseSettings):
     # "auto" uses the platform's (macOS sandbox-exec) and refuses to run code
     # where there is none. "off" runs it unprotected - development only.
     execution_sandbox: str = "auto"
+    # A Round 2 practice Run (practice_engine.practice_run): the candidate's
+    # Selenium / API / database test against the practice app - several page
+    # loads in a real browser, so longer than execution_timeout_seconds.
+    practice_run_timeout_seconds: int = 60
+    # The Selenium Grid the practice Runs' browsers come from (started on
+    # demand, this machine only) and where its tools live (tools/setup_vendor.sh).
+    selenium_grid_port: int = 4444
+    vendor_dir: str = str(Path(__file__).resolve().parents[2] / "vendor")
 
     # Seeded accounts (see app/seed.py) - this POC uses fixed, pre-provisioned
     # logins instead of open signup: 1 HR + 3 candidates. Emails default to
