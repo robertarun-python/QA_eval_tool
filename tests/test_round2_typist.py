@@ -136,3 +136,19 @@ def test_what_a_program_prints_is_not_checked_as_app_knowledge():
             'print(f"FAIL: expected name Priya, got {actual_name}")\nprint("HTTP Error", err)\nassert status == 200')
     assert round2_typist.unsaid(code, said, code=True) == []
     assert "/api/signin" in round2_typist.unsaid(code + '\nurl = "/api/signin"', said, code=True)  # app details still checked
+
+
+def test_a_reply_may_not_bring_up_parts_of_the_app_the_candidate_never_mentioned():
+    """Measured: "I need to know: What's the URL or page..." after a vague "Generate it"."""
+    said = "Automate TC-01. Log in as Priya. Just check it works. Generate it."
+    assert set(round2_typist.unsaid("I need to know: what's the URL or page, and which button?", said, code=False)) >= {"URL", "page", "button"}
+    assert round2_typist.unsaid("Got it, you want me to log in as Priya and check it works.", said, code=False) == []
+    said_more = "Click the login button on the login page."
+    assert round2_typist.unsaid("Got it: click the login button on the login page.", said_more, code=False) == []
+
+
+def test_when_asked_for_code_a_reply_without_code_is_asked_again(monkeypatch):
+    first = {"reply": "Got it. Anything else?", "code": None}
+    second = {"reply": "Here is the code for what you said.", "code": 'incomplete("log in as Priya")'}
+    out = _turn(monkeypatch, Model(first, second), "Log in as Priya. Generate it.")
+    assert out["response_kind"] == "code_edit" and out["code_after"] == 'incomplete("log in as Priya")'

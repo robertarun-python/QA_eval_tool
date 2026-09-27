@@ -69,6 +69,11 @@ _NUMBER_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
 # What a program prints or logs is the program reporting what happened, not knowledge of the
 # application (measured: print(f"FAIL: got {actual_name}") withheld a strong candidate's code).
 _REPORTING_RE = re.compile(r"(?:\bprint|console\.(?:log|error)|System\.(?:out|err)\.print(?:ln|f)?|\bincomplete)\s*\((?:[^()\n]|\([^()\n]*\))*\)")
+# Things of the application a reply must never bring up unless the candidate did (measured: asked
+# to generate with details missing, the model replied "I need to know: what's the URL or page...").
+_STRUCTURE_RE = re.compile(r"\b(urls?|web ?address(?:es)?|endpoints?|paths?|routes?|pages?|screens?|fields?|buttons?|links?|locators?|"
+                           r"selectors?|xpaths?|css|ids?|methods?|status(?: codes?)?|headers?|tables?|columns?|rows?|queries|query|"
+                           r"credentials?|usernames?|passwords?|tokens?|elements?)\b", re.I)
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*|\d+(?:\.\d+)?")
 
 # Never specific: the project conventions and the plumbing every test uses.
@@ -97,6 +102,8 @@ _BLOCKED = [
 ]
 _NOTE = ("\n\nYour previous draft named things the candidate never said: {terms}. Rewrite it without them - "
          "if you need one of them, ask the candidate for it instead, without naming it or offering examples.")
+_WRITE_NOTE = ("\n\nThey asked for the code: write the complete program now. For every step they didn't say how to do, put "
+               "incomplete(\"<their own words for that step>\") where it belongs. Don't list or describe what is missing.")
 _REPEAT_NOTE = "\n\nYour previous draft repeated a sentence you already wrote in this conversation. Say it differently."
 
 
@@ -151,6 +158,11 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
         for word in _WORD_RE.findall(literal):
             if len(word) > 1 or word.isdigit():
                 check(word)
+    if not code:
+        said_words = {w.lower().rstrip("s") for w in re.findall(r"[A-Za-z]+", said or "")}
+        for m in _STRUCTURE_RE.findall(text):
+            if m.lower().split()[0].rstrip("s") not in said_words:
+                found.append(m)
     if code:
         stripped = _QUOTED_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", scanned))
         for n in _NUMBER_RE.findall(stripped):
@@ -197,9 +209,10 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
         code = code if isinstance(code, str) and code.strip() else None
         bad = unsaid(reply, said, code=False) + unsaid(code, said, code=True)
-        if not bad and reply and not _repeats(reply, earlier):
+        missing_code = allow_code and code is None
+        if not bad and reply and not _repeats(reply, earlier) and not missing_code:
             break
-        note = _NOTE.format(terms=", ".join(bad)) if bad else _REPEAT_NOTE
+        note = _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE)
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
         if unsaid(code, said, code=True):
