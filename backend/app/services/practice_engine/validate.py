@@ -637,6 +637,9 @@ class _Checker:
                 return
             self.expr(arg[0], where, scope)
             if op == "matches":
+                if not isinstance(arg[1], str):
+                    self.err(where, 'matches needs [value, "fixed regular expression text"] - the pattern must be written out, not an expression')
+                    return
                 p = regex_problem(arg[1])
                 if p:
                     self.err(where, f"pattern {p}")

@@ -136,6 +136,22 @@ def _sheet(spec: dict, accounts: list[dict]) -> dict:
     return {"fields": fields, "notes": "Only this data exists in the practice app."}
 
 
+def _normalized(spec):
+    """The AI writes "" for "no value" in date, number and true/false fields;
+    the engine means None. Harmless, so fixed here rather than sent back."""
+    if not isinstance(spec, dict) or not isinstance(spec.get("data"), dict) or not isinstance(spec.get("entities"), dict):
+        return spec
+    for entity, rows in spec["data"].items():
+        e = spec["entities"].get(entity)
+        fields = (e.get("fields") or {}) if isinstance(e, dict) else {}
+        for row in rows if isinstance(rows, list) else []:
+            if isinstance(row, dict):
+                for f, v in list(row.items()):
+                    if v == "" and fields.get(f) in ("date", "datetime", "int", "number", "money", "bool"):
+                        row[f] = None
+    return spec
+
+
 def _files(spec: dict, languages=render.LANGUAGES) -> tuple[dict, dict]:
     """({language: candidate file}, {language: {engine file name: code}})."""
     built = {lang: render.files(spec, lang) for lang in languages}
@@ -171,6 +187,16 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         result.ai_calls += 1
         return llm_service._call_claude(prompt, max_tokens=max_tokens)
 
+    def ask_json(prompt: str, max_tokens: int):
+        """A JSON reply, with one corrective retry: a single typo in a large reply
+        used to end the whole build (measured: 2 of 9 builds, 2026-09-27)."""
+        reply = call(prompt, max_tokens)
+        try:
+            return llm_service._parse_json_response(reply)
+        except ValueError as error:
+            result.log.append(f"an AI reply was not valid JSON ({error}) - asked again")
+            return llm_service._parse_json_response(call(prompt + "\n\n" + llm_service._JSON_RETRY_NOTE.format(error=error), max_tokens))
+
     def describe() -> tuple[dict, dict]:
         prompt = _render(llm_service._load_prompt("practice_engine_describe.txt"), title=title, description=description,
                          reference_cases=cases_text,
@@ -179,7 +205,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         for attempt in range(MAX_DESCRIBE_CORRECTIONS + 1):
             try:
                 raw = llm_service._parse_json_response(reply)
-                spec = raw.get("spec") if isinstance(raw, dict) else None
+                spec = _normalized(raw.get("spec")) if isinstance(raw, dict) else None
                 problems = validate.problems(spec) if isinstance(spec, dict) else ['the reply must be {"spec": {...}, ...}']
             except ValueError as e:
                 raw, spec, problems = None, None, [f"the reply was not valid JSON ({e})"]
@@ -195,13 +221,13 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
 
     def write_checklists(plan: dict, plan_text: str) -> tuple[list, list]:
         prompt = _shared_context(plan_text) + _render(llm_service._load_prompt("practice_app_checklists.txt"), reference_cases=cases_text)
-        raw = llm_service._parse_json_response(call(prompt, _CHECKLIST_TOKENS))
+        raw = ask_json(prompt, _CHECKLIST_TOKENS)
         runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
         if problems:
             result.log.append("checklists needed a second attempt: " + "; ".join(problems[:5]))
             step(1, "second attempt")
             retry = prompt + "\n\nYour previous attempt had these problems - fix every one:\n" + "\n".join(f"- {p}" for p in problems)
-            raw = merge_checklist_retry(raw, runnable, llm_service._parse_json_response(call(retry, _CHECKLIST_TOKENS)))
+            raw = merge_checklist_retry(raw, runnable, ask_json(retry, _CHECKLIST_TOKENS))
             runnable, unsupported, problems = validate_checklists(plan, raw, reference_cases)
             for p in problems:
                 result.log.append(f"checklist problem left: {p}")
@@ -255,8 +281,8 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
             failed, blocks = failing_blocks(runnable, report)
             plan_text = json.dumps(plan, indent=1, ensure_ascii=False)
             try:
-                repaired = llm_service._parse_json_response(call(_shared_context(plan_text) + _render(
-                    llm_service._load_prompt("practice_app_repair_checklists.txt"), failing="\n\n".join(blocks)), _CHECKLIST_TOKENS))
+                repaired = ask_json(_shared_context(plan_text) + _render(
+                    llm_service._load_prompt("practice_app_repair_checklists.txt"), failing="\n\n".join(blocks)), _CHECKLIST_TOKENS)
                 runnable, rewritten = accept_repairs(plan, runnable, repaired, set(failed))
             except Exception as e:  # an unusable reply is not a reason to lose the build
                 rewritten = []
@@ -275,9 +301,13 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
             failed, blocks = failing_blocks(runnable, report)
             plan_text, checklists_text = json.dumps(plan, indent=1, ensure_ascii=False), json.dumps(runnable, indent=1, ensure_ascii=False)
             try:
-                raw = llm_service._parse_json_response(call(_shared_context(plan_text, checklists_text) + _render(
-                    llm_service._load_prompt("practice_engine_fix.txt"), failing="\n\n".join(blocks)), _DESCRIBE_TOKENS))
-                new_spec = raw.get("spec") if isinstance(raw, dict) else None
+                raw = ask_json(_shared_context(plan_text, checklists_text) + _render(
+                    llm_service._load_prompt("practice_engine_fix.txt"), failing="\n\n".join(blocks)), _DESCRIBE_TOKENS)
+                if isinstance(raw, dict) and raw.get("checklist_problem") and not raw.get("spec"):
+                    result.log.append(f"the remaining failures are the checklists' fault: {str(raw['checklist_problem'])[:200]} - "
+                                      "no more corrections paid for")
+                    break
+                new_spec = _normalized(raw.get("spec")) if isinstance(raw, dict) else None
                 problems = validate.problems(new_spec) if isinstance(new_spec, dict) else ["no description in the reply"]
             except ValueError as e:
                 problems = [f"the reply was not valid JSON ({e})"]

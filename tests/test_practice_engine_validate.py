@@ -92,3 +92,21 @@ def test_ordinary_patterns_are_accepted(pattern):
 
 def test_not_an_object():
     assert validate.problems([]) == ["The description must be a JSON object."]
+
+
+def test_checklist_steps_must_call_a_helper_or_check_a_saved_value():
+    from app.services.practice_app import engine_build, generator
+    plan = engine_build.plan_view(SPEC)
+    ok = [{"id": "a", "title": "a", "steps": [{"call": "setup"}, {"call": "Database.count_loan", "save_as": "n"},
+                                              {"check": {"ref": "n"}, "expect": 5}, {"call": "Database.count_loan", "expect": {"ref": "n"}}]}]
+    assert generator.validate_checklists(plan, ok, [])[2] == []
+    bad_shape = [{"id": "b", "title": "b", "steps": [{"call": "setup"}, {"expect": 5}]}]
+    assert "either calls a helper" in generator.validate_checklists(plan, bad_shape, [])[2][0]
+    unsaved = [{"id": "c", "title": "c", "steps": [{"call": "setup"}, {"call": "Database.count_loan", "expect": {"ref": "never"}}]}]
+    assert "no earlier step saved 'never'" in generator.validate_checklists(plan, unsaved, [])[2][0]
+
+
+def test_matches_with_a_non_literal_pattern_gets_an_actionable_message():
+    spec = copy.deepcopy(SPEC)
+    _action(spec, "borrow_book")["rules"].append({"when": {"matches": [{"input": "book_id"}, {"input": "book_id"}]}, "message": "x"})
+    assert any("must be written out" in p for p in validate.problems(spec))

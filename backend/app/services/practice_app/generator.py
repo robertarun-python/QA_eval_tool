@@ -227,9 +227,26 @@ def _ref_problem(checklist: dict, true_false: set[str]) -> str | None:
             if isinstance(source.get("expect"), bool) or source.get("call") in true_false:
                 return (f"checklist {checklist['id']!r} passes the true/false result of {source.get('call')} ({root!r}) to "
                         f"{step.get('call')} as if it were a value such as an id - save a step that returns that value instead")
+        own = {step["save_as"]} if step.get("save_as") else set()
+        for key in ("check", "expect", "expect_includes", "expect_excludes"):
+            for ref in _refs_in(step.get(key)):
+                root = str(ref).split(".")[0]
+                if root not in saved and root not in own:
+                    return f"checklist {checklist['id']!r} {'checks' if key == 'check' else 'expects'} {{\"ref\": \"{ref}\"}} but no earlier step saved {root!r}"
         if step.get("save_as"):
             saved[step["save_as"]] = step
     return None
+
+
+def _refs_in(value) -> list[str]:
+    """Every {"ref": ...} inside an expectation or a check."""
+    if isinstance(value, dict):
+        if set(value) == {"ref"}:
+            return [str(value["ref"])]
+        return [r for v in value.values() for r in _refs_in(v)]
+    if isinstance(value, list):
+        return [r for v in value for r in _refs_in(v)]
+    return []
 
 
 def _missing_start_record_problem(checklist: dict, plan: dict, changing: set[str]) -> str | None:
@@ -282,9 +299,16 @@ def validate_checklists(plan: dict, checklists: list, reference_cases: list[dict
         if c.get("unsupported"):
             unsupported.append({"title": c.get("title", c["id"]), "reason": str(c["unsupported"])})
             continue
-        unknown = sorted({s.get("call", "") for s in c.get("steps") or [] if s.get("call") not in helpers})
-        if not c.get("steps"):
+        steps = c.get("steps") or []
+        unknown = sorted({str(s.get("call")) for s in steps if isinstance(s, dict) and "check" not in s and s.get("call") not in helpers
+                          and s.get("call")})
+        shapeless = [n for n, s in enumerate(steps, start=1) if not isinstance(s, dict) or ("call" in s) == ("check" in s)
+                     or ("check" in s and not (isinstance(s["check"], dict) and set(s["check"]) == {"ref"}))]
+        if not steps:
             problems.append(f"checklist {c['id']!r} has no steps")
+        elif shapeless:
+            problems.append(f"checklist {c['id']!r} step {shapeless[0]}: every step either calls a helper (\"call\") or checks a "
+                            f"value an earlier step saved ({{\"check\": {{\"ref\": \"name.field\"}}, \"expect\": ...}}) - not both, not neither")
         elif unknown:
             problems.append(f"checklist {c['id']!r} calls helpers the design doesn't have: {', '.join(unknown)}")
         elif any(s.get("call") in changing for s in c["steps"]) and not any(

@@ -5,4 +5,6 @@ FAILING CHECKLISTS, each with its Round 1 test case and what went wrong:
 
 Correct the description so these pass, without breaking what works: a missing rule or check, a message worded differently from the test case, a rule in the wrong order, a missing starting record, a wrong page, a value computed differently. Keep every name (entities, fields, queries, actions, inputs, pages) the checklists use, and keep the format exactly as described earlier.
 
-Respond with ONLY a JSON object: {"spec": {the complete corrected description}}
+If a failure is the CHECKLIST's fault and not the description's (it expects something no reasonable app for this test case would do), don't change the description for it - say so instead.
+
+Respond with ONLY a JSON object: {"spec": {the complete corrected description}} - or, if no failure is the description's fault, {"checklist_problem": "<one sentence>"}

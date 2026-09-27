@@ -181,3 +181,22 @@ def test_numbers_money_dates_and_text_are_identical_in_every_language(language):
     lang = report.languages[language]
     assert lang.error is None, lang.error
     assert lang.results[0].passed, f"[{language}] {lang.results[0].failures}"
+
+
+def test_a_check_can_compare_with_a_value_saved_earlier():
+    """Measured 2026-09-27: 'the loan count is unchanged' was written as
+    expect {"ref": "before"} and failed a correct app; the Doctor build's
+    checklists invented steps that called nothing to do such comparisons."""
+    _one(LOGIN + [{"call": "Database.count_loan", "save_as": "before"},
+                  {"call": "UI.open", "args": ["Search"]}, {"call": "UI.open_book", "args": ["BK-002"]},
+                  {"call": "UI.borrow_book", "args": ["BK-002"], "expect": False},
+                  {"call": "Database.count_loan", "expect": {"ref": "before"}},
+                  {"call": "Database.get_book", "args": ["BK-002"], "save_as": "book"},
+                  {"check": {"ref": "book.available_copies"}, "expect": 0},
+                  {"call": "Database.get_book", "args": ["BK-002"], "expect_includes": {"title": {"ref": "book.title"}}}])
+
+
+def test_a_check_against_a_wrong_saved_value_fails():
+    report = _inspect(_LANGUAGE[0], SPEC, [{"id": "c", "title": "c", "steps": LOGIN + [
+        {"call": "Database.count_loan", "save_as": "before"}, {"call": "Database.count_book", "expect": {"ref": "before"}}]}])
+    assert not report.languages[_LANGUAGE[0]].results[0].passed

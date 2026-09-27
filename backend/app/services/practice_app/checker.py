@@ -127,6 +127,44 @@ def _short(value) -> str:
     return text if len(text) <= 160 else text[:157] + "..."
 
 
+class _Unresolved(Exception):
+    pass
+
+
+def _lookup(path: str, saved: dict):
+    """A saved value by "name.field.0.field" path (plain data, as the runners return it)."""
+    first, *rest = str(path).split(".")
+    if first not in saved:
+        raise _Unresolved(f"{{\"ref\": \"{path}\"}} - no earlier step saved {first!r}")
+    value = saved[first]
+    for part in rest:
+        if isinstance(value, list) and part.isdigit():
+            value = value[int(part)] if int(part) < len(value) else None
+        elif isinstance(value, dict):
+            value = value.get(part)
+        else:
+            value = None
+    return value
+
+
+def _with_refs(expected, saved: dict):
+    """An expectation with every {"ref": ...} replaced by the saved value it names -
+    e.g. "the count now equals the count saved before"."""
+    if isinstance(expected, dict):
+        if set(expected) == {"ref"}:
+            return _lookup(expected["ref"], saved)
+        return {k: _with_refs(v, saved) for k, v in expected.items()}
+    if isinstance(expected, list):
+        return [_with_refs(v, saved) for v in expected]
+    return expected
+
+
+def for_runner(checklist: dict) -> dict:
+    """What the language runners run: only the steps that call a helper -
+    "check" steps (a look at a value saved earlier) are judged here."""
+    return {**checklist, "steps": [s for s in checklist["steps"] if "check" not in s]}
+
+
 def _judge(checklist: dict, raw: dict) -> ChecklistResult:
     result = ChecklistResult(id=checklist["id"], title=checklist.get("title", checklist["id"]), passed=True)
     if raw.get("load_error"):
@@ -134,21 +172,40 @@ def _judge(checklist: dict, raw: dict) -> ChecklistResult:
         result.failures.append(f"the app failed to load: {raw['load_error']}")
         return result
     outcomes = raw.get("steps", [])
+    saved: dict = {}
+    ran = 0  # helper calls consumed from the runner's outcomes
     for n, step in enumerate(checklist["steps"], start=1):
-        where = f"step {n} ({step['call']})"
-        if n > len(outcomes):
-            result.passed = False
-            result.failures.append(f"{where} never ran - an earlier step failed")
-            break
-        outcome = outcomes[n - 1]
-        if "error" in outcome:
-            result.values.append({"error": True})
-            if not step.get("expect_error"):
+        where = f"step {n} ({step.get('call') or 'check'})"
+        if "check" in step:
+            try:
+                value = _with_refs(step["check"], saved)
+            except _Unresolved as missing:
                 result.passed = False
-                result.failures.append(f"{where} failed: {outcome['error']}")
-            continue
-        value = outcome.get("value")
+                result.failures.append(f"{where} refers to {missing}")
+                break
+        else:
+            if ran >= len(outcomes):
+                result.passed = False
+                result.failures.append(f"{where} never ran - an earlier step failed")
+                break
+            outcome = outcomes[ran]
+            ran += 1
+            if "error" in outcome:
+                result.values.append({"error": True})
+                if not step.get("expect_error"):
+                    result.passed = False
+                    result.failures.append(f"{where} failed: {outcome['error']}")
+                continue
+            value = outcome.get("value")
         result.values.append(value)
+        if step.get("save_as"):
+            saved[step["save_as"]] = value
+        try:
+            step = {**step, **{k: _with_refs(step[k], saved) for k in ("expect", "expect_includes", "expect_excludes") if k in step}}
+        except _Unresolved as missing:
+            result.passed = False
+            result.failures.append(f"{where} expects {missing}")
+            continue
         if step.get("expect_error"):
             result.passed = False
             result.failures.append(f"{where} should have failed, but returned {_short(value)}")
@@ -250,7 +307,7 @@ def inspect_language(language: str, env_code: str, checklists: list[dict], suppo
     report = LanguageReport(language=language)
     with tempfile.TemporaryDirectory(prefix=f"practice_{language}_") as tmp:
         try:
-            raw = {r["id"]: r for r in _RAW[language](env_code, checklists, Path(tmp), support)}
+            raw = {r["id"]: r for r in _RAW[language](env_code, [for_runner(c) for c in checklists], Path(tmp), support)}
         except (RuntimeError, subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
             report.error = f"couldn't run the {language} app: {e}"
             return report
@@ -281,7 +338,7 @@ def inspect(env_code_by_language: dict[str, str], checklists: list[dict],
             for lang, value in values.items():
                 if not _same(value, first):
                     differences.append(
-                        f"{checklist['id']} step {n + 1} ({step['call']}): {first_lang} gave {_short(first)}, "
+                        f"{checklist['id']} step {n + 1} ({step.get('call') or 'check'}): {first_lang} gave {_short(first)}, "
                         f"{lang} gave {_short(value)}"
                     )
                     break

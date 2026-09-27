@@ -126,3 +126,34 @@ def test_an_ai_failure_is_reported_not_crashed(monkeypatch):
         raise RuntimeError("API down")
     result = _build(monkeypatch, boom)
     assert result.error == "RuntimeError: API down"
+
+
+def test_a_json_typo_in_a_large_reply_is_asked_again_not_fatal(monkeypatch):
+    """Measured: 2 of 9 builds ended on one JSON typo in the checklists."""
+    replies = iter([json.dumps(_describe(SPEC)), '[{"id": "borrow" "title": oops', json.dumps(CHECKLISTS)])
+    calls = []
+
+    def model(prompt, max_tokens=None, **_):
+        calls.append(prompt)
+        return next(replies)
+    monkeypatch.setattr(llm_service, "_call_claude", model)
+    result = engine_build.generate("Library", "A library app", CASES)
+    assert result.ok, result.log
+    assert len(calls) == 3 and any("not valid JSON" in line for line in result.log)
+
+
+def test_empty_text_for_a_date_or_number_is_read_as_no_value(monkeypatch):
+    spec = copy.deepcopy(SPEC)
+    spec["data"]["Loan"][0]["due_on"] = ""
+    result = _build(monkeypatch, FakeAI([_describe(spec)]))
+    assert result.error is None, result.log
+    assert result.plan["engine_spec"]["data"]["Loan"][0]["due_on"] is None
+
+
+def test_the_correction_step_may_say_the_checklist_is_at_fault_and_stops_paying(monkeypatch):
+    missing_rule = copy.deepcopy(SPEC)
+    missing_rule["actions"][0]["rules"] = missing_rule["actions"][0]["rules"][1:]
+    fake = FakeAI([_describe(missing_rule)], repairs=[[CHECKLISTS[1]]], fixes=[{"checklist_problem": "it expects a refusal no app would give"}])
+    result = _build(monkeypatch, fake)
+    assert fake.calls == ["describe", "checklists", "repair", "fix"]  # one correction call, not two
+    assert any("checklists' fault" in line for line in result.log)
