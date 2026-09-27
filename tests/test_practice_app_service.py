@@ -40,7 +40,7 @@ def builds_dir(tmp_path, monkeypatch):
 def _fake_factory(monkeypatch, ok=True, approvable=False):
     calls = []
 
-    def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
+    def generate(title, description, cases, known_facts=None, progress=None, reuse=None, ai_allowed=True):
         calls.append({"title": title, "cases": cases, "known_facts": known_facts, "reuse": reuse})
         result = generator.PracticeAppResult(ok=ok, plan=PLAN, checklists=CHECKLISTS, env_code_by_language=dict(APP),
                                              ai_calls=5, reference_titles=[c["title"] for c in CHECKLISTS])
@@ -84,7 +84,7 @@ def test_progress_is_saved_step_by_step_while_building(client, monkeypatch, buil
     r1 = _r1(client, token, monkeypatch)
     seen = []
 
-    def generate(title, description, cases, known_facts=None, progress=None, reuse=None):
+    def generate(title, description, cases, known_facts=None, progress=None, reuse=None, ai_allowed=True):
         for step, detail in [(0, ""), (3, "27 of 28 pass - fixing (round 1 of 2)")]:
             progress(step, detail)
             db = database_module.SessionLocal()
