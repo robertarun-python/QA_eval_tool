@@ -242,3 +242,85 @@ def test_a_grid_whose_browser_node_is_stuck_down_is_restarted_not_duplicated(mon
     monkeypatch.setattr(practice_run.time, "monotonic", lambda: next(clock))
     assert practice_run.ensure_grid() == practice_run.grid_url()
     assert events == ["stopped", "started"]
+
+
+ESCAPE = r'''
+import json, os, urllib.request, urllib.error
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+
+secret = os.environ["DECOY_URL"]
+options = webdriver.ChromeOptions()
+for a in ("--headless=new", "--no-sandbox", "--proxy-server=direct://", "--remote-debugging-port=9333", "--user-data-dir=/tmp/x"):
+    options.add_argument(a)
+driver = webdriver.Remote(os.environ["SELENIUM_GRID_URL"], options=options)
+app = os.environ["PRACTICE_APP_URL"]
+
+def attempt(label, fn):
+    try:
+        result = fn()
+        print(label, "->", "LEAK" if "DECOY-SECRET" in str(result) or "PRACTICE-FILE" in str(result) else "no leak")
+    except Exception as e:
+        print(label, "-> refused", type(e).__name__)
+
+try:
+    attempt("file url", lambda: (driver.get("file://" + os.environ["DECOY_FILE"]), driver.page_source)[1])
+    attempt("other local server", lambda: (driver.get(secret), driver.page_source)[1])
+    attempt("internet", lambda: (driver.get("https://example.com/"), driver.page_source)[1])
+    driver.get(app)
+    attempt("js navigation", lambda: (driver.execute_script("window.location = arguments[0]", secret), __import__("time").sleep(1.5), driver.page_source)[2])
+    driver.get(app)
+    attempt("js fetch", lambda: driver.execute_async_script(
+        "var cb = arguments[arguments.length-1]; fetch(arguments[0]).then(r => r.text()).then(cb, e => cb('failed ' + e));", secret))
+    attempt("js file", lambda: (driver.execute_script("window.location = 'file://' + arguments[0]", os.environ["DECOY_FILE"]), __import__("time").sleep(1), driver.page_source)[2])
+    sid = driver.session_id
+    base = os.environ["SELENIUM_GRID_URL"]
+    def cdp():
+        req = urllib.request.Request(f"{base}/session/{sid}/goog/cdp/execute", data=json.dumps({"cmd": "Page.navigate", "params": {"url": secret}}).encode(),
+                                     headers={"Content-Type": "application/json"}, method="POST")
+        return urllib.request.urlopen(req).read()
+    attempt("raw cdp command", cdp)
+    attempt("grid admin", lambda: urllib.request.urlopen(base + "/se/grid/distributor/status").read())
+    driver.get(app)
+    print("practice app still works:", "Login" in driver.title)
+finally:
+    driver.quit()
+'''
+
+
+@needs_tools
+def test_a_candidates_browser_cannot_escape_the_practice_environment(tmp_path):
+    """Chrome runs outside the sandbox: through the practice server it may only
+    open the practice app - no local files, no other local server, no internet,
+    no raw browser (CDP) or Grid admin commands, no unsafe browser options."""
+    import http.server
+    import threading
+
+    class Decoy(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b"<html><body>DECOY-SECRET</body></html>"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+    decoy = http.server.HTTPServer(("127.0.0.1", 0), Decoy)
+    threading.Thread(target=decoy.serve_forever, daemon=True).start()
+    secret_file = tmp_path / "secret.html"
+    secret_file.write_text("<p>PRACTICE-FILE</p>")
+    code = ESCAPE.replace('os.environ["DECOY_URL"]', repr(f"http://127.0.0.1:{decoy.server_address[1]}/")) \
+                 .replace('os.environ["DECOY_FILE"]', repr(str(secret_file)))
+    try:
+        result = practice_run.run("python", code, SPEC)
+    finally:
+        decoy.shutdown()
+    out = result.stdout
+    assert "LEAK" not in out, out
+    for label in ("file url", "other local server", "internet", "js navigation", "js fetch", "js file", "raw cdp command", "grid admin"):
+        assert f"{label} ->" in out, (label, out, result.stderr[-800:])
+    assert "raw cdp command -> refused" in out and "grid admin -> refused" in out
+    assert "practice app still works: True" in out, (out, result.stderr[-800:])

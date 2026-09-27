@@ -48,6 +48,11 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from .render import snake
 from .runtime import Engine, _Refused
 
+# Browser options a test may ask for; everything else is dropped (see Handler._safe_new_session).
+_SAFE_CHROME_ARG = re.compile(r"--(headless(=new)?|window-size=\d{2,5},\d{2,5}|start-maximized|disable-gpu|incognito|lang=[A-Za-z-]{2,10})")
+# Raw browser (CDP / BiDi) and Grid admin commands - never through the practice environment.
+_BLOCKED_WD_SEGMENTS = {"goog", "se", "chromium", "moz", "ms", "cdp", "bidi", "grid"}
+
 CLIENT_STATE = ("user", "session", "page", "message", "last", "last_active")
 SQL_TYPES = {"int": "INTEGER", "number": "REAL", "money": "REAL", "bool": "INTEGER"}
 
@@ -271,12 +276,65 @@ class Handler(BaseHTTPRequestHandler):
         with self.lock:
             self._handle(method)
 
+    def _wd_error(self, status: int, message: str) -> None:
+        self._json(status, {"value": {"error": "unsupported operation", "message": message}})
+
+    def _safe_new_session(self, body: bytes | None) -> bytes:
+        """The browser a Run gets, whatever the test asked for: Chrome, headless,
+        and every connection forced through a dead proxy except this Run's
+        practice app (loopback included - so not the real server, the Grid or
+        the internet). Nothing else the test asked for (binary, extensions,
+        prefs, proxy, debugger) is passed on."""
+        try:
+            asked = json.loads(body or b"{}")
+        except ValueError:
+            asked = {}
+        caps = (asked.get("capabilities") or {}) if isinstance(asked, dict) else {}
+        merged = dict(caps.get("alwaysMatch") or {})
+        first = caps.get("firstMatch") or [{}]
+        if isinstance(first, list) and first and isinstance(first[0], dict):
+            merged.update(first[0])
+        options = merged.get("goog:chromeOptions") if isinstance(merged.get("goog:chromeOptions"), dict) else {}
+        args = [a for a in options.get("args") or [] if isinstance(a, str) and _SAFE_CHROME_ARG.fullmatch(a)]
+        port = self.server.server_address[1]
+        args += ["--headless=new", "--proxy-server=http://127.0.0.1:9",
+                 f"--proxy-bypass-list=<-loopback>;127.0.0.1:{port};localhost:{port}"]
+        safe = {"browserName": "chrome", "goog:chromeOptions": {"args": args}}
+        for key in ("pageLoadStrategy", "timeouts", "unhandledPromptBehavior"):
+            if key in merged:
+                safe[key] = merged[key]
+        return json.dumps({"capabilities": {"alwaysMatch": safe}}).encode()
+
     def _relay(self, method: str) -> None:
-        """Passes a Selenium command to the Grid and notes the browser
-        sessions this Run opens and closes."""
-        target = self.grid + self.path[len("/wd/hub"):]
+        """Passes a Selenium command to the Grid - only the standard WebDriver
+        commands, only for browsers this Run opened, and "go to URL" only for
+        this Run's practice app - and notes the browser sessions opened and
+        closed. Chrome runs outside the sandbox, so this is its fence: no
+        file:// or chrome:// pages, no other site or port, no raw browser
+        (CDP) or Grid admin commands."""
+        parts = [p for p in self.path[len("/wd/hub/"):].split("?")[0].split("/") if p]
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else None
+        if any(p in _BLOCKED_WD_SEGMENTS for p in parts):
+            return self._wd_error(403, "This command is not available in the practice environment")
+        if parts == ["status"] and method == "GET":
+            pass
+        elif parts == ["session"] and method == "POST":
+            body = self._safe_new_session(body)
+        elif len(parts) >= 2 and parts[0] == "session":
+            if parts[1] not in self.sessions:
+                return self._wd_error(404, "No such browser session in this Run")
+            if parts[2:] == ["url"] and method == "POST":
+                try:
+                    url = str(json.loads(body or b"{}").get("url") or "")
+                except (ValueError, AttributeError):
+                    url = ""
+                origins = {f"http://127.0.0.1:{self.server.server_address[1]}", f"http://localhost:{self.server.server_address[1]}"}
+                if not any(url == o or url.startswith(o + "/") for o in origins):
+                    return self._wd_error(403, "Only the practice application can be opened")
+        else:
+            return self._wd_error(403, "This command is not available in the practice environment")
+        target = self.grid + "/" + "/".join(parts)
         req = urllib.request.Request(target, data=body, method=method, headers={"Content-Type": "application/json; charset=utf-8"})
         try:
             with urllib.request.urlopen(req, timeout=180) as res:
@@ -285,7 +343,6 @@ class Handler(BaseHTTPRequestHandler):
             status, data = err.code, err.read()
         except OSError:
             return self._json(502, {"value": {"error": "unknown error", "message": "The browser service is not available"}})
-        parts = self.path[len("/wd/hub/"):].split("/")
         if method == "POST" and parts == ["session"] and status == 200:
             try:
                 self.sessions.add(json.loads(data)["value"]["sessionId"])
