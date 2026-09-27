@@ -271,3 +271,49 @@ def test_named_values_contains_and_missing_values_behave_the_same_in_every_langu
         {"call": "Database.count_order", "expect": 2}]}])
     result = report.languages[lang].results[0]
     assert report.languages[lang].error is None and result.passed, result.failures
+
+
+def _i(name):
+    return {"input": name}
+
+
+EVERYDAY = {
+    "app_name": "Calc", "base_url": "https://calc.example.test", "now": "2024-03-20T10:00", "pages": ["Home"], "home_page": "Home",
+    "entities": {"Note": {"key": "id", "fields": {"id": "string"}}}, "data": {"Note": []},
+    "actions": [{"name": "calc", "inputs": [{"name": "a"}, {"name": "b"}, {"name": "text"}, {"name": "born"}, {"name": "on"}],
+                 "compute": [{"name": "r", "value": {"div": [10.5, 1200]}}, {"name": "f", "value": {"pow": [{"add": [1, {"var": "r"}]}, 240]}}],
+                 "effects": [], "message": "done",
+                 "returns": {"min": {"min": [_i("a"), _i("b")]}, "max": {"max": [_i("a"), _i("b")]}, "mod": {"mod": [_i("a"), _i("b")]},
+                             "abs": {"abs": _i("a")}, "floor": {"floor": _i("a")}, "ceil": {"ceil": _i("a")},
+                             "pow0": {"pow": [_i("a"), 0]}, "pow3": {"pow": [_i("a"), 3]},
+                             "last4": {"slice": [_i("text"), -4]}, "mid": {"slice": [_i("text"), 1, 3]}, "far": {"slice": [_i("text"), 50]},
+                             "head": {"slice": [_i("text"), -100, 2]}, "age": {"years_between": [_i("born"), _i("on")]}, "day": {"date": {"now": True}},
+                             "emi": {"round": [{"div": [{"mul": [{"mul": [500000, {"var": "r"}]}, {"var": "f"}]}, {"sub": [{"var": "f"}, 1]}]}, 2]},
+                             "masked": {"concat": ["XXXX-", {"slice": [_i("text"), -4]}]}}}],
+}
+
+
+def _calc(a, b, text, born, on, **expected):
+    return {"call": "API.calc", "args": [a, b, text, born, on], "expect": {"ok": True, "error": None, "message": "done", "day": "2024-03-20",
+                                                                          "pow0": 1, "emi": 4991.9, **expected}}
+
+
+def test_everyday_rule_words_give_the_same_answer_in_every_language():
+    """Predicted, not yet met in a paid build: the words the AI reached for
+    ("let") were missing from the format, and the same happens with a discount
+    cap (min), an EMI (pow), a masked card (slice), an age (years_between).
+    EMI of 5,00,000 at 10.5% for 240 months is 4991.8994 exactly -> 4991.90."""
+    lang = _LANGUAGE[0]
+    report = _inspect(lang, EVERYDAY, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"},
+        _calc(-7, 3, "4111111111111234", "2006-03-21", "2024-03-20", min=-7, max=3, mod=2, abs=7, floor=-7, ceil=-7, pow3=-343,
+              last4="1234", mid="11", far="", head="41", age=17, masked="XXXX-1234"),
+        _calc(7.5, 2, "héllo😀ab", "2004-02-29", "2024-02-28", min=2, max=7.5, mod=1.5, abs=7.5, floor=7, ceil=8, pow3=421.875,
+              last4="o😀ab", mid="él", far="", head="hé", age=19, masked="XXXX-o😀ab"),
+        _calc(-2.5, 0.1, "ab", "2006-03-20", "2024-03-20", min=-2.5, max=0.1, mod=0, abs=2.5, floor=-3, ceil=-2, pow3=-15.625,
+              last4="ab", mid="b", far="", head="ab", age=18, masked="XXXX-ab"),
+        {"call": "API.calc", "args": [2, 0, "x", "2024-03-20", "2006-03-20"], "expect_includes": {"ok": False, "error": "Cannot divide by zero"}},
+        # 1e300 cubed is beyond any number: the same refusal everywhere, never a crash or "Infinity"
+        {"call": "API.calc", "args": [1e300, 2, "x", "2024-03-20", "2006-03-20"], "expect_includes": {"ok": False, "error": "That number is too large"}}]}])
+    result = report.languages[lang].results[0]
+    assert report.languages[lang].error is None and result.passed, result.failures

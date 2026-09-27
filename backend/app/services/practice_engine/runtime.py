@@ -6,6 +6,7 @@ self-contained. runtime.js and Runtime.java implement the same behaviour and
 pass the same conformance suite.
 """
 import copy
+import math
 import re
 from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -17,6 +18,7 @@ class EngineError(Exception):
 
 
 UNEXPECTED = "Something went wrong. Please check your input and try again."
+TOO_LARGE = "That number is too large"
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 _SYMBOLS = {"INR": "₹", "USD": "$", "EUR": "€", "GBP": "£"}
 
@@ -31,13 +33,29 @@ def _num(value):
     raise EngineError(f"expected a number, got {value!r}")
 
 
+def _raw(value):
+    """A candidate's input as text - the same characters in Python, JavaScript
+    and Java (each language's own str() differs: 1e20, -0.0, 2.0, True)."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float) and math.isfinite(value):
+        return str(int(value)) if value == int(value) else format(Decimal(repr(value)), "f")
+    return str(value)
+
+
 def _clean(value):
     """Numbers as the engine returns them: whole numbers as int, others to 10
     places (which removes binary noise such as 0.1 x 3 = 0.30000000000000004
     but keeps a monthly rate like 10.5 / 12 / 100 = 0.00875 exact). Money is
     rounded to 2 places only where it is stored, shown, or rounded on purpose."""
     if isinstance(value, float):
-        if value == int(value) and abs(value) < 1e15:
+        if not math.isfinite(value):
+            raise _Refused(TOO_LARGE)
+        if abs(value) >= 1e15:
+            return value  # no binary noise to remove at this size; Decimal would run out of digits
+        if value == int(value):
             return int(value)
         value = float(Decimal(repr(value)).quantize(Decimal("1e-10"), rounding=ROUND_HALF_UP))
         return int(value) if value == int(value) else value
@@ -45,6 +63,8 @@ def _clean(value):
 
 
 def _round(value, places=2):
+    if abs(_num(value)) >= 1e15:
+        return _clean(float(_num(value)))
     q = Decimal(1).scaleb(-int(places))
     return _clean(float(Decimal(repr(_clean(float(_num(value))))).quantize(q, rounding=ROUND_HALF_UP)))
 
@@ -93,7 +113,7 @@ def _working_days(start, end):
 
 
 def _split(text, sep):
-    return [part.strip() for part in ("" if text is None else str(text)).split(sep) if part.strip()]
+    return [part.strip() for part in ("" if text is None else _raw(text)).split(sep) if part.strip()]
 
 
 def _format_date(value, fmt):
@@ -140,7 +160,7 @@ def _format_money(value, currency):
 
 # The regex subset every language agrees on (see DESIGN.md) - checked by the validator.
 def _full_match(pattern, text):
-    return re.fullmatch(pattern, "" if text is None else str(text), re.ASCII) is not None  # \d \w \s ASCII-only, as in JS and Java
+    return re.fullmatch(pattern, "" if text is None else _raw(text), re.ASCII) is not None  # \d \w \s ASCII-only, as in JS and Java
 
 
 def _same(a, b):
@@ -206,9 +226,9 @@ class Engine:
 
     def _by_key(self, entity, key):
         """The record a user means by this key: case and stray spaces ignored."""
-        wanted = str(key).strip().lower()
+        wanted = _raw(key).strip().lower()
         return next((r for r in self.store[entity] if _same(r.get(self._key(entity)), key)
-                     or str(r.get(self._key(entity))).strip().lower() == wanted), None)
+                     or _raw(r.get(self._key(entity))).strip().lower() == wanted), None)
 
     def _field_type(self, entity, field):
         return (self.entities[entity].get("fields") or {}).get(field, "string")
@@ -260,6 +280,35 @@ class Engine:
             if op == "div" and b == 0:
                 raise _Refused("Cannot divide by zero")
             return _clean({"add": a + b, "sub": a - b, "mul": a * b, "div": a / b if op == "div" else 0}[op])
+        if op in ("min", "max"):
+            a, b = (_num(ev(x, ctx)) for x in arg)
+            return _clean(float(min(a, b) if op == "min" else max(a, b)))
+        if op == "mod":
+            a, b = (_num(ev(x, ctx)) for x in arg)
+            if b == 0:
+                raise _Refused("Cannot divide by zero")
+            return _clean(float(a - b * math.floor(a / b)))
+        if op == "pow":
+            base, times = _num(ev(arg[0], ctx)), _num(ev(arg[1], ctx))
+            if times != int(times) or not 0 <= times <= 1200:
+                raise EngineError(f"pow needs a whole power from 0 to 1200, got {times!r}")
+            result = 1
+            for _ in range(int(times)):  # step by step, cleaned like "mul", so all three languages agree to the last place
+                result = _clean(float(result * base))
+            return result
+        if op in ("abs", "floor", "ceil"):
+            value = _num(ev(arg, ctx))
+            return _clean(float({"abs": abs, "floor": math.floor, "ceil": math.ceil}[op](value)))
+        if op == "slice":
+            chars = list(self._text(ev(arg[0], ctx)))
+            start = int(_num(ev(arg[1], ctx)))
+            end = int(_num(ev(arg[2], ctx))) if len(arg) > 2 else len(chars)
+            return "".join(chars[start:end])
+        if op == "years_between":
+            a, b = _to_date(ev(arg[0], ctx)), _to_date(ev(arg[1], ctx))
+            return b.year - a.year - ((b.month, b.day) < (a.month, a.day))
+        if op == "date":
+            return _iso_date(_to_datetime(ev(arg, ctx)))
         if op == "round":
             value, places = (arg + [2])[:2] if isinstance(arg, list) else (arg, 2)
             return _round(ev(value, ctx), ev(places, ctx))
@@ -366,9 +415,10 @@ class Engine:
             return ""
         if isinstance(value, bool):
             return "true" if value else "false"
-        if isinstance(value, float):
+        if isinstance(value, (int, float)):
+            # the same text in all three languages: whole numbers as plain digits however large, others with 2 decimals
             value = _round(value, 2)
-            return f"{value:.2f}" if isinstance(value, float) else str(value)
+            return str(int(value)) if value == int(value) else f"{value:.2f}"
         return str(value)
 
     def _rows(self, entity, where, ctx):
@@ -404,19 +454,19 @@ class Engine:
 
     def login(self, login, password):
         msgs = self._messages()
-        if login is None or str(login).strip() == "":
+        if login is None or _raw(login).strip() == "":
             raise _Refused(msgs["required_login"])
-        if password is None or str(password) == "":
+        if password is None or _raw(password) == "":
             raise _Refused(msgs["required_password"])
         entity = self.users["entity"]
         field = self.users.get("login_field", "email")
-        match = next((u for u in self.store[entity] if str(u.get(field, "")).lower() == str(login).strip().lower()), None)
-        lockout, who = self.users.get("lockout"), str(login).strip().lower()
+        match = next((u for u in self.store[entity] if _raw(u.get(field, "")).lower() == _raw(login).strip().lower()), None)
+        lockout, who = self.users.get("lockout"), _raw(login).strip().lower()
         if match is not None and lockout:
             until = self.locked_until.get(who)
             if until is not None and (until is True or self.clock < until):
                 raise _Refused(lockout["message"], status=403)
-        if match is None or str(match.get(self.users.get("password_field", "password"))) != str(password):
+        if match is None or _raw(match.get(self.users.get("password_field", "password"))) != _raw(password):
             if match is not None and lockout:
                 self.failed_logins[who] = self.failed_logins.get(who, 0) + 1
                 if self.failed_logins[who] >= lockout["attempts"]:
@@ -450,9 +500,9 @@ class Engine:
                 elif not present:
                     continue
                 elif rule == "min_length":
-                    ok = len(str(value)) >= limit
+                    ok = len(_raw(value)) >= limit
                 elif rule == "max_length":
-                    ok = len(str(value)) <= limit
+                    ok = len(_raw(value)) <= limit
                 elif rule == "pattern":
                     ok = _full_match(limit, value)
                 elif rule in ("min", "max"):
@@ -468,16 +518,16 @@ class Engine:
                     except EngineError:
                         ok = False
                 elif rule == "one_of":
-                    ok = any(_same(value, o) or str(value).lower() == str(o).lower() for o in limit)
+                    ok = any(_same(value, o) or _raw(value).lower() == _raw(o).lower() for o in limit)
                 elif rule == "date":
                     try:
-                        _to_date(str(value))
+                        _to_date(_raw(value))
                     except (EngineError, ValueError):
                         ok = False
                 elif rule == "not_past":
-                    ok = str(value)[:10] >= _iso_date(self.clock.date())
+                    ok = _raw(value)[:10] >= _iso_date(self.clock.date())
                 elif rule == "not_future":
-                    ok = str(value)[:10] <= _iso_date(self.clock.date())
+                    ok = _raw(value)[:10] <= _iso_date(self.clock.date())
                 else:
                     raise EngineError(f"unknown input check {rule!r}")
                 if not ok:
@@ -592,15 +642,15 @@ class Engine:
             key = self._key(entity)
             if values.get(key) is None:
                 fmt = self.entities[entity].get("id_format")
-                taken = {str(r.get(key)).lower() for r in self.store[entity]}
+                taken = {_raw(r.get(key)).lower() for r in self.store[entity]}
                 while True:  # never an id already stored (e.g. a record a test inserted into the database itself)
                     self.counters[entity] += 1
                     values[key] = self._id(fmt, self.counters[entity]) if fmt else self.counters[entity]
-                    if str(values[key]).lower() not in taken:
+                    if _raw(values[key]).lower() not in taken:
                         break
             record = values
             self.store[entity].append(record)
-            self.created.add((entity, str(values[key])))
+            self.created.add((entity, _raw(values[key])))
             if arg.get("as"):
                 ctx["aliases"][arg["as"]] = record
         elif op == "delete":
@@ -651,7 +701,7 @@ class Engine:
         if match:
             spec_input = match["input"]
             term = inputs.get(spec_input)
-            blank = term is None or str(term).strip() == ""
+            blank = term is None or _raw(term).strip() == ""
             if blank:
                 how = match.get("blank", "all")
                 if how.startswith("error:"):
@@ -659,9 +709,9 @@ class Engine:
                 if how == "empty":
                     rows = []
             else:
-                if match.get("max_length") and len(str(term)) > match["max_length"]:
+                if match.get("max_length") and len(_raw(term)) > match["max_length"]:
                     raise _Refused(match.get("too_long", "Search text is too long"))
-                needle = str(term).strip().lower()
+                needle = _raw(term).strip().lower()
                 mode = match.get("mode", "contains")
 
                 def hit(row):
@@ -779,7 +829,7 @@ class Engine:
 
     def db_get(self, entity, key):
         record = next((r for r in self.store[entity] if _same(r.get(self._key(entity)), key)
-                       or str(r.get(self._key(entity))) == str(key)), None)
+                       or _raw(r.get(self._key(entity))) == _raw(key)), None)
         return copy.deepcopy(record)
 
     def db_find(self, entity, field, value):
@@ -808,6 +858,6 @@ class Engine:
             return
         for entity, rows in self.store.items():
             for i, r in enumerate(rows):
-                if (entity, str(r.get(self._key(entity)))) in self.created and str(r.get(self._key(entity))) == str(key):
+                if (entity, _raw(r.get(self._key(entity)))) in self.created and _raw(r.get(self._key(entity))) == _raw(key):
                     del rows[i]
                     return

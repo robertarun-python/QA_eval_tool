@@ -1,0 +1,1026 @@
+{
+ "label": "r3_bill",
+ "title": "Electricity Bill Payment",
+ "recorded": "10/10",
+ "spec": {
+  "app_name": "Electricity Bill Payment",
+  "base_url": "https://electricity.example.test",
+  "now": "2024-03-15T10:00",
+  "entities": {
+   "Bill": {
+    "key": "consumer_number",
+    "fields": {
+     "consumer_number": "string",
+     "consumer_name": "string",
+     "billing_period": "string",
+     "bill_amount": "money",
+     "due_date": "date",
+     "status": "string"
+    }
+   },
+   "Payment": {
+    "key": "id",
+    "id_format": "RCP-{n:06}",
+    "fields": {
+     "id": "string",
+     "consumer_number": "string",
+     "consumer_name": "string",
+     "bill_amount": "money",
+     "late_fee": "money",
+     "total_amount": "money",
+     "paid_on": "date",
+     "email": "string"
+    }
+   }
+  },
+  "data": {
+   "Bill": [
+    {
+     "consumer_number": "1234567890",
+     "consumer_name": "Rajesh Kumar",
+     "billing_period": "Feb 2024",
+     "bill_amount": 1845.5,
+     "due_date": "2024-03-20",
+     "status": "Unpaid"
+    },
+    {
+     "consumer_number": "2345678901",
+     "consumer_name": "Priya Sharma",
+     "billing_period": "Feb 2024",
+     "bill_amount": 500.0,
+     "due_date": "2024-03-10",
+     "status": "Unpaid"
+    },
+    {
+     "consumer_number": "3456789012",
+     "consumer_name": "Amit Patel",
+     "billing_period": "Feb 2024",
+     "bill_amount": 2500.0,
+     "due_date": "2024-03-10",
+     "status": "Unpaid"
+    },
+    {
+     "consumer_number": "4567890123",
+     "consumer_name": "Sunita Verma",
+     "billing_period": "Feb 2024",
+     "bill_amount": 3200.0,
+     "due_date": "2024-03-25",
+     "status": "Paid"
+    },
+    {
+     "consumer_number": "9876543210",
+     "consumer_name": "Disconnected Account",
+     "billing_period": "Feb 2024",
+     "bill_amount": 1000.0,
+     "due_date": "2024-03-20",
+     "status": "Unpaid"
+    }
+   ],
+   "Payment": [
+    {
+     "id": "RCP-000001",
+     "consumer_number": "4567890123",
+     "consumer_name": "Sunita Verma",
+     "bill_amount": 3200.0,
+     "late_fee": 0.0,
+     "total_amount": 3200.0,
+     "paid_on": "2024-03-12",
+     "email": "sunita@example.test"
+    }
+   ]
+  },
+  "pages": [
+   "Bill Lookup",
+   "Bill Details",
+   "Payment Confirmation"
+  ],
+  "public_pages": [
+   "Bill Lookup",
+   "Bill Details",
+   "Payment Confirmation"
+  ],
+  "home_page": "Bill Lookup",
+  "queries": [
+   {
+    "name": "fetch_bill",
+    "label": "Fetch Bill",
+    "page": "Bill Lookup",
+    "entity": "Bill",
+    "key_input": "consumer_number",
+    "inputs": [
+     {
+      "name": "consumer_number",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Consumer number is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{10}",
+        "message": "Consumer number must be 10 digits"
+       }
+      ]
+     }
+    ],
+    "missing": "No bill found for this consumer number",
+    "rules": [
+     {
+      "when": {
+       "matches": [
+        {
+         "input": "consumer_number"
+        },
+        "^9.*"
+       ]
+      },
+      "message": "This connection is disconnected. Please visit the office."
+     }
+    ],
+    "show": [
+     "consumer_number",
+     "consumer_name",
+     "billing_period",
+     "bill_amount",
+     "due_date",
+     "status",
+     {
+      "name": "late_fee",
+      "value": {
+       "if": [
+        {
+         "and": [
+          {
+           "gt": [
+            {
+             "today": true
+            },
+            {
+             "field": "row.due_date"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Unpaid"
+           ]
+          }
+         ]
+        },
+        {
+         "if": [
+          {
+           "ge": [
+            {
+             "round": [
+              {
+               "mul": [
+                {
+                 "field": "row.bill_amount"
+                },
+                0.02
+               ]
+              },
+              2
+             ]
+            },
+            25.0
+           ]
+          },
+          {
+           "round": [
+            {
+             "mul": [
+              {
+               "field": "row.bill_amount"
+              },
+              0.02
+             ]
+            },
+            2
+           ]
+          },
+          25.0
+         ]
+        },
+        0.0
+       ]
+      }
+     },
+     {
+      "name": "total_amount",
+      "value": {
+       "add": [
+        {
+         "field": "row.bill_amount"
+        },
+        {
+         "if": [
+          {
+           "and": [
+            {
+             "gt": [
+              {
+               "today": true
+              },
+              {
+               "field": "row.due_date"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.status"
+              },
+              "Unpaid"
+             ]
+            }
+           ]
+          },
+          {
+           "if": [
+            {
+             "ge": [
+              {
+               "round": [
+                {
+                 "mul": [
+                  {
+                   "field": "row.bill_amount"
+                  },
+                  0.02
+                 ]
+                },
+                2
+               ]
+              },
+              25.0
+             ]
+            },
+            {
+             "round": [
+              {
+               "mul": [
+                {
+                 "field": "row.bill_amount"
+                },
+                0.02
+               ]
+              },
+              2
+             ]
+            },
+            25.0
+           ]
+          },
+          0.0
+         ]
+        }
+       ]
+      }
+     }
+    ],
+    "next_page": "Bill Details"
+   }
+  ],
+  "actions": [
+   {
+    "name": "pay_bill",
+    "label": "Pay Bill",
+    "page": "Bill Details",
+    "inputs": [
+     {
+      "name": "consumer_number",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Consumer number is required"
+       }
+      ]
+     },
+     {
+      "name": "amount",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Amount is required"
+       },
+       {
+        "rule": "number",
+        "message": "Amount must be a number"
+       }
+      ]
+     },
+     {
+      "name": "email",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Email is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "bill",
+      "entity": "Bill",
+      "key": {
+       "input": "consumer_number"
+      },
+      "missing": "No bill found for this consumer number"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "eq": [
+        {
+         "field": "bill.status"
+        },
+        "Paid"
+       ]
+      },
+      "message": "This bill is already paid"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "input": "amount"
+        },
+        {
+         "add": [
+          {
+           "field": "bill.bill_amount"
+          },
+          {
+           "if": [
+            {
+             "gt": [
+              {
+               "today": true
+              },
+              {
+               "field": "bill.due_date"
+              }
+             ]
+            },
+            {
+             "if": [
+              {
+               "ge": [
+                {
+                 "round": [
+                  {
+                   "mul": [
+                    {
+                     "field": "bill.bill_amount"
+                    },
+                    0.02
+                   ]
+                  },
+                  2
+                 ]
+                },
+                25.0
+               ]
+              },
+              {
+               "round": [
+                {
+                 "mul": [
+                  {
+                   "field": "bill.bill_amount"
+                  },
+                  0.02
+                 ]
+                },
+                2
+               ]
+              },
+              25.0
+             ]
+            },
+            0.0
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      "message": "Please pay the full amount"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "bill",
+       "field": "status",
+       "value": "Paid"
+      }
+     },
+     {
+      "create": {
+       "entity": "Payment",
+       "as": "payment",
+       "values": {
+        "consumer_number": {
+         "field": "bill.consumer_number"
+        },
+        "consumer_name": {
+         "field": "bill.consumer_name"
+        },
+        "bill_amount": {
+         "field": "bill.bill_amount"
+        },
+        "late_fee": {
+         "if": [
+          {
+           "gt": [
+            {
+             "today": true
+            },
+            {
+             "field": "bill.due_date"
+            }
+           ]
+          },
+          {
+           "if": [
+            {
+             "ge": [
+              {
+               "round": [
+                {
+                 "mul": [
+                  {
+                   "field": "bill.bill_amount"
+                  },
+                  0.02
+                 ]
+                },
+                2
+               ]
+              },
+              25.0
+             ]
+            },
+            {
+             "round": [
+              {
+               "mul": [
+                {
+                 "field": "bill.bill_amount"
+                },
+                0.02
+               ]
+              },
+              2
+             ]
+            },
+            25.0
+           ]
+          },
+          0.0
+         ]
+        },
+        "total_amount": {
+         "input": "amount"
+        },
+        "paid_on": {
+         "today": true
+        },
+        "email": {
+         "input": "email"
+        }
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "email",
+       "to": {
+        "input": "email"
+       },
+       "subject": "Electricity Bill Payment Receipt",
+       "body": {
+        "format": [
+         "Your payment of ₹{amount} has been received. Receipt number: {receipt}",
+         {
+          "amount": {
+           "format_money": [
+            {
+             "input": "amount"
+            },
+            "INR"
+           ]
+          },
+          "receipt": {
+           "field": "payment.id"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Payment successful. Receipt number: {receipt}",
+      {
+       "receipt": {
+        "field": "payment.id"
+       }
+      }
+     ]
+    },
+    "returns": {
+     "receipt_number": {
+      "field": "payment.id"
+     }
+    },
+    "next_page": "Payment Confirmation"
+   }
+  ],
+  "faults": [
+   {
+    "name": "payment_timeout",
+    "applies_to": [
+     "pay_bill"
+    ],
+    "message": "Payment timed out. Please try again."
+   }
+  ]
+ },
+ "checklists": [
+  {
+   "id": "fetch-and-pay-before-due",
+   "title": "Fetch and pay bill before due date",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "1234567890"
+     ],
+     "save_as": "bill",
+     "expect_includes": {
+      "consumer_number": "1234567890",
+      "consumer_name": "Rajesh Kumar",
+      "bill_amount": 1845.5,
+      "status": "Unpaid",
+      "late_fee": 0.0,
+      "total_amount": 1845.5
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Details"
+     ]
+    },
+    {
+     "call": "UI.pay_bill",
+     "args": [
+      "1234567890",
+      1845.5,
+      "test@example.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Payment successful. Receipt number:"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "receipt_number": "RCP-000002"
+     }
+    },
+    {
+     "call": "Database.get_bill",
+     "args": [
+      "1234567890"
+     ],
+     "expect_includes": {
+      "status": "Paid"
+     }
+    },
+    {
+     "call": "Database.find_payment",
+     "args": [
+      "consumer_number",
+      "1234567890"
+     ],
+     "save_as": "payments"
+    },
+    {
+     "check": {
+      "ref": "payments.0.consumer_number"
+     },
+     "expect": "1234567890"
+    },
+    {
+     "check": {
+      "ref": "payments.0.consumer_name"
+     },
+     "expect": "Rajesh Kumar"
+    },
+    {
+     "check": {
+      "ref": "payments.0.bill_amount"
+     },
+     "expect": 1845.5
+    },
+    {
+     "check": {
+      "ref": "payments.0.late_fee"
+     },
+     "expect": 0.0
+    },
+    {
+     "check": {
+      "ref": "payments.0.total_amount"
+     },
+     "expect": 1845.5
+    },
+    {
+     "check": {
+      "ref": "payments.0.email"
+     },
+     "expect": "test@example.test"
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "outbox"
+    },
+    {
+     "check": {
+      "ref": "outbox.0.to"
+     },
+     "expect": "test@example.test"
+    },
+    {
+     "check": {
+      "ref": "outbox.0.subject"
+     },
+     "expect": "Electricity Bill Payment Receipt"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "consumer-number-9-digits",
+   "title": "Consumer number with 9 digits",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "123456789"
+     ],
+     "expect": null
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Consumer number must be 10 digits"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "consumer-number-with-letters",
+   "title": "Consumer number with letters",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "12345ABCDE"
+     ],
+     "expect": null
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Consumer number must be 10 digits"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "unknown-consumer-number",
+   "title": "Unknown consumer number",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "1111111111"
+     ],
+     "expect": null
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "No bill found for this consumer number"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "late-fee-after-due-date",
+   "title": "Late fee after due date",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "2345678901"
+     ],
+     "save_as": "bill",
+     "expect_includes": {
+      "consumer_number": "2345678901",
+      "bill_amount": 500.0,
+      "late_fee": 25.0,
+      "total_amount": 525.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "minimum-late-fee",
+   "title": "Minimum late fee",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "2345678901"
+     ],
+     "save_as": "bill",
+     "expect_includes": {
+      "consumer_number": "2345678901",
+      "bill_amount": 500.0,
+      "late_fee": 25.0,
+      "total_amount": 525.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "partial-payment-refused",
+   "title": "Partial payment refused",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "1234567890"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Details"
+     ]
+    },
+    {
+     "call": "UI.pay_bill",
+     "args": [
+      "1234567890",
+      1000.0,
+      "test@example.test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Please pay the full amount"
+    },
+    {
+     "call": "Database.get_bill",
+     "args": [
+      "1234567890"
+     ],
+     "expect_includes": {
+      "status": "Unpaid"
+     }
+    },
+    {
+     "call": "Database.count_payment",
+     "args": [
+      "consumer_number",
+      "1234567890"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "pay-already-paid-bill",
+   "title": "Pay an already paid bill",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "4567890123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Details"
+     ]
+    },
+    {
+     "call": "UI.pay_bill",
+     "args": [
+      "4567890123",
+      3200.0,
+      "test@example.test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "This bill is already paid"
+    },
+    {
+     "call": "Database.count_payment",
+     "args": [
+      "consumer_number",
+      "4567890123"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "disconnected-account",
+   "title": "Disconnected account",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "9876543210"
+     ],
+     "expect": null
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "This connection is disconnected. Please visit the office."
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "payment-timeout",
+   "title": "Payment page timeout",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.simulate",
+     "args": [
+      "payment_timeout"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Lookup"
+     ]
+    },
+    {
+     "call": "UI.fetch_bill",
+     "args": [
+      "1234567890"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Bill Details"
+     ]
+    },
+    {
+     "call": "UI.pay_bill",
+     "args": [
+      "1234567890",
+      1882.41,
+      "test@example.test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment timed out. Please try again."
+    },
+    {
+     "call": "Database.get_bill",
+     "args": [
+      "1234567890"
+     ],
+     "expect_includes": {
+      "status": "Unpaid"
+     }
+    },
+    {
+     "call": "Database.count_payment",
+     "args": [
+      "consumer_number",
+      "1234567890"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

@@ -1,0 +1,1428 @@
+{
+ "label": "r2_sloppy",
+ "title": "grocery app order",
+ "recorded": "7/9",
+ "spec": {
+  "app_name": "Grocery Order System",
+  "base_url": "https://grocery.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "Customer": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "wallet_balance": "money"
+    }
+   },
+   "Product": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "name": "string",
+     "price": "money",
+     "category": "string"
+    }
+   },
+   "BasketItem": {
+    "key": "id",
+    "id_format": "BI-{n:03}",
+    "fields": {
+     "id": "string",
+     "customer": "string",
+     "product_id": "string",
+     "product_name": "string",
+     "price": "money",
+     "quantity": "int"
+    }
+   },
+   "Order": {
+    "key": "id",
+    "id_format": "ORD-{n:03}",
+    "fields": {
+     "id": "string",
+     "customer": "string",
+     "subtotal": "money",
+     "discount": "money",
+     "total": "money",
+     "delivery_slot": "string",
+     "promo_code": "string",
+     "placed_at": "datetime"
+    }
+   }
+  },
+  "data": {
+   "Customer": [
+    {
+     "email": "user@grocery.test",
+     "password": "Pass@123",
+     "name": "Test User",
+     "wallet_balance": 500.0
+    },
+    {
+     "email": "lowbalance@grocery.test",
+     "password": "Pass@123",
+     "name": "Low Balance User",
+     "wallet_balance": 100.0
+    }
+   ],
+   "Product": [
+    {
+     "id": "P001",
+     "name": "Milk",
+     "price": 60.0,
+     "category": "Dairy"
+    },
+    {
+     "id": "P002",
+     "name": "Bread",
+     "price": 45.0,
+     "category": "Bakery"
+    },
+    {
+     "id": "P003",
+     "name": "Eggs",
+     "price": 80.0,
+     "category": "Dairy"
+    },
+    {
+     "id": "P004",
+     "name": "Rice",
+     "price": 120.0,
+     "category": "Grains"
+    },
+    {
+     "id": "P005",
+     "name": "Apple",
+     "price": 150.0,
+     "category": "Fruits"
+    }
+   ],
+   "BasketItem": [],
+   "Order": []
+  },
+  "users": {
+   "entity": "Customer",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Basket",
+   "Checkout"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "view_products",
+    "label": "Products",
+    "page": "Home",
+    "entity": "Product",
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "price",
+     "category"
+    ]
+   },
+   {
+    "name": "view_basket",
+    "label": "Basket",
+    "page": "Basket",
+    "entity": "BasketItem",
+    "where": {
+     "eq": [
+      {
+       "field": "row.customer"
+      },
+      {
+       "user": "email"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "product_name"
+     }
+    ],
+    "show": [
+     "id",
+     "product_name",
+     "price",
+     "quantity",
+     {
+      "name": "item_total",
+      "value": {
+       "mul": [
+        {
+         "field": "row.price"
+        },
+        {
+         "field": "row.quantity"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "add_to_basket",
+    "label": "Add to Basket",
+    "page": "Home",
+    "inputs": [
+     {
+      "name": "product_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Product is required"
+       }
+      ]
+     },
+     {
+      "name": "quantity",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Quantity is required"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Quantity must be at least 1"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "product",
+      "entity": "Product",
+      "key": {
+       "input": "product_id"
+      },
+      "missing": "Product not found"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "gt": [
+        {
+         "add": [
+          {
+           "sum": {
+            "entity": "BasketItem",
+            "where": {
+             "eq": [
+              {
+               "field": "row.customer"
+              },
+              {
+               "user": "email"
+              }
+             ]
+            },
+            "field": "quantity"
+           }
+          },
+          {
+           "input": "quantity"
+          }
+         ]
+        },
+        10
+       ]
+      },
+      "message": "Maximum 10 items allowed in basket"
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "BasketItem",
+       "as": "item",
+       "values": {
+        "customer": {
+         "user": "email"
+        },
+        "product_id": {
+         "field": "product.id"
+        },
+        "product_name": {
+         "field": "product.name"
+        },
+        "price": {
+         "mul": [
+          {
+           "field": "product.price"
+          },
+          {
+           "input": "quantity"
+          }
+         ]
+        },
+        "quantity": {
+         "input": "quantity"
+        }
+       }
+      }
+     }
+    ],
+    "message": "Item added to basket"
+   },
+   {
+    "name": "remove_from_basket",
+    "label": "Remove",
+    "page": "Basket",
+    "inputs": [
+     {
+      "name": "item_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Item is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "item",
+      "entity": "BasketItem",
+      "key": {
+       "input": "item_id"
+      },
+      "missing": "Item not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "item.customer"
+        },
+        {
+         "user": "email"
+        }
+       ]
+      },
+      "message": "This item is not in your basket"
+     }
+    ],
+    "effects": [
+     {
+      "delete": {
+       "record": "item"
+      }
+     }
+    ],
+    "message": "Item removed from basket"
+   },
+   {
+    "name": "select_delivery_slot",
+    "label": "Select Delivery Slot",
+    "page": "Checkout",
+    "inputs": [
+     {
+      "name": "slot",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Delivery slot is required"
+       },
+       {
+        "rule": "one_of",
+        "value": [
+         "Morning",
+         "Evening"
+        ],
+        "message": "Invalid delivery slot"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "input": "slot"
+          },
+          "Evening"
+         ]
+        },
+        {
+         "ge": [
+          {
+           "time": {
+            "now": true
+           }
+          },
+          "16:00"
+         ]
+        }
+       ]
+      },
+      "message": "Evening slot not available after 4 PM"
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "delivery_slot",
+       "value": {
+        "input": "slot"
+       }
+      }
+     }
+    ],
+    "message": "Delivery slot selected"
+   },
+   {
+    "name": "apply_promo",
+    "label": "Apply Promo",
+    "page": "Checkout",
+    "inputs": [
+     {
+      "name": "promo_code",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Promo code is required"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "upper": {
+          "input": "promo_code"
+         }
+        },
+        "FRESH50"
+       ]
+      },
+      "message": "Invalid promo code"
+     },
+     {
+      "unless": {
+       "gt": [
+        {
+         "sum": {
+          "entity": "BasketItem",
+          "where": {
+           "eq": [
+            {
+             "field": "row.customer"
+            },
+            {
+             "user": "email"
+            }
+           ]
+          },
+          "field": "price"
+         }
+        },
+        300
+       ]
+      },
+      "message": "Promo code requires order above Rs 300"
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "promo_code",
+       "value": {
+        "upper": {
+         "input": "promo_code"
+        }
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "discount",
+       "value": 50
+      }
+     }
+    ],
+    "message": "Promo code applied"
+   },
+   {
+    "name": "checkout",
+    "label": "Checkout",
+    "page": "Checkout",
+    "inputs": [],
+    "rules": [
+     {
+      "unless": {
+       "gt": [
+        {
+         "count": {
+          "entity": "BasketItem",
+          "where": {
+           "eq": [
+            {
+             "field": "row.customer"
+            },
+            {
+             "user": "email"
+            }
+           ]
+          }
+         }
+        },
+        0
+       ]
+      },
+      "message": "Your basket is empty"
+     },
+     {
+      "unless": {
+       "not": {
+        "empty": {
+         "session": "delivery_slot"
+        }
+       }
+      },
+      "message": "Please select a delivery slot"
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "user": "wallet_balance"
+        },
+        {
+         "sub": [
+          {
+           "sum": {
+            "entity": "BasketItem",
+            "where": {
+             "eq": [
+              {
+               "field": "row.customer"
+              },
+              {
+               "user": "email"
+              }
+             ]
+            },
+            "field": "price"
+           }
+          },
+          {
+           "if": [
+            {
+             "not": {
+              "empty": {
+               "session": "discount"
+              }
+             }
+            },
+            {
+             "session": "discount"
+            },
+            0
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      "message": "Insufficient wallet balance"
+     }
+    ],
+    "load": [
+     {
+      "as": "customer",
+      "entity": "Customer",
+      "key": {
+       "user": "email"
+      },
+      "missing": "Customer not found"
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Order",
+       "as": "order",
+       "values": {
+        "customer": {
+         "user": "email"
+        },
+        "subtotal": {
+         "sum": {
+          "entity": "BasketItem",
+          "where": {
+           "eq": [
+            {
+             "field": "row.customer"
+            },
+            {
+             "user": "email"
+            }
+           ]
+          },
+          "field": "price"
+         }
+        },
+        "discount": {
+         "if": [
+          {
+           "not": {
+            "empty": {
+             "session": "discount"
+            }
+           }
+          },
+          {
+           "session": "discount"
+          },
+          0
+         ]
+        },
+        "total": {
+         "sub": [
+          {
+           "sum": {
+            "entity": "BasketItem",
+            "where": {
+             "eq": [
+              {
+               "field": "row.customer"
+              },
+              {
+               "user": "email"
+              }
+             ]
+            },
+            "field": "price"
+           }
+          },
+          {
+           "if": [
+            {
+             "not": {
+              "empty": {
+               "session": "discount"
+              }
+             }
+            },
+            {
+             "session": "discount"
+            },
+            0
+           ]
+          }
+         ]
+        },
+        "delivery_slot": {
+         "session": "delivery_slot"
+        },
+        "promo_code": {
+         "if": [
+          {
+           "not": {
+            "empty": {
+             "session": "promo_code"
+            }
+           }
+          },
+          {
+           "session": "promo_code"
+          },
+          ""
+         ]
+        },
+        "placed_at": {
+         "now": true
+        }
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "customer",
+       "field": "wallet_balance",
+       "value": {
+        "sub": [
+         {
+          "field": "customer.wallet_balance"
+         },
+         {
+          "field": "order.total"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "for_each": {
+       "entity": "BasketItem",
+       "where": {
+        "eq": [
+         {
+          "field": "row.customer"
+         },
+         {
+          "user": "email"
+         }
+        ]
+       },
+       "as": "item",
+       "effects": [
+        {
+         "delete": {
+          "record": "item"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "clear_session": "delivery_slot"
+     },
+     {
+      "clear_session": "promo_code"
+     },
+     {
+      "clear_session": "discount"
+     }
+    ],
+    "message": "Order placed successfully",
+    "returns": {
+     "order_id": {
+      "field": "order.id"
+     },
+     "total": {
+      "field": "order.total"
+     }
+    }
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "order-placed-using-wallet",
+   "title": "order placed using wallet",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P001",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Item added to basket"
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P002",
+      1
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Item added to basket"
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 2
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Checkout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_delivery_slot",
+     "args": [
+      "Morning"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Delivery slot selected"
+    },
+    {
+     "call": "UI.checkout",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Order placed successfully"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders.0.total"
+     },
+     "expect": 165.0
+    },
+    {
+     "call": "Database.get_customer",
+     "args": [
+      "user@grocery.test"
+     ],
+     "save_as": "customer"
+    },
+    {
+     "check": {
+      "ref": "customer.wallet_balance"
+     },
+     "expect": 335.0
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "wallet-not-enough",
+   "title": "wallet not enough",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "lowbalance@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P001",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "lowbalance@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P002",
+      1
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "lowbalance@grocery.test"
+     ],
+     "expect": 2
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Checkout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_delivery_slot",
+     "args": [
+      "Morning"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.checkout",
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Insufficient wallet balance"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      "customer",
+      "lowbalance@grocery.test"
+     ],
+     "expect": 0
+    },
+    {
+     "call": "Database.get_customer",
+     "args": [
+      "lowbalance@grocery.test"
+     ],
+     "save_as": "customer"
+    },
+    {
+     "check": {
+      "ref": "customer.wallet_balance"
+     },
+     "expect": 100.0
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "lowbalance@grocery.test"
+     ],
+     "expect": 2
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "11-items",
+   "title": "11 items",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P001",
+      10
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.find_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "save_as": "basket_before"
+    },
+    {
+     "check": {
+      "ref": "basket_before.0.quantity"
+     },
+     "expect": 10
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P002",
+      1
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Maximum 10 items allowed in basket"
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.find_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "save_as": "basket_after"
+    },
+    {
+     "check": {
+      "ref": "basket_after.0.quantity"
+     },
+     "expect": 10
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "promo-applied",
+   "title": "promo applied",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P004",
+      3
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Checkout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_promo",
+     "args": [
+      "FRESH50"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Promo code applied"
+    },
+    {
+     "call": "UI.select_delivery_slot",
+     "args": [
+      "Morning"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.checkout",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Order placed successfully"
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders.0.subtotal"
+     },
+     "expect": 360.0
+    },
+    {
+     "check": {
+      "ref": "orders.0.discount"
+     },
+     "expect": 50.0
+    },
+    {
+     "check": {
+      "ref": "orders.0.total"
+     },
+     "expect": 310.0
+    },
+    {
+     "call": "Database.get_customer",
+     "args": [
+      "user@grocery.test"
+     ],
+     "save_as": "customer"
+    },
+    {
+     "check": {
+      "ref": "customer.wallet_balance"
+     },
+     "expect": 190.0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "promo-below-300",
+   "title": "promo below 300",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P005",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Checkout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_promo",
+     "args": [
+      "FRESH50"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Promo code requires order above Rs 300"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "checkout-without-slot",
+   "title": "checkout without slot",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P001",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Checkout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.checkout",
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Please select a delivery slot"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 0
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "remove-item-from-basket",
+   "title": "remove item from basket",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "user@grocery.test",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P001",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.add_to_basket",
+     "args": [
+      "P002",
+      1
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 2
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Basket"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.view_basket",
+     "save_as": "basket"
+    },
+    {
+     "call": "Database.find_basket_item",
+     "args": [
+      "product_id",
+      "P002"
+     ],
+     "save_as": "bread_items"
+    },
+    {
+     "call": "UI.remove_from_basket",
+     "args": [
+      {
+       "ref": "bread_items.0.id"
+      }
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Item removed from basket"
+    },
+    {
+     "call": "Database.count_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.find_basket_item",
+     "args": [
+      "customer",
+      "user@grocery.test"
+     ],
+     "save_as": "remaining"
+    },
+    {
+     "check": {
+      "ref": "remaining.0.product_id"
+     },
+     "expect": "P001"
+    },
+    {
+     "check": {
+      "ref": "remaining.0.quantity"
+     },
+     "expect": 2
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

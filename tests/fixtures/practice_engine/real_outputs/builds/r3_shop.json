@@ -1,0 +1,2201 @@
+{
+ "label": "r3_shop",
+ "title": "E-commerce Checkout with Coupons",
+ "recorded": "3/12",
+ "spec": {
+  "app_name": "E-commerce Checkout",
+  "base_url": "https://shop.example.test",
+  "now": "2024-03-15T10:00",
+  "entities": {
+   "User": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string"
+    }
+   },
+   "Product": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "name": "string",
+     "price": "money",
+     "stock": "int"
+    }
+   },
+   "CartItem": {
+    "key": "id",
+    "id_format": "CI-{n:03}",
+    "fields": {
+     "id": "string",
+     "user_email": "string",
+     "product_id": "string",
+     "product_name": "string",
+     "price": "money",
+     "quantity": "int"
+    }
+   },
+   "Coupon": {
+    "key": "code",
+    "fields": {
+     "code": "string",
+     "type": "string",
+     "discount_percent": "number",
+     "discount_flat": "money",
+     "min_order": "money",
+     "max_discount": "money",
+     "expires_on": "date",
+     "one_per_user": "bool"
+    }
+   },
+   "Order": {
+    "key": "id",
+    "id_format": "ORD-{n:04}",
+    "fields": {
+     "id": "string",
+     "user_email": "string",
+     "subtotal": "money",
+     "discount": "money",
+     "shipping": "money",
+     "gst": "money",
+     "total": "money",
+     "coupon_code": "string",
+     "placed_on": "datetime"
+    }
+   },
+   "OrderItem": {
+    "key": "id",
+    "id_format": "OI-{n:04}",
+    "fields": {
+     "id": "string",
+     "order_id": "string",
+     "product_id": "string",
+     "product_name": "string",
+     "price": "money",
+     "quantity": "int"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "email": "shopper@example.test",
+     "password": "Shop@123",
+     "name": "Test Shopper"
+    },
+    {
+     "email": "repeat@example.test",
+     "password": "Repeat@123",
+     "name": "Repeat User"
+    }
+   ],
+   "Product": [
+    {
+     "id": "P-001",
+     "name": "Headphones",
+     "price": 1499.0,
+     "stock": 10
+    },
+    {
+     "id": "P-002",
+     "name": "Mouse",
+     "price": 299.0,
+     "stock": 20
+    },
+    {
+     "id": "P-003",
+     "name": "Keyboard",
+     "price": 2499.0,
+     "stock": 3
+    },
+    {
+     "id": "P-004",
+     "name": "Monitor",
+     "price": 8000.0,
+     "stock": 5
+    },
+    {
+     "id": "P-005",
+     "name": "Webcam",
+     "price": 1999.0,
+     "stock": 0
+    }
+   ],
+   "CartItem": [],
+   "Coupon": [
+    {
+     "code": "SAVE10",
+     "type": "percent",
+     "discount_percent": 10.0,
+     "discount_flat": 0.0,
+     "min_order": 1000.0,
+     "max_discount": 500.0,
+     "expires_on": "2024-03-31",
+     "one_per_user": false
+    },
+    {
+     "code": "FLAT200",
+     "type": "flat",
+     "discount_percent": 0.0,
+     "discount_flat": 200.0,
+     "min_order": 999.0,
+     "max_discount": 200.0,
+     "expires_on": "2025-12-31",
+     "one_per_user": true
+    }
+   ],
+   "Order": [
+    {
+     "id": "ORD-0001",
+     "user_email": "repeat@example.test",
+     "subtotal": 1499.0,
+     "discount": 200.0,
+     "shipping": 0.0,
+     "gst": 233.82,
+     "total": 1532.82,
+     "coupon_code": "FLAT200",
+     "placed_on": "2024-03-10T14:30"
+    }
+   ],
+   "OrderItem": [
+    {
+     "id": "OI-0001",
+     "order_id": "ORD-0001",
+     "product_id": "P-001",
+     "product_name": "Headphones",
+     "price": 1499.0,
+     "quantity": 1
+    }
+   ]
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Cart",
+   "Checkout"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "view_products",
+    "label": "Products",
+    "page": "Home",
+    "entity": "Product",
+    "where": {
+     "gt": [
+      {
+       "field": "row.stock"
+      },
+      0
+     ]
+    },
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "price",
+     "stock"
+    ]
+   },
+   {
+    "name": "view_cart",
+    "label": "Cart",
+    "page": "Cart",
+    "entity": "CartItem",
+    "where": {
+     "eq": [
+      {
+       "field": "row.user_email"
+      },
+      {
+       "user": "email"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "product_name"
+     }
+    ],
+    "show": [
+     "id",
+     "product_name",
+     "price",
+     "quantity"
+    ],
+    "none_message": "Your cart is empty"
+   }
+  ],
+  "actions": [
+   {
+    "name": "add_to_cart",
+    "label": "Add to Cart",
+    "page": "Home",
+    "inputs": [
+     {
+      "name": "product_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Product is required"
+       }
+      ]
+     },
+     {
+      "name": "quantity",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Quantity is required"
+       },
+       {
+        "rule": "number",
+        "message": "Quantity must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Quantity must be at least 1"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "product",
+      "entity": "Product",
+      "key": {
+       "input": "product_id"
+      },
+      "missing": "Product not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "le": [
+        {
+         "input": "quantity"
+        },
+        5
+       ]
+      },
+      "message": "Maximum 5 per item"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "input": "quantity"
+        },
+        {
+         "field": "product.stock"
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Only {stock} left in stock",
+        {
+         "stock": {
+          "field": "product.stock"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "if": [
+       {
+        "exists": {
+         "entity": "CartItem",
+         "where": {
+          "and": [
+           {
+            "eq": [
+             {
+              "field": "row.user_email"
+             },
+             {
+              "user": "email"
+             }
+            ]
+           },
+           {
+            "eq": [
+             {
+              "field": "row.product_id"
+             },
+             {
+              "input": "product_id"
+             }
+            ]
+           }
+          ]
+         }
+        }
+       },
+       [
+        {
+         "for_each": {
+          "entity": "CartItem",
+          "where": {
+           "and": [
+            {
+             "eq": [
+              {
+               "field": "row.user_email"
+              },
+              {
+               "user": "email"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.product_id"
+              },
+              {
+               "input": "product_id"
+              }
+             ]
+            }
+           ]
+          },
+          "as": "item",
+          "effects": [
+           {
+            "set": {
+             "record": "item",
+             "field": "quantity",
+             "value": {
+              "add": [
+               {
+                "field": "item.quantity"
+               },
+               {
+                "input": "quantity"
+               }
+              ]
+             }
+            }
+           }
+          ]
+         }
+        }
+       ],
+       [
+        {
+         "create": {
+          "entity": "CartItem",
+          "as": "cart_item",
+          "values": {
+           "user_email": {
+            "user": "email"
+           },
+           "product_id": {
+            "input": "product_id"
+           },
+           "product_name": {
+            "field": "product.name"
+           },
+           "price": {
+            "field": "product.price"
+           },
+           "quantity": {
+            "input": "quantity"
+           }
+          }
+         }
+        }
+       ]
+      ]
+     }
+    ],
+    "message": "Added to cart",
+    "next_page": "Cart"
+   },
+   {
+    "name": "apply_coupon",
+    "label": "Apply Coupon",
+    "page": "Cart",
+    "inputs": [
+     {
+      "name": "coupon_code",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Coupon code is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "coupon",
+      "entity": "Coupon",
+      "key": {
+       "trim": {
+        "upper": {
+         "input": "coupon_code"
+        }
+       }
+      },
+      "missing": "Invalid coupon code"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "gt": [
+        {
+         "today": true
+        },
+        {
+         "field": "coupon.expires_on"
+        }
+       ]
+      },
+      "message": "Coupon has expired"
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "field": "coupon.one_per_user"
+          },
+          true
+         ]
+        },
+        {
+         "exists": {
+          "entity": "Order",
+          "where": {
+           "and": [
+            {
+             "eq": [
+              {
+               "field": "row.user_email"
+              },
+              {
+               "user": "email"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.coupon_code"
+              },
+              {
+               "field": "coupon.code"
+              }
+             ]
+            }
+           ]
+          }
+         }
+        }
+       ]
+      },
+      "message": "You have already used this coupon"
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "sum": {
+          "entity": "CartItem",
+          "where": {
+           "eq": [
+            {
+             "field": "row.user_email"
+            },
+            {
+             "user": "email"
+            }
+           ]
+          },
+          "field": "price"
+         }
+        },
+        {
+         "field": "coupon.min_order"
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Minimum order Rs {min} for this coupon",
+        {
+         "min": {
+          "field": "coupon.min_order"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "coupon_code",
+       "value": {
+        "field": "coupon.code"
+       }
+      }
+     }
+    ],
+    "message": "Coupon applied successfully"
+   },
+   {
+    "name": "place_order",
+    "label": "Place Order",
+    "page": "Cart",
+    "inputs": [],
+    "load": [
+     {
+      "as": "applied_coupon",
+      "entity": "Coupon",
+      "key": {
+       "session": "coupon_code"
+      },
+      "missing": "No coupon applied"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "exists": {
+        "entity": "CartItem",
+        "where": {
+         "eq": [
+          {
+           "field": "row.user_email"
+          },
+          {
+           "user": "email"
+          }
+         ]
+        }
+       }
+      },
+      "message": "Your cart is empty"
+     },
+     {
+      "for_each": {
+       "entity": "CartItem",
+       "where": {
+        "eq": [
+         {
+          "field": "row.user_email"
+         },
+         {
+          "user": "email"
+         }
+        ]
+       },
+       "as": "item"
+      },
+      "unless": {
+       "exists": {
+        "entity": "Product",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.id"
+            },
+            {
+             "field": "item.product_id"
+            }
+           ]
+          },
+          {
+           "ge": [
+            {
+             "field": "row.stock"
+            },
+            {
+             "field": "item.quantity"
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": {
+       "format": [
+        "{name} is out of stock",
+        {
+         "name": {
+          "field": "item.product_name"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Order",
+       "as": "order",
+       "values": {
+        "user_email": {
+         "user": "email"
+        },
+        "subtotal": {
+         "sum": {
+          "entity": "CartItem",
+          "where": {
+           "eq": [
+            {
+             "field": "row.user_email"
+            },
+            {
+             "user": "email"
+            }
+           ]
+          },
+          "field": "price"
+         }
+        },
+        "discount": {
+         "if": [
+          {
+           "not": {
+            "empty": {
+             "session": "coupon_code"
+            }
+           }
+          },
+          {
+           "if": [
+            {
+             "eq": [
+              {
+               "field": "applied_coupon.type"
+              },
+              "percent"
+             ]
+            },
+            {
+             "if": [
+              {
+               "gt": [
+                {
+                 "round": [
+                  {
+                   "mul": [
+                    {
+                     "sum": {
+                      "entity": "CartItem",
+                      "where": {
+                       "eq": [
+                        {
+                         "field": "row.user_email"
+                        },
+                        {
+                         "user": "email"
+                        }
+                       ]
+                      },
+                      "field": "price"
+                     }
+                    },
+                    {
+                     "div": [
+                      {
+                       "field": "applied_coupon.discount_percent"
+                      },
+                      100
+                     ]
+                    }
+                   ]
+                  },
+                  2
+                 ]
+                },
+                {
+                 "field": "applied_coupon.max_discount"
+                }
+               ]
+              },
+              {
+               "field": "applied_coupon.max_discount"
+              },
+              {
+               "round": [
+                {
+                 "mul": [
+                  {
+                   "sum": {
+                    "entity": "CartItem",
+                    "where": {
+                     "eq": [
+                      {
+                       "field": "row.user_email"
+                      },
+                      {
+                       "user": "email"
+                      }
+                     ]
+                    },
+                    "field": "price"
+                   }
+                  },
+                  {
+                   "div": [
+                    {
+                     "field": "applied_coupon.discount_percent"
+                    },
+                    100
+                   ]
+                  }
+                 ]
+                },
+                2
+               ]
+              }
+             ]
+            },
+            {
+             "field": "applied_coupon.discount_flat"
+            }
+           ]
+          },
+          0.0
+         ]
+        },
+        "shipping": {
+         "if": [
+          {
+           "lt": [
+            {
+             "sub": [
+              {
+               "sum": {
+                "entity": "CartItem",
+                "where": {
+                 "eq": [
+                  {
+                   "field": "row.user_email"
+                  },
+                  {
+                   "user": "email"
+                  }
+                 ]
+                },
+                "field": "price"
+               }
+              },
+              {
+               "if": [
+                {
+                 "not": {
+                  "empty": {
+                   "session": "coupon_code"
+                  }
+                 }
+                },
+                {
+                 "if": [
+                  {
+                   "eq": [
+                    {
+                     "field": "applied_coupon.type"
+                    },
+                    "percent"
+                   ]
+                  },
+                  {
+                   "if": [
+                    {
+                     "gt": [
+                      {
+                       "round": [
+                        {
+                         "mul": [
+                          {
+                           "sum": {
+                            "entity": "CartItem",
+                            "where": {
+                             "eq": [
+                              {
+                               "field": "row.user_email"
+                              },
+                              {
+                               "user": "email"
+                              }
+                             ]
+                            },
+                            "field": "price"
+                           }
+                          },
+                          {
+                           "div": [
+                            {
+                             "field": "applied_coupon.discount_percent"
+                            },
+                            100
+                           ]
+                          }
+                         ]
+                        },
+                        2
+                       ]
+                      },
+                      {
+                       "field": "applied_coupon.max_discount"
+                      }
+                     ]
+                    },
+                    {
+                     "field": "applied_coupon.max_discount"
+                    },
+                    {
+                     "round": [
+                      {
+                       "mul": [
+                        {
+                         "sum": {
+                          "entity": "CartItem",
+                          "where": {
+                           "eq": [
+                            {
+                             "field": "row.user_email"
+                            },
+                            {
+                             "user": "email"
+                            }
+                           ]
+                          },
+                          "field": "price"
+                         }
+                        },
+                        {
+                         "div": [
+                          {
+                           "field": "applied_coupon.discount_percent"
+                          },
+                          100
+                         ]
+                        }
+                       ]
+                      },
+                      2
+                     ]
+                    }
+                   ]
+                  },
+                  {
+                   "field": "applied_coupon.discount_flat"
+                  }
+                 ]
+                },
+                0.0
+               ]
+              }
+             ]
+            },
+            500.0
+           ]
+          },
+          50.0,
+          0.0
+         ]
+        },
+        "gst": {
+         "round": [
+          {
+           "mul": [
+            {
+             "sub": [
+              {
+               "sum": {
+                "entity": "CartItem",
+                "where": {
+                 "eq": [
+                  {
+                   "field": "row.user_email"
+                  },
+                  {
+                   "user": "email"
+                  }
+                 ]
+                },
+                "field": "price"
+               }
+              },
+              {
+               "if": [
+                {
+                 "not": {
+                  "empty": {
+                   "session": "coupon_code"
+                  }
+                 }
+                },
+                {
+                 "if": [
+                  {
+                   "eq": [
+                    {
+                     "field": "applied_coupon.type"
+                    },
+                    "percent"
+                   ]
+                  },
+                  {
+                   "if": [
+                    {
+                     "gt": [
+                      {
+                       "round": [
+                        {
+                         "mul": [
+                          {
+                           "sum": {
+                            "entity": "CartItem",
+                            "where": {
+                             "eq": [
+                              {
+                               "field": "row.user_email"
+                              },
+                              {
+                               "user": "email"
+                              }
+                             ]
+                            },
+                            "field": "price"
+                           }
+                          },
+                          {
+                           "div": [
+                            {
+                             "field": "applied_coupon.discount_percent"
+                            },
+                            100
+                           ]
+                          }
+                         ]
+                        },
+                        2
+                       ]
+                      },
+                      {
+                       "field": "applied_coupon.max_discount"
+                      }
+                     ]
+                    },
+                    {
+                     "field": "applied_coupon.max_discount"
+                    },
+                    {
+                     "round": [
+                      {
+                       "mul": [
+                        {
+                         "sum": {
+                          "entity": "CartItem",
+                          "where": {
+                           "eq": [
+                            {
+                             "field": "row.user_email"
+                            },
+                            {
+                             "user": "email"
+                            }
+                           ]
+                          },
+                          "field": "price"
+                         }
+                        },
+                        {
+                         "div": [
+                          {
+                           "field": "applied_coupon.discount_percent"
+                          },
+                          100
+                         ]
+                        }
+                       ]
+                      },
+                      2
+                     ]
+                    }
+                   ]
+                  },
+                  {
+                   "field": "applied_coupon.discount_flat"
+                  }
+                 ]
+                },
+                0.0
+               ]
+              }
+             ]
+            },
+            0.18
+           ]
+          },
+          2
+         ]
+        },
+        "total": {
+         "add": [
+          {
+           "add": [
+            {
+             "sub": [
+              {
+               "sum": {
+                "entity": "CartItem",
+                "where": {
+                 "eq": [
+                  {
+                   "field": "row.user_email"
+                  },
+                  {
+                   "user": "email"
+                  }
+                 ]
+                },
+                "field": "price"
+               }
+              },
+              {
+               "if": [
+                {
+                 "not": {
+                  "empty": {
+                   "session": "coupon_code"
+                  }
+                 }
+                },
+                {
+                 "if": [
+                  {
+                   "eq": [
+                    {
+                     "field": "applied_coupon.type"
+                    },
+                    "percent"
+                   ]
+                  },
+                  {
+                   "if": [
+                    {
+                     "gt": [
+                      {
+                       "round": [
+                        {
+                         "mul": [
+                          {
+                           "sum": {
+                            "entity": "CartItem",
+                            "where": {
+                             "eq": [
+                              {
+                               "field": "row.user_email"
+                              },
+                              {
+                               "user": "email"
+                              }
+                             ]
+                            },
+                            "field": "price"
+                           }
+                          },
+                          {
+                           "div": [
+                            {
+                             "field": "applied_coupon.discount_percent"
+                            },
+                            100
+                           ]
+                          }
+                         ]
+                        },
+                        2
+                       ]
+                      },
+                      {
+                       "field": "applied_coupon.max_discount"
+                      }
+                     ]
+                    },
+                    {
+                     "field": "applied_coupon.max_discount"
+                    },
+                    {
+                     "round": [
+                      {
+                       "mul": [
+                        {
+                         "sum": {
+                          "entity": "CartItem",
+                          "where": {
+                           "eq": [
+                            {
+                             "field": "row.user_email"
+                            },
+                            {
+                             "user": "email"
+                            }
+                           ]
+                          },
+                          "field": "price"
+                         }
+                        },
+                        {
+                         "div": [
+                          {
+                           "field": "applied_coupon.discount_percent"
+                          },
+                          100
+                         ]
+                        }
+                       ]
+                      },
+                      2
+                     ]
+                    }
+                   ]
+                  },
+                  {
+                   "field": "applied_coupon.discount_flat"
+                  }
+                 ]
+                },
+                0.0
+               ]
+              }
+             ]
+            },
+            {
+             "if": [
+              {
+               "lt": [
+                {
+                 "sub": [
+                  {
+                   "sum": {
+                    "entity": "CartItem",
+                    "where": {
+                     "eq": [
+                      {
+                       "field": "row.user_email"
+                      },
+                      {
+                       "user": "email"
+                      }
+                     ]
+                    },
+                    "field": "price"
+                   }
+                  },
+                  {
+                   "if": [
+                    {
+                     "not": {
+                      "empty": {
+                       "session": "coupon_code"
+                      }
+                     }
+                    },
+                    {
+                     "if": [
+                      {
+                       "eq": [
+                        {
+                         "field": "applied_coupon.type"
+                        },
+                        "percent"
+                       ]
+                      },
+                      {
+                       "if": [
+                        {
+                         "gt": [
+                          {
+                           "round": [
+                            {
+                             "mul": [
+                              {
+                               "sum": {
+                                "entity": "CartItem",
+                                "where": {
+                                 "eq": [
+                                  {
+                                   "field": "row.user_email"
+                                  },
+                                  {
+                                   "user": "email"
+                                  }
+                                 ]
+                                },
+                                "field": "price"
+                               }
+                              },
+                              {
+                               "div": [
+                                {
+                                 "field": "applied_coupon.discount_percent"
+                                },
+                                100
+                               ]
+                              }
+                             ]
+                            },
+                            2
+                           ]
+                          },
+                          {
+                           "field": "applied_coupon.max_discount"
+                          }
+                         ]
+                        },
+                        {
+                         "field": "applied_coupon.max_discount"
+                        },
+                        {
+                         "round": [
+                          {
+                           "mul": [
+                            {
+                             "sum": {
+                              "entity": "CartItem",
+                              "where": {
+                               "eq": [
+                                {
+                                 "field": "row.user_email"
+                                },
+                                {
+                                 "user": "email"
+                                }
+                               ]
+                              },
+                              "field": "price"
+                             }
+                            },
+                            {
+                             "div": [
+                              {
+                               "field": "applied_coupon.discount_percent"
+                              },
+                              100
+                             ]
+                            }
+                           ]
+                          },
+                          2
+                         ]
+                        }
+                       ]
+                      },
+                      {
+                       "field": "applied_coupon.discount_flat"
+                      }
+                     ]
+                    },
+                    0.0
+                   ]
+                  }
+                 ]
+                },
+                500.0
+               ]
+              },
+              50.0,
+              0.0
+             ]
+            }
+           ]
+          },
+          {
+           "round": [
+            {
+             "mul": [
+              {
+               "sub": [
+                {
+                 "sum": {
+                  "entity": "CartItem",
+                  "where": {
+                   "eq": [
+                    {
+                     "field": "row.user_email"
+                    },
+                    {
+                     "user": "email"
+                    }
+                   ]
+                  },
+                  "field": "price"
+                 }
+                },
+                {
+                 "if": [
+                  {
+                   "not": {
+                    "empty": {
+                     "session": "coupon_code"
+                    }
+                   }
+                  },
+                  {
+                   "if": [
+                    {
+                     "eq": [
+                      {
+                       "field": "applied_coupon.type"
+                      },
+                      "percent"
+                     ]
+                    },
+                    {
+                     "if": [
+                      {
+                       "gt": [
+                        {
+                         "round": [
+                          {
+                           "mul": [
+                            {
+                             "sum": {
+                              "entity": "CartItem",
+                              "where": {
+                               "eq": [
+                                {
+                                 "field": "row.user_email"
+                                },
+                                {
+                                 "user": "email"
+                                }
+                               ]
+                              },
+                              "field": "price"
+                             }
+                            },
+                            {
+                             "div": [
+                              {
+                               "field": "applied_coupon.discount_percent"
+                              },
+                              100
+                             ]
+                            }
+                           ]
+                          },
+                          2
+                         ]
+                        },
+                        {
+                         "field": "applied_coupon.max_discount"
+                        }
+                       ]
+                      },
+                      {
+                       "field": "applied_coupon.max_discount"
+                      },
+                      {
+                       "round": [
+                        {
+                         "mul": [
+                          {
+                           "sum": {
+                            "entity": "CartItem",
+                            "where": {
+                             "eq": [
+                              {
+                               "field": "row.user_email"
+                              },
+                              {
+                               "user": "email"
+                              }
+                             ]
+                            },
+                            "field": "price"
+                           }
+                          },
+                          {
+                           "div": [
+                            {
+                             "field": "applied_coupon.discount_percent"
+                            },
+                            100
+                           ]
+                          }
+                         ]
+                        },
+                        2
+                       ]
+                      }
+                     ]
+                    },
+                    {
+                     "field": "applied_coupon.discount_flat"
+                    }
+                   ]
+                  },
+                  0.0
+                 ]
+                }
+               ]
+              },
+              0.18
+             ]
+            },
+            2
+           ]
+          }
+         ]
+        },
+        "coupon_code": {
+         "if": [
+          {
+           "not": {
+            "empty": {
+             "session": "coupon_code"
+            }
+           }
+          },
+          {
+           "session": "coupon_code"
+          },
+          ""
+         ]
+        },
+        "placed_on": {
+         "now": true
+        }
+       }
+      }
+     },
+     {
+      "for_each": {
+       "entity": "CartItem",
+       "where": {
+        "eq": [
+         {
+          "field": "row.user_email"
+         },
+         {
+          "user": "email"
+         }
+        ]
+       },
+       "as": "cart_item",
+       "effects": [
+        {
+         "create": {
+          "entity": "OrderItem",
+          "as": "order_item",
+          "values": {
+           "order_id": {
+            "field": "order.id"
+           },
+           "product_id": {
+            "field": "cart_item.product_id"
+           },
+           "product_name": {
+            "field": "cart_item.product_name"
+           },
+           "price": {
+            "field": "cart_item.price"
+           },
+           "quantity": {
+            "field": "cart_item.quantity"
+           }
+          }
+         }
+        },
+        {
+         "for_each": {
+          "entity": "Product",
+          "where": {
+           "eq": [
+            {
+             "field": "row.id"
+            },
+            {
+             "field": "cart_item.product_id"
+            }
+           ]
+          },
+          "as": "product",
+          "effects": [
+           {
+            "set": {
+             "record": "product",
+             "field": "stock",
+             "value": {
+              "sub": [
+               {
+                "field": "product.stock"
+               },
+               {
+                "field": "cart_item.quantity"
+               }
+              ]
+             }
+            }
+           }
+          ]
+         }
+        },
+        {
+         "delete": {
+          "record": "cart_item"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "clear_session": "coupon_code"
+     },
+     {
+      "send": {
+       "channel": "email",
+       "to": {
+        "user": "email"
+       },
+       "subject": {
+        "format": [
+         "Order Confirmation - {order_id}",
+         {
+          "order_id": {
+           "field": "order.id"
+          }
+         }
+        ]
+       },
+       "body": {
+        "format": [
+         "Your order {order_id} has been placed. Total: Rs {total}",
+         {
+          "order_id": {
+           "field": "order.id"
+          },
+          "total": {
+           "field": "order.total"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Order placed successfully. Order ID: {order_id}",
+      {
+       "order_id": {
+        "field": "order.id"
+       }
+      }
+     ]
+    },
+    "returns": {
+     "order_id": {
+      "field": "order.id"
+     },
+     "total": {
+      "field": "order.total"
+     }
+    },
+    "next_page": "Checkout"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "place-order-with-save10",
+   "title": "Place order with SAVE10",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-001",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Cart"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_coupon",
+     "args": [
+      "SAVE10"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Coupon applied successfully"
+    },
+    {
+     "call": "Database.all_cart_item",
+     "save_as": "cart_before"
+    },
+    {
+     "call": "Database.get_product",
+     "args": [
+      "P-001"
+     ],
+     "save_as": "product_before"
+    },
+    {
+     "call": "UI.place_order",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Order placed successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "order_result"
+    },
+    {
+     "check": {
+      "ref": "order_result.total"
+     },
+     "expect": 3183.88
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders.0.subtotal"
+     },
+     "expect": 2998.0
+    },
+    {
+     "check": {
+      "ref": "orders.0.discount"
+     },
+     "expect": 299.8
+    },
+    {
+     "check": {
+      "ref": "orders.0.gst"
+     },
+     "expect": 485.68
+    },
+    {
+     "check": {
+      "ref": "orders.0.total"
+     },
+     "expect": 3183.88
+    },
+    {
+     "call": "Database.get_product",
+     "args": [
+      "P-001"
+     ],
+     "save_as": "product_after"
+    },
+    {
+     "check": {
+      "ref": "product_after.stock"
+     },
+     "expect": 8
+    },
+    {
+     "call": "Database.find_cart_item",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "save10-capped-at-500",
+   "title": "SAVE10 capped at Rs 500",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-004",
+      1
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Cart"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_coupon",
+     "args": [
+      "SAVE10"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "expect": true
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders.0.discount"
+     },
+     "expect": 500.0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "quantity-above-5",
+   "title": "Quantity above 5",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-001",
+      6
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Maximum 5 per item"
+    },
+    {
+     "call": "Database.find_cart_item",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "quantity-above-stock",
+   "title": "Quantity above stock",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-003",
+      4
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Only 3 left in stock"
+    },
+    {
+     "call": "Database.find_cart_item",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "shipping-charged-below-500",
+   "title": "Shipping charged below Rs 500",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-002",
+      1
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Cart"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "expect": true
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders.0.shipping"
+     },
+     "expect": 50.0
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "place-order-with-empty-cart",
+   "title": "Place order with empty cart",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Cart"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Your cart is empty"
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "expect": []
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "out-of-stock-after-adding-to-cart",
+   "title": "Out of stock after adding to cart",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-001",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "API.login",
+     "args": [
+      "repeat@example.test",
+      "Repeat@123"
+     ]
+    },
+    {
+     "call": "API.add_to_cart",
+     "args": [
+      "P-001",
+      5
+     ]
+    },
+    {
+     "call": "API.place_order"
+    },
+    {
+     "call": "API.add_to_cart",
+     "args": [
+      "P-001",
+      3
+     ]
+    },
+    {
+     "call": "API.place_order"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Cart"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Headphones is out of stock"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      "user_email",
+      "shopper@example.test"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "order-confirmation-email",
+   "title": "Order confirmation email",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "shopper@example.test",
+      "Shop@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.add_to_cart",
+     "args": [
+      "P-001",
+      1
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Cart"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "order_result"
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "emails"
+    },
+    {
+     "check": {
+      "ref": "emails.0.channel"
+     },
+     "expect": "email"
+    },
+    {
+     "check": {
+      "ref": "emails.0.to"
+     },
+     "expect": "shopper@example.test"
+    },
+    {
+     "check": {
+      "ref": "emails.0.subject"
+     },
+     "expect_includes": {
+      "ref": "order_result.order_id"
+     }
+    },
+    {
+     "check": {
+      "ref": "emails.0.body"
+     },
+     "expect_includes": {
+      "ref": "order_result.order_id"
+     }
+    },
+    {
+     "check": {
+      "ref": "emails.0.body"
+     },
+     "expect_includes": "1768.82"
+    }
+   ],
+   "recorded_pass": false
+  }
+ ],
+ "exchanges": []
+}

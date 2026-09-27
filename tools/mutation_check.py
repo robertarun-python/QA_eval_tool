@@ -11,7 +11,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "backend/app/services/practice_engine/runtime.py"
-TESTS = ["tests/test_practice_engine.py", "tests/test_practice_engine_random.py", "tests/test_practice_engine_hostile.py"]
+TESTS = ["tests/test_practice_engine.py", "tests/test_practice_engine_random.py", "tests/test_practice_engine_hostile.py",
+         "tests/test_real_output_patterns.py"]
 
 # (what the break means, text to find, what to put instead)
 MUTATIONS = [
@@ -23,7 +24,12 @@ MUTATIONS = [
     ("lockout never triggers", 'if self.failed_logins[who] >= lockout["attempts"]:', "if False:"),
     ("for_each rules skipped", '                for item in self._items(each, ctx):', "                for item in []:"),
     ("intermediate maths rounded to 2 places again", 'quantize(Decimal("1e-10")', 'quantize(Decimal("0.01")'),
-    ("stray spaces in keys not ignored", "wanted = str(key).strip().lower()", "wanted = str(key).lower()"),
+    ("stray spaces in keys not ignored", "wanted = _raw(key).strip().lower()", "wanted = _raw(key).lower()"),
+    ("inputs read as text differently from JavaScript and Java",
+     'return str(int(value)) if value == int(value) else format(Decimal(repr(value)), "f")', "return str(value)"),
+    ("a number too large becomes Infinity instead of a refusal", "            raise _Refused(TOO_LARGE)\n", "            return value\n"),
+    ("age counted before the birthday", " - ((b.month, b.day) < (a.month, a.day))", ""),
+    ("slice counts the wrong way from the end", "            return \"\".join(chars[start:end])", "            return \"\".join(chars[abs(start):end])"),
     ("refused action still sends email", "    def _check_rules(self, rules, ctx):", "    def _check_rules(self, rules, ctx):\n        self.outbox.append({'x': 'y'})"),
     ("unexpected problem crashes instead of refusing", "        except Exception:\n            raise _Refused(UNEXPECTED, status=500)\n\n    def run_query",
      "        except ZeroDivisionError:\n            raise _Refused(UNEXPECTED, status=500)\n\n    def run_query"),

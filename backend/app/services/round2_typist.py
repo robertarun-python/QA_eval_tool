@@ -54,7 +54,12 @@ _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|te
 _OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+)\b", re.I)
 
 # Specific things a reply or the code could name.
-_QUOTED_RE = re.compile(r"""["'`]([^"'`\n]{1,200})["'`]""")
+# A string literal in code, honouring escapes: Java and JavaScript JSON bodies are written
+# "{\"email\": ...}", and reading \" as the end of the text made the code between two
+# literals look like quoted application words (found by replaying the real replies in Java).
+_CODE_STRING_RE = re.compile(r'"((?:[^"\\\n]|\\.){0,400})"|\'((?:[^\'\\\n]|\\.){0,400})\'|`((?:[^`\\]|\\.){0,400})`')
+# Library names a program imports are plumbing, not the application: require("selenium-webdriver").
+_MODULE_RE = re.compile(r"""\brequire\s*\(\s*["'][^"'\n]+["']\s*\)|\b(?:from|import)\s+["'][^"'\n]+["']""")
 # In prose, an apostrophe inside a word (you're, Priya's) is never a quotation mark.
 _PROSE_QUOTED_RE = re.compile(r"""(?<!\w)["'`“‘]([^"'`“”‘’\n]{1,200})["'`”’](?!\w)""")
 # A wait's time limit is plumbing, not knowledge of the application (measured: "10" in
@@ -73,7 +78,21 @@ _REPORTING_RE = re.compile(r"(?:\bprint|console\.(?:log|error)|System\.(?:out|er
 # to generate with details missing, the model replied "I need to know: what's the URL or page...").
 _STRUCTURE_RE = re.compile(r"\b(urls?|web ?address(?:es)?|endpoints?|paths?|routes?|pages?|screens?|fields?|buttons?|links?|locators?|"
                            r"selectors?|xpaths?|css|ids?|methods?|status(?: codes?)?|headers?|tables?|columns?|rows?|queries|query|"
-                           r"credentials?|usernames?|passwords?|tokens?|elements?)\b", re.I)
+                           r"credentials?|usernames?|passwords?|tokens?|elements?|"
+                           # screen parts an assistant guessing at the app reaches for (found by writing leak variants)
+                           r"spinners?|loaders?|modals?|pop-?ups?|dialogs?|toasts?|banners?|dropdowns?|drop-downs?|checkbox(?:es)?|"
+                           r"radio(?: buttons?)?|tabs?|menus?|forms?|icons?|iframes?|captchas?)\b", re.I)
+# A name joined to one of those ("the Dashboard page", "the members table"): the candidate
+# having said "page" doesn't make every page name theirs.
+_NAMED_STRUCTURE_RE = re.compile(r"\b([A-Za-z][\w-]*)\s+(pages?|screens?|buttons?|fields?|tabs?|tables?|links?|forms?|menus?|"
+                                 r"sections?|columns?|endpoints?|dialogs?|modals?|pop-?ups?)\b", re.I)
+_NAME_NOT_SPECIFIC = {w for w in """the a an this that these those same next previous first last your my their its our which what
+another other correct new each every one any some no main given right wrong login log sign in on of to for from with
+different current whole entire following specific particular separate final second third earlier later same"""
+                     .split()}
+# A value written without quotes: letters with a digit or a symbol ("Pass@1234", "BK-009").
+_VALUE_TOKEN_RE = re.compile(r"(?<![\w@#$%&*!-])(?=[\w@#$%&*!.-]*[A-Za-z])(?=[\w@#$%&*!.-]*[\d@#$%&*!])[A-Za-z0-9][\w@#$%&*!.-]*[\w@#$%&*!]")
+_ORDINAL_RE = re.compile(r"^\d+(st|nd|rd|th)$", re.I)
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*|\d+(?:\.\d+)?")
 
 # Never specific: the project conventions and the plumbing every test uses.
@@ -148,8 +167,10 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
         check(m)
     for m in _STATUS_RE.findall(text):
         check(m)
-    scanned = _REPORTING_RE.sub(" ", text) if code else text
-    for literal in (_QUOTED_RE if code else _PROSE_QUOTED_RE).findall(scanned):
+    scanned = _REPORTING_RE.sub(" ", _MODULE_RE.sub(" ", text)) if code else text
+    literals = ([re.sub(r"\\(.)", r"\1", "".join(g)) for g in _CODE_STRING_RE.findall(scanned)] if code
+                else _PROSE_QUOTED_RE.findall(scanned))
+    for literal in literals:
         if literal.lower() in _GENERIC or literal.startswith("INCOMPLETE"):
             continue
         # a whole literal the candidate said is fine; otherwise every word in it must be theirs
@@ -163,8 +184,14 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
         for m in _STRUCTURE_RE.findall(text):
             if m.lower().split()[0].rstrip("s") not in said_words:
                 found.append(m)
+        for name, part in _NAMED_STRUCTURE_RE.findall(text):
+            if name.lower() not in _NAME_NOT_SPECIFIC and name.lower().rstrip("s") not in said_words:
+                found.append(f"{name} {part}")
+        for token in _VALUE_TOKEN_RE.findall(text):
+            if not _ORDINAL_RE.match(token):
+                check(token)
     if code:
-        stripped = _QUOTED_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", scanned))
+        stripped = _CODE_STRING_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", scanned))
         for n in _NUMBER_RE.findall(stripped):
             check(n)
     seen, out = set(), []

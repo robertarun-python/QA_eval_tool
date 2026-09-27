@@ -4,6 +4,7 @@ back as one plain sentence naming where it is, so the list can go straight
 back to the AI to correct (and, if it still fails, to HR). An empty list means
 the description is safe to render in every language.
 """
+import json
 import re
 from datetime import date, datetime
 
@@ -41,16 +42,74 @@ UNPORTABLE_REGEX = [(r"\(\?<[=!]", "look-behind"), (r"\(\?P", "named groups"), (
                     (r"\[[^\]]*\[", "[ inside [...]")]
 EXPR_OPS = {"input", "field", "user", "session", "today", "now", "add", "sub", "mul", "div", "round", "add_days", "add_months",
             "days_between", "minutes_since", "count", "sum", "exists", "if", "format", "format_date", "format_money", "upper", "lower",
-            "trim", "length", "concat", "minutes_between", "time", "weekday", "working_days", "split", "occurrences", "add_minutes", "var"}
+            "trim", "length", "concat", "minutes_between", "time", "weekday", "working_days", "split", "occurrences", "add_minutes", "var",
+            "min", "max", "mod", "pow", "abs", "floor", "ceil", "slice", "years_between", "date"}
 COND_OPS = {"and", "or", "not", "empty", "matches", "in", "eq", "ne", "lt", "le", "gt", "ge", "contains", "starts_with", "ends_with"}
 PAIR_OPS = {"add", "sub", "mul", "div", "add_days", "add_months", "days_between", "eq", "ne", "lt", "le", "gt", "ge", "in", "matches",
-            "minutes_between", "working_days", "occurrences", "add_minutes", "contains", "starts_with", "ends_with"}
+            "minutes_between", "working_days", "occurrences", "add_minutes", "contains", "starts_with", "ends_with",
+            "min", "max", "mod", "pow", "years_between"}
+# Words the AI reaches for that the format spells differently (the real AI
+# wrote "let" for "compute"; every paid failure of this kind cost a repair
+# round). The message names the right word instead of only "unknown".
+OP_HINTS = {
+    "let": '"compute": [{"name": ..., "value": ...}] on the action or lookup, then {"var": name}',
+    "variable": '"compute" on the action or lookup, then {"var": name}', "vars": '{"var": name}', "get": '{"var": name} or {"field": "alias.field"}',
+    "power": "pow", "exp": "pow", "exponent": "pow", "minimum": "min", "least": "min", "maximum": "max", "greatest": "max",
+    "modulo": "mod", "remainder": "mod", "rem": "mod", "absolute": "abs", "round_down": "floor", "truncate": "floor", "trunc": "floor",
+    "int": "floor", "round_up": "ceil", "ceiling": "ceil", "multiply": "mul", "times": "mul", "plus": "add", "minus": "sub",
+    "subtract": "sub", "divide": "div", "sum_of": "sum", "total": "sum",
+    "substr": 'slice: [text, start, end] (negative start counts from the end: the last 4 = [text, -4])', "substring": "slice", "left": "slice",
+    "right": "slice", "mid": "slice", "last": "slice", "first": "slice",
+    "mask": 'concat + slice, e.g. {"concat": ["XXXX-XXXX-XXXX-", {"slice": [card, -4]}]}', "replace": "concat + slice",
+    "avg": 'div of a sum by a count: {"div": [{"sum": {...}}, {"count": {...}}]}', "average": "avg - see div of a sum by a count", "mean": "div of a sum by a count",
+    "age": 'years_between: [date_of_birth, {"today": true}]', "years": "years_between", "months_between": 'days_between, or add_months to compare dates',
+    "date_of": "date", "to_date": "date", "day": "date or weekday", "hours_between": "minutes_between (divide by 60)",
+    "join": "concat", "str": "concat", "to_string": "concat", "string": "concat", "number": "add 0 or round", "to_number": 'round: [value, places]',
+    "len": "length", "size": "length", "uppercase": "upper", "lowercase": "lower", "strip": "trim",
+    "equals": "eq", "equal": "eq", "neq": "ne", "not_equal": "ne", "lte": "le", "gte": "ge", "less_than": "lt", "greater_than": "gt",
+    "includes": "contains", "has": "contains", "is_empty": "empty", "is_null": "empty", "regex": "matches", "like": "contains",
+    "between": 'and of ge and le', "case": "if", "switch": "if", "when": "if (inside a value)", "coalesce": 'if with empty', "default": 'if with empty',
+    "random": "a fixed value (the app is deterministic)", "uuid": "the entity's id_format", "now_date": '{"today": true}', "current_date": '{"today": true}',
+}
+
+
+# Slots that hold a list / an object. The checks below read a missing slot as
+# empty, so "" or 0 there slipped through as "none" - and Java's engine then
+# failed where Python's and JavaScript's went on (found by replaying corrupted
+# real descriptions in all three languages, 2026-09-27). Left out or null is fine.
+LIST_SLOTS = {"inputs", "checks", "load", "rules", "effects", "compute", "then", "show", "order_by", "applies_to",
+              "pages", "public_pages", "queries", "actions", "faults"}
+OBJECT_SLOTS = {"users", "messages", "lockout", "match", "returns", "values"}
+
+
+def _slot_problems(node, where: str = "description") -> list[str]:
+    """Wrong-kind list/object slots anywhere in the app's structure (not inside
+    entities or data, whose field names are the app's own - a book's "pages")."""
+    out = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            here = f"{where} {k}"
+            if k in ("entities", "data") and where == "description":
+                continue
+            if k in LIST_SLOTS and v is not None and not isinstance(v, list):
+                out.append(f"{here}: must be a list (use [] or leave it out for none), got {json.dumps(v)[:40]}")
+            elif k in OBJECT_SLOTS and v is not None and not isinstance(v, dict):
+                out.append(f"{here}: must be an object (leave it out for none), got {json.dumps(v)[:40]}")
+            else:
+                out += _slot_problems(v, here)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            out += _slot_problems(v, f"{where}[{i}]")
+    return out
 
 
 def problems(spec) -> list[str]:
     """Every problem in the description, as plain sentences; [] if it is valid.
     Never raises: an AI reply of an unexpected shape is a problem to send back
     (measured: a dict where a name was expected crashed two builds)."""
+    slots = _slot_problems(spec) if isinstance(spec, dict) else []
+    if slots:
+        return slots
     checker = _Checker(spec)
     try:
         return checker.run()
@@ -476,7 +535,7 @@ class _Checker:
         for j, load in enumerate(loads):
             w = f"{where} load[{j}]"
             if not isinstance(load, dict) or not isinstance(load.get("entity"), str) or load["entity"] not in self.entities \
-                    or not isinstance(load.get("as"), str):
+                    or not isinstance(load.get("as"), str) or load.get("key") is None:  # no key: Python failed, JS/Java said "not found"
                 self.err(w, "needs as, an entity that exists, key and missing")
                 continue
             self.expr(load.get("key"), f"{w} key", {"inputs": scope["inputs"], "aliases": {**scope["aliases"], **found}})
@@ -587,7 +646,9 @@ class _Checker:
             self.cond(e, where, scope)
             return
         if op not in EXPR_OPS:
-            self.err(where, f"unknown operator {op!r}")
+            hint = OP_HINTS.get(str(op).lower())
+            self.err(where, f"unknown operator {op!r}" + (f" - use {hint}" if hint else
+                     f"; the operators are: {', '.join(sorted(EXPR_OPS | COND_OPS))}"))
             return
         if op in PAIR_OPS and (not isinstance(arg, list) or len(arg) != 2):
             self.err(where, f"{op} needs a list of two values")
@@ -614,6 +675,17 @@ class _Checker:
                 self.err(where, "session needs a key name")
         elif op in ("today", "now"):
             pass
+        elif op == "slice":
+            if not isinstance(arg, list) or not 2 <= len(arg) <= 3:
+                self.err(where, "slice needs [text, start] or [text, start, end] (negative counts from the end: the last 4 = [text, -4])")
+                return
+            self.expr(arg, where, scope)
+        elif op == "pow":
+            times = arg[1]
+            if not isinstance(times, dict) and (isinstance(times, bool) or not isinstance(times, int) or not 0 <= times <= 1200):
+                self.err(where, "pow needs [base, whole power from 0 to 1200], e.g. (1 + monthly rate) to the number of months")
+                return
+            self.expr(arg, where, scope)
         elif op == "split":
             if not isinstance(arg, list) or not 1 <= len(arg) <= 2 or (len(arg) == 2 and not (isinstance(arg[1], str) and arg[1])):
                 self.err(where, 'split needs [text, "separator"]')
@@ -699,7 +771,8 @@ class _Checker:
         elif op == "exists":
             self.expr(c, where, scope)
         else:
-            self.err(where, f"{op!r} is not a condition; use {', '.join(sorted(COND_OPS | {'exists'}))}")
+            hint = OP_HINTS.get(str(op).lower())
+            self.err(where, f"{op!r} is not a condition; use " + (hint if hint and op not in EXPR_OPS else ', '.join(sorted(COND_OPS | {'exists'}))))
 
     def faults(self) -> None:
         actions = {a.get("name") for a in self._list("actions")}

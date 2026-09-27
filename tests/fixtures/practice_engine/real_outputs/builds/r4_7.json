@@ -1,0 +1,1403 @@
+{
+ "label": "r4_7",
+ "title": "FASTag Toll Payment System – Vehicle Crossing Toll",
+ "recorded": "9/12",
+ "spec": {
+  "app_name": "FASTag Toll Payment System",
+  "base_url": "https://fastag.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "Vehicle": {
+    "key": "registration_number",
+    "fields": {
+     "registration_number": "string",
+     "vehicle_type": "string",
+     "fastag_id": "string",
+     "owner_name": "string",
+     "owner_mobile": "string"
+    }
+   },
+   "FASTag": {
+    "key": "tag_id",
+    "fields": {
+     "tag_id": "string",
+     "registration_number": "string",
+     "status": "string",
+     "balance": "money",
+     "linked_account": "string",
+     "issue_date": "date",
+     "expiry_date": "date"
+    }
+   },
+   "TollRate": {
+    "key": "vehicle_type",
+    "fields": {
+     "vehicle_type": "string",
+     "toll_amount": "money"
+    }
+   },
+   "Transaction": {
+    "key": "id",
+    "id_format": "TXN-{n:06}",
+    "fields": {
+     "id": "string",
+     "tag_id": "string",
+     "registration_number": "string",
+     "vehicle_type": "string",
+     "toll_plaza": "string",
+     "toll_amount": "money",
+     "balance_before": "money",
+     "balance_after": "money",
+     "timestamp": "datetime",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "Vehicle": [
+    {
+     "registration_number": "DL01AB1234",
+     "vehicle_type": "Car",
+     "fastag_id": "TAG001",
+     "owner_name": "Rajesh Kumar",
+     "owner_mobile": "9876543210"
+    },
+    {
+     "registration_number": "MH02CD5678",
+     "vehicle_type": "Car",
+     "fastag_id": "TAG002",
+     "owner_name": "Priya Sharma",
+     "owner_mobile": "9876543211"
+    },
+    {
+     "registration_number": "KA03EF9012",
+     "vehicle_type": "HCV",
+     "fastag_id": "TAG003",
+     "owner_name": "Suresh Reddy",
+     "owner_mobile": "9876543212"
+    },
+    {
+     "registration_number": "UP04GH3456",
+     "vehicle_type": "Car",
+     "fastag_id": "TAG004",
+     "owner_name": "Amit Singh",
+     "owner_mobile": "9876543213"
+    },
+    {
+     "registration_number": "TN05IJ7890",
+     "vehicle_type": "Car",
+     "fastag_id": "TAG005",
+     "owner_name": "Lakshmi Iyer",
+     "owner_mobile": "9876543214"
+    },
+    {
+     "registration_number": "GJ06KL2345",
+     "vehicle_type": "Car",
+     "fastag_id": "TAG006",
+     "owner_name": "Vikram Patel",
+     "owner_mobile": "9876543215"
+    },
+    {
+     "registration_number": "RJ07MN6789",
+     "vehicle_type": "Car",
+     "fastag_id": "TAG999",
+     "owner_name": "Anita Mehta",
+     "owner_mobile": "9876543216"
+    }
+   ],
+   "FASTag": [
+    {
+     "tag_id": "TAG001",
+     "registration_number": "DL01AB1234",
+     "status": "Active",
+     "balance": 200.0,
+     "linked_account": "HDFC-1234",
+     "issue_date": "2023-01-15",
+     "expiry_date": "2028-01-15"
+    },
+    {
+     "tag_id": "TAG002",
+     "registration_number": "MH02CD5678",
+     "status": "Active",
+     "balance": 15.0,
+     "linked_account": "ICICI-5678",
+     "issue_date": "2023-02-20",
+     "expiry_date": "2028-02-20"
+    },
+    {
+     "tag_id": "TAG003",
+     "registration_number": "KA03EF9012",
+     "status": "Active",
+     "balance": 500.0,
+     "linked_account": "SBI-9012",
+     "issue_date": "2023-03-10",
+     "expiry_date": "2028-03-10"
+    },
+    {
+     "tag_id": "TAG004",
+     "registration_number": "UP04GH3456",
+     "status": "Expired",
+     "balance": 300.0,
+     "linked_account": "AXIS-3456",
+     "issue_date": "2020-01-01",
+     "expiry_date": "2024-01-01"
+    },
+    {
+     "tag_id": "TAG005",
+     "registration_number": "TN05IJ7890",
+     "status": "Active",
+     "balance": 49.0,
+     "linked_account": "PNB-7890",
+     "issue_date": "2023-05-05",
+     "expiry_date": "2028-05-05"
+    },
+    {
+     "tag_id": "TAG006",
+     "registration_number": "GJ06KL2345",
+     "status": "Active",
+     "balance": 50.0,
+     "linked_account": "BOB-2345",
+     "issue_date": "2023-06-15",
+     "expiry_date": "2028-06-15"
+    },
+    {
+     "tag_id": "TAG999",
+     "registration_number": "DL01AB1234",
+     "status": "Active",
+     "balance": 150.0,
+     "linked_account": "HDFC-9999",
+     "issue_date": "2023-07-01",
+     "expiry_date": "2028-07-01"
+    }
+   ],
+   "TollRate": [
+    {
+     "vehicle_type": "Car",
+     "toll_amount": 50.0
+    },
+    {
+     "vehicle_type": "HCV",
+     "toll_amount": 150.0
+    },
+    {
+     "vehicle_type": "LCV",
+     "toll_amount": 80.0
+    },
+    {
+     "vehicle_type": "Bus",
+     "toll_amount": 100.0
+    }
+   ],
+   "Transaction": [
+    {
+     "id": "TXN-000001",
+     "tag_id": "TAG001",
+     "registration_number": "DL01AB1234",
+     "vehicle_type": "Car",
+     "toll_plaza": "Delhi-Jaipur Plaza",
+     "toll_amount": 50.0,
+     "balance_before": 250.0,
+     "balance_after": 200.0,
+     "timestamp": "2024-02-09T14:30",
+     "status": "Success"
+    }
+   ]
+  },
+  "pages": [
+   "Toll Plaza",
+   "Transaction Result",
+   "Transaction History"
+  ],
+  "public_pages": [
+   "Toll Plaza",
+   "Transaction Result",
+   "Transaction History"
+  ],
+  "home_page": "Toll Plaza",
+  "queries": [
+   {
+    "name": "view_transaction",
+    "label": "View Transaction",
+    "page": "Transaction Result",
+    "entity": "Transaction",
+    "key_input": "transaction_id",
+    "missing": "Transaction not found",
+    "show": [
+     "id",
+     "tag_id",
+     "registration_number",
+     "vehicle_type",
+     "toll_plaza",
+     "toll_amount",
+     "balance_before",
+     "balance_after",
+     "timestamp",
+     "status"
+    ],
+    "requires_login": false
+   },
+   {
+    "name": "transaction_history",
+    "label": "Transaction History",
+    "page": "Transaction History",
+    "entity": "Transaction",
+    "match": {
+     "input": "tag_id",
+     "fields": [
+      "tag_id"
+     ],
+     "mode": "equals",
+     "blank": "error:Please enter FASTag ID"
+    },
+    "order_by": [
+     {
+      "field": "timestamp",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "registration_number",
+     "vehicle_type",
+     "toll_plaza",
+     "toll_amount",
+     "balance_after",
+     "timestamp",
+     "status"
+    ],
+    "none_message": "No transactions found for this FASTag",
+    "requires_login": false
+   }
+  ],
+  "actions": [
+   {
+    "name": "process_toll",
+    "label": "Process Toll",
+    "page": "Toll Plaza",
+    "inputs": [
+     {
+      "name": "tag_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "FASTag ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "tag",
+      "entity": "FASTag",
+      "key": {
+       "input": "tag_id"
+      },
+      "missing": "FASTag not detected"
+     },
+     {
+      "as": "vehicle",
+      "entity": "Vehicle",
+      "key": {
+       "field": "tag.registration_number"
+      },
+      "missing": "Vehicle not found"
+     },
+     {
+      "as": "rate",
+      "entity": "TollRate",
+      "key": {
+       "field": "vehicle.vehicle_type"
+      },
+      "missing": "Toll rate not configured for this vehicle type"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "eq": [
+        {
+         "field": "tag.status"
+        },
+        "Expired"
+       ]
+      },
+      "message": "FASTag is expired or inactive"
+     },
+     {
+      "when": {
+       "eq": [
+        {
+         "field": "tag.status"
+        },
+        "Inactive"
+       ]
+      },
+      "message": "FASTag is expired or inactive"
+     },
+     {
+      "when": {
+       "ne": [
+        {
+         "field": "tag.registration_number"
+        },
+        {
+         "field": "vehicle.registration_number"
+        }
+       ]
+      },
+      "message": "Vehicle-FASTag mismatch detected"
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "field": "tag.balance"
+        },
+        {
+         "field": "rate.toll_amount"
+        }
+       ]
+      },
+      "message": "Insufficient balance"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "tag",
+       "field": "balance",
+       "value": {
+        "sub": [
+         {
+          "field": "tag.balance"
+         },
+         {
+          "field": "rate.toll_amount"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "create": {
+       "entity": "Transaction",
+       "as": "txn",
+       "values": {
+        "tag_id": {
+         "field": "tag.tag_id"
+        },
+        "registration_number": {
+         "field": "vehicle.registration_number"
+        },
+        "vehicle_type": {
+         "field": "vehicle.vehicle_type"
+        },
+        "toll_plaza": "Delhi-Jaipur Plaza",
+        "toll_amount": {
+         "field": "rate.toll_amount"
+        },
+        "balance_before": {
+         "add": [
+          {
+           "field": "tag.balance"
+          },
+          {
+           "field": "rate.toll_amount"
+          }
+         ]
+        },
+        "balance_after": {
+         "field": "tag.balance"
+        },
+        "timestamp": {
+         "now": true
+        },
+        "status": "Success"
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "sms",
+       "to": {
+        "field": "vehicle.owner_mobile"
+       },
+       "body": {
+        "format": [
+         "FASTag deducted: ₹{amount} at {plaza}. Balance: ₹{balance}. Txn ID: {txn_id}",
+         {
+          "amount": {
+           "field": "rate.toll_amount"
+          },
+          "plaza": "Delhi-Jaipur Plaza",
+          "balance": {
+           "field": "tag.balance"
+          },
+          "txn_id": {
+           "field": "txn.id"
+          }
+         }
+        ]
+       }
+      }
+     },
+     {
+      "if": [
+       {
+        "le": [
+         {
+          "field": "tag.balance"
+         },
+         50.0
+        ]
+       },
+       [
+        {
+         "send": {
+          "channel": "alert",
+          "to": {
+           "field": "vehicle.owner_mobile"
+          },
+          "body": {
+           "format": [
+            "Low balance alert: Your FASTag balance is ₹{balance}. Please recharge.",
+            {
+             "balance": {
+              "field": "tag.balance"
+             }
+            }
+           ]
+          }
+         }
+        }
+       ],
+       []
+      ]
+     }
+    ],
+    "message": "Toll deducted successfully. Barrier opening.",
+    "returns": {
+     "transaction_id": {
+      "field": "txn.id"
+     },
+     "toll_amount": {
+      "field": "rate.toll_amount"
+     },
+     "balance_after": {
+      "field": "tag.balance"
+     }
+    },
+    "next_page": "Transaction Result",
+    "requires_login": false
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "valid-fastag-toll-deducted",
+   "title": "Valid FASTag detected and toll deducted successfully",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG001"
+     ],
+     "save_as": "tag_before"
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "txn_count_before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Toll deducted successfully. Barrier opening."
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "toll_amount": 50.0
+     }
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG001"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 150.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "txn_count_after"
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "tag_id",
+      "TAG001"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.tag_id"
+     },
+     "expect": "TAG001"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.registration_number"
+     },
+     "expect": "DL01AB1234"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.vehicle_type"
+     },
+     "expect": "Car"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.toll_plaza"
+     },
+     "expect": "Delhi-Jaipur Plaza"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.toll_amount"
+     },
+     "expect": 50.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.balance_before"
+     },
+     "expect": 200.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.balance_after"
+     },
+     "expect": 150.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.status"
+     },
+     "expect": "Success"
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "messages"
+    },
+    {
+     "check": {
+      "ref": "messages.0.channel"
+     },
+     "expect": "sms"
+    },
+    {
+     "check": {
+      "ref": "messages.0.to"
+     },
+     "expect": "9876543210"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "insufficient-balance",
+   "title": "Insufficient balance in FASTag account",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG002"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "balance": 15.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG002"
+     ],
+     "save_as": "txn_count_before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG002"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Insufficient balance"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG002"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 15.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG002"
+     ],
+     "save_as": "txn_count_after"
+    },
+    {
+     "check": {
+      "ref": "txn_count_after"
+     },
+     "expect": {
+      "ref": "txn_count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "toll-calculation-car",
+   "title": "Toll calculation for Car (4-wheeler)",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG001"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "balance": 200.0
+     }
+    },
+    {
+     "call": "Database.get_vehicle",
+     "args": [
+      "DL01AB1234"
+     ],
+     "expect_includes": {
+      "vehicle_type": "Car"
+     }
+    },
+    {
+     "call": "Database.get_toll_rate",
+     "args": [
+      "Car"
+     ],
+     "expect_includes": {
+      "toll_amount": 50.0
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "toll_amount": 50.0,
+      "balance_after": 150.0
+     }
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG001"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 150.0
+     }
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "tag_id",
+      "TAG001"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.vehicle_type"
+     },
+     "expect": "Car"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.toll_amount"
+     },
+     "expect": 50.0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "toll-calculation-hcv",
+   "title": "Toll calculation for Heavy Commercial Vehicle",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG003"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "balance": 500.0
+     }
+    },
+    {
+     "call": "Database.get_vehicle",
+     "args": [
+      "KA03EF9012"
+     ],
+     "expect_includes": {
+      "vehicle_type": "HCV"
+     }
+    },
+    {
+     "call": "Database.get_toll_rate",
+     "args": [
+      "HCV"
+     ],
+     "expect_includes": {
+      "toll_amount": 150.0
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG003"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "toll_amount": 150.0,
+      "balance_after": 350.0
+     }
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG003"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 350.0
+     }
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "tag_id",
+      "TAG003"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.0.vehicle_type"
+     },
+     "expect": "HCV"
+    },
+    {
+     "check": {
+      "ref": "transactions.0.toll_amount"
+     },
+     "expect": 150.0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "expired-inactive-fastag",
+   "title": "Vehicle with expired/inactive FASTag",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG004"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "status": "Expired"
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG004"
+     ],
+     "save_as": "txn_count_before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG004"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "FASTag is expired or inactive"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG004"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 300.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG004"
+     ],
+     "save_as": "txn_count_after"
+    },
+    {
+     "check": {
+      "ref": "txn_count_after"
+     },
+     "expect": {
+      "ref": "txn_count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "vehicle-fastag-mismatch",
+   "title": "FASTag vehicle mismatch - wrong vehicle using tag",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG999"
+     ],
+     "save_as": "tag",
+     "expect_includes": {
+      "registration_number": "DL01AB1234"
+     }
+    },
+    {
+     "call": "Database.get_vehicle",
+     "args": [
+      "RJ07MN6789"
+     ],
+     "save_as": "vehicle",
+     "expect_includes": {
+      "fastag_id": "TAG999"
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG999"
+     ],
+     "save_as": "txn_count_before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG999"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Vehicle-FASTag mismatch detected"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG999"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 150.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG999"
+     ],
+     "save_as": "txn_count_after"
+    },
+    {
+     "check": {
+      "ref": "txn_count_after"
+     },
+     "expect": {
+      "ref": "txn_count_before"
+     }
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "transaction-details-recorded",
+   "title": "Transaction details recorded correctly",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result"
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "tag_id",
+      "TAG001"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.id"
+     },
+     "expect": {
+      "ref": "result.transaction_id"
+     }
+    },
+    {
+     "check": {
+      "ref": "transactions.1.toll_plaza"
+     },
+     "expect": "Delhi-Jaipur Plaza"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.registration_number"
+     },
+     "expect": "DL01AB1234"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.toll_amount"
+     },
+     "expect": 50.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.balance_before"
+     },
+     "expect": 200.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.balance_after"
+     },
+     "expect": 150.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.status"
+     },
+     "expect": "Success"
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "messages"
+    },
+    {
+     "check": {
+      "ref": "messages.0.channel"
+     },
+     "expect": "sms"
+    },
+    {
+     "check": {
+      "ref": "messages.0.to"
+     },
+     "expect": "9876543210"
+    },
+    {
+     "check": {
+      "ref": "messages.0.body"
+     },
+     "expect_includes": "FASTag deducted"
+    },
+    {
+     "check": {
+      "ref": "messages.0.body"
+     },
+     "expect_includes": "Delhi-Jaipur Plaza"
+    },
+    {
+     "check": {
+      "ref": "messages.0.body"
+     },
+     "expect_includes": {
+      "ref": "result.transaction_id"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "balance-update-linked-account",
+   "title": "Balance update reflection in linked account",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG003"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "balance": 500.0
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG003"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "toll_amount": 150.0,
+      "balance_after": 350.0
+     }
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG003"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 350.0
+     }
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "tag_id",
+      "TAG003"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.0.balance_before"
+     },
+     "expect": 500.0
+    },
+    {
+     "check": {
+      "ref": "transactions.0.balance_after"
+     },
+     "expect": 350.0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "balance-below-toll-amount",
+   "title": "FASTag with balance just below toll amount",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG005"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "balance": 49.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG005"
+     ],
+     "save_as": "txn_count_before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG005"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Insufficient balance"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG005"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 49.0
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "tag_id",
+      "TAG005"
+     ],
+     "save_as": "txn_count_after"
+    },
+    {
+     "check": {
+      "ref": "txn_count_after"
+     },
+     "expect": {
+      "ref": "txn_count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "balance-equal-toll-amount",
+   "title": "Balance exactly equal to toll amount",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG006"
+     ],
+     "save_as": "tag_before",
+     "expect_includes": {
+      "balance": 50.0
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Toll Plaza"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.process_toll",
+     "args": [
+      "TAG006"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Toll deducted successfully. Barrier opening."
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result",
+     "expect_includes": {
+      "toll_amount": 50.0,
+      "balance_after": 0.0
+     }
+    },
+    {
+     "call": "Database.get_fastag",
+     "args": [
+      "TAG006"
+     ],
+     "save_as": "tag_after",
+     "expect_includes": {
+      "balance": 0.0
+     }
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "tag_id",
+      "TAG006"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.0.balance_before"
+     },
+     "expect": 50.0
+    },
+    {
+     "check": {
+      "ref": "transactions.0.balance_after"
+     },
+     "expect": 0.0
+    },
+    {
+     "check": {
+      "ref": "transactions.0.toll_amount"
+     },
+     "expect": 50.0
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "messages"
+    },
+    {
+     "check": {
+      "ref": "messages.1.channel"
+     },
+     "expect": "alert"
+    },
+    {
+     "check": {
+      "ref": "messages.1.body"
+     },
+     "expect_includes": "Low balance alert"
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

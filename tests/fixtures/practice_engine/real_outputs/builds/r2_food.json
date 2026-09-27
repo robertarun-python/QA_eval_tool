@@ -1,0 +1,1397 @@
+{
+ "label": "r2_food",
+ "title": "Food Delivery Ordering",
+ "recorded": "11/11",
+ "spec": {
+  "app_name": "Food Delivery Ordering",
+  "base_url": "https://fooddelivery.example.test",
+  "now": "2024-02-10T12:00",
+  "entities": {
+   "Customer": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "phone": "string"
+    }
+   },
+   "Restaurant": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "name": "string",
+     "distance_km": "number",
+     "open_time": "string",
+     "close_time": "string"
+    }
+   },
+   "Order": {
+    "key": "id",
+    "id_format": "ORD-{n:03}",
+    "fields": {
+     "id": "string",
+     "customer": "string",
+     "restaurant_id": "string",
+     "restaurant_name": "string",
+     "amount": "money",
+     "delivery_fee": "money",
+     "total": "money",
+     "distance_km": "number",
+     "placed_at": "datetime",
+     "status": "string",
+     "rating": "int"
+    }
+   }
+  },
+  "data": {
+   "Customer": [
+    {
+     "email": "customer@test.com",
+     "password": "Pass@123",
+     "name": "Test Customer",
+     "phone": "9876543210"
+    }
+   ],
+   "Restaurant": [
+    {
+     "id": "R001",
+     "name": "Spice Hub",
+     "distance_km": 2.5,
+     "open_time": "10:00",
+     "close_time": "23:00"
+    },
+    {
+     "id": "R002",
+     "name": "Pizza Palace",
+     "distance_km": 3.0,
+     "open_time": "10:00",
+     "close_time": "23:00"
+    },
+    {
+     "id": "R003",
+     "name": "Burger King",
+     "distance_km": 3.1,
+     "open_time": "10:00",
+     "close_time": "23:00"
+    },
+    {
+     "id": "R004",
+     "name": "Sushi Bar",
+     "distance_km": 7.0,
+     "open_time": "10:00",
+     "close_time": "23:00"
+    },
+    {
+     "id": "R005",
+     "name": "Far Restaurant",
+     "distance_km": 7.5,
+     "open_time": "10:00",
+     "close_time": "23:00"
+    }
+   ],
+   "Order": [
+    {
+     "id": "ORD-001",
+     "customer": "customer@test.com",
+     "restaurant_id": "R001",
+     "restaurant_name": "Spice Hub",
+     "amount": 300.0,
+     "delivery_fee": 20.0,
+     "total": 320.0,
+     "distance_km": 2.5,
+     "placed_at": "2024-02-09T12:00",
+     "status": "Delivered",
+     "rating": 0
+    }
+   ]
+  },
+  "users": {
+   "entity": "Customer",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 60,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Order",
+   "Order Confirmation",
+   "My Orders",
+   "Order Details"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "list_restaurants",
+    "label": "Restaurants",
+    "page": "Home",
+    "entity": "Restaurant",
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "distance_km"
+    ]
+   },
+   {
+    "name": "my_orders",
+    "label": "My Orders",
+    "page": "My Orders",
+    "entity": "Order",
+    "where": {
+     "eq": [
+      {
+       "field": "row.customer"
+      },
+      {
+       "user": "email"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "placed_at",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "restaurant_name",
+     "total",
+     "placed_at",
+     "status"
+    ]
+   },
+   {
+    "name": "order_details",
+    "label": "Order Details",
+    "page": "My Orders",
+    "entity": "Order",
+    "key_input": "order_id",
+    "missing": "Order not found",
+    "next_page": "Order Details",
+    "show": [
+     "id",
+     "restaurant_name",
+     "amount",
+     "delivery_fee",
+     "total",
+     "distance_km",
+     "placed_at",
+     "status",
+     "rating"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "place_order",
+    "label": "Place Order",
+    "page": "Order",
+    "inputs": [
+     {
+      "name": "restaurant_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Restaurant is required"
+       }
+      ]
+     },
+     {
+      "name": "amount",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Amount is required"
+       },
+       {
+        "rule": "number",
+        "message": "Amount must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 0.01,
+        "message": "Amount must be positive"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "restaurant",
+      "entity": "Restaurant",
+      "key": {
+       "input": "restaurant_id"
+      },
+      "missing": "Restaurant not found"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "or": [
+        {
+         "lt": [
+          {
+           "time": {
+            "now": true
+           }
+          },
+          {
+           "field": "restaurant.open_time"
+          }
+         ]
+        },
+        {
+         "ge": [
+          {
+           "time": {
+            "now": true
+           }
+          },
+          {
+           "field": "restaurant.close_time"
+          }
+         ]
+        }
+       ]
+      },
+      "message": "Restaurant is closed now"
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "input": "amount"
+        },
+        199
+       ]
+      },
+      "message": "Minimum order is Rs 199"
+     },
+     {
+      "when": {
+       "gt": [
+        {
+         "field": "restaurant.distance_km"
+        },
+        7
+       ]
+      },
+      "message": "We don't deliver to this address"
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Order",
+       "as": "order",
+       "values": {
+        "customer": {
+         "user": "email"
+        },
+        "restaurant_id": {
+         "field": "restaurant.id"
+        },
+        "restaurant_name": {
+         "field": "restaurant.name"
+        },
+        "amount": {
+         "round": [
+          {
+           "input": "amount"
+          },
+          2
+         ]
+        },
+        "delivery_fee": {
+         "if": [
+          {
+           "le": [
+            {
+             "field": "restaurant.distance_km"
+            },
+            3
+           ]
+          },
+          20,
+          40
+         ]
+        },
+        "total": {
+         "round": [
+          {
+           "add": [
+            {
+             "input": "amount"
+            },
+            {
+             "if": [
+              {
+               "le": [
+                {
+                 "field": "restaurant.distance_km"
+                },
+                3
+               ]
+              },
+              20,
+              40
+             ]
+            }
+           ]
+          },
+          2
+         ]
+        },
+        "distance_km": {
+         "field": "restaurant.distance_km"
+        },
+        "placed_at": {
+         "now": true
+        },
+        "status": "Placed",
+        "rating": 0
+       }
+      }
+     }
+    ],
+    "message": "Order placed successfully",
+    "next_page": "Order Confirmation",
+    "returns": {
+     "order_id": {
+      "field": "order.id"
+     },
+     "delivery_fee": {
+      "field": "order.delivery_fee"
+     },
+     "total": {
+      "field": "order.total"
+     }
+    }
+   },
+   {
+    "name": "cancel_order",
+    "label": "Cancel Order",
+    "page": "Order Details",
+    "inputs": [
+     {
+      "name": "order_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Order ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "order",
+      "entity": "Order",
+      "key": {
+       "input": "order_id"
+      },
+      "missing": "Order not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "order.customer"
+        },
+        {
+         "user": "email"
+        }
+       ]
+      },
+      "message": "This is not your order"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "order.status"
+        },
+        "Placed"
+       ]
+      },
+      "message": "Order cannot be cancelled"
+     },
+     {
+      "when": {
+       "gt": [
+        {
+         "minutes_between": [
+          {
+           "field": "order.placed_at"
+          },
+          {
+           "now": true
+          }
+         ]
+        },
+        2
+       ]
+      },
+      "message": "Order can no longer be cancelled"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "order",
+       "field": "status",
+       "value": "Cancelled"
+      }
+     }
+    ],
+    "message": "Order cancelled successfully. Full refund will be processed."
+   },
+   {
+    "name": "rate_order",
+    "label": "Rate Order",
+    "page": "Order Details",
+    "inputs": [
+     {
+      "name": "order_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Order ID is required"
+       }
+      ]
+     },
+     {
+      "name": "rating",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Rating is required"
+       },
+       {
+        "rule": "number",
+        "message": "Rating must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Rating must be 1 to 5"
+       },
+       {
+        "rule": "max",
+        "value": 5,
+        "message": "Rating must be 1 to 5"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "order",
+      "entity": "Order",
+      "key": {
+       "input": "order_id"
+      },
+      "missing": "Order not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "order.customer"
+        },
+        {
+         "user": "email"
+        }
+       ]
+      },
+      "message": "This is not your order"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "order.status"
+        },
+        "Delivered"
+       ]
+      },
+      "message": "Only delivered orders can be rated"
+     },
+     {
+      "when": {
+       "gt": [
+        {
+         "field": "order.rating"
+        },
+        0
+       ]
+      },
+      "message": "You have already rated this order"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "order",
+       "field": "rating",
+       "value": {
+        "input": "rating"
+       }
+      }
+     }
+    ],
+    "message": "Thank you for rating this order"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "place-order-within-hours",
+   "title": "Place an order within hours",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R001",
+      350
+     ],
+     "expect": true,
+     "save_as": "order_result"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Order placed successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "delivery_fee": 20.0,
+      "total": 370.0
+     }
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "restaurant_id",
+      "R001"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders"
+     },
+     "expect_includes": [
+      {
+       "restaurant_name": "Spice Hub",
+       "amount": 350.0,
+       "delivery_fee": 20.0,
+       "total": 370.0,
+       "distance_km": 2.5,
+       "status": "Placed"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "restaurant-closed",
+   "title": "Restaurant closed",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      690
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "count_before"
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R001",
+      350
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Restaurant is closed now"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "count_after"
+    },
+    {
+     "check": {
+      "ref": "count_after"
+     },
+     "expect": {
+      "ref": "count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "order-at-opening-time",
+   "title": "Order at opening time",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R001",
+      350
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Order placed successfully"
+    },
+    {
+     "call": "Database.find_order",
+     "args": [
+      "restaurant_id",
+      "R001"
+     ],
+     "save_as": "orders"
+    },
+    {
+     "check": {
+      "ref": "orders"
+     },
+     "expect_includes": [
+      {
+       "status": "Placed"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "below-minimum-order",
+   "title": "Below minimum order",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "count_before"
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R001",
+      198
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Minimum order is Rs 199"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "count_after"
+    },
+    {
+     "check": {
+      "ref": "count_after"
+     },
+     "expect": {
+      "ref": "count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "distance-fee-slabs",
+   "title": "Distance fee slabs",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R002",
+      300
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "delivery_fee": 20.0
+     },
+     "save_as": "order1"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      {
+       "ref": "order1.order_id"
+      }
+     ],
+     "expect_includes": {
+      "delivery_fee": 20.0,
+      "distance_km": 3.0
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R003",
+      300
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "delivery_fee": 40.0
+     },
+     "save_as": "order2"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      {
+       "ref": "order2.order_id"
+      }
+     ],
+     "expect_includes": {
+      "delivery_fee": 40.0,
+      "distance_km": 3.1
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R004",
+      300
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "delivery_fee": 40.0
+     },
+     "save_as": "order3"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      {
+       "ref": "order3.order_id"
+      }
+     ],
+     "expect_includes": {
+      "delivery_fee": 40.0,
+      "distance_km": 7.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "beyond-delivery-range",
+   "title": "Beyond delivery range",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "count_before"
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R005",
+      300
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "We don't deliver to this address"
+    },
+    {
+     "call": "Database.count_order",
+     "args": [
+      null,
+      null
+     ],
+     "save_as": "count_after"
+    },
+    {
+     "check": {
+      "ref": "count_after"
+     },
+     "expect": {
+      "ref": "count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-within-2-minutes",
+   "title": "Cancel within 2 minutes",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ]
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R001",
+      350
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "order_result"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      1
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Orders"
+     ]
+    },
+    {
+     "call": "UI.order_details",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order Details"
+     ]
+    },
+    {
+     "call": "UI.cancel_order",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Order cancelled successfully. Full refund will be processed."
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ],
+     "save_as": "order_db"
+    },
+    {
+     "check": {
+      "ref": "order_db.status"
+     },
+     "expect": "Cancelled"
+    },
+    {
+     "call": "teardown",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-after-2-minutes",
+   "title": "Cancel after 2 minutes",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order"
+     ]
+    },
+    {
+     "call": "UI.place_order",
+     "args": [
+      "R001",
+      350
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "order_result"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      3
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Orders"
+     ]
+    },
+    {
+     "call": "UI.order_details",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Order Details"
+     ]
+    },
+    {
+     "call": "UI.cancel_order",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Order can no longer be cancelled"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ],
+     "save_as": "order_db"
+    },
+    {
+     "check": {
+      "ref": "order_db.status"
+     },
+     "expect": "Placed"
+    },
+    {
+     "call": "teardown",
+     "args": [
+      {
+       "ref": "order_result.order_id"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "rate-delivered-order",
+   "title": "Rate a delivered order",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Orders"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.order_details",
+     "args": [
+      "ORD-001"
+     ],
+     "save_as": "order_details"
+    },
+    {
+     "check": {
+      "ref": "order_details.status"
+     },
+     "expect": "Delivered"
+    },
+    {
+     "call": "UI.rate_order",
+     "args": [
+      "ORD-001",
+      4
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Thank you for rating this order"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      "ORD-001"
+     ],
+     "expect_includes": {
+      "rating": 4
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "rate-twice",
+   "title": "Rate twice",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Orders"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.order_details",
+     "args": [
+      "ORD-001"
+     ],
+     "save_as": "order_details"
+    },
+    {
+     "call": "UI.rate_order",
+     "args": [
+      "ORD-001",
+      4
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      "ORD-001"
+     ],
+     "save_as": "order_after_first"
+    },
+    {
+     "check": {
+      "ref": "order_after_first.rating"
+     },
+     "expect": 4
+    },
+    {
+     "call": "UI.rate_order",
+     "args": [
+      "ORD-001",
+      5
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "You have already rated this order"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      "ORD-001"
+     ],
+     "expect_includes": {
+      "rating": 4
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "rate-out-of-range",
+   "title": "Rate out of range",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "customer@test.com",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Orders"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.order_details",
+     "args": [
+      "ORD-001"
+     ],
+     "save_as": "order_details"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      "ORD-001"
+     ],
+     "save_as": "order_before"
+    },
+    {
+     "call": "UI.rate_order",
+     "args": [
+      "ORD-001",
+      6
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Rating must be 1 to 5"
+    },
+    {
+     "call": "Database.get_order",
+     "args": [
+      "ORD-001"
+     ],
+     "save_as": "order_after"
+    },
+    {
+     "check": {
+      "ref": "order_after.rating"
+     },
+     "expect": {
+      "ref": "order_before.rating"
+     }
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

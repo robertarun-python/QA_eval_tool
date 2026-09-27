@@ -73,8 +73,12 @@
 
     // Whole numbers as Long, others to 10 places (removes binary noise, keeps a
     // rate like 0.00875 exact). Money is rounded to 2 places where stored or shown.
+    static final String TOO_LARGE = "That number is too large";
+
     static Object clean(double v) {
-        if (v == Math.rint(v) && Math.abs(v) < 1e15) return (long) v;
+        if (Double.isNaN(v) || Double.isInfinite(v)) throw new Refused(TOO_LARGE);
+        if (Math.abs(v) >= 1e15) return v;  // as in Python and JavaScript
+        if (v == Math.rint(v)) return (long) v;
         double r = new java.math.BigDecimal(Double.toString(v)).setScale(10, java.math.RoundingMode.HALF_UP).doubleValue();
         return r == Math.rint(r) && Math.abs(r) < 1e15 ? (Object) (long) r : (Object) r;
     }
@@ -89,13 +93,14 @@
 
     static List<Object> split(Object value, String sep) {
         List<Object> out = new ArrayList<>();
-        for (String p : (value == null ? "" : String.valueOf(value)).split(java.util.regex.Pattern.quote(sep), -1)) if (!p.strip().isEmpty()) out.add(p.strip());
+        for (String p : (value == null ? "" : raw(value)).split(java.util.regex.Pattern.quote(sep), -1)) if (!p.strip().isEmpty()) out.add(p.strip());
         return out;
     }
 
     static Object roundHalfUp(Object value, int places) {
         Object c = clean(num(value));
         double x = num(c);
+        if (Math.abs(x) >= 1e15) return c;  // as in Python and JavaScript
         return clean(new java.math.BigDecimal(Double.toString(x)).setScale(places, java.math.RoundingMode.HALF_UP).doubleValue());
     }
 
@@ -159,9 +164,21 @@
     }
 
     // Characters, not UTF-16 units - as in Python.
-    static long chars(Object v) { String s = String.valueOf(v); return s.codePointCount(0, s.length()); }
+    // A candidate's input as text - the same characters as Python and JavaScript.
+    static String raw(Object v) {
+        if (v == null) return "";
+        if (v instanceof Boolean) return ((Boolean) v) ? "true" : "false";
+        if ((v instanceof Double || v instanceof Float) && Double.isFinite(((Number) v).doubleValue())) {
+            double d = ((Number) v).doubleValue();
+            if (d == Math.rint(d)) return new java.math.BigDecimal(d).toBigInteger().toString();
+            return new java.math.BigDecimal(Double.toString(d)).stripTrailingZeros().toPlainString();
+        }
+        return String.valueOf(v);
+    }
 
-    static boolean fullMatch(String pattern, Object text) { return java.util.regex.Pattern.matches(pattern, text == null ? "" : String.valueOf(text)); }
+    static long chars(Object v) { String s = raw(v); return s.codePointCount(0, s.length()); }
+
+    static boolean fullMatch(String pattern, Object text) { return java.util.regex.Pattern.matches(pattern, text == null ? "" : raw(text)); }
 
     static boolean same(Object a, Object b) {
         if (a instanceof Boolean || b instanceof Boolean) return Objects.equals(a, b);
@@ -179,7 +196,12 @@
     static String text(Object v) {
         if (v == null) return "";
         if (v instanceof Boolean) return ((Boolean) v) ? "true" : "false";
-        if (v instanceof Number) { Object c = roundHalfUp(v, 2); return c instanceof Long ? String.valueOf(c) : String.format(Locale.ROOT, "%.2f", (Double) c); }
+        if (v instanceof Number) {
+            Object c = roundHalfUp(v, 2);
+            if (c instanceof Long) return String.valueOf(c);
+            double d = (Double) c;
+            return d == Math.rint(d) ? new java.math.BigDecimal(d).toBigInteger().toString() : String.format(Locale.ROOT, "%.2f", d);
+        }
         return String.valueOf(v);
     }
 
@@ -282,6 +304,39 @@
                     if (op.equals("div") && b == 0) throw new Refused("Cannot divide by zero");
                     return clean(op.equals("add") ? a + b : op.equals("sub") ? a - b : op.equals("mul") ? a * b : a / b);
                 }
+                case "min": case "max": {
+                    double a = num(ev(list(arg).get(0), inputs, aliases)), b = num(ev(list(arg).get(1), inputs, aliases));
+                    return clean(op.equals("min") ? Math.min(a, b) : Math.max(a, b));
+                }
+                case "mod": {
+                    double a = num(ev(list(arg).get(0), inputs, aliases)), b = num(ev(list(arg).get(1), inputs, aliases));
+                    if (b == 0) throw new Refused("Cannot divide by zero");
+                    return clean(a - b * Math.floor(a / b));
+                }
+                case "pow": {
+                    double base = num(ev(list(arg).get(0), inputs, aliases)), times = num(ev(list(arg).get(1), inputs, aliases));
+                    if (times != Math.rint(times) || times < 0 || times > 1200) throw new EngineError("pow needs a whole power from 0 to 1200, got " + text(clean(times)));
+                    Object result = 1L;
+                    for (long i = 0; i < (long) times; i++) result = clean(num(result) * base);  // step by step, as in Python and JavaScript
+                    return result;
+                }
+                case "abs": return clean(Math.abs(num(ev(arg, inputs, aliases))));
+                case "floor": return clean(Math.floor(num(ev(arg, inputs, aliases))));
+                case "ceil": return clean(Math.ceil(num(ev(arg, inputs, aliases))));
+                case "slice": {
+                    int[] cs = text(ev(list(arg).get(0), inputs, aliases)).codePoints().toArray();
+                    int n = cs.length;
+                    long start = (long) num(ev(list(arg).get(1), inputs, aliases));
+                    long end = list(arg).size() > 2 ? (long) num(ev(list(arg).get(2), inputs, aliases)) : n;
+                    int from = (int) Math.max(0, Math.min(n, start < 0 ? n + start : start)), to = (int) Math.max(0, Math.min(n, end < 0 ? n + end : end));
+                    return to <= from ? "" : new String(cs, from, to - from);
+                }
+                case "years_between": {
+                    java.time.LocalDate a = toDate(ev(list(arg).get(0), inputs, aliases)), b = toDate(ev(list(arg).get(1), inputs, aliases));
+                    boolean before = b.getMonthValue() < a.getMonthValue() || (b.getMonthValue() == a.getMonthValue() && b.getDayOfMonth() < a.getDayOfMonth());
+                    return (long) (b.getYear() - a.getYear() - (before ? 1 : 0));
+                }
+                case "date": return isoDateTime(toDateTime(ev(arg, inputs, aliases))).substring(0, 10);
                 case "round": {
                     Object value = arg instanceof List ? list(arg).get(0) : arg;
                     Object places = arg instanceof List && list(arg).size() > 1 ? ev(list(arg).get(1), inputs, aliases) : 2L;
@@ -411,19 +466,19 @@
 
         Object login(Object login, Object password) {
             Map<String, Object> msgs = messages();
-            if (login == null || String.valueOf(login).trim().isEmpty()) throw new Refused(str(msgs.get("required_login")));
-            if (password == null || String.valueOf(password).isEmpty()) throw new Refused(str(msgs.get("required_password")));
+            if (login == null || raw(login).trim().isEmpty()) throw new Refused(str(msgs.get("required_login")));
+            if (password == null || raw(password).isEmpty()) throw new Refused(str(msgs.get("required_password")));
             String field = users.get("login_field") == null ? "email" : str(users.get("login_field"));
             Map<String, Object> match = null;
             for (Object u : store.get(str(users.get("entity")))) {
                 Object v = map(u).get(field);
-                if (String.valueOf(v == null ? "" : v).toLowerCase(Locale.ROOT).equals(String.valueOf(login).trim().toLowerCase(Locale.ROOT))) { match = map(u); break; }
+                if (raw(v == null ? "" : v).toLowerCase(Locale.ROOT).equals(raw(login).trim().toLowerCase(Locale.ROOT))) { match = map(u); break; }
             }
             String pf = users.get("password_field") == null ? "password" : str(users.get("password_field"));
             Map<String, Object> lockout = users.get("lockout") == null ? null : map(users.get("lockout"));
-            String who = String.valueOf(login).trim().toLowerCase(Locale.ROOT);
+            String who = raw(login).trim().toLowerCase(Locale.ROOT);
             if (match != null && lockout != null && lockedUntil.containsKey(who) && clock.isBefore(lockedUntil.get(who))) throw new Refused(str(lockout.get("message")));
-            if (match == null || !String.valueOf(match.get(pf)).equals(String.valueOf(password))) {
+            if (match == null || !raw(match.get(pf)).equals(raw(password))) {
                 if (match != null && lockout != null) {
                     failedLogins.put(who, failedLogins.getOrDefault(who, 0L) + 1);
                     if (failedLogins.get(who) >= (long) num(lockout.get("attempts"))) {
@@ -472,11 +527,11 @@
                     } else if (rule.equals("number")) { try { num(value); } catch (EngineError err) { ok = false; } }
                     else if (rule.equals("one_of")) {
                         ok = false;
-                        for (Object o : list(limit)) if (same(value, o) || String.valueOf(value).equalsIgnoreCase(String.valueOf(o))) ok = true;
+                        for (Object o : list(limit)) if (same(value, o) || raw(value).equalsIgnoreCase(raw(o))) ok = true;
                     } else if (rule.equals("date")) {
-                        try { toDate(String.valueOf(value)); } catch (RuntimeException err) { ok = false; }
-                    } else if (rule.equals("not_past")) ok = String.valueOf(value).substring(0, Math.min(10, String.valueOf(value).length())).compareTo(isoDate(clock.toLocalDate())) >= 0;
-                    else if (rule.equals("not_future")) ok = String.valueOf(value).substring(0, Math.min(10, String.valueOf(value).length())).compareTo(isoDate(clock.toLocalDate())) <= 0;
+                        try { toDate(raw(value)); } catch (RuntimeException err) { ok = false; }
+                    } else if (rule.equals("not_past")) ok = raw(value).substring(0, Math.min(10, raw(value).length())).compareTo(isoDate(clock.toLocalDate())) >= 0;
+                    else if (rule.equals("not_future")) ok = raw(value).substring(0, Math.min(10, raw(value).length())).compareTo(isoDate(clock.toLocalDate())) <= 0;
                     else throw new EngineError("unknown input check " + rule);
                     if (!ok) throw new Refused(str(check.get("message")));
                 }
@@ -487,7 +542,7 @@
             String k = key(entity);
             for (Object r : store.get(entity)) {
                 Object v = map(r).get(k);
-                if (same(v, key) || String.valueOf(v).strip().equalsIgnoreCase(String.valueOf(key).strip())) return map(r);
+                if (same(v, key) || raw(v).strip().equalsIgnoreCase(raw(key).strip())) return map(r);
             }
             return null;
         }
@@ -688,7 +743,7 @@
             if (query.get("match") != null) {
                 Map<String, Object> match = map(query.get("match"));
                 Object term = inputs.get(str(match.get("input")));
-                boolean blank = term == null || String.valueOf(term).trim().isEmpty();
+                boolean blank = term == null || raw(term).trim().isEmpty();
                 if (blank) {
                     String how = match.get("blank") == null ? "all" : str(match.get("blank"));
                     if (how.startsWith("error:")) throw new Refused(how.substring("error:".length()));
@@ -696,7 +751,7 @@
                 } else {
                     if (match.get("max_length") != null && chars(term) > num(match.get("max_length")))
                         throw new Refused(match.get("too_long") == null ? "Search text is too long" : str(match.get("too_long")));
-                    String needle = String.valueOf(term).trim().toLowerCase(Locale.ROOT);
+                    String needle = raw(term).trim().toLowerCase(Locale.ROOT);
                     String mode = match.get("mode") == null ? "contains" : str(match.get("mode"));
                     List<Object> hits = new ArrayList<>();
                     for (Object row : rows) {
@@ -816,7 +871,7 @@
 
         Object dbGet(String entity, Object key) {
             String k = key(entity);
-            for (Object r : store.get(entity)) { Object v = map(r).get(k); if (same(v, key) || String.valueOf(v).equals(String.valueOf(key))) return deepCopy(r); }
+            for (Object r : store.get(entity)) { Object v = map(r).get(k); if (same(v, key) || raw(v).equals(raw(key))) return deepCopy(r); }
             return null;
         }
 
@@ -848,7 +903,7 @@
                 String k = key(e.getKey());
                 for (int i = 0; i < e.getValue().size(); i++) {
                     Object v = map(e.getValue().get(i)).get(k);
-                    if (String.valueOf(v).equals(String.valueOf(key)) && created.contains(e.getKey() + "\u0000" + v)) { e.getValue().remove(i); return; }
+                    if (raw(v).equals(raw(key)) && created.contains(e.getKey() + "\u0000" + v)) { e.getValue().remove(i); return; }
                 }
             }
         }

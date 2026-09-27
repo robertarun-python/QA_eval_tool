@@ -1,0 +1,1410 @@
+{
+ "label": "r2_pharmacy",
+ "title": "Pharmacy Billing and Inventory",
+ "recorded": "10/10",
+ "spec": {
+  "app_name": "Pharmacy Billing and Inventory",
+  "base_url": "https://pharmacy.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "User": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "role": "string"
+    }
+   },
+   "Medicine": {
+    "key": "code",
+    "fields": {
+     "code": "string",
+     "name": "string",
+     "schedule": "string",
+     "reorder_level": "int"
+    }
+   },
+   "Batch": {
+    "key": "batch_number",
+    "fields": {
+     "batch_number": "string",
+     "medicine_code": "string",
+     "expiry_date": "date",
+     "price_per_unit": "money",
+     "stock": "int"
+    }
+   },
+   "Bill": {
+    "key": "id",
+    "id_format": "BILL-{n:04}",
+    "fields": {
+     "id": "string",
+     "customer_age": "int",
+     "prescription_number": "string",
+     "subtotal": "money",
+     "discount": "money",
+     "gst": "money",
+     "total": "money",
+     "billed_at": "datetime",
+     "billed_by": "string"
+    }
+   },
+   "BillItem": {
+    "key": "id",
+    "id_format": "BI-{n:05}",
+    "fields": {
+     "id": "string",
+     "bill_id": "string",
+     "batch_number": "string",
+     "medicine_name": "string",
+     "quantity": "int",
+     "price_per_unit": "money",
+     "amount": "money"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "email": "pharmacist@pharmacy.test",
+     "password": "Pharma@123",
+     "name": "John Pharmacist",
+     "role": "Pharmacist"
+    },
+    {
+     "email": "manager@pharmacy.test",
+     "password": "Manager@123",
+     "name": "Store Manager",
+     "role": "Manager"
+    }
+   ],
+   "Medicine": [
+    {
+     "code": "MED-001",
+     "name": "Paracetamol",
+     "schedule": "None",
+     "reorder_level": 50
+    },
+    {
+     "code": "MED-002",
+     "name": "Azithromycin",
+     "schedule": "H",
+     "reorder_level": 20
+    },
+    {
+     "code": "MED-003",
+     "name": "Crocin",
+     "schedule": "None",
+     "reorder_level": 30
+    },
+    {
+     "code": "MED-004",
+     "name": "Amoxicillin",
+     "schedule": "H",
+     "reorder_level": 20
+    }
+   ],
+   "Batch": [
+    {
+     "batch_number": "P-101",
+     "medicine_code": "MED-001",
+     "expiry_date": "2025-12-31",
+     "price_per_unit": 30.0,
+     "stock": 100
+    },
+    {
+     "batch_number": "P-099",
+     "medicine_code": "MED-001",
+     "expiry_date": "2024-01-31",
+     "price_per_unit": 28.0,
+     "stock": 50
+    },
+    {
+     "batch_number": "A-201",
+     "medicine_code": "MED-002",
+     "expiry_date": "2025-06-30",
+     "price_per_unit": 120.0,
+     "stock": 22
+    },
+    {
+     "batch_number": "C-301",
+     "medicine_code": "MED-003",
+     "expiry_date": "2025-09-30",
+     "price_per_unit": 25.0,
+     "stock": 50
+    },
+    {
+     "batch_number": "AM-401",
+     "medicine_code": "MED-004",
+     "expiry_date": "2025-08-31",
+     "price_per_unit": 100.0,
+     "stock": 10
+    }
+   ],
+   "Bill": [],
+   "BillItem": []
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 60,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Sell Medicine",
+   "Bill Summary"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "search_batches",
+    "label": "Search Batches",
+    "page": "Sell Medicine",
+    "entity": "Batch",
+    "match": {
+     "input": "term",
+     "fields": [
+      "batch_number",
+      "medicine_code"
+     ],
+     "mode": "contains",
+     "blank": "all"
+    },
+    "order_by": [
+     {
+      "field": "batch_number"
+     }
+    ],
+    "show": [
+     "batch_number",
+     "medicine_code",
+     "expiry_date",
+     "price_per_unit",
+     "stock"
+    ],
+    "none_message": "No batches found"
+   }
+  ],
+  "actions": [
+   {
+    "name": "sell_medicine",
+    "label": "Sell",
+    "page": "Sell Medicine",
+    "inputs": [
+     {
+      "name": "batch_number",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Batch number is required"
+       }
+      ]
+     },
+     {
+      "name": "quantity",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Quantity is required"
+       },
+       {
+        "rule": "number",
+        "message": "Quantity must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Quantity must be at least 1"
+       }
+      ]
+     },
+     {
+      "name": "customer_age",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Customer age is required"
+       },
+       {
+        "rule": "number",
+        "message": "Customer age must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 0,
+        "message": "Customer age must be valid"
+       }
+      ]
+     },
+     {
+      "name": "prescription_number",
+      "checks": []
+     }
+    ],
+    "load": [
+     {
+      "as": "batch",
+      "entity": "Batch",
+      "key": {
+       "input": "batch_number"
+      },
+      "missing": "Batch not found"
+     },
+     {
+      "as": "medicine",
+      "entity": "Medicine",
+      "key": {
+       "field": "batch.medicine_code"
+      },
+      "missing": "Medicine not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "ge": [
+        {
+         "field": "batch.expiry_date"
+        },
+        {
+         "today": true
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Batch {batch} has expired",
+        {
+         "batch": {
+          "input": "batch_number"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "field": "medicine.schedule"
+          },
+          "H"
+         ]
+        },
+        {
+         "empty": {
+          "input": "prescription_number"
+         }
+        }
+       ]
+      },
+      "message": "Prescription number required for Schedule H medicines"
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "field": "batch.stock"
+        },
+        {
+         "input": "quantity"
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Only {stock} left in batch",
+        {
+         "stock": {
+          "field": "batch.stock"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "batch",
+       "field": "stock",
+       "value": {
+        "sub": [
+         {
+          "field": "batch.stock"
+         },
+         {
+          "input": "quantity"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "create": {
+       "entity": "Bill",
+       "as": "bill",
+       "values": {
+        "customer_age": {
+         "input": "customer_age"
+        },
+        "prescription_number": {
+         "input": "prescription_number"
+        },
+        "subtotal": {
+         "round": [
+          {
+           "mul": [
+            {
+             "field": "batch.price_per_unit"
+            },
+            {
+             "input": "quantity"
+            }
+           ]
+          },
+          2
+         ]
+        },
+        "discount": {
+         "if": [
+          {
+           "ge": [
+            {
+             "input": "customer_age"
+            },
+            60
+           ]
+          },
+          {
+           "round": [
+            {
+             "mul": [
+              {
+               "mul": [
+                {
+                 "field": "batch.price_per_unit"
+                },
+                {
+                 "input": "quantity"
+                }
+               ]
+              },
+              0.05
+             ]
+            },
+            2
+           ]
+          },
+          0
+         ]
+        },
+        "gst": {
+         "round": [
+          {
+           "mul": [
+            {
+             "sub": [
+              {
+               "mul": [
+                {
+                 "field": "batch.price_per_unit"
+                },
+                {
+                 "input": "quantity"
+                }
+               ]
+              },
+              {
+               "if": [
+                {
+                 "ge": [
+                  {
+                   "input": "customer_age"
+                  },
+                  60
+                 ]
+                },
+                {
+                 "mul": [
+                  {
+                   "mul": [
+                    {
+                     "field": "batch.price_per_unit"
+                    },
+                    {
+                     "input": "quantity"
+                    }
+                   ]
+                  },
+                  0.05
+                 ]
+                },
+                0
+               ]
+              }
+             ]
+            },
+            0.12
+           ]
+          },
+          2
+         ]
+        },
+        "total": {
+         "round": [
+          {
+           "add": [
+            {
+             "sub": [
+              {
+               "mul": [
+                {
+                 "field": "batch.price_per_unit"
+                },
+                {
+                 "input": "quantity"
+                }
+               ]
+              },
+              {
+               "if": [
+                {
+                 "ge": [
+                  {
+                   "input": "customer_age"
+                  },
+                  60
+                 ]
+                },
+                {
+                 "mul": [
+                  {
+                   "mul": [
+                    {
+                     "field": "batch.price_per_unit"
+                    },
+                    {
+                     "input": "quantity"
+                    }
+                   ]
+                  },
+                  0.05
+                 ]
+                },
+                0
+               ]
+              }
+             ]
+            },
+            {
+             "mul": [
+              {
+               "sub": [
+                {
+                 "mul": [
+                  {
+                   "field": "batch.price_per_unit"
+                  },
+                  {
+                   "input": "quantity"
+                  }
+                 ]
+                },
+                {
+                 "if": [
+                  {
+                   "ge": [
+                    {
+                     "input": "customer_age"
+                    },
+                    60
+                   ]
+                  },
+                  {
+                   "mul": [
+                    {
+                     "mul": [
+                      {
+                       "field": "batch.price_per_unit"
+                      },
+                      {
+                       "input": "quantity"
+                      }
+                     ]
+                    },
+                    0.05
+                   ]
+                  },
+                  0
+                 ]
+                }
+               ]
+              },
+              0.12
+             ]
+            }
+           ]
+          },
+          2
+         ]
+        },
+        "billed_at": {
+         "now": true
+        },
+        "billed_by": {
+         "user": "email"
+        }
+       }
+      }
+     },
+     {
+      "create": {
+       "entity": "BillItem",
+       "as": "bill_item",
+       "values": {
+        "bill_id": {
+         "field": "bill.id"
+        },
+        "batch_number": {
+         "input": "batch_number"
+        },
+        "medicine_name": {
+         "field": "medicine.name"
+        },
+        "quantity": {
+         "input": "quantity"
+        },
+        "price_per_unit": {
+         "field": "batch.price_per_unit"
+        },
+        "amount": {
+         "round": [
+          {
+           "mul": [
+            {
+             "field": "batch.price_per_unit"
+            },
+            {
+             "input": "quantity"
+            }
+           ]
+          },
+          2
+         ]
+        }
+       }
+      }
+     },
+     {
+      "if": [
+       {
+        "lt": [
+         {
+          "sum": {
+           "entity": "Batch",
+           "where": {
+            "eq": [
+             {
+              "field": "row.medicine_code"
+             },
+             {
+              "field": "medicine.code"
+             }
+            ]
+           },
+           "field": "stock"
+          }
+         },
+         {
+          "field": "medicine.reorder_level"
+         }
+        ]
+       },
+       [
+        {
+         "send": {
+          "channel": "email",
+          "to": "manager@pharmacy.test",
+          "subject": {
+           "format": [
+            "Reorder Alert: {name}",
+            {
+             "name": {
+              "field": "medicine.name"
+             }
+            }
+           ]
+          },
+          "body": {
+           "format": [
+            "Stock for {name} has fallen below reorder level of {level}",
+            {
+             "name": {
+              "field": "medicine.name"
+             },
+             "level": {
+              "field": "medicine.reorder_level"
+             }
+            }
+           ]
+          }
+         }
+        }
+       ],
+       []
+      ]
+     }
+    ],
+    "message": {
+     "format": [
+      "Bill created successfully. Total: ₹{total}",
+      {
+       "total": {
+        "format_money": [
+         {
+          "field": "bill.total"
+         },
+         "INR"
+        ]
+       }
+      }
+     ]
+    },
+    "returns": {
+     "bill_id": {
+      "field": "bill.id"
+     },
+     "total": {
+      "field": "bill.total"
+     }
+    },
+    "next_page": "Bill Summary"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "sell-non-prescription",
+   "title": "Sell a non-prescription medicine",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "P-101"
+     ],
+     "save_as": "batch_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "P-101",
+      2,
+      30,
+      null
+     ],
+     "expect": true,
+     "save_as": "sale_result"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Bill created successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "bill_details"
+    },
+    {
+     "check": {
+      "ref": "bill_details.total"
+     },
+     "expect": 67.2
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "P-101"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": 98
+    },
+    {
+     "call": "Database.count_bill",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.all_bill",
+     "save_as": "bills"
+    },
+    {
+     "check": {
+      "ref": "bills.0.total"
+     },
+     "expect": 67.2
+    },
+    {
+     "call": "Database.count_bill_item",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "expired-batch-refused",
+   "title": "Expired batch refused",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "P-099"
+     ],
+     "save_as": "batch_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "P-099",
+      1,
+      30,
+      null
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Batch P-099 has expired"
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "P-099"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": {
+      "ref": "batch_before.stock"
+     }
+    },
+    {
+     "call": "Database.count_bill",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "schedule-h-without-prescription",
+   "title": "Schedule H without prescription",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "A-201"
+     ],
+     "save_as": "batch_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "A-201",
+      1,
+      30,
+      null
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Prescription number required for Schedule H medicines"
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "A-201"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": {
+      "ref": "batch_before.stock"
+     }
+    },
+    {
+     "call": "Database.count_bill",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "schedule-h-with-prescription",
+   "title": "Schedule H with prescription",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "A-201"
+     ],
+     "save_as": "batch_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "A-201",
+      1,
+      30,
+      "RX-5521"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Bill created successfully"
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "A-201"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": 21
+    },
+    {
+     "call": "Database.count_bill",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.all_bill",
+     "save_as": "bills"
+    },
+    {
+     "check": {
+      "ref": "bills.0.prescription_number"
+     },
+     "expect": "RX-5521"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "quantity-above-stock",
+   "title": "Quantity above batch stock",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "AM-401"
+     ],
+     "save_as": "batch_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "AM-401",
+      11,
+      30,
+      "RX-1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Only 10 left in batch"
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "AM-401"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": {
+      "ref": "batch_before.stock"
+     }
+    },
+    {
+     "call": "Database.count_bill",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "reorder-alert",
+   "title": "Reorder alert",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "outbox_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "A-201",
+      3,
+      30,
+      "RX-9999"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "A-201"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": 19
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "outbox_after"
+    },
+    {
+     "check": {
+      "ref": "outbox_after"
+     },
+     "expect_includes": [
+      {
+       "channel": "email",
+       "to": "manager@pharmacy.test",
+       "subject": "Reorder Alert: Azithromycin"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "no-alert-above-reorder",
+   "title": "No alert above reorder level",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "outbox_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "C-301",
+      1,
+      30,
+      null
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "C-301"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": 49
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "outbox_after"
+    },
+    {
+     "check": {
+      "ref": "outbox_after"
+     },
+     "expect": {
+      "ref": "outbox_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "senior-citizen-discount",
+   "title": "Senior citizen discount",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "A-201",
+      9,
+      60,
+      "RX-7777"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.all_bill",
+     "save_as": "bills"
+    },
+    {
+     "check": {
+      "ref": "bills.0.subtotal"
+     },
+     "expect": 1080.0
+    },
+    {
+     "check": {
+      "ref": "bills.0.discount"
+     },
+     "expect": 54.0
+    },
+    {
+     "check": {
+      "ref": "bills.0.gst"
+     },
+     "expect": 123.12
+    },
+    {
+     "check": {
+      "ref": "bills.0.total"
+     },
+     "expect": 1149.12
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "age-59-no-discount",
+   "title": "Age 59 gets no discount",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "P-101",
+      2,
+      59,
+      null
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.all_bill",
+     "save_as": "bills"
+    },
+    {
+     "check": {
+      "ref": "bills.0.subtotal"
+     },
+     "expect": 60.0
+    },
+    {
+     "check": {
+      "ref": "bills.0.discount"
+     },
+     "expect": 0.0
+    },
+    {
+     "check": {
+      "ref": "bills.0.gst"
+     },
+     "expect": 7.2
+    },
+    {
+     "check": {
+      "ref": "bills.0.total"
+     },
+     "expect": 67.2
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "zero-quantity",
+   "title": "Zero quantity",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "pharmacist@pharmacy.test",
+      "Pharma@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Sell Medicine"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "P-101"
+     ],
+     "save_as": "batch_before"
+    },
+    {
+     "call": "UI.sell_medicine",
+     "args": [
+      "P-101",
+      0,
+      30,
+      null
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Quantity must be at least 1"
+    },
+    {
+     "call": "Database.get_batch",
+     "args": [
+      "P-101"
+     ],
+     "save_as": "batch_after"
+    },
+    {
+     "check": {
+      "ref": "batch_after.stock"
+     },
+     "expect": {
+      "ref": "batch_before.stock"
+     }
+    },
+    {
+     "call": "Database.count_bill",
+     "args": [
+      null,
+      null
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

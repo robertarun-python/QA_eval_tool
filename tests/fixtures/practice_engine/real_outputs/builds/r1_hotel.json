@@ -1,0 +1,1491 @@
+{
+ "label": "r1_hotel",
+ "title": "Hotel Room Booking",
+ "recorded": "11/12",
+ "spec": {
+  "app_name": "Hotel Room Booking System",
+  "base_url": "https://hotel.example.test",
+  "now": "2024-03-05T10:00",
+  "entities": {
+   "Guest": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "mobile": "string"
+    }
+   },
+   "Room": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "name": "string",
+     "city": "string",
+     "nightly_rate": "money",
+     "max_guests": "int"
+    }
+   },
+   "Booking": {
+    "key": "id",
+    "id_format": "BK-{n:03}",
+    "fields": {
+     "id": "string",
+     "guest_email": "string",
+     "room_id": "string",
+     "room_name": "string",
+     "check_in": "date",
+     "check_out": "date",
+     "num_guests": "int",
+     "nights": "int",
+     "room_charges": "money",
+     "gst": "money",
+     "total_amount": "money",
+     "status": "string",
+     "refund_amount": "money"
+    }
+   }
+  },
+  "data": {
+   "Guest": [
+    {
+     "email": "guest@hotel.test",
+     "password": "Guest@123",
+     "name": "Test Guest",
+     "mobile": "9876543210"
+    },
+    {
+     "email": "guest2@hotel.test",
+     "password": "Guest@456",
+     "name": "Second Guest",
+     "mobile": "9876543211"
+    }
+   ],
+   "Room": [
+    {
+     "id": "R-001",
+     "name": "Sea View Deluxe",
+     "city": "Goa",
+     "nightly_rate": 5000.0,
+     "max_guests": 4
+    },
+    {
+     "id": "R-002",
+     "name": "Garden View Suite",
+     "city": "Goa",
+     "nightly_rate": 4000.0,
+     "max_guests": 3
+    },
+    {
+     "id": "R-003",
+     "name": "Mountain View Room",
+     "city": "Shimla",
+     "nightly_rate": 3500.0,
+     "max_guests": 4
+    },
+    {
+     "id": "R-004",
+     "name": "Lake View Cottage",
+     "city": "Udaipur",
+     "nightly_rate": 6000.0,
+     "max_guests": 4
+    }
+   ],
+   "Booking": []
+  },
+  "users": {
+   "entity": "Guest",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in to continue"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Search Rooms",
+   "Search Results",
+   "Book Room",
+   "Booking Confirmation",
+   "My Bookings"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "search_rooms",
+    "label": "Search Rooms",
+    "page": "Search Rooms",
+    "entity": "Room",
+    "inputs": [
+     {
+      "name": "city",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "City is required"
+       }
+      ]
+     },
+     {
+      "name": "check_in",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Check-in date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid check-in date"
+       },
+       {
+        "rule": "not_past",
+        "message": "Check-in date cannot be in the past"
+       }
+      ]
+     },
+     {
+      "name": "check_out",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Check-out date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid check-out date"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "gt": [
+        {
+         "input": "check_out"
+        },
+        {
+         "input": "check_in"
+        }
+       ]
+      },
+      "message": "Check-out must be after check-in"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "days_between": [
+          {
+           "input": "check_in"
+          },
+          {
+           "input": "check_out"
+          }
+         ]
+        },
+        30
+       ]
+      },
+      "message": "Maximum stay is 30 nights"
+     }
+    ],
+    "where": {
+     "and": [
+      {
+       "eq": [
+        {
+         "field": "row.city"
+        },
+        {
+         "input": "city"
+        }
+       ]
+      },
+      {
+       "not": {
+        "exists": {
+         "entity": "Booking",
+         "where": {
+          "and": [
+           {
+            "eq": [
+             {
+              "field": "row.room_id"
+             },
+             {
+              "field": "room.id"
+             }
+            ]
+           },
+           {
+            "eq": [
+             {
+              "field": "row.status"
+             },
+             "Confirmed"
+            ]
+           },
+           {
+            "not": {
+             "or": [
+              {
+               "ge": [
+                {
+                 "field": "row.check_in"
+                },
+                {
+                 "input": "check_out"
+                }
+               ]
+              },
+              {
+               "le": [
+                {
+                 "field": "row.check_out"
+                },
+                {
+                 "input": "check_in"
+                }
+               ]
+              }
+             ]
+            }
+           }
+          ]
+         }
+        }
+       }
+      }
+     ]
+    },
+    "as": "room",
+    "order_by": [
+     {
+      "field": "name"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "city",
+     "nightly_rate",
+     "max_guests"
+    ],
+    "none_message": "No rooms available for the selected dates",
+    "next_page": "Search Results"
+   },
+   {
+    "name": "my_bookings",
+    "label": "My Bookings",
+    "page": "My Bookings",
+    "entity": "Booking",
+    "where": {
+     "eq": [
+      {
+       "field": "row.guest_email"
+      },
+      {
+       "user": "email"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "check_in",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "room_name",
+     "check_in",
+     "check_out",
+     "num_guests",
+     "total_amount",
+     "status"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "book_room",
+    "label": "Book Room",
+    "page": null,
+    "inputs": [
+     {
+      "name": "room_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Room is required"
+       }
+      ]
+     },
+     {
+      "name": "check_in",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Check-in date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid check-in date"
+       },
+       {
+        "rule": "not_past",
+        "message": "Check-in date cannot be in the past"
+       }
+      ]
+     },
+     {
+      "name": "check_out",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Check-out date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid check-out date"
+       }
+      ]
+     },
+     {
+      "name": "num_guests",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Number of guests is required"
+       },
+       {
+        "rule": "number",
+        "message": "Number of guests must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "At least 1 guest is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "room",
+      "entity": "Room",
+      "key": {
+       "input": "room_id"
+      },
+      "missing": "Room not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "gt": [
+        {
+         "input": "check_out"
+        },
+        {
+         "input": "check_in"
+        }
+       ]
+      },
+      "message": "Check-out must be after check-in"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "days_between": [
+          {
+           "input": "check_in"
+          },
+          {
+           "input": "check_out"
+          }
+         ]
+        },
+        30
+       ]
+      },
+      "message": "Maximum stay is 30 nights"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "input": "num_guests"
+        },
+        {
+         "field": "room.max_guests"
+        }
+       ]
+      },
+      "message": "Maximum 4 guests per room"
+     },
+     {
+      "when": {
+       "exists": {
+        "entity": "Booking",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.room_id"
+            },
+            {
+             "input": "room_id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Confirmed"
+           ]
+          },
+          {
+           "not": {
+            "or": [
+             {
+              "ge": [
+               {
+                "field": "row.check_in"
+               },
+               {
+                "input": "check_out"
+               }
+              ]
+             },
+             {
+              "le": [
+               {
+                "field": "row.check_out"
+               },
+               {
+                "input": "check_in"
+               }
+              ]
+             }
+            ]
+           }
+          }
+         ]
+        }
+       }
+      },
+      "message": "Room not available for these dates"
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Booking",
+       "as": "booking",
+       "values": {
+        "guest_email": {
+         "user": "email"
+        },
+        "room_id": {
+         "input": "room_id"
+        },
+        "room_name": {
+         "field": "room.name"
+        },
+        "check_in": {
+         "input": "check_in"
+        },
+        "check_out": {
+         "input": "check_out"
+        },
+        "num_guests": {
+         "input": "num_guests"
+        },
+        "nights": {
+         "days_between": [
+          {
+           "input": "check_in"
+          },
+          {
+           "input": "check_out"
+          }
+         ]
+        },
+        "room_charges": {
+         "mul": [
+          {
+           "field": "room.nightly_rate"
+          },
+          {
+           "days_between": [
+            {
+             "input": "check_in"
+            },
+            {
+             "input": "check_out"
+            }
+           ]
+          }
+         ]
+        },
+        "gst": {
+         "round": [
+          {
+           "mul": [
+            {
+             "mul": [
+              {
+               "field": "room.nightly_rate"
+              },
+              {
+               "days_between": [
+                {
+                 "input": "check_in"
+                },
+                {
+                 "input": "check_out"
+                }
+               ]
+              }
+             ]
+            },
+            0.12
+           ]
+          },
+          2
+         ]
+        },
+        "total_amount": {
+         "round": [
+          {
+           "mul": [
+            {
+             "mul": [
+              {
+               "field": "room.nightly_rate"
+              },
+              {
+               "days_between": [
+                {
+                 "input": "check_in"
+                },
+                {
+                 "input": "check_out"
+                }
+               ]
+              }
+             ]
+            },
+            1.12
+           ]
+          },
+          2
+         ]
+        },
+        "status": "Confirmed",
+        "refund_amount": 0.0
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Booking confirmed. Booking ID: {id}, Total: Rs {total}",
+      {
+       "id": {
+        "field": "booking.id"
+       },
+       "total": {
+        "format_money": [
+         {
+          "field": "booking.total_amount"
+         },
+         "INR"
+        ]
+       }
+      }
+     ]
+    },
+    "returns": {
+     "booking_id": {
+      "field": "booking.id"
+     },
+     "total_amount": {
+      "field": "booking.total_amount"
+     }
+    },
+    "next_page": "Booking Confirmation"
+   },
+   {
+    "name": "cancel_booking",
+    "label": "Cancel Booking",
+    "page": "My Bookings",
+    "inputs": [
+     {
+      "name": "booking_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Booking ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "booking",
+      "entity": "Booking",
+      "key": {
+       "input": "booking_id"
+      },
+      "missing": "Booking not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "booking.guest_email"
+        },
+        {
+         "user": "email"
+        }
+       ]
+      },
+      "message": "This is not your booking"
+     },
+     {
+      "when": {
+       "eq": [
+        {
+         "field": "booking.status"
+        },
+        "Cancelled"
+       ]
+      },
+      "message": "Booking is already cancelled"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "booking",
+       "field": "status",
+       "value": "Cancelled"
+      }
+     },
+     {
+      "set": {
+       "record": "booking",
+       "field": "refund_amount",
+       "value": {
+        "if": [
+         {
+          "gt": [
+           {
+            "days_between": [
+             {
+              "today": true
+             },
+             {
+              "field": "booking.check_in"
+             }
+            ]
+           },
+           2
+          ]
+         },
+         {
+          "field": "booking.total_amount"
+         },
+         {
+          "round": [
+           {
+            "mul": [
+             {
+              "field": "booking.total_amount"
+             },
+             0.5
+            ]
+           },
+           2
+          ]
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Booking cancelled. Refund: {refund}",
+      {
+       "refund": {
+        "format_money": [
+         {
+          "field": "booking.refund_amount"
+         },
+         "INR"
+        ]
+       }
+      }
+     ]
+    },
+    "returns": {
+     "refund_amount": {
+      "field": "booking.refund_amount"
+     }
+    }
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "book-available-room",
+   "title": "Book an available room",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search Rooms"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.search_rooms",
+     "args": [
+      "Goa",
+      "2024-03-10",
+      "2024-03-12"
+     ],
+     "save_as": "search_results"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Booking confirmed"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "11,200"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "booking_result"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [
+      "status",
+      "Confirmed"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "Database.find_booking",
+     "args": [
+      "guest_email",
+      "guest@hotel.test"
+     ],
+     "save_as": "bookings"
+    },
+    {
+     "call": "Database.get_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect_includes": {
+      "room_id": "R-001",
+      "check_in": "2024-03-10",
+      "check_out": "2024-03-12",
+      "num_guests": 2,
+      "total_amount": 11200.0,
+      "status": "Confirmed"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "checkout-same-as-checkin",
+   "title": "Check-out same as check-in",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search Rooms"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.search_rooms",
+     "args": [
+      "Goa",
+      "2024-03-10",
+      "2024-03-10"
+     ],
+     "expect": []
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Check-out must be after check-in"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "checkin-in-past",
+   "title": "Check-in date in the past",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search Rooms"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.search_rooms",
+     "args": [
+      "Goa",
+      "2024-03-04",
+      "2024-03-06"
+     ],
+     "expect": []
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Check-in date cannot be in the past"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "stay-longer-than-30-nights",
+   "title": "Stay longer than 30 nights",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search Rooms"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.search_rooms",
+     "args": [
+      "Goa",
+      "2024-03-10",
+      "2024-04-10"
+     ],
+     "expect": []
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Maximum stay is 30 nights"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "more-than-4-guests",
+   "title": "More than 4 guests",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      5
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Maximum 4 guests per room"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "overlapping-booking-refused",
+   "title": "Overlapping booking refused",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [
+      "status",
+      "Confirmed"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-11",
+      "2024-03-13",
+      2
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Room not available for these dates"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [
+      "status",
+      "Confirmed"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "back-to-back-booking-allowed",
+   "title": "Back-to-back booking allowed",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [
+      "status",
+      "Confirmed"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-12",
+      "2024-03-14",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Booking confirmed"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [
+      "status",
+      "Confirmed"
+     ],
+     "expect": 2
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "search-shows-only-available-rooms",
+   "title": "Search shows only available rooms",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [
+      "status",
+      "Confirmed"
+     ],
+     "expect": 1
+    },
+    {
+     "call": "UI.search_rooms",
+     "args": [
+      "Goa",
+      "2024-03-10",
+      "2024-03-12"
+     ],
+     "save_as": "available_rooms"
+    },
+    {
+     "call": "Database.get_room",
+     "args": [
+      "R-001"
+     ],
+     "save_as": "booked_room"
+    },
+    {
+     "call": "UI.search_rooms",
+     "args": [
+      "Goa",
+      "2024-03-10",
+      "2024-03-12"
+     ],
+     "expect_excludes": [
+      {
+       "id": "R-001"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-more-than-48-hours",
+   "title": "Cancel more than 48 hours before check-in",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_booking",
+     "args": [
+      "guest_email",
+      "guest@hotel.test"
+     ],
+     "save_as": "bookings"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Bookings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.cancel_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Booking cancelled"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "11,200"
+    },
+    {
+     "call": "Database.get_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect_includes": {
+      "status": "Cancelled",
+      "refund_amount": 11200.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-within-48-hours",
+   "title": "Cancel within 48 hours of check-in",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-06",
+      "2024-03-08",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_booking",
+     "args": [
+      "guest_email",
+      "guest@hotel.test"
+     ],
+     "save_as": "bookings"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Bookings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.cancel_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Booking cancelled"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "5,600"
+    },
+    {
+     "call": "Database.get_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect_includes": {
+      "status": "Cancelled",
+      "refund_amount": 5600.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-already-cancelled",
+   "title": "Cancel an already cancelled booking",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "guest@hotel.test",
+      "Guest@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Room"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.book_room",
+     "args": [
+      "R-001",
+      "2024-03-10",
+      "2024-03-12",
+      2
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.find_booking",
+     "args": [
+      "guest_email",
+      "guest@hotel.test"
+     ],
+     "save_as": "bookings"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Bookings"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.cancel_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect_includes": {
+      "status": "Cancelled"
+     }
+    },
+    {
+     "call": "UI.cancel_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Booking is already cancelled"
+    },
+    {
+     "call": "Database.get_booking",
+     "args": [
+      {
+       "ref": "bookings.0.id"
+      }
+     ],
+     "expect_includes": {
+      "status": "Cancelled"
+     }
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

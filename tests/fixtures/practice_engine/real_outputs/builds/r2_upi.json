@@ -1,0 +1,1557 @@
+{
+ "label": "r2_upi",
+ "title": "UPI Payment App - Send Money",
+ "recorded": "9/12",
+ "spec": {
+  "app_name": "UPI Payment App",
+  "base_url": "https://upi.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "User": {
+    "key": "mobile",
+    "fields": {
+     "mobile": "string",
+     "password": "string",
+     "name": "string",
+     "balance": "money",
+     "upi_pin": "string",
+     "wrong_pin_count": "int",
+     "upi_blocked_at": "datetime",
+     "daily_spent": "money",
+     "daily_spent_date": "date"
+    }
+   },
+   "Transaction": {
+    "key": "id",
+    "id_format": "TXN-{n:06}",
+    "fields": {
+     "id": "string",
+     "from_mobile": "string",
+     "to_upi": "string",
+     "amount": "money",
+     "timestamp": "datetime",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "mobile": "9876543210",
+     "password": "Pass@123",
+     "name": "Test User",
+     "balance": 10000.0,
+     "upi_pin": "1234",
+     "wrong_pin_count": 0,
+     "upi_blocked_at": null,
+     "daily_spent": 0.0,
+     "daily_spent_date": "2024-02-09"
+    },
+    {
+     "mobile": "9876543211",
+     "password": "Pass@456",
+     "name": "Rich User",
+     "balance": 200000.0,
+     "upi_pin": "5678",
+     "wrong_pin_count": 0,
+     "upi_blocked_at": null,
+     "daily_spent": 0.0,
+     "daily_spent_date": "2024-02-09"
+    },
+    {
+     "mobile": "9876543212",
+     "password": "Pass@789",
+     "name": "Blocked User",
+     "balance": 50000.0,
+     "upi_pin": "9999",
+     "wrong_pin_count": 3,
+     "upi_blocked_at": "2024-02-09T10:00",
+     "daily_spent": 0.0,
+     "daily_spent_date": "2024-02-09"
+    },
+    {
+     "mobile": "9876543213",
+     "password": "Pass@111",
+     "name": "Limit User",
+     "balance": 60000.0,
+     "upi_pin": "1111",
+     "wrong_pin_count": 0,
+     "upi_blocked_at": null,
+     "daily_spent": 0.0,
+     "daily_spent_date": "2024-02-10"
+    }
+   ],
+   "Transaction": [
+    {
+     "id": "TXN-000001",
+     "from_mobile": "9876543210",
+     "to_upi": "merchant@okbank",
+     "amount": 250.0,
+     "timestamp": "2024-02-09T14:30",
+     "status": "Success"
+    }
+   ]
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "mobile",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Mobile number is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid mobile number or password",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Send Money",
+   "Transaction History",
+   "Payment Success"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "transaction_history",
+    "label": "Transaction History",
+    "page": "Transaction History",
+    "entity": "Transaction",
+    "where": {
+     "eq": [
+      {
+       "field": "row.from_mobile"
+      },
+      {
+       "user": "mobile"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "timestamp",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "to_upi",
+     "amount",
+     "timestamp",
+     "status"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "send_money",
+    "label": "Pay",
+    "page": "Send Money",
+    "inputs": [
+     {
+      "name": "upi_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "UPI ID is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[a-zA-Z0-9._-]+@[a-zA-Z0-9]+",
+        "message": "Enter a valid UPI ID"
+       }
+      ]
+     },
+     {
+      "name": "amount",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Amount is required"
+       },
+       {
+        "rule": "number",
+        "message": "Amount must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Enter an amount of at least Rs 1"
+       },
+       {
+        "rule": "max",
+        "value": 50000,
+        "message": "Maximum Rs 50,000 per transaction"
+       }
+      ]
+     },
+     {
+      "name": "upi_pin",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "UPI PIN is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{4}",
+        "message": "UPI PIN must be 4 digits"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "current_user",
+      "entity": "User",
+      "key": {
+       "user": "mobile"
+      },
+      "missing": "User not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "round": [
+          {
+           "mul": [
+            {
+             "input": "amount"
+            },
+            100
+           ]
+          },
+          0
+         ]
+        },
+        {
+         "mul": [
+          {
+           "round": [
+            {
+             "input": "amount"
+            },
+            2
+           ]
+          },
+          100
+         ]
+        }
+       ]
+      },
+      "message": "Amount can have at most 2 decimal places"
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "not": {
+          "empty": {
+           "field": "current_user.upi_blocked_at"
+          }
+         }
+        },
+        {
+         "lt": [
+          {
+           "minutes_since": {
+            "field": "current_user.upi_blocked_at"
+           }
+          },
+          1440
+         ]
+        }
+       ]
+      },
+      "message": "UPI blocked for 24 hours due to wrong PIN attempts"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "input": "upi_pin"
+        },
+        {
+         "field": "current_user.upi_pin"
+        }
+       ]
+      },
+      "message": "Incorrect UPI PIN",
+      "then": [
+       {
+        "set": {
+         "record": "current_user",
+         "field": "wrong_pin_count",
+         "value": {
+          "add": [
+           {
+            "field": "current_user.wrong_pin_count"
+           },
+           1
+          ]
+         }
+        }
+       },
+       {
+        "if": [
+         {
+          "ge": [
+           {
+            "field": "current_user.wrong_pin_count"
+           },
+           3
+          ]
+         },
+         [
+          {
+           "set": {
+            "record": "current_user",
+            "field": "upi_blocked_at",
+            "value": {
+             "now": true
+            }
+           }
+          }
+         ],
+         []
+        ]
+       }
+      ]
+     },
+     {
+      "when": {
+       "ge": [
+        {
+         "field": "current_user.wrong_pin_count"
+        },
+        3
+       ]
+      },
+      "message": "UPI blocked for 24 hours due to wrong PIN attempts"
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "field": "current_user.balance"
+        },
+        {
+         "round": [
+          {
+           "input": "amount"
+          },
+          2
+         ]
+        }
+       ]
+      },
+      "message": "Insufficient balance"
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "field": "current_user.daily_spent_date"
+          },
+          {
+           "today": true
+          }
+         ]
+        },
+        {
+         "gt": [
+          {
+           "add": [
+            {
+             "field": "current_user.daily_spent"
+            },
+            {
+             "round": [
+              {
+               "input": "amount"
+              },
+              2
+             ]
+            }
+           ]
+          },
+          100000
+         ]
+        }
+       ]
+      },
+      "message": "Daily limit of Rs 1,00,000 reached"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "current_user",
+       "field": "balance",
+       "value": {
+        "sub": [
+         {
+          "field": "current_user.balance"
+         },
+         {
+          "round": [
+           {
+            "input": "amount"
+           },
+           2
+          ]
+         }
+        ]
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "current_user",
+       "field": "wrong_pin_count",
+       "value": 0
+      }
+     },
+     {
+      "set": {
+       "record": "current_user",
+       "field": "upi_blocked_at",
+       "value": ""
+      }
+     },
+     {
+      "if": [
+       {
+        "eq": [
+         {
+          "field": "current_user.daily_spent_date"
+         },
+         {
+          "today": true
+         }
+        ]
+       },
+       [
+        {
+         "set": {
+          "record": "current_user",
+          "field": "daily_spent",
+          "value": {
+           "add": [
+            {
+             "field": "current_user.daily_spent"
+            },
+            {
+             "round": [
+              {
+               "input": "amount"
+              },
+              2
+             ]
+            }
+           ]
+          }
+         }
+        }
+       ],
+       [
+        {
+         "set": {
+          "record": "current_user",
+          "field": "daily_spent",
+          "value": {
+           "round": [
+            {
+             "input": "amount"
+            },
+            2
+           ]
+          }
+         }
+        },
+        {
+         "set": {
+          "record": "current_user",
+          "field": "daily_spent_date",
+          "value": {
+           "today": true
+          }
+         }
+        }
+       ]
+      ]
+     },
+     {
+      "create": {
+       "entity": "Transaction",
+       "as": "txn",
+       "values": {
+        "from_mobile": {
+         "user": "mobile"
+        },
+        "to_upi": {
+         "input": "upi_id"
+        },
+        "amount": {
+         "round": [
+          {
+           "input": "amount"
+          },
+          2
+         ]
+        },
+        "timestamp": {
+         "now": true
+        },
+        "status": "Success"
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "sms",
+       "to": {
+        "user": "mobile"
+       },
+       "body": {
+        "format": [
+         "Payment of Rs {amount} to {upi} successful. Txn ID: {txn_id}",
+         {
+          "amount": {
+           "format_money": [
+            {
+             "round": [
+              {
+               "input": "amount"
+              },
+              2
+             ]
+            },
+            "INR"
+           ]
+          },
+          "upi": {
+           "input": "upi_id"
+          },
+          "txn_id": {
+           "field": "txn.id"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": "Payment successful",
+    "next_page": "Payment Success",
+    "returns": {
+     "transaction_id": {
+      "field": "txn.id"
+     },
+     "new_balance": {
+      "field": "current_user.balance"
+     }
+    }
+   }
+  ],
+  "faults": [
+   {
+    "name": "bank_server_down",
+    "applies_to": [
+     "send_money"
+    ],
+    "message": "Bank server not responding, try later"
+   }
+  ]
+ },
+ "checklists": [
+  {
+   "id": "send-money-valid",
+   "title": "Send money with valid UPI ID and PIN",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      500,
+      "1234"
+     ],
+     "expect": true,
+     "save_as": "payment"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment successful"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Payment Success"
+    },
+    {
+     "check": {
+      "ref": "payment"
+     },
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result"
+    },
+    {
+     "check": {
+      "ref": "result.new_balance"
+     },
+     "expect": 9500.0
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "user"
+    },
+    {
+     "check": {
+      "ref": "user.balance"
+     },
+     "expect": 9500.0
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.to_upi"
+     },
+     "expect": "ravi@okbank"
+    },
+    {
+     "check": {
+      "ref": "transactions.1.amount"
+     },
+     "expect": 500.0
+    },
+    {
+     "check": {
+      "ref": "transactions.1.status"
+     },
+     "expect": "Success"
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "messages"
+    },
+    {
+     "check": {
+      "ref": "messages"
+     },
+     "expect_includes": [
+      {
+       "channel": "sms",
+       "to": "9876543210"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "amount-above-limit",
+   "title": "Amount above per-transaction limit",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      50001,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Maximum Rs 50,000 per transaction"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after"
+    },
+    {
+     "check": {
+      "ref": "after.balance"
+     },
+     "expect": {
+      "ref": "before.balance"
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "amount-at-limit",
+   "title": "Amount exactly at per-transaction limit",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543213",
+      "Pass@111"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      50000,
+      "1111"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment successful"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543213"
+     ],
+     "save_as": "user"
+    },
+    {
+     "check": {
+      "ref": "user.balance"
+     },
+     "expect": 10000.0
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "from_mobile",
+      "9876543213"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.0.amount"
+     },
+     "expect": 50000.0
+    },
+    {
+     "check": {
+      "ref": "transactions.0.status"
+     },
+     "expect": "Success"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "zero-negative-amount",
+   "title": "Zero or negative amount",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      0,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Enter an amount of at least Rs 1"
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      -10,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Enter an amount of at least Rs 1"
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "amount-more-than-2-decimals",
+   "title": "Amount with more than 2 decimals",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      "10.555",
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Amount can have at most 2 decimal places"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after"
+    },
+    {
+     "check": {
+      "ref": "after.balance"
+     },
+     "expect": {
+      "ref": "before.balance"
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "invalid-upi-format",
+   "title": "Invalid UPI ID format",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi.okbank",
+      100,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Enter a valid UPI ID"
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "insufficient-balance",
+   "title": "Insufficient balance",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      10001,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Insufficient balance"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after"
+    },
+    {
+     "check": {
+      "ref": "after.balance"
+     },
+     "expect": {
+      "ref": "before.balance"
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "wrong-pin-blocks-upi",
+   "title": "Wrong PIN three times blocks UPI",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "0000"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Incorrect UPI PIN"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after1"
+    },
+    {
+     "check": {
+      "ref": "after1.wrong_pin_count"
+     },
+     "expect": 1
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "0000"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Incorrect UPI PIN"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after2"
+    },
+    {
+     "check": {
+      "ref": "after2.wrong_pin_count"
+     },
+     "expect": 2
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "0000"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Incorrect UPI PIN"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after3"
+    },
+    {
+     "check": {
+      "ref": "after3.wrong_pin_count"
+     },
+     "expect": 3
+    },
+    {
+     "check": {
+      "ref": "after3.upi_blocked_at"
+     },
+     "expect_excludes": null
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "UPI blocked for 24 hours due to wrong PIN attempts"
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "upi-unblocks-after-24-hours",
+   "title": "UPI unblocks after 24 hours",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543212",
+      "Pass@789"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543212"
+     ],
+     "save_as": "blocked"
+    },
+    {
+     "check": {
+      "ref": "blocked.wrong_pin_count"
+     },
+     "expect": 3
+    },
+    {
+     "check": {
+      "ref": "blocked.upi_blocked_at"
+     },
+     "expect": "2024-02-09T10:00"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "9999"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "UPI blocked for 24 hours due to wrong PIN attempts"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      1440
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543212",
+      "Pass@789"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "9999"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment successful"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543212"
+     ],
+     "save_as": "unblocked"
+    },
+    {
+     "check": {
+      "ref": "unblocked.balance"
+     },
+     "expect": 49900.0
+    },
+    {
+     "check": {
+      "ref": "unblocked.wrong_pin_count"
+     },
+     "expect": 0
+    },
+    {
+     "check": {
+      "ref": "unblocked.upi_blocked_at"
+     },
+     "expect": ""
+    },
+    {
+     "call": "Database.find_transaction",
+     "args": [
+      "from_mobile",
+      "9876543212"
+     ],
+     "save_as": "transactions"
+    },
+    {
+     "check": {
+      "ref": "transactions.0.amount"
+     },
+     "expect": 100.0
+    },
+    {
+     "check": {
+      "ref": "transactions.0.status"
+     },
+     "expect": "Success"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "daily-limit-multiple-payments",
+   "title": "Daily limit across several payments",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543211",
+      "Pass@456"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      50000,
+      "5678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment successful"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543211"
+     ],
+     "save_as": "after1"
+    },
+    {
+     "check": {
+      "ref": "after1.balance"
+     },
+     "expect": 150000.0
+    },
+    {
+     "check": {
+      "ref": "after1.daily_spent"
+     },
+     "expect": 50000.0
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      50000,
+      "5678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment successful"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543211"
+     ],
+     "save_as": "after2"
+    },
+    {
+     "check": {
+      "ref": "after2.balance"
+     },
+     "expect": 100000.0
+    },
+    {
+     "check": {
+      "ref": "after2.daily_spent"
+     },
+     "expect": 100000.0
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      1,
+      "5678"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Daily limit of Rs 1,00,000 reached"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543211"
+     ],
+     "save_as": "after3"
+    },
+    {
+     "check": {
+      "ref": "after3.balance"
+     },
+     "expect": 100000.0
+    },
+    {
+     "check": {
+      "ref": "after3.daily_spent"
+     },
+     "expect": 100000.0
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543211"
+     ],
+     "expect": 2
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "bank-server-down",
+   "title": "Bank server down",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.simulate",
+     "args": [
+      "bank_server_down"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "9876543210",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Send Money"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.send_money",
+     "args": [
+      "ravi@okbank",
+      100,
+      "1234"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Bank server not responding, try later"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "9876543210"
+     ],
+     "save_as": "after"
+    },
+    {
+     "check": {
+      "ref": "after.balance"
+     },
+     "expect": {
+      "ref": "before.balance"
+     }
+    },
+    {
+     "call": "Database.count_transaction",
+     "args": [
+      "from_mobile",
+      "9876543210"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

@@ -1,0 +1,1189 @@
+{
+ "label": "r2_security",
+ "title": "Account Login and Password Reset",
+ "recorded": "9/12",
+ "spec": {
+  "app_name": "Account Login and Password Reset",
+  "base_url": "https://account.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "User": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "password_history": "string",
+     "failed_attempts": "int",
+     "locked_until": "datetime",
+     "reset_code": "string",
+     "reset_code_sent_at": "datetime"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "email": "asha@corp.test",
+     "password": "Asha@2024",
+     "name": "Asha Kumar",
+     "password_history": "Asha@2024",
+     "failed_attempts": 0,
+     "locked_until": null,
+     "reset_code": "",
+     "reset_code_sent_at": null
+    },
+    {
+     "email": "bob@corp.test",
+     "password": "Bob@2024",
+     "name": "Bob Smith",
+     "password_history": "Bob@2024|OldPass@1|OldPass@2",
+     "failed_attempts": 0,
+     "locked_until": null,
+     "reset_code": "",
+     "reset_code_sent_at": null
+    }
+   ]
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 15,
+   "blocked_when": {
+    "and": [
+     {
+      "not": {
+       "empty": {
+        "field": "user.locked_until"
+       }
+      }
+     },
+     {
+      "gt": [
+       {
+        "field": "user.locked_until"
+       },
+       {
+        "now": true
+       }
+      ]
+     }
+    ]
+   },
+   "lockout": {
+    "attempts": 3,
+    "minutes": 15,
+    "message": "Account locked for 15 minutes"
+   },
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "blocked": "Account locked for 15 minutes",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Dashboard",
+   "Forgot Password",
+   "Reset Password"
+  ],
+  "public_pages": [
+   "Forgot Password",
+   "Reset Password"
+  ],
+  "home_page": "Dashboard",
+  "queries": [],
+  "actions": [
+   {
+    "name": "request_reset",
+    "label": "Request Reset",
+    "page": "Forgot Password",
+    "requires_login": false,
+    "inputs": [
+     {
+      "name": "email",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Email is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "user",
+      "entity": "User",
+      "key": {
+       "input": "email"
+      },
+      "missing": "If an account exists, a reset code has been sent"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "user",
+       "field": "reset_code",
+       "value": "123456"
+      }
+     },
+     {
+      "set": {
+       "record": "user",
+       "field": "reset_code_sent_at",
+       "value": {
+        "now": true
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "email",
+       "to": {
+        "field": "user.email"
+       },
+       "subject": "Password Reset Code",
+       "body": {
+        "format": [
+         "Your reset code is: {code}",
+         {
+          "code": "123456"
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": "If an account exists, a reset code has been sent",
+    "next_page": "Reset Password"
+   },
+   {
+    "name": "reset_password",
+    "label": "Reset Password",
+    "page": "Reset Password",
+    "requires_login": false,
+    "inputs": [
+     {
+      "name": "email",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Email is required"
+       }
+      ]
+     },
+     {
+      "name": "code",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Code is required"
+       }
+      ]
+     },
+     {
+      "name": "new_password",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "New password is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "^(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,20}$",
+        "message": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+       }
+      ]
+     },
+     {
+      "name": "confirm_password",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Confirm password is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "user",
+      "entity": "User",
+      "key": {
+       "input": "email"
+      },
+      "missing": "Invalid reset request"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "user.reset_code"
+        },
+        {
+         "input": "code"
+        }
+       ]
+      },
+      "message": "Invalid reset code"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "minutes_since": {
+          "field": "user.reset_code_sent_at"
+         }
+        },
+        10
+       ]
+      },
+      "message": "Code has expired"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "input": "new_password"
+        },
+        {
+         "input": "confirm_password"
+        }
+       ]
+      },
+      "message": "Passwords do not match"
+     },
+     {
+      "when": {
+       "or": [
+        {
+         "eq": [
+          {
+           "input": "new_password"
+          },
+          {
+           "field": "user.password"
+          }
+         ]
+        },
+        {
+         "matches": [
+          {
+           "field": "user.password_history"
+          },
+          "(^|\\|)Newpass@1(\\||$)"
+         ]
+        },
+        {
+         "matches": [
+          {
+           "field": "user.password_history"
+          },
+          "(^|\\|)Asha@2024(\\||$)"
+         ]
+        },
+        {
+         "matches": [
+          {
+           "field": "user.password_history"
+          },
+          "(^|\\|)Bob@2024(\\||$)"
+         ]
+        },
+        {
+         "matches": [
+          {
+           "field": "user.password_history"
+          },
+          "(^|\\|)OldPass@1(\\||$)"
+         ]
+        },
+        {
+         "matches": [
+          {
+           "field": "user.password_history"
+          },
+          "(^|\\|)OldPass@2(\\||$)"
+         ]
+        }
+       ]
+      },
+      "message": "You can't reuse your last 3 passwords"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "user",
+       "field": "password_history",
+       "value": {
+        "if": [
+         {
+          "matches": [
+           {
+            "field": "user.password_history"
+           },
+           "\\|.*\\|"
+          ]
+         },
+         {
+          "concat": [
+           {
+            "input": "new_password"
+           },
+           "|",
+           {
+            "field": "user.password_history"
+           }
+          ]
+         },
+         {
+          "if": [
+           {
+            "matches": [
+             {
+              "field": "user.password_history"
+             },
+             "\\|"
+            ]
+           },
+           {
+            "concat": [
+             {
+              "input": "new_password"
+             },
+             "|",
+             {
+              "field": "user.password_history"
+             }
+            ]
+           },
+           {
+            "concat": [
+             {
+              "input": "new_password"
+             },
+             "|",
+             {
+              "field": "user.password_history"
+             }
+            ]
+           }
+          ]
+         }
+        ]
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "user",
+       "field": "password",
+       "value": {
+        "input": "new_password"
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "user",
+       "field": "reset_code",
+       "value": ""
+      }
+     },
+     {
+      "set": {
+       "record": "user",
+       "field": "reset_code_sent_at",
+       "value": ""
+      }
+     },
+     {
+      "set": {
+       "record": "user",
+       "field": "failed_attempts",
+       "value": 0
+      }
+     },
+     {
+      "set": {
+       "record": "user",
+       "field": "locked_until",
+       "value": ""
+      }
+     }
+    ],
+    "message": "Password changed successfully",
+    "next_page": "Login"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "login-valid-credentials",
+   "title": "Login with valid credentials",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Dashboard"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "Asha Kumar"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "email-case-insensitive",
+   "title": "Email is case-insensitive",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "ASHA@CORP.TEST",
+      "Asha@2024"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Dashboard"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "Asha Kumar"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "password-case-sensitive",
+   "title": "Password is case-sensitive",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "asha@2024"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid email or password"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": null
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "account-locked-after-3-wrong",
+   "title": "Account locked after 3 wrong passwords",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong2"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong3"
+     ],
+     "expect": false
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "save_as": "user_after_3_fails",
+     "expect_includes": {
+      "failed_attempts": 3
+     }
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Account locked for 15 minutes"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": null
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "failed_attempts": 3
+     }
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "lock-lifts-after-15-minutes",
+   "title": "Lock lifts after 15 minutes",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong2"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong3"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Account locked for 15 minutes"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      15
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Dashboard"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "Asha Kumar"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "failed_attempts": 0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "wrong-attempts-reset-after-success",
+   "title": "Wrong attempts reset after a successful login",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong2"
+     ],
+     "expect": false
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "failed_attempts": 2
+     }
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "failed_attempts": 0
+     }
+    },
+    {
+     "call": "UI.logout",
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong3"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "wrong4"
+     ],
+     "expect": false
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "failed_attempts": 2
+     }
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Dashboard"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "Asha Kumar"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "failed_attempts": 0
+     }
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "reset-password-valid-code",
+   "title": "Reset password with valid code",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Forgot Password"
+     ]
+    },
+    {
+     "call": "UI.request_reset",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "If an account exists, a reset code has been sent"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "reset_code": "123456"
+     }
+    },
+    {
+     "call": "Database.outbox",
+     "expect_includes": [
+      {
+       "channel": "email",
+       "to": "asha@corp.test",
+       "subject": "Password Reset Code"
+      }
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Reset Password"
+     ]
+    },
+    {
+     "call": "UI.reset_password",
+     "args": [
+      "asha@corp.test",
+      "123456",
+      "Newpass@1",
+      "Newpass@1"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Password changed successfully"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "password": "Newpass@1",
+      "reset_code": "",
+      "failed_attempts": 0
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Asha@2024"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid email or password"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "asha@corp.test",
+      "Newpass@1"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Dashboard"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "expired-reset-code",
+   "title": "Expired reset code",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Forgot Password"
+     ]
+    },
+    {
+     "call": "UI.request_reset",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "reset_code": "123456"
+     }
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      11
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Reset Password"
+     ]
+    },
+    {
+     "call": "UI.reset_password",
+     "args": [
+      "asha@corp.test",
+      "123456",
+      "Newpass@1",
+      "Newpass@1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Code has expired"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "password": "Asha@2024"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "weak-new-password",
+   "title": "Weak new password",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Forgot Password"
+     ]
+    },
+    {
+     "call": "UI.request_reset",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "reset_code": "123456"
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Reset Password"
+     ]
+    },
+    {
+     "call": "UI.reset_password",
+     "args": [
+      "asha@corp.test",
+      "123456",
+      "password",
+      "password"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Password must be 8-20 characters with an upper-case letter, a digit and a special character"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "password": "Asha@2024"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "reuse-recent-password",
+   "title": "Reuse of a recent password",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Forgot Password"
+     ]
+    },
+    {
+     "call": "UI.request_reset",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "reset_code": "123456"
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Reset Password"
+     ]
+    },
+    {
+     "call": "UI.reset_password",
+     "args": [
+      "asha@corp.test",
+      "123456",
+      "Asha@2024",
+      "Asha@2024"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "You can't reuse your last 3 passwords"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "password": "Asha@2024"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "confirm-password-mismatch",
+   "title": "Confirm password mismatch",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Forgot Password"
+     ]
+    },
+    {
+     "call": "UI.request_reset",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "reset_code": "123456"
+     }
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Reset Password"
+     ]
+    },
+    {
+     "call": "UI.reset_password",
+     "args": [
+      "asha@corp.test",
+      "123456",
+      "Newpass@1",
+      "Newpass@2"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Passwords do not match"
+    },
+    {
+     "call": "Database.get_user",
+     "args": [
+      "asha@corp.test"
+     ],
+     "expect_includes": {
+      "password": "Asha@2024"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "sql-injection-email",
+   "title": "SQL injection in email field",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "' OR 1=1 --",
+      "anything"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid email or password"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": null
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

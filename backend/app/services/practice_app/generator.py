@@ -91,6 +91,7 @@ class PracticeAppResult:
     unsupported: list = field(default_factory=list)         # [{"title", "reason"}] reference cases the app can't automate
     env_code_by_language: dict = field(default_factory=dict)
     support_by_language: dict = field(default_factory=dict)  # engine builds: {language: {file name: code}} placed next to it
+    exchanges: list = field(default_factory=list)  # every raw AI reply, in order - the real-output library's raw material
     report: checker.InspectionReport | None = None
     log: list = field(default_factory=list)                 # what happened, step by step, for HR/support
     ai_calls: int = 0

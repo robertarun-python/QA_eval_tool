@@ -1,0 +1,1578 @@
+{
+ "label": "r1_36",
+ "title": "Scenario: Online Loan EMI Payment",
+ "recorded": "11/12",
+ "spec": {
+  "app_name": "Online Loan EMI Payment System",
+  "base_url": "https://loan-emi.example.test",
+  "now": "2025-02-10T10:00",
+  "entities": {
+   "Customer": {
+    "key": "customer_id",
+    "fields": {
+     "customer_id": "string",
+     "password": "string",
+     "name": "string",
+     "email": "string",
+     "status": "string"
+    }
+   },
+   "Loan": {
+    "key": "account_number",
+    "fields": {
+     "account_number": "string",
+     "customer_id": "string",
+     "outstanding_balance": "money",
+     "emi_amount": "money",
+     "principal_component": "money",
+     "interest_component": "money",
+     "next_emi_date": "date",
+     "status": "string",
+     "last_payment_date": "string",
+     "last_payment_txn": "string"
+    }
+   },
+   "Account": {
+    "key": "account_number",
+    "fields": {
+     "account_number": "string",
+     "customer_id": "string",
+     "account_type": "string",
+     "balance": "money",
+     "status": "string"
+    }
+   },
+   "Payment": {
+    "key": "transaction_ref",
+    "id_format": "TXN{n:09}",
+    "fields": {
+     "transaction_ref": "string",
+     "loan_account": "string",
+     "payment_account": "string",
+     "amount": "money",
+     "principal": "money",
+     "interest": "money",
+     "payment_date": "date",
+     "payment_datetime": "datetime",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "Customer": [
+    {
+     "customer_id": "CUST001",
+     "password": "Pass@123",
+     "name": "Test User",
+     "email": "testuser@bank.test",
+     "status": "Active"
+    }
+   ],
+   "Loan": [
+    {
+     "account_number": "LN-45678",
+     "customer_id": "CUST001",
+     "outstanding_balance": 125000.0,
+     "emi_amount": 5250.0,
+     "principal_component": 3800.0,
+     "interest_component": 1450.0,
+     "next_emi_date": "2025-02-15",
+     "status": "Active",
+     "last_payment_date": "",
+     "last_payment_txn": ""
+    },
+    {
+     "account_number": "LN-99999",
+     "customer_id": "CUST001",
+     "outstanding_balance": 80000.0,
+     "emi_amount": 4500.0,
+     "principal_component": 3200.0,
+     "interest_component": 1300.0,
+     "next_emi_date": "2025-03-15",
+     "status": "Active",
+     "last_payment_date": "2025-02-10",
+     "last_payment_txn": "TXN111222333"
+    }
+   ],
+   "Account": [
+    {
+     "account_number": "SAV-1001",
+     "customer_id": "CUST001",
+     "account_type": "Savings",
+     "balance": 15000.0,
+     "status": "Active"
+    },
+    {
+     "account_number": "SAV-2002",
+     "customer_id": "CUST001",
+     "account_type": "Savings",
+     "balance": 2100.0,
+     "status": "Active"
+    },
+    {
+     "account_number": "SAV-3003",
+     "customer_id": "CUST001",
+     "account_type": "Savings",
+     "balance": 5250.0,
+     "status": "Active"
+    },
+    {
+     "account_number": "SAV-9999",
+     "customer_id": "CUST001",
+     "account_type": "Savings",
+     "balance": 0.0,
+     "status": "Closed"
+    }
+   ],
+   "Payment": [
+    {
+     "transaction_ref": "TXN000000001",
+     "loan_account": "LN-45678",
+     "payment_account": "SAV-1001",
+     "amount": 5250.0,
+     "principal": 3800.0,
+     "interest": 1450.0,
+     "payment_date": "2024-12-15",
+     "payment_datetime": "2024-12-15T09:30",
+     "status": "Success"
+    },
+    {
+     "transaction_ref": "TXN000000002",
+     "loan_account": "LN-45678",
+     "payment_account": "SAV-1001",
+     "amount": 5250.0,
+     "principal": 3800.0,
+     "interest": 1450.0,
+     "payment_date": "2025-01-15",
+     "payment_datetime": "2025-01-15T10:15",
+     "status": "Success"
+    },
+    {
+     "transaction_ref": "TXN000000003",
+     "loan_account": "LN-45678",
+     "payment_account": "SAV-1001",
+     "amount": 5250.0,
+     "principal": 3800.0,
+     "interest": 1450.0,
+     "payment_date": "2025-02-10",
+     "payment_datetime": "2025-02-10T11:00",
+     "status": "Success"
+    },
+    {
+     "transaction_ref": "TXN111222333",
+     "loan_account": "LN-99999",
+     "payment_account": "SAV-1001",
+     "amount": 4500.0,
+     "principal": 3200.0,
+     "interest": 1300.0,
+     "payment_date": "2025-02-10",
+     "payment_datetime": "2025-02-10T14:30",
+     "status": "Success"
+    }
+   ]
+  },
+  "users": {
+   "entity": "Customer",
+   "login_field": "customer_id",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "blocked_when": {
+    "eq": [
+     {
+      "field": "user.status"
+     },
+     "Blocked"
+    ]
+   },
+   "page": "Login",
+   "messages": {
+    "required_login": "Customer ID is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid customer ID or password",
+    "blocked": "Your account is blocked",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Loans",
+   "EMI Details",
+   "EMI Payment",
+   "Payment Confirmation",
+   "Payment History"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "view_loans",
+    "label": "View Loans",
+    "page": "Loans",
+    "entity": "Loan",
+    "where": {
+     "eq": [
+      {
+       "field": "row.customer_id"
+      },
+      {
+       "user": "customer_id"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "account_number"
+     }
+    ],
+    "show": [
+     "account_number",
+     "outstanding_balance",
+     "emi_amount",
+     "next_emi_date",
+     "status"
+    ]
+   },
+   {
+    "name": "view_emi_details",
+    "label": "View EMI Details",
+    "page": "Loans",
+    "entity": "Loan",
+    "key_input": "loan_account",
+    "missing": "Loan account not found",
+    "next_page": "EMI Details",
+    "show": [
+     "account_number",
+     "emi_amount",
+     "next_emi_date",
+     "principal_component",
+     "interest_component",
+     "outstanding_balance"
+    ]
+   },
+   {
+    "name": "get_payment_accounts",
+    "label": "Payment Accounts",
+    "page": "EMI Payment",
+    "entity": "Account",
+    "where": {
+     "and": [
+      {
+       "eq": [
+        {
+         "field": "row.customer_id"
+        },
+        {
+         "user": "customer_id"
+        }
+       ]
+      },
+      {
+       "eq": [
+        {
+         "field": "row.status"
+        },
+        "Active"
+       ]
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "account_number"
+     }
+    ],
+    "show": [
+     "account_number",
+     "account_type",
+     "balance"
+    ]
+   },
+   {
+    "name": "view_payment_history",
+    "label": "Payment History",
+    "page": "Payment History",
+    "entity": "Payment",
+    "where": {
+     "eq": [
+      {
+       "field": "row.loan_account"
+      },
+      {
+       "session": "current_loan"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "payment_date",
+      "desc": true
+     }
+    ],
+    "show": [
+     "payment_date",
+     "amount",
+     "transaction_ref",
+     "status"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "select_loan",
+    "label": "Select Loan",
+    "page": "Loans",
+    "inputs": [
+     {
+      "name": "loan_account",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please select a loan account"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "loan",
+      "entity": "Loan",
+      "key": {
+       "input": "loan_account"
+      },
+      "missing": "Loan account not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "loan.customer_id"
+        },
+        {
+         "user": "customer_id"
+        }
+       ]
+      },
+      "message": "This loan does not belong to you"
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "current_loan",
+       "value": {
+        "input": "loan_account"
+       }
+      }
+     }
+    ],
+    "message": "Loan selected",
+    "next_page": "EMI Payment"
+   },
+   {
+    "name": "pay_emi",
+    "label": "Pay EMI",
+    "page": "EMI Payment",
+    "inputs": [
+     {
+      "name": "loan_account",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Loan account is required"
+       }
+      ]
+     },
+     {
+      "name": "payment_account",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please select a payment account"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "loan",
+      "entity": "Loan",
+      "key": {
+       "input": "loan_account"
+      },
+      "missing": "Loan account not found"
+     },
+     {
+      "as": "account",
+      "entity": "Account",
+      "key": {
+       "input": "payment_account"
+      },
+      "missing": "Payment account not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "loan.customer_id"
+        },
+        {
+         "user": "customer_id"
+        }
+       ]
+      },
+      "message": "This loan does not belong to you"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "account.customer_id"
+        },
+        {
+         "user": "customer_id"
+        }
+       ]
+      },
+      "message": "This account does not belong to you"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "account.status"
+        },
+        "Active"
+       ]
+      },
+      "message": "Selected account is inactive. Please choose an active account"
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "ne": [
+          {
+           "field": "loan.last_payment_date"
+          },
+          ""
+         ]
+        },
+        {
+         "ge": [
+          {
+           "field": "loan.last_payment_date"
+          },
+          {
+           "today": true
+          }
+         ]
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Current EMI already paid on {date} (Ref: {ref}). Next EMI due: {next}",
+        {
+         "date": {
+          "format_date": [
+           {
+            "field": "loan.last_payment_date"
+           },
+           "DD-Mon-YYYY"
+          ]
+         },
+         "ref": {
+          "field": "loan.last_payment_txn"
+         },
+         "next": {
+          "format_date": [
+           {
+            "add_months": [
+             {
+              "field": "loan.next_emi_date"
+             },
+             1
+            ]
+           },
+           "DD-Mon-YYYY"
+          ]
+         }
+        }
+       ]
+      }
+     },
+     {
+      "unless": {
+       "ge": [
+        {
+         "field": "account.balance"
+        },
+        {
+         "field": "loan.emi_amount"
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Insufficient balance. Available: {available}, Required: {required}",
+        {
+         "available": {
+          "format_money": [
+           {
+            "field": "account.balance"
+           },
+           "INR"
+          ]
+         },
+         "required": {
+          "format_money": [
+           {
+            "field": "loan.emi_amount"
+           },
+           "INR"
+          ]
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "account",
+       "field": "balance",
+       "value": {
+        "sub": [
+         {
+          "field": "account.balance"
+         },
+         {
+          "field": "loan.emi_amount"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "loan",
+       "field": "outstanding_balance",
+       "value": {
+        "sub": [
+         {
+          "field": "loan.outstanding_balance"
+         },
+         {
+          "field": "loan.principal_component"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "create": {
+       "entity": "Payment",
+       "as": "payment",
+       "values": {
+        "loan_account": {
+         "field": "loan.account_number"
+        },
+        "payment_account": {
+         "field": "account.account_number"
+        },
+        "amount": {
+         "field": "loan.emi_amount"
+        },
+        "principal": {
+         "field": "loan.principal_component"
+        },
+        "interest": {
+         "field": "loan.interest_component"
+        },
+        "payment_date": {
+         "today": true
+        },
+        "payment_datetime": {
+         "now": true
+        },
+        "status": "Success"
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "loan",
+       "field": "last_payment_date",
+       "value": {
+        "field": "payment.payment_date"
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "loan",
+       "field": "last_payment_txn",
+       "value": {
+        "field": "payment.transaction_ref"
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "loan",
+       "field": "next_emi_date",
+       "value": {
+        "add_months": [
+         {
+          "field": "loan.next_emi_date"
+         },
+         1
+        ]
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Payment successful. Transaction reference: {ref}",
+      {
+       "ref": {
+        "field": "payment.transaction_ref"
+       }
+      }
+     ]
+    },
+    "returns": {
+     "transaction_ref": {
+      "field": "payment.transaction_ref"
+     },
+     "new_balance": {
+      "field": "account.balance"
+     },
+     "new_outstanding": {
+      "field": "loan.outstanding_balance"
+     }
+    },
+    "next_page": "Payment Confirmation"
+   }
+  ],
+  "faults": [
+   {
+    "name": "payment_timeout",
+    "applies_to": [
+     "pay_emi"
+    ],
+    "message": "Payment request timed out. Please check payment status before retrying."
+   },
+   {
+    "name": "bank_server_error",
+    "applies_to": [
+     "pay_emi"
+    ],
+    "message": "Payment failed due to technical issue. Please try again later. If amount debited, it will be reversed in 24-48 hours."
+   }
+  ]
+ },
+ "checklists": [
+  {
+   "id": "view-emi-details",
+   "title": "View upcoming EMI details for an active loan",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.view_emi_details",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "emi_details",
+     "expect": {
+      "account_number": "LN-45678",
+      "emi_amount": 5250.0,
+      "next_emi_date": "2025-02-15",
+      "principal_component": 3800.0,
+      "interest_component": 1450.0,
+      "outstanding_balance": 125000.0
+     }
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "EMI Details"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "successful-emi-payment",
+   "title": "Make successful EMI payment with sufficient balance",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "EMI Payment"
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-1001"
+     ],
+     "save_as": "payment_result",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Payment successful. Transaction reference:"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Payment Confirmation"
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "save_as": "account",
+     "expect_includes": {
+      "balance": 9750.0
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "loan",
+     "expect_includes": {
+      "outstanding_balance": 121200.0,
+      "next_emi_date": "2025-03-15"
+     }
+    },
+    {
+     "call": "Database.find_payment",
+     "args": [
+      "loan_account",
+      "LN-45678"
+     ],
+     "save_as": "payments"
+    },
+    {
+     "call": "Database.get_payment",
+     "args": [
+      {
+       "ref": "result.transaction_ref"
+      }
+     ],
+     "expect_includes": {
+      "loan_account": "LN-45678",
+      "payment_account": "SAV-1001",
+      "amount": 5250.0,
+      "principal": 3800.0,
+      "interest": 1450.0,
+      "status": "Success"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "insufficient-balance",
+   "title": "Payment fails when account has insufficient balance",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-2002"
+     ],
+     "save_as": "before_account"
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "before_loan"
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-2002"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Insufficient balance. Available: ₹2,100.00, Required: ₹5,250.00"
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-2002"
+     ],
+     "expect": {
+      "account_number": "SAV-2002",
+      "customer_id": "CUST001",
+      "account_type": "Savings",
+      "balance": 2100.0,
+      "status": "Active"
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": {
+      "account_number": "LN-45678",
+      "customer_id": "CUST001",
+      "outstanding_balance": 125000.0,
+      "emi_amount": 5250.0,
+      "principal_component": 3800.0,
+      "interest_component": 1450.0,
+      "next_emi_date": "2025-02-15",
+      "status": "Active",
+      "last_payment_date": "",
+      "last_payment_txn": ""
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "prevent-duplicate-payment",
+   "title": "Prevent duplicate payment for already paid EMI",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-99999"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "save_as": "before_account"
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-99999"
+     ],
+     "save_as": "before_loan"
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-99999",
+      "SAV-1001"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Current EMI already paid on 10-Feb-2025 (Ref: TXN111222333). Next EMI due: 15-Apr-2025"
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "expect": {
+      "account_number": "SAV-1001",
+      "customer_id": "CUST001",
+      "account_type": "Savings",
+      "balance": 15000.0,
+      "status": "Active"
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-99999"
+     ],
+     "expect": {
+      "account_number": "LN-99999",
+      "customer_id": "CUST001",
+      "outstanding_balance": 80000.0,
+      "emi_amount": 4500.0,
+      "principal_component": 3200.0,
+      "interest_component": 1300.0,
+      "next_emi_date": "2025-03-15",
+      "status": "Active",
+      "last_payment_date": "2025-02-10",
+      "last_payment_txn": "TXN111222333"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "payment-history",
+   "title": "Verify payment history shows all completed EMI transactions",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Payment History"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.view_payment_history",
+     "save_as": "history",
+     "expect": [
+      {
+       "payment_date": "2025-02-10",
+       "amount": 5250.0,
+       "transaction_ref": "TXN000000003",
+       "status": "Success"
+      },
+      {
+       "payment_date": "2025-01-15",
+       "amount": 5250.0,
+       "transaction_ref": "TXN000000002",
+       "status": "Success"
+      },
+      {
+       "payment_date": "2024-12-15",
+       "amount": 5250.0,
+       "transaction_ref": "TXN000000001",
+       "status": "Success"
+      }
+     ]
+    },
+    {
+     "call": "Database.find_payment",
+     "args": [
+      "loan_account",
+      "LN-45678"
+     ],
+     "save_as": "db_payments",
+     "expect_includes": [
+      {
+       "transaction_ref": "TXN000000001"
+      },
+      {
+       "transaction_ref": "TXN000000002"
+      },
+      {
+       "transaction_ref": "TXN000000003"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "payment-timeout",
+   "title": "Handle payment timeout during transaction processing",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.simulate",
+     "args": [
+      "payment_timeout"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "save_as": "before_account"
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "before_loan"
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-1001"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment request timed out. Please check payment status before retrying."
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "expect": {
+      "account_number": "SAV-1001",
+      "customer_id": "CUST001",
+      "account_type": "Savings",
+      "balance": 15000.0,
+      "status": "Active"
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": {
+      "account_number": "LN-45678",
+      "customer_id": "CUST001",
+      "outstanding_balance": 125000.0,
+      "emi_amount": 5250.0,
+      "principal_component": 3800.0,
+      "interest_component": 1450.0,
+      "next_emi_date": "2025-02-15",
+      "status": "Active",
+      "last_payment_date": "",
+      "last_payment_txn": ""
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "validate-fixed-amount",
+   "title": "Validate payment amount cannot be modified by user",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "EMI Payment"
+    },
+    {
+     "call": "UI.view_emi_details",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "emi_details"
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "loan",
+     "expect_includes": {
+      "emi_amount": 5250.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "closed-account",
+   "title": "Payment fails when selecting a closed/inactive account",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.get_payment_accounts",
+     "save_as": "accounts",
+     "expect_excludes": [
+      {
+       "account_number": "SAV-9999"
+      }
+     ]
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-9999"
+     ],
+     "save_as": "before_account"
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "before_loan"
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-9999"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Selected account is inactive. Please choose an active account"
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-9999"
+     ],
+     "expect": {
+      "account_number": "SAV-9999",
+      "customer_id": "CUST001",
+      "account_type": "Savings",
+      "balance": 0.0,
+      "status": "Closed"
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": {
+      "account_number": "LN-45678",
+      "customer_id": "CUST001",
+      "outstanding_balance": 125000.0,
+      "emi_amount": 5250.0,
+      "principal_component": 3800.0,
+      "interest_component": 1450.0,
+      "next_emi_date": "2025-02-15",
+      "status": "Active",
+      "last_payment_date": "",
+      "last_payment_txn": ""
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "loan-balance-update",
+   "title": "Verify loan balance updates correctly after partial prepayment vs regular EMI",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "before_loan",
+     "expect_includes": {
+      "outstanding_balance": 125000.0
+     }
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-1001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "after_loan",
+     "expect_includes": {
+      "outstanding_balance": 121200.0,
+      "next_emi_date": "2025-03-15"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "exact-balance-payment",
+   "title": "Handle payment when EMI amount is exactly equal to account balance",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-3003"
+     ],
+     "save_as": "payment_result",
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Payment successful. Transaction reference:"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "result"
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-3003"
+     ],
+     "expect_includes": {
+      "balance": 0.0
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect_includes": {
+      "outstanding_balance": 121200.0,
+      "next_emi_date": "2025-03-15"
+     }
+    },
+    {
+     "call": "Database.get_payment",
+     "args": [
+      {
+       "ref": "result.transaction_ref"
+      }
+     ],
+     "expect_includes": {
+      "loan_account": "LN-45678",
+      "payment_account": "SAV-3003",
+      "amount": 5250.0,
+      "status": "Success"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "bank-server-error",
+   "title": "Payment fails with specific error when bank server returns failure code",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.simulate",
+     "args": [
+      "bank_server_error"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "CUST001",
+      "Pass@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Loans"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.select_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "save_as": "before_account"
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "save_as": "before_loan"
+    },
+    {
+     "call": "UI.pay_emi",
+     "args": [
+      "LN-45678",
+      "SAV-1001"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment failed due to technical issue. Please try again later. If amount debited, it will be reversed in 24-48 hours."
+    },
+    {
+     "call": "Database.get_account",
+     "args": [
+      "SAV-1001"
+     ],
+     "expect": {
+      "account_number": "SAV-1001",
+      "customer_id": "CUST001",
+      "account_type": "Savings",
+      "balance": 15000.0,
+      "status": "Active"
+     }
+    },
+    {
+     "call": "Database.get_loan",
+     "args": [
+      "LN-45678"
+     ],
+     "expect": {
+      "account_number": "LN-45678",
+      "customer_id": "CUST001",
+      "outstanding_balance": 125000.0,
+      "emi_amount": 5250.0,
+      "principal_component": 3800.0,
+      "interest_component": 1450.0,
+      "next_emi_date": "2025-02-15",
+      "status": "Active",
+      "last_payment_date": "",
+      "last_payment_txn": ""
+     }
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

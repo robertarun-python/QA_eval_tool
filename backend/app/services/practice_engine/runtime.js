@@ -8,6 +8,7 @@ class Refused extends Error {
 }
 
 const UNEXPECTED = "Something went wrong. Please check your input and try again.";
+const TOO_LARGE = "That number is too large";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const SYMBOLS = { INR: "₹", USD: "$", EUR: "€", GBP: "£" };
 const pad = (n, w) => String(n).padStart(w, "0");
@@ -24,6 +25,7 @@ function num(value) {
 // digits Python's repr and Java's Double.toString give, so all three agree.
 function roundHalfUp(value, places) {
   const x = num(value);
+  if (Math.abs(x) >= 1e15) return x;  // as in Python and Java
   const s = Math.abs(x).toString();
   if (s.includes("e")) return Math.round(x * 10 ** places) / 10 ** places;
   const [whole, frac = ""] = s.split(".");
@@ -39,6 +41,8 @@ function roundHalfUp(value, places) {
 // Whole numbers stay whole; others to 10 places (removes binary noise, keeps
 // a rate like 0.00875 exact). Money is rounded to 2 places where stored or shown.
 function clean(value) {
+  if (typeof value === "number" && !Number.isFinite(value)) throw new Refused(TOO_LARGE);
+  if (typeof value === "number" && Math.abs(value) >= 1e15) return value;  // as in Python and Java
   if (typeof value === "number" && !Number.isInteger(value)) return roundHalfUp(value, 10);
   return value;
 }
@@ -48,7 +52,7 @@ function workingDays(start, end) {
   for (const d = new Date(start.getTime()); d <= end; d.setUTCDate(d.getUTCDate() + 1)) if (d.getUTCDay() % 6 !== 0) count += 1;
   return count;
 }
-const split = (value, sep) => (value === null || value === undefined ? "" : String(value)).split(sep).map((p) => p.trim()).filter((p) => p);
+const split = (value, sep) => (value === null || value === undefined ? "" : raw(value)).split(sep).map((p) => p.trim()).filter((p) => p);
 
 function toDate(value) {
   if (typeof value === "string" && value.length >= 10) return new Date(Date.UTC(+value.slice(0, 4), +value.slice(5, 7) - 1, +value.slice(8, 10)));
@@ -97,8 +101,8 @@ function formatMoney(value, currency) {
   const [whole, cents] = Math.abs(amount).toFixed(2).split(".");
   return `${sign}${SYMBOLS[currency] !== undefined ? SYMBOLS[currency] : currency + " "}${group(whole, currency === "INR")}.${cents}`;
 }
-const chars = (s) => Array.from(String(s)).length;  // characters, not UTF-16 units - as in Python
-const fullMatch = (pattern, text) => new RegExp(`^(?:${pattern})$`).test(text === null || text === undefined ? "" : String(text));
+const chars = (s) => Array.from(raw(s)).length;  // characters, not UTF-16 units - as in Python
+const fullMatch = (pattern, text) => new RegExp(`^(?:${pattern})$`).test(text === null || text === undefined ? "" : raw(text));
 function same(a, b) {
   if (typeof a === "boolean" || typeof b === "boolean") return a === b;
   if (typeof a === "number" && typeof b === "number") return Math.abs(a - b) < 1e-9;
@@ -110,10 +114,25 @@ function compare(a, b) {
   if (a === null || a === undefined || b === null || b === undefined) throw new EngineError("can't compare a missing value");
   return compare(num(a), num(b));
 }
+// A candidate's input as text - the same characters as Python and Java.
+function raw(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Number.isInteger(value)) return BigInt(value).toString();
+    const s = String(value);
+    if (!s.includes("e")) return s;
+    const [mant, exp] = s.split("e"), neg = mant.startsWith("-"), m = mant.replace("-", "");
+    const digits = m.replace(".", ""), point = (m.includes(".") ? m.indexOf(".") : m.length) + Number(exp);  // only tiny numbers get here
+    return (neg ? "-" : "") + "0." + "0".repeat(-point) + digits;
+  }
+  return String(value);
+}
+
 function text(value) {
   if (value === null || value === undefined) return "";
   if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") { const v = roundHalfUp(clean(value), 2); return Number.isInteger(v) ? String(v) : v.toFixed(2); }
+  if (typeof value === "number") { const v = roundHalfUp(clean(value), 2); return Number.isInteger(v) ? BigInt(v).toString() : v.toFixed(2); }
   return String(value);
 }
 const one = (expr) => { const keys = Object.keys(expr); if (keys.length !== 1) throw new EngineError("an expression has exactly one operator"); return [keys[0], expr[keys[0]]]; };
@@ -183,6 +202,37 @@ class Engine {
         if (op === "div" && b === 0) throw new Refused("Cannot divide by zero");
         return clean(op === "add" ? a + b : op === "sub" ? a - b : op === "mul" ? a * b : a / b);
       }
+      case "min": case "max": {
+        const a = num(this.ev(arg[0], ctx)), b = num(this.ev(arg[1], ctx));
+        return clean(op === "min" ? Math.min(a, b) : Math.max(a, b));
+      }
+      case "mod": {
+        const a = num(this.ev(arg[0], ctx)), b = num(this.ev(arg[1], ctx));
+        if (b === 0) throw new Refused("Cannot divide by zero");
+        return clean(a - b * Math.floor(a / b));
+      }
+      case "pow": {
+        const base = num(this.ev(arg[0], ctx)), times = num(this.ev(arg[1], ctx));
+        if (!Number.isInteger(times) || times < 0 || times > 1200) throw new EngineError(`pow needs a whole power from 0 to 1200, got ${times}`);
+        let result = 1;
+        for (let i = 0; i < times; i += 1) result = clean(result * base);  // step by step, as in Python and Java
+        return result;
+      }
+      case "abs": return clean(Math.abs(num(this.ev(arg, ctx))));
+      case "floor": return clean(Math.floor(num(this.ev(arg, ctx))));
+      case "ceil": return clean(Math.ceil(num(this.ev(arg, ctx))));
+      case "slice": {
+        const cs = Array.from(text(this.ev(arg[0], ctx)));
+        const start = Math.trunc(num(this.ev(arg[1], ctx)));
+        const end = arg.length > 2 ? Math.trunc(num(this.ev(arg[2], ctx))) : cs.length;
+        return cs.slice(start, end).join("");
+      }
+      case "years_between": {
+        const a = toDate(this.ev(arg[0], ctx)), b = toDate(this.ev(arg[1], ctx));
+        const before = b.getUTCMonth() < a.getUTCMonth() || (b.getUTCMonth() === a.getUTCMonth() && b.getUTCDate() < a.getUTCDate());
+        return b.getUTCFullYear() - a.getUTCFullYear() - (before ? 1 : 0);
+      }
+      case "date": return isoDateTime(toDateTime(this.ev(arg, ctx))).slice(0, 10);
       case "round": {
         const [value, places] = Array.isArray(arg) ? [arg[0], arg.length > 1 ? arg[1] : 2] : [arg, 2];
         return roundHalfUp(this.ev(value, ctx), num(this.ev(places, ctx)));
@@ -277,16 +327,16 @@ class Engine {
   }
   login(login, password) {
     const msgs = this.messages();
-    if (login === null || login === undefined || String(login).trim() === "") throw new Refused(msgs.required_login);
-    if (password === null || password === undefined || String(password) === "") throw new Refused(msgs.required_password);
+    if (login === null || login === undefined || raw(login).trim() === "") throw new Refused(msgs.required_login);
+    if (password === null || password === undefined || raw(password) === "") throw new Refused(msgs.required_password);
     const field = this.users.login_field || "email";
-    const match = this.store[this.users.entity].find((u) => String(u[field] === undefined ? "" : u[field]).toLowerCase() === String(login).trim().toLowerCase());
-    const lockout = this.users.lockout, who = String(login).trim().toLowerCase();
+    const match = this.store[this.users.entity].find((u) => raw(u[field] === undefined ? "" : u[field]).toLowerCase() === raw(login).trim().toLowerCase());
+    const lockout = this.users.lockout, who = raw(login).trim().toLowerCase();
     if (match && lockout && who in this.lockedUntil) {
       const until = this.lockedUntil[who];
       if (until === true || this.clock < until) throw new Refused(lockout.message);
     }
-    if (!match || String(match[this.users.password_field || "password"]) !== String(password)) {
+    if (!match || raw(match[this.users.password_field || "password"]) !== raw(password)) {
       if (match && lockout) {
         this.failedLogins[who] = (this.failedLogins[who] || 0) + 1;
         if (this.failedLogins[who] >= lockout.attempts) {
@@ -322,10 +372,10 @@ class Engine {
         else if (rule === "pattern") ok = fullMatch(limit, value);
         else if (rule === "min" || rule === "max") { try { const n = num(value); ok = rule === "min" ? n >= limit : n <= limit; } catch (e) { ok = false; } }
         else if (rule === "number") { try { num(value); } catch (e) { ok = false; } }
-        else if (rule === "one_of") ok = limit.some((o) => same(value, o) || String(value).toLowerCase() === String(o).toLowerCase());
-        else if (rule === "date") { try { const d = toDate(String(value)); ok = !isNaN(d.getTime()) && isoDate(d) === String(value).slice(0, 10); } catch (e) { ok = false; } }
-        else if (rule === "not_past") ok = String(value).slice(0, 10) >= isoDate(this.clock);
-        else if (rule === "not_future") ok = String(value).slice(0, 10) <= isoDate(this.clock);
+        else if (rule === "one_of") ok = limit.some((o) => same(value, o) || raw(value).toLowerCase() === raw(o).toLowerCase());
+        else if (rule === "date") { try { const d = toDate(raw(value)); ok = !isNaN(d.getTime()) && isoDate(d) === raw(value).slice(0, 10); } catch (e) { ok = false; } }
+        else if (rule === "not_past") ok = raw(value).slice(0, 10) >= isoDate(this.clock);
+        else if (rule === "not_future") ok = raw(value).slice(0, 10) <= isoDate(this.clock);
         else throw new EngineError(`unknown input check ${rule}`);
         if (!ok) throw new Refused(check.message);
       }
@@ -333,8 +383,8 @@ class Engine {
   }
   findByKey(entity, key) {
     const k = this.key(entity);
-    const wanted = String(key).trim().toLowerCase();
-    return this.store[entity].find((r) => same(r[k], key) || String(r[k]).trim().toLowerCase() === wanted) || null;
+    const wanted = raw(key).trim().toLowerCase();
+    return this.store[entity].find((r) => same(r[k], key) || raw(r[k]).trim().toLowerCase() === wanted) || null;
   }
 
   // An unexpected problem is refused like any error message a real application shows.
@@ -476,14 +526,14 @@ class Engine {
     let rows = this.rows(entity, query.where, ctx);
     if (match) {
       const term = inputs[match.input];
-      const blank = term === null || term === undefined || String(term).trim() === "";
+      const blank = term === null || term === undefined || raw(term).trim() === "";
       if (blank) {
         const how = match.blank || "all";
         if (how.startsWith("error:")) throw new Refused(how.slice("error:".length));
         if (how === "empty") rows = [];
       } else {
         if (match.max_length && chars(term) > match.max_length) throw new Refused(match.too_long || "Search text is too long");
-        const needle = String(term).trim().toLowerCase();
+        const needle = raw(term).trim().toLowerCase();
         const mode = match.mode || "contains";
         rows = rows.filter((row) => match.fields.some((f) => {
           const t = text(row[f]).toLowerCase();
@@ -580,7 +630,7 @@ class Engine {
   }
   dbGet(entity, key) {
     const k = this.key(entity);
-    const r = this.store[entity].find((row) => same(row[k], key) || String(row[k]) === String(key));
+    const r = this.store[entity].find((row) => same(row[k], key) || raw(row[k]) === raw(key));
     return r ? clone(r) : null;
   }
   dbFind(entity, field, value) { return this.store[entity].filter((r) => same(r[field], value)).map(clone); }
@@ -598,7 +648,7 @@ class Engine {
     if (key === null || key === undefined) return;
     for (const [entity, rows] of Object.entries(this.store)) {
       const k = this.key(entity);
-      const i = rows.findIndex((r) => String(r[k]) === String(key) && this.created.has(`${entity}\u0000${r[k]}`));
+      const i = rows.findIndex((r) => raw(r[k]) === raw(key) && this.created.has(`${entity}\u0000${r[k]}`));
       if (i >= 0) { rows.splice(i, 1); return; }
     }
   }

@@ -1,0 +1,1560 @@
+{
+ "label": "r2_claims",
+ "title": "Health Insurance Claim",
+ "recorded": "11/11",
+ "spec": {
+  "app_name": "Health Insurance Claim System",
+  "base_url": "https://claims.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "PolicyHolder": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "mobile": "string",
+     "policy_number": "string",
+     "sum_insured": "money",
+     "remaining_sum_insured": "money",
+     "role": "string"
+    }
+   },
+   "Claim": {
+    "key": "id",
+    "id_format": "CLM-{n:03}",
+    "fields": {
+     "id": "string",
+     "policy_holder": "string",
+     "hospital_name": "string",
+     "admission_date": "date",
+     "discharge_date": "date",
+     "claim_amount": "money",
+     "document_name": "string",
+     "document_size_mb": "number",
+     "submitted_on": "date",
+     "status": "string",
+     "approved_amount": "money",
+     "deductible": "money"
+    }
+   }
+  },
+  "data": {
+   "PolicyHolder": [
+    {
+     "email": "holder@claims.test",
+     "password": "Holder@123",
+     "name": "Test Holder",
+     "mobile": "9876543210",
+     "policy_number": "POL-001",
+     "sum_insured": 500000.0,
+     "remaining_sum_insured": 100000.0,
+     "role": "holder"
+    },
+    {
+     "email": "reviewer@claims.test",
+     "password": "Review@123",
+     "name": "Test Reviewer",
+     "mobile": "9876543211",
+     "policy_number": "POL-002",
+     "sum_insured": 500000.0,
+     "remaining_sum_insured": 500000.0,
+     "role": "reviewer"
+    },
+    {
+     "email": "holder2@claims.test",
+     "password": "Holder2@123",
+     "name": "Second Holder",
+     "mobile": "9876543212",
+     "policy_number": "POL-003",
+     "sum_insured": 300000.0,
+     "remaining_sum_insured": 300000.0,
+     "role": "holder"
+    }
+   ],
+   "Claim": [
+    {
+     "id": "CLM-001",
+     "policy_holder": "holder@claims.test",
+     "hospital_name": "City Hospital",
+     "admission_date": "2024-02-01",
+     "discharge_date": "2024-02-03",
+     "claim_amount": 25000.0,
+     "document_name": "bill1.pdf",
+     "document_size_mb": 1.5,
+     "submitted_on": "2024-02-05",
+     "status": "Submitted",
+     "approved_amount": 0.0,
+     "deductible": 0.0
+    },
+    {
+     "id": "CLM-002",
+     "policy_holder": "holder@claims.test",
+     "hospital_name": "Metro Hospital",
+     "admission_date": "2024-01-15",
+     "discharge_date": "2024-01-18",
+     "claim_amount": 30000.0,
+     "document_name": "bill2.pdf",
+     "document_size_mb": 2.0,
+     "submitted_on": "2024-01-20",
+     "status": "Under Review",
+     "approved_amount": 0.0,
+     "deductible": 0.0
+    },
+    {
+     "id": "CLM-003",
+     "policy_holder": "holder2@claims.test",
+     "hospital_name": "General Hospital",
+     "admission_date": "2024-01-20",
+     "discharge_date": "2024-01-22",
+     "claim_amount": 15000.0,
+     "document_name": "bill3.jpg",
+     "document_size_mb": 3.0,
+     "submitted_on": "2024-01-25",
+     "status": "Approved",
+     "approved_amount": 13000.0,
+     "deductible": 2000.0
+    },
+    {
+     "id": "CLM-004",
+     "policy_holder": "holder2@claims.test",
+     "hospital_name": "Care Hospital",
+     "admission_date": "2024-01-10",
+     "discharge_date": "2024-01-12",
+     "claim_amount": 20000.0,
+     "document_name": "bill4.pdf",
+     "document_size_mb": 1.0,
+     "submitted_on": "2024-01-15",
+     "status": "Rejected",
+     "approved_amount": 0.0,
+     "deductible": 0.0
+    }
+   ]
+  },
+  "users": {
+   "entity": "PolicyHolder",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Submit Claim",
+   "My Claims",
+   "Claim Details",
+   "Review Claims"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "my_claims",
+    "label": "My Claims",
+    "page": "My Claims",
+    "entity": "Claim",
+    "where": {
+     "eq": [
+      {
+       "field": "row.policy_holder"
+      },
+      {
+       "user": "email"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "submitted_on",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "hospital_name",
+     "admission_date",
+     "discharge_date",
+     "claim_amount",
+     "status",
+     "approved_amount"
+    ],
+    "none_message": "You have no claims"
+   },
+   {
+    "name": "all_claims",
+    "label": "All Claims",
+    "page": "Review Claims",
+    "entity": "Claim",
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "reviewer"
+       ]
+      },
+      "message": "You are not allowed to do this"
+     }
+    ],
+    "order_by": [
+     {
+      "field": "submitted_on",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "policy_holder",
+     "hospital_name",
+     "admission_date",
+     "discharge_date",
+     "claim_amount",
+     "status",
+     "approved_amount"
+    ],
+    "none_message": "No claims found"
+   },
+   {
+    "name": "claim_details",
+    "label": "Claim Details",
+    "page": "Claim Details",
+    "entity": "Claim",
+    "key_input": "claim_id",
+    "missing": "Claim not found",
+    "show": [
+     "id",
+     "policy_holder",
+     "hospital_name",
+     "admission_date",
+     "discharge_date",
+     "claim_amount",
+     "document_name",
+     "document_size_mb",
+     "submitted_on",
+     "status",
+     "approved_amount",
+     "deductible"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "submit_claim",
+    "label": "Submit Claim",
+    "page": "Submit Claim",
+    "inputs": [
+     {
+      "name": "hospital_name",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Hospital name is required"
+       }
+      ]
+     },
+     {
+      "name": "admission_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Admission date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid admission date"
+       }
+      ]
+     },
+     {
+      "name": "discharge_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Discharge date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid discharge date"
+       }
+      ]
+     },
+     {
+      "name": "claim_amount",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Claim amount is required"
+       },
+       {
+        "rule": "number",
+        "message": "Invalid claim amount"
+       },
+       {
+        "rule": "min",
+        "value": 0.01,
+        "message": "Claim amount must be greater than zero"
+       }
+      ]
+     },
+     {
+      "name": "document_name",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Document is required"
+       },
+       {
+        "rule": "pattern",
+        "value": ".*\\.(pdf|PDF|jpg|JPG|jpeg|JPEG)",
+        "message": "Upload a PDF or JPG"
+       }
+      ]
+     },
+     {
+      "name": "document_size_mb",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Document size is required"
+       },
+       {
+        "rule": "number",
+        "message": "Invalid document size"
+       },
+       {
+        "rule": "max",
+        "value": 5,
+        "message": "File must be 5 MB or smaller"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "holder",
+      "entity": "PolicyHolder",
+      "key": {
+       "user": "email"
+      },
+      "missing": "Policy holder not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "ge": [
+        {
+         "input": "discharge_date"
+        },
+        {
+         "input": "admission_date"
+        }
+       ]
+      },
+      "message": "Discharge date must be on or after admission date"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "days_between": [
+          {
+           "input": "discharge_date"
+          },
+          {
+           "today": true
+          }
+         ]
+        },
+        30
+       ]
+      },
+      "message": "Claims must be filed within 30 days of discharge"
+     },
+     {
+      "unless": {
+       "le": [
+        {
+         "input": "claim_amount"
+        },
+        {
+         "field": "holder.remaining_sum_insured"
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Claim exceeds your remaining sum insured of {amount}",
+        {
+         "amount": {
+          "format_money": [
+           {
+            "field": "holder.remaining_sum_insured"
+           },
+           "INR"
+          ]
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Claim",
+       "as": "claim",
+       "values": {
+        "policy_holder": {
+         "user": "email"
+        },
+        "hospital_name": {
+         "input": "hospital_name"
+        },
+        "admission_date": {
+         "input": "admission_date"
+        },
+        "discharge_date": {
+         "input": "discharge_date"
+        },
+        "claim_amount": {
+         "input": "claim_amount"
+        },
+        "document_name": {
+         "input": "document_name"
+        },
+        "document_size_mb": {
+         "input": "document_size_mb"
+        },
+        "submitted_on": {
+         "today": true
+        },
+        "status": "Submitted",
+        "approved_amount": 0,
+        "deductible": 0
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Claim {id} submitted successfully",
+      {
+       "id": {
+        "field": "claim.id"
+       }
+      }
+     ]
+    },
+    "returns": {
+     "claim_id": {
+      "field": "claim.id"
+     },
+     "status": {
+      "field": "claim.status"
+     }
+    },
+    "next_page": "My Claims"
+   },
+   {
+    "name": "move_to_review",
+    "label": "Move to Review",
+    "page": "Claim Details",
+    "inputs": [
+     {
+      "name": "claim_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Claim ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "claim",
+      "entity": "Claim",
+      "key": {
+       "input": "claim_id"
+      },
+      "missing": "Claim not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "reviewer"
+       ]
+      },
+      "message": "You are not allowed to do this"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "claim.status"
+        },
+        "Submitted"
+       ]
+      },
+      "message": "Only submitted claims can be moved to review"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "claim",
+       "field": "status",
+       "value": "Under Review"
+      }
+     }
+    ],
+    "message": "Claim moved to Under Review"
+   },
+   {
+    "name": "approve_claim",
+    "label": "Approve Claim",
+    "page": "Claim Details",
+    "inputs": [
+     {
+      "name": "claim_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Claim ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "claim",
+      "entity": "Claim",
+      "key": {
+       "input": "claim_id"
+      },
+      "missing": "Claim not found"
+     },
+     {
+      "as": "holder",
+      "entity": "PolicyHolder",
+      "key": {
+       "field": "claim.policy_holder"
+      },
+      "missing": "Policy holder not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "reviewer"
+       ]
+      },
+      "message": "You are not allowed to do this"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "claim.status"
+        },
+        "Under Review"
+       ]
+      },
+      "message": "Claim must be Under Review first"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "claim",
+       "field": "status",
+       "value": "Approved"
+      }
+     },
+     {
+      "set": {
+       "record": "claim",
+       "field": "deductible",
+       "value": 2000
+      }
+     },
+     {
+      "set": {
+       "record": "claim",
+       "field": "approved_amount",
+       "value": {
+        "sub": [
+         {
+          "field": "claim.claim_amount"
+         },
+         2000
+        ]
+       }
+      }
+     },
+     {
+      "set": {
+       "record": "holder",
+       "field": "remaining_sum_insured",
+       "value": {
+        "sub": [
+         {
+          "field": "holder.remaining_sum_insured"
+         },
+         {
+          "field": "claim.claim_amount"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "sms",
+       "to": {
+        "field": "holder.mobile"
+       },
+       "body": {
+        "format": [
+         "Your claim {id} has been approved. Approved amount: {amount}",
+         {
+          "id": {
+           "field": "claim.id"
+          },
+          "amount": {
+           "format_money": [
+            {
+             "field": "claim.approved_amount"
+            },
+            "INR"
+           ]
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": "Claim approved successfully",
+    "returns": {
+     "approved_amount": {
+      "field": "claim.approved_amount"
+     }
+    }
+   },
+   {
+    "name": "reject_claim",
+    "label": "Reject Claim",
+    "page": "Claim Details",
+    "inputs": [
+     {
+      "name": "claim_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Claim ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "claim",
+      "entity": "Claim",
+      "key": {
+       "input": "claim_id"
+      },
+      "missing": "Claim not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "reviewer"
+       ]
+      },
+      "message": "You are not allowed to do this"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "claim.status"
+        },
+        "Under Review"
+       ]
+      },
+      "message": "Only claims under review can be rejected"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "claim",
+       "field": "status",
+       "value": "Rejected"
+      }
+     }
+    ],
+    "message": "Claim rejected"
+   },
+   {
+    "name": "mark_paid",
+    "label": "Mark as Paid",
+    "page": "Claim Details",
+    "inputs": [
+     {
+      "name": "claim_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Claim ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "claim",
+      "entity": "Claim",
+      "key": {
+       "input": "claim_id"
+      },
+      "missing": "Claim not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "reviewer"
+       ]
+      },
+      "message": "You are not allowed to do this"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "claim.status"
+        },
+        "Approved"
+       ]
+      },
+      "message": "Only approved claims can be paid"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "claim",
+       "field": "status",
+       "value": "Paid"
+      }
+     }
+    ],
+    "message": "Claim marked as paid"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "submit-valid-claim",
+   "title": "Submit a valid claim",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Submit Claim"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_claim",
+     "args": [
+      "Apollo",
+      "2024-03-01",
+      "2024-03-04",
+      45000,
+      "bill.pdf",
+      2
+     ],
+     "expect": true,
+     "save_as": "result"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "submitted successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "claim_result"
+    },
+    {
+     "check": {
+      "ref": "claim_result.status"
+     },
+     "expect": "Submitted"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      {
+       "ref": "claim_result.claim_id"
+      }
+     ],
+     "save_as": "claim"
+    },
+    {
+     "check": {
+      "ref": "claim.hospital_name"
+     },
+     "expect": "Apollo"
+    },
+    {
+     "check": {
+      "ref": "claim.admission_date"
+     },
+     "expect": "2024-03-01"
+    },
+    {
+     "check": {
+      "ref": "claim.discharge_date"
+     },
+     "expect": "2024-03-04"
+    },
+    {
+     "check": {
+      "ref": "claim.claim_amount"
+     },
+     "expect": 45000.0
+    },
+    {
+     "check": {
+      "ref": "claim.document_name"
+     },
+     "expect": "bill.pdf"
+    },
+    {
+     "check": {
+      "ref": "claim.document_size_mb"
+     },
+     "expect": 2
+    },
+    {
+     "check": {
+      "ref": "claim.status"
+     },
+     "expect": "Submitted"
+    },
+    {
+     "call": "teardown",
+     "args": [
+      {
+       "ref": "claim_result.claim_id"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "discharge-before-admission",
+   "title": "Discharge before admission",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Submit Claim"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_claim",
+     "args": [
+      "City Hospital",
+      "2024-03-05",
+      "2024-03-04",
+      10000,
+      "bill.pdf",
+      1
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Discharge date must be on or after admission date"
+    },
+    {
+     "call": "Database.count_claim",
+     "args": [
+      "hospital_name",
+      "City Hospital"
+     ],
+     "expect": 1
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "claim-filed-after-30-days",
+   "title": "Claim filed after 30 days",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Submit Claim"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_claim",
+     "args": [
+      "Old Hospital",
+      "2024-01-03",
+      "2024-01-05",
+      10000,
+      "bill.pdf",
+      1
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Claims must be filed within 30 days of discharge"
+    },
+    {
+     "call": "Database.count_claim",
+     "args": [
+      "hospital_name",
+      "Old Hospital"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "amount-above-remaining-sum-insured",
+   "title": "Amount above remaining sum insured",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_policy_holder",
+     "args": [
+      "holder@claims.test"
+     ],
+     "save_as": "holder_before"
+    },
+    {
+     "check": {
+      "ref": "holder_before.remaining_sum_insured"
+     },
+     "expect": 100000.0
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Submit Claim"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_claim",
+     "args": [
+      "Expensive Hospital",
+      "2024-02-01",
+      "2024-02-03",
+      100001,
+      "bill.pdf",
+      1
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Claim exceeds your remaining sum insured of ₹1,00,000.00"
+    },
+    {
+     "call": "Database.count_claim",
+     "args": [
+      "hospital_name",
+      "Expensive Hospital"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "unsupported-document-type",
+   "title": "Unsupported document type",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Submit Claim"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_claim",
+     "args": [
+      "City Hospital",
+      "2024-02-01",
+      "2024-02-03",
+      10000,
+      "bill.exe",
+      1
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Upload a PDF or JPG"
+    },
+    {
+     "call": "Database.count_claim",
+     "args": [
+      "document_name",
+      "bill.exe"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "document-larger-than-5-mb",
+   "title": "Document larger than 5 MB",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Submit Claim"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.submit_claim",
+     "args": [
+      "City Hospital",
+      "2024-02-01",
+      "2024-02-03",
+      10000,
+      "bill.pdf",
+      6
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "File must be 5 MB or smaller"
+    },
+    {
+     "call": "Database.count_claim",
+     "args": [
+      "document_size_mb",
+      6
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "reviewer-approves-claim",
+   "title": "Reviewer approves claim",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "save_as": "claim_before"
+    },
+    {
+     "check": {
+      "ref": "claim_before.status"
+     },
+     "expect": "Submitted"
+    },
+    {
+     "check": {
+      "ref": "claim_before.claim_amount"
+     },
+     "expect": 25000.0
+    },
+    {
+     "call": "Database.get_policy_holder",
+     "args": [
+      "holder@claims.test"
+     ],
+     "save_as": "holder_before"
+    },
+    {
+     "check": {
+      "ref": "holder_before.remaining_sum_insured"
+     },
+     "expect": 100000.0
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "reviewer@claims.test",
+      "Review@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Claim Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.move_to_review",
+     "args": [
+      "CLM-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Claim moved to Under Review"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "save_as": "claim_review"
+    },
+    {
+     "check": {
+      "ref": "claim_review.status"
+     },
+     "expect": "Under Review"
+    },
+    {
+     "call": "UI.approve_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Claim approved successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "approval_result"
+    },
+    {
+     "check": {
+      "ref": "approval_result.approved_amount"
+     },
+     "expect": 23000.0
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "save_as": "claim_after"
+    },
+    {
+     "check": {
+      "ref": "claim_after.status"
+     },
+     "expect": "Approved"
+    },
+    {
+     "check": {
+      "ref": "claim_after.approved_amount"
+     },
+     "expect": 23000.0
+    },
+    {
+     "check": {
+      "ref": "claim_after.deductible"
+     },
+     "expect": 2000.0
+    },
+    {
+     "call": "Database.get_policy_holder",
+     "args": [
+      "holder@claims.test"
+     ],
+     "save_as": "holder_after"
+    },
+    {
+     "check": {
+      "ref": "holder_after.remaining_sum_insured"
+     },
+     "expect": 75000.0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "approve-without-review",
+   "title": "Approve without review",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "save_as": "claim_before"
+    },
+    {
+     "check": {
+      "ref": "claim_before.status"
+     },
+     "expect": "Submitted"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "reviewer@claims.test",
+      "Review@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Claim Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.approve_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Claim must be Under Review first"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "save_as": "claim_after"
+    },
+    {
+     "check": {
+      "ref": "claim_after.status"
+     },
+     "expect": "Submitted"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "rejected-claim-cant-be-paid",
+   "title": "Rejected claim can't be paid",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-004"
+     ],
+     "save_as": "claim_before"
+    },
+    {
+     "check": {
+      "ref": "claim_before.status"
+     },
+     "expect": "Rejected"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "reviewer@claims.test",
+      "Review@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Claim Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.mark_paid",
+     "args": [
+      "CLM-004"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Only approved claims can be paid"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-004"
+     ],
+     "save_as": "claim_after"
+    },
+    {
+     "check": {
+      "ref": "claim_after.status"
+     },
+     "expect": "Rejected"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "policy-holder-cant-approve",
+   "title": "Policy holder can't approve",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-002"
+     ],
+     "save_as": "claim_before"
+    },
+    {
+     "check": {
+      "ref": "claim_before.status"
+     },
+     "expect": "Under Review"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "holder@claims.test",
+      "Holder@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Claim Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.approve_claim",
+     "args": [
+      "CLM-002"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "You are not allowed to do this"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-002"
+     ],
+     "save_as": "claim_after"
+    },
+    {
+     "check": {
+      "ref": "claim_after.status"
+     },
+     "expect": "Under Review"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "claim-status-notification",
+   "title": "Claim status notification",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "save_as": "claim_before"
+    },
+    {
+     "check": {
+      "ref": "claim_before.status"
+     },
+     "expect": "Submitted"
+    },
+    {
+     "call": "Database.get_policy_holder",
+     "args": [
+      "holder@claims.test"
+     ],
+     "save_as": "holder"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "reviewer@claims.test",
+      "Review@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Claim Details"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.move_to_review",
+     "args": [
+      "CLM-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.approve_claim",
+     "args": [
+      "CLM-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "messages"
+    },
+    {
+     "call": "Database.outbox",
+     "expect_includes": [
+      {
+       "channel": "sms",
+       "to": "9876543210",
+       "body": "Your claim CLM-001 has been approved. Approved amount: ₹23,000.00"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

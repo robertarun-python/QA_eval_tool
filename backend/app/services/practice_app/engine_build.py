@@ -208,7 +208,12 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
 
     def call(prompt: str, max_tokens: int) -> str:
         result.ai_calls += 1
-        return llm_service._call_claude(prompt, max_tokens=max_tokens)
+        reply = llm_service._call_claude(prompt, max_tokens=max_tokens)
+        # Kept raw - also the replies that fail to parse, which the parsed results never showed
+        # (tests/test_real_output_replay.py replays saved ones).
+        result.exchanges.append({"call": result.ai_calls, "asked": prompt.strip().splitlines()[0][:120] if prompt.strip() else "",
+                                 "reply": reply})
+        return reply
 
     def ask_json(prompt: str, max_tokens: int):
         """A JSON reply, with one corrective retry: a single typo in a large reply

@@ -168,6 +168,7 @@ def run_build(scenario_id: int) -> None:
                 "reference_hash": _reference_hash(scenario),
                 "env_code_by_language": result.env_code_by_language,
                 "support_by_language": result.support_by_language,
+                "ai_exchanges": result.exchanges,
                 "ground_truth": generator.ground_truth(result.plan),
                 "log": result.log,
                 "coverage": rows,

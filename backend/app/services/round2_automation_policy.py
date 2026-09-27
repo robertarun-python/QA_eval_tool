@@ -65,7 +65,26 @@ _PROHIBITED_PATTERNS = (
 # A quoted string or a bare number in generated code. Deliberately simple:
 # it over-collects (helper names, paths, format strings), which is why the
 # result is evidence for a scorer rather than an automatic failure.
-_LITERAL_RE = re.compile(r"""["']([^"'\n]{2,})["']|(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])""")
+_NUMBER_LITERAL_RE = re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)(?![\w.])")
+# A string literal honouring escapes: Java and JavaScript JSON bodies are written
+# "{\"email\": \"...\"}", and reading \" as the end of the text split them into
+# fragments like ') || body.contains(' - noise for the scorer, and a secret in the
+# environment escaped that way was never matched (found replaying Java variants, 2026-09-27).
+_STRING_RE = re.compile(r'"((?:[^"\\\n]|\\.)*)"|\'((?:[^\'\\\n]|\\.)*)\'')
+
+
+def _strings(code: str, shortest: int = 1, longest: int = 10_000, nested: bool = False) -> list[str]:
+    """The text of every string literal in `code`, escapes resolved; with
+    nested, also the strings inside those (the values of a JSON body)."""
+    out = [re.sub(r"\\(.)", r"\1", a or b) for a, b in _STRING_RE.findall(code or "")]
+    if nested:
+        out += [inner for v in list(out) for inner in _strings(v)]
+    return [v for v in out if shortest <= len(v) <= longest]
+
+
+def _literals(code: str) -> list[str]:
+    """Quoted strings, then bare numbers outside them."""
+    return _strings(code, 2) + _NUMBER_LITERAL_RE.findall(_STRING_RE.sub(" ", code or ""))
 
 # Values that are part of the provided environment or ordinary programming
 # noise, never "invented test data" - excluded so the signal stays useful.
@@ -109,8 +128,8 @@ def untraceable_literals(code: str, selected_rows: list[dict], environment_code:
     haystack = _snapshot_text(selected_rows) + " " + (environment_code or "").lower()
     found: list[str] = []
     seen: set[str] = set()
-    for quoted, number in _LITERAL_RE.findall(code):
-        literal = (quoted or number).strip()
+    for literal in _literals(code):
+        literal = literal.strip()
         key = literal.lower()
         if not literal or key in _IGNORED_LITERALS or key in seen:
             continue
@@ -208,9 +227,6 @@ def drop_single_line_statements(code: str, lines: list[str]) -> tuple[str, list[
     return out, remaining
 
 
-_STRING_LITERAL_RE = re.compile(r"""["']([^"'\n]{5,})["']""")
-
-
 def leaked_environment_values(
     message: str | None, environment_code: str,
     selected_rows: list[dict], conversation_so_far: list[dict], candidate_prompt: str,
@@ -223,7 +239,7 @@ def leaked_environment_values(
         return []
     known = _candidate_text(selected_rows, conversation_so_far, candidate_prompt)
     leaks = []
-    for value in dict.fromkeys(_STRING_LITERAL_RE.findall(environment_code or "")):
+    for value in dict.fromkeys(_strings(environment_code, 5, nested=True)):
         v = value.strip()
         if re.fullmatch(r"[a-z_]+", v) or v.lower() in known:
             continue
@@ -280,7 +296,6 @@ _KEYED_VALUE_RE = re.compile(
     r"\b(?:name|full name|username|user name|user|password|pwd|email|e-mail)\s*(?:is|=|:)?\s*"
     r"([A-Z][\w@!#$%&*+-]*(?:\.[\w@!#$%&*+-]+)*(?: [A-Z][\w@!#$%&*+-]*(?:\.[\w@!#$%&*+-]+)*)*|\S*\d\S*)"
 )
-_CODE_STRING_RE = re.compile(r"""["']([^"'\n]{3,120})["']""")
 _SIMILAR = 0.75
 
 
@@ -313,7 +328,7 @@ def changed_candidate_values(
     """'<stated> -> <in code>' for each stated value the code carries only an altered copy of."""
     code = code or ""
     stated = _stated_values(selected_rows, conversation_so_far, candidate_prompt)
-    literals = {m.strip() for m in _CODE_STRING_RE.findall(code)}
+    literals = {m.strip() for m in _strings(code, 3, 120)}
     changed = []
     for value in sorted(stated):
         if value in code:

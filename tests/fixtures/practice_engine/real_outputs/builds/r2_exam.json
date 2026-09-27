@@ -1,0 +1,1279 @@
+{
+ "label": "r2_exam",
+ "title": "Student Exam Results Portal",
+ "recorded": "4/11",
+ "spec": {
+  "app_name": "Student Exam Results Portal",
+  "base_url": "https://results.example.test",
+  "now": "2024-03-15T10:00",
+  "entities": {
+   "Student": {
+    "key": "roll_number",
+    "fields": {
+     "roll_number": "string",
+     "name": "string",
+     "date_of_birth": "date",
+     "class": "string"
+    }
+   },
+   "Result": {
+    "key": "id",
+    "id_format": "R-{n:03}",
+    "fields": {
+     "id": "string",
+     "roll_number": "string",
+     "subject": "string",
+     "marks": "int",
+     "grade": "string",
+     "status": "string",
+     "published": "bool",
+     "published_on": "date"
+    }
+   },
+   "Revaluation": {
+    "key": "id",
+    "id_format": "RV-{n:03}",
+    "fields": {
+     "id": "string",
+     "roll_number": "string",
+     "subject": "string",
+     "requested_on": "date",
+     "fee": "money",
+     "status": "string"
+    }
+   },
+   "Admin": {
+    "key": "username",
+    "fields": {
+     "username": "string",
+     "password": "string",
+     "name": "string"
+    }
+   }
+  },
+  "data": {
+   "Student": [
+    {
+     "roll_number": "21CS001",
+     "name": "Rahul Kumar",
+     "date_of_birth": "2003-05-14",
+     "class": "CS-A"
+    },
+    {
+     "roll_number": "21CS002",
+     "name": "Priya Sharma",
+     "date_of_birth": "2003-08-22",
+     "class": "CS-A"
+    },
+    {
+     "roll_number": "21CS003",
+     "name": "Amit Patel",
+     "date_of_birth": "2003-11-30",
+     "class": "CS-A"
+    },
+    {
+     "roll_number": "21CS004",
+     "name": "Sneha Reddy",
+     "date_of_birth": "2003-02-18",
+     "class": "CS-A"
+    },
+    {
+     "roll_number": "21CS005",
+     "name": "Vikram Singh",
+     "date_of_birth": "2003-07-09",
+     "class": "CS-A"
+    }
+   ],
+   "Result": [
+    {
+     "id": "R-001",
+     "roll_number": "21CS001",
+     "subject": "Mathematics",
+     "marks": 92,
+     "grade": "A+",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-002",
+     "roll_number": "21CS001",
+     "subject": "Physics",
+     "marks": 85,
+     "grade": "A",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-003",
+     "roll_number": "21CS001",
+     "subject": "Chemistry",
+     "marks": 78,
+     "grade": "A",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-004",
+     "roll_number": "21CS002",
+     "subject": "Mathematics",
+     "marks": 90,
+     "grade": "A+",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-005",
+     "roll_number": "21CS002",
+     "subject": "Physics",
+     "marks": 89,
+     "grade": "A",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-006",
+     "roll_number": "21CS002",
+     "subject": "Chemistry",
+     "marks": 75,
+     "grade": "A",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-007",
+     "roll_number": "21CS003",
+     "subject": "Mathematics",
+     "marks": 74,
+     "grade": "B",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-008",
+     "roll_number": "21CS003",
+     "subject": "Physics",
+     "marks": 60,
+     "grade": "B",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-009",
+     "roll_number": "21CS003",
+     "subject": "Chemistry",
+     "marks": 59,
+     "grade": "C",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-010",
+     "roll_number": "21CS004",
+     "subject": "Mathematics",
+     "marks": 40,
+     "grade": "C",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-011",
+     "roll_number": "21CS004",
+     "subject": "Physics",
+     "marks": 39,
+     "grade": "F",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-012",
+     "roll_number": "21CS004",
+     "subject": "Chemistry",
+     "marks": 50,
+     "grade": "C",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-013",
+     "roll_number": "21CS005",
+     "subject": "Mathematics",
+     "marks": 85,
+     "grade": "A",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-014",
+     "roll_number": "21CS005",
+     "subject": "Physics",
+     "marks": -1,
+     "grade": "AB",
+     "status": "Absent",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-015",
+     "roll_number": "21CS005",
+     "subject": "Chemistry",
+     "marks": 70,
+     "grade": "B",
+     "status": "Regular",
+     "published": true,
+     "published_on": "2024-03-12"
+    },
+    {
+     "id": "R-016",
+     "roll_number": "21CS006",
+     "subject": "Mathematics",
+     "marks": 65,
+     "grade": "B",
+     "status": "Regular",
+     "published": false,
+     "published_on": "2024-01-01"
+    },
+    {
+     "id": "R-017",
+     "roll_number": "21CS006",
+     "subject": "Physics",
+     "marks": 70,
+     "grade": "B",
+     "status": "Regular",
+     "published": false,
+     "published_on": "2024-01-01"
+    },
+    {
+     "id": "R-018",
+     "roll_number": "21CS006",
+     "subject": "Chemistry",
+     "marks": 68,
+     "grade": "B",
+     "status": "Regular",
+     "published": false,
+     "published_on": "2024-01-01"
+    }
+   ],
+   "Revaluation": [],
+   "Admin": [
+    {
+     "username": "admin",
+     "password": "Admin@123",
+     "name": "System Admin"
+    }
+   ]
+  },
+  "users": {
+   "entity": "Student",
+   "login_field": "roll_number",
+   "password_field": "date_of_birth",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Roll number is required",
+    "required_password": "Date of birth is required",
+    "invalid": "Roll number and date of birth do not match",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "My Results",
+   "Request Revaluation"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "view_results",
+    "label": "View Results",
+    "page": "My Results",
+    "entity": "Result",
+    "where": {
+     "eq": [
+      {
+       "field": "row.roll_number"
+      },
+      {
+       "user": "roll_number"
+      }
+     ]
+    },
+    "rules": [
+     {
+      "unless": {
+       "exists": {
+        "entity": "Result",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.roll_number"
+            },
+            {
+             "user": "roll_number"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.published"
+            },
+            true
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": "Results are not published yet"
+     }
+    ],
+    "order_by": [
+     {
+      "field": "subject"
+     }
+    ],
+    "show": [
+     "subject",
+     "marks",
+     "grade",
+     "status",
+     {
+      "name": "overall_result",
+      "value": {
+       "if": [
+        {
+         "or": [
+          {
+           "exists": {
+            "entity": "Result",
+            "where": {
+             "and": [
+              {
+               "eq": [
+                {
+                 "field": "row.roll_number"
+                },
+                {
+                 "user": "roll_number"
+                }
+               ]
+              },
+              {
+               "eq": [
+                {
+                 "field": "row.status"
+                },
+                "Absent"
+               ]
+              }
+             ]
+            }
+           }
+          },
+          {
+           "exists": {
+            "entity": "Result",
+            "where": {
+             "and": [
+              {
+               "eq": [
+                {
+                 "field": "row.roll_number"
+                },
+                {
+                 "user": "roll_number"
+                }
+               ]
+              },
+              {
+               "lt": [
+                {
+                 "field": "row.marks"
+                },
+                40
+               ]
+              },
+              {
+               "ne": [
+                {
+                 "field": "row.status"
+                },
+                "Absent"
+               ]
+              }
+             ]
+            }
+           }
+          }
+         ]
+        },
+        "Fail",
+        "Pass"
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "request_revaluation",
+    "label": "Request Revaluation",
+    "page": "Request Revaluation",
+    "inputs": [
+     {
+      "name": "subject",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Subject is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "result",
+      "entity": "Result",
+      "key": {
+       "concat": [
+        {
+         "user": "roll_number"
+        },
+        "-",
+        {
+         "input": "subject"
+        }
+       ]
+      },
+      "missing": "Result not found for this subject"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "result.published"
+        },
+        true
+       ]
+      },
+      "message": "Results are not published yet"
+     },
+     {
+      "when": {
+       "gt": [
+        {
+         "days_between": [
+          {
+           "field": "result.published_on"
+          },
+          {
+           "today": true
+          }
+         ]
+        },
+        7
+       ]
+      },
+      "message": "Revaluation window has closed"
+     },
+     {
+      "when": {
+       "exists": {
+        "entity": "Revaluation",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.roll_number"
+            },
+            {
+             "user": "roll_number"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.subject"
+            },
+            {
+             "input": "subject"
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": {
+       "format": [
+        "Revaluation already requested for {subject}",
+        {
+         "subject": {
+          "input": "subject"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Revaluation",
+       "as": "revaluation",
+       "values": {
+        "roll_number": {
+         "user": "roll_number"
+        },
+        "subject": {
+         "input": "subject"
+        },
+        "requested_on": {
+         "today": true
+        },
+        "fee": 500.0,
+        "status": "Pending"
+       }
+      }
+     }
+    ],
+    "message": "Revaluation request created. Fee: ₹500.00",
+    "returns": {
+     "revaluation_id": {
+      "field": "revaluation.id"
+     },
+     "fee": {
+      "field": "revaluation.fee"
+     }
+    }
+   },
+   {
+    "name": "publish_results",
+    "label": "Publish Results",
+    "page": "Home",
+    "requires_login": false,
+    "inputs": [
+     {
+      "name": "admin_username",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Admin username is required"
+       }
+      ]
+     },
+     {
+      "name": "admin_password",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Admin password is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "admin",
+      "entity": "Admin",
+      "key": {
+       "input": "admin_username"
+      },
+      "missing": "Only admins can publish results"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "admin.password"
+        },
+        {
+         "input": "admin_password"
+        }
+       ]
+      },
+      "message": "Only admins can publish results"
+     }
+    ],
+    "effects": [
+     {
+      "for_each": {
+       "entity": "Result",
+       "where": {
+        "eq": [
+         {
+          "field": "row.published"
+         },
+         false
+        ]
+       },
+       "as": "r",
+       "effects": [
+        {
+         "set": {
+          "record": "r",
+          "field": "published",
+          "value": true
+         }
+        },
+        {
+         "set": {
+          "record": "r",
+          "field": "published_on",
+          "value": {
+           "today": true
+          }
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "message": "Results published successfully"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "view-published-result",
+   "title": "View published result",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS001",
+      "2003-05-14"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Results"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.view_results",
+     "args": [],
+     "save_as": "results",
+     "expect_includes": [
+      {
+       "subject": "Mathematics",
+       "marks": 92,
+       "grade": "A+",
+       "status": "Regular"
+      },
+      {
+       "subject": "Physics",
+       "marks": 85,
+       "grade": "A",
+       "status": "Regular"
+      },
+      {
+       "subject": "Chemistry",
+       "marks": 78,
+       "grade": "A",
+       "status": "Regular"
+      }
+     ]
+    },
+    {
+     "check": {
+      "ref": "results.0.overall_result"
+     },
+     "expect": "Pass"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "wrong-date-of-birth",
+   "title": "Wrong date of birth",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS001",
+      "2003-01-01"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "args": [],
+     "expect": "Roll number and date of birth do not match"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "result-not-yet-published",
+   "title": "Result not yet published",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_student",
+     "args": [
+      "21CS006"
+     ],
+     "save_as": "student"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS006",
+      "2003-11-30"
+     ],
+     "expect": false
+    },
+    {
+     "call": "API.login",
+     "args": [
+      "21CS006",
+      "2003-11-30"
+     ],
+     "save_as": "login_response"
+    },
+    {
+     "call": "API.view_results",
+     "args": [],
+     "save_as": "view_response"
+    },
+    {
+     "check": {
+      "ref": "view_response.ok"
+     },
+     "expect": false
+    },
+    {
+     "check": {
+      "ref": "view_response.message"
+     },
+     "expect": "Results are not published yet"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "grade-boundaries",
+   "title": "Grade boundaries",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.find_result",
+     "args": [
+      "roll_number",
+      "21CS001"
+     ],
+     "save_as": "results_001"
+    },
+    {
+     "check": {
+      "ref": "results_001.0.marks"
+     },
+     "expect": 92
+    },
+    {
+     "check": {
+      "ref": "results_001.0.grade"
+     },
+     "expect": "A+"
+    },
+    {
+     "call": "Database.find_result",
+     "args": [
+      "roll_number",
+      "21CS002"
+     ],
+     "save_as": "results_002"
+    },
+    {
+     "check": {
+      "ref": "results_002.1.marks"
+     },
+     "expect": 89
+    },
+    {
+     "check": {
+      "ref": "results_002.1.grade"
+     },
+     "expect": "A"
+    },
+    {
+     "check": {
+      "ref": "results_002.2.marks"
+     },
+     "expect": 75
+    },
+    {
+     "check": {
+      "ref": "results_002.2.grade"
+     },
+     "expect": "A"
+    },
+    {
+     "call": "Database.find_result",
+     "args": [
+      "roll_number",
+      "21CS003"
+     ],
+     "save_as": "results_003"
+    },
+    {
+     "check": {
+      "ref": "results_003.0.marks"
+     },
+     "expect": 74
+    },
+    {
+     "check": {
+      "ref": "results_003.0.grade"
+     },
+     "expect": "B"
+    },
+    {
+     "check": {
+      "ref": "results_003.1.marks"
+     },
+     "expect": 60
+    },
+    {
+     "check": {
+      "ref": "results_003.1.grade"
+     },
+     "expect": "B"
+    },
+    {
+     "check": {
+      "ref": "results_003.2.marks"
+     },
+     "expect": 59
+    },
+    {
+     "check": {
+      "ref": "results_003.2.grade"
+     },
+     "expect": "C"
+    },
+    {
+     "call": "Database.find_result",
+     "args": [
+      "roll_number",
+      "21CS004"
+     ],
+     "save_as": "results_004"
+    },
+    {
+     "check": {
+      "ref": "results_004.0.marks"
+     },
+     "expect": 40
+    },
+    {
+     "check": {
+      "ref": "results_004.0.grade"
+     },
+     "expect": "C"
+    },
+    {
+     "check": {
+      "ref": "results_004.1.marks"
+     },
+     "expect": 39
+    },
+    {
+     "check": {
+      "ref": "results_004.1.grade"
+     },
+     "expect": "F"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "absent-subject",
+   "title": "Absent subject",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS005",
+      "2003-07-09"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Results"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.view_results",
+     "args": [],
+     "save_as": "results"
+    },
+    {
+     "check": {
+      "ref": "results.1.subject"
+     },
+     "expect": "Physics"
+    },
+    {
+     "check": {
+      "ref": "results.1.grade"
+     },
+     "expect": "AB"
+    },
+    {
+     "check": {
+      "ref": "results.1.status"
+     },
+     "expect": "Absent"
+    },
+    {
+     "check": {
+      "ref": "results.0.overall_result"
+     },
+     "expect": "Fail"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "fail-in-one-subject",
+   "title": "Fail in one subject",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS004",
+      "2003-02-18"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Results"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.view_results",
+     "args": [],
+     "save_as": "results"
+    },
+    {
+     "check": {
+      "ref": "results.1.subject"
+     },
+     "expect": "Physics"
+    },
+    {
+     "check": {
+      "ref": "results.1.marks"
+     },
+     "expect": 39
+    },
+    {
+     "check": {
+      "ref": "results.1.grade"
+     },
+     "expect": "F"
+    },
+    {
+     "check": {
+      "ref": "results.0.overall_result"
+     },
+     "expect": "Fail"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "request-revaluation-within-7-days",
+   "title": "Request revaluation within 7 days",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS001",
+      "2003-05-14"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Request Revaluation"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.request_revaluation",
+     "args": [
+      "Physics"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "args": [],
+     "expect": "Revaluation request created. Fee: ₹500.00"
+    },
+    {
+     "call": "UI.last_result",
+     "args": [],
+     "save_as": "result_details"
+    },
+    {
+     "check": {
+      "ref": "result_details.fee"
+     },
+     "expect": 500.0
+    },
+    {
+     "call": "Database.find_revaluation",
+     "args": [
+      "roll_number",
+      "21CS001"
+     ],
+     "save_as": "revaluations"
+    },
+    {
+     "check": {
+      "ref": "revaluations.0.subject"
+     },
+     "expect": "Physics"
+    },
+    {
+     "check": {
+      "ref": "revaluations.0.fee"
+     },
+     "expect": 500.0
+    },
+    {
+     "check": {
+      "ref": "revaluations.0.status"
+     },
+     "expect": "Pending"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "revaluation-after-7-days",
+   "title": "Revaluation after 7 days",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Test.advance_minutes",
+     "args": [
+      11520
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS001",
+      "2003-05-14"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Request Revaluation"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.request_revaluation",
+     "args": [
+      "Physics"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "args": [],
+     "expect": "Revaluation window has closed"
+    },
+    {
+     "call": "Database.count_revaluation",
+     "args": [
+      "roll_number",
+      "21CS001"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "revaluation-twice-for-a-subject",
+   "title": "Revaluation twice for a subject",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "21CS001",
+      "2003-05-14"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Request Revaluation"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.request_revaluation",
+     "args": [
+      "Physics"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_revaluation",
+     "args": [
+      "roll_number",
+      "21CS001"
+     ],
+     "save_as": "count_before"
+    },
+    {
+     "call": "UI.request_revaluation",
+     "args": [
+      "Physics"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "args": [],
+     "expect": "Revaluation already requested for Physics"
+    },
+    {
+     "call": "Database.count_revaluation",
+     "args": [
+      "roll_number",
+      "21CS001"
+     ],
+     "save_as": "count_after"
+    },
+    {
+     "check": {
+      "ref": "count_after"
+     },
+     "expect": {
+      "ref": "count_before"
+     }
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "student-tries-to-publish",
+   "title": "Student tries to publish",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.count_result",
+     "args": [
+      "published",
+      false
+     ],
+     "save_as": "unpublished_before"
+    },
+    {
+     "call": "API.publish_results",
+     "args": [
+      "21CS001",
+      "2003-05-14"
+     ],
+     "expect_includes": {
+      "ok": false,
+      "error": "Only admins can publish results"
+     }
+    },
+    {
+     "call": "Database.count_result",
+     "args": [
+      "published",
+      false
+     ],
+     "save_as": "unpublished_after"
+    },
+    {
+     "check": {
+      "ref": "unpublished_after"
+     },
+     "expect": {
+      "ref": "unpublished_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

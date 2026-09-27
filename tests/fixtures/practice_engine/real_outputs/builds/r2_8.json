@@ -1,0 +1,1685 @@
+{
+ "label": "r2_8",
+ "title": "Bus Booking App – Book Bus Ticket",
+ "recorded": "11/12",
+ "spec": {
+  "app_name": "Bus Booking System",
+  "base_url": "https://busbook.example.test",
+  "now": "2024-03-15T10:00",
+  "entities": {
+   "User": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "mobile": "string"
+    }
+   },
+   "Bus": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "name": "string",
+     "source": "string",
+     "destination": "string",
+     "departure_time": "string",
+     "arrival_time": "string",
+     "fare": "money",
+     "total_seats": "int",
+     "amenities": "string",
+     "boarding_points": "string"
+    }
+   },
+   "Schedule": {
+    "key": "id",
+    "id_format": "SCH-{n:03}",
+    "fields": {
+     "id": "string",
+     "bus_id": "string",
+     "travel_date": "date",
+     "booked_seats": "string"
+    }
+   },
+   "Booking": {
+    "key": "id",
+    "id_format": "PNR-{n:06}",
+    "fields": {
+     "id": "string",
+     "user_email": "string",
+     "bus_id": "string",
+     "bus_name": "string",
+     "source": "string",
+     "destination": "string",
+     "travel_date": "date",
+     "departure_time": "string",
+     "seat_number": "string",
+     "passenger_name": "string",
+     "passenger_age": "int",
+     "passenger_gender": "string",
+     "passenger_mobile": "string",
+     "passenger_email": "string",
+     "fare": "money",
+     "booking_date": "date",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "User": [
+    {
+     "email": "testuser@busbook.test",
+     "password": "Test@123",
+     "name": "Test User",
+     "mobile": "9876543210"
+    },
+    {
+     "email": "john@busbook.test",
+     "password": "John@456",
+     "name": "John Doe",
+     "mobile": "9988776655"
+    }
+   ],
+   "Bus": [
+    {
+     "id": "BUS-001",
+     "name": "Express Travels",
+     "source": "Mumbai",
+     "destination": "Pune",
+     "departure_time": "08:00",
+     "arrival_time": "11:30",
+     "fare": 450.0,
+     "total_seats": 40,
+     "amenities": "AC, WiFi, Charging Point",
+     "boarding_points": "Dadar, Thane, Panvel"
+    },
+    {
+     "id": "BUS-002",
+     "name": "Comfort Coaches",
+     "source": "Mumbai",
+     "destination": "Pune",
+     "departure_time": "14:00",
+     "arrival_time": "17:30",
+     "fare": 500.0,
+     "total_seats": 35,
+     "amenities": "AC, WiFi, Water Bottle",
+     "boarding_points": "Dadar, Kalyan"
+    },
+    {
+     "id": "BUS-003",
+     "name": "Royal Roadways",
+     "source": "Delhi",
+     "destination": "Jaipur",
+     "departure_time": "06:00",
+     "arrival_time": "11:00",
+     "fare": 600.0,
+     "total_seats": 45,
+     "amenities": "AC, Sleeper, Blanket",
+     "boarding_points": "Kashmere Gate, Gurgaon"
+    },
+    {
+     "id": "BUS-004",
+     "name": "Speed Travels",
+     "source": "Bangalore",
+     "destination": "Chennai",
+     "departure_time": "22:00",
+     "arrival_time": "05:00",
+     "fare": 750.0,
+     "total_seats": 40,
+     "amenities": "AC, Sleeper, WiFi",
+     "boarding_points": "Majestic, Electronic City"
+    }
+   ],
+   "Schedule": [
+    {
+     "id": "SCH-001",
+     "bus_id": "BUS-001",
+     "travel_date": "2024-03-20",
+     "booked_seats": "A1,A2,B5"
+    },
+    {
+     "id": "SCH-002",
+     "bus_id": "BUS-002",
+     "travel_date": "2024-03-20",
+     "booked_seats": "C3"
+    },
+    {
+     "id": "SCH-003",
+     "bus_id": "BUS-003",
+     "travel_date": "2024-03-22",
+     "booked_seats": "D1,D2"
+    }
+   ],
+   "Booking": [
+    {
+     "id": "PNR-000001",
+     "user_email": "john@busbook.test",
+     "bus_id": "BUS-001",
+     "bus_name": "Express Travels",
+     "source": "Mumbai",
+     "destination": "Pune",
+     "travel_date": "2024-03-20",
+     "departure_time": "08:00",
+     "seat_number": "A1",
+     "passenger_name": "John Doe",
+     "passenger_age": 30,
+     "passenger_gender": "Male",
+     "passenger_mobile": "9988776655",
+     "passenger_email": "john@busbook.test",
+     "fare": 450.0,
+     "booking_date": "2024-03-10",
+     "status": "Confirmed"
+    }
+   ]
+  },
+  "users": {
+   "entity": "User",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid credentials",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Search Results",
+   "Bus Details",
+   "Seat Selection",
+   "Passenger Details",
+   "Payment",
+   "Booking Confirmation"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "search_buses",
+    "label": "Search Buses",
+    "page": "Home",
+    "entity": "Bus",
+    "inputs": [
+     {
+      "name": "source",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Source city is required"
+       }
+      ]
+     },
+     {
+      "name": "destination",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Destination city is required"
+       }
+      ]
+     },
+     {
+      "name": "travel_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Travel date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid date format"
+       },
+       {
+        "rule": "not_past",
+        "message": "Past dates cannot be selected"
+       }
+      ]
+     }
+    ],
+    "where": {
+     "and": [
+      {
+       "eq": [
+        {
+         "field": "row.source"
+        },
+        {
+         "input": "source"
+        }
+       ]
+      },
+      {
+       "eq": [
+        {
+         "field": "row.destination"
+        },
+        {
+         "input": "destination"
+        }
+       ]
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "departure_time"
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "departure_time",
+     "arrival_time",
+     "fare",
+     {
+      "name": "seats_available",
+      "value": {
+       "sub": [
+        {
+         "field": "row.total_seats"
+        },
+        {
+         "count": {
+          "entity": "Booking",
+          "where": {
+           "and": [
+            {
+             "eq": [
+              {
+               "field": "row.bus_id"
+              },
+              {
+               "field": "bus.id"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.travel_date"
+              },
+              {
+               "input": "travel_date"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.status"
+              },
+              "Confirmed"
+             ]
+            }
+           ]
+          }
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "none_message": "No buses found for selected route and date",
+    "next_page": "Search Results",
+    "as": "bus"
+   },
+   {
+    "name": "view_bus_details",
+    "label": "View Bus Details",
+    "page": "Search Results",
+    "entity": "Bus",
+    "key_input": "bus_id",
+    "missing": "Bus not found",
+    "inputs": [
+     {
+      "name": "travel_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Travel date is required"
+       }
+      ]
+     }
+    ],
+    "show": [
+     "id",
+     "name",
+     "source",
+     "destination",
+     "departure_time",
+     "arrival_time",
+     "fare",
+     "total_seats",
+     "amenities",
+     "boarding_points"
+    ],
+    "next_page": "Bus Details"
+   }
+  ],
+  "actions": [
+   {
+    "name": "select_seat",
+    "label": "Select Seat",
+    "page": "Bus Details",
+    "inputs": [
+     {
+      "name": "bus_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Bus ID is required"
+       }
+      ]
+     },
+     {
+      "name": "travel_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Travel date is required"
+       }
+      ]
+     },
+     {
+      "name": "seat_number",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please select a seat"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "bus",
+      "entity": "Bus",
+      "key": {
+       "input": "bus_id"
+      },
+      "missing": "Bus not found"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "exists": {
+        "entity": "Booking",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.bus_id"
+            },
+            {
+             "input": "bus_id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.travel_date"
+            },
+            {
+             "input": "travel_date"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.seat_number"
+            },
+            {
+             "input": "seat_number"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Confirmed"
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": "Seat already booked"
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "selected_bus_id",
+       "value": {
+        "input": "bus_id"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "selected_travel_date",
+       "value": {
+        "input": "travel_date"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "selected_seat",
+       "value": {
+        "input": "seat_number"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "selected_fare",
+       "value": {
+        "field": "bus.fare"
+       }
+      }
+     }
+    ],
+    "message": "Seat selected successfully",
+    "next_page": "Passenger Details"
+   },
+   {
+    "name": "enter_passenger_details",
+    "label": "Continue to Payment",
+    "page": "Passenger Details",
+    "inputs": [
+     {
+      "name": "passenger_name",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Name is required"
+       }
+      ]
+     },
+     {
+      "name": "passenger_age",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Age is required"
+       },
+       {
+        "rule": "number",
+        "message": "Age must be a number"
+       },
+       {
+        "rule": "min",
+        "value": 1,
+        "message": "Age must be at least 1"
+       }
+      ]
+     },
+     {
+      "name": "passenger_gender",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Gender is required"
+       },
+       {
+        "rule": "one_of",
+        "value": [
+         "Male",
+         "Female",
+         "Other"
+        ],
+        "message": "Invalid gender"
+       }
+      ]
+     },
+     {
+      "name": "passenger_mobile",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Mobile number is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{10}",
+        "message": "Please enter valid 10 digit mobile number"
+       }
+      ]
+     },
+     {
+      "name": "passenger_email",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Email is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+        "message": "Invalid email format"
+       }
+      ]
+     }
+    ],
+    "effects": [
+     {
+      "set_session": {
+       "key": "passenger_name",
+       "value": {
+        "input": "passenger_name"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "passenger_age",
+       "value": {
+        "input": "passenger_age"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "passenger_gender",
+       "value": {
+        "input": "passenger_gender"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "passenger_mobile",
+       "value": {
+        "input": "passenger_mobile"
+       }
+      }
+     },
+     {
+      "set_session": {
+       "key": "passenger_email",
+       "value": {
+        "input": "passenger_email"
+       }
+      }
+     }
+    ],
+    "message": "Passenger details saved",
+    "next_page": "Payment"
+   },
+   {
+    "name": "make_payment",
+    "label": "Pay",
+    "page": "Payment",
+    "inputs": [
+     {
+      "name": "card_number",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Card number is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{16}",
+        "message": "Card number must be 16 digits"
+       }
+      ]
+     },
+     {
+      "name": "expiry_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Expiry date is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{2}/[0-9]{2}",
+        "message": "Expiry date must be in MM/YY format"
+       }
+      ]
+     },
+     {
+      "name": "cvv",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "CVV is required"
+       },
+       {
+        "rule": "pattern",
+        "value": "[0-9]{3}",
+        "message": "CVV must be 3 digits"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "bus",
+      "entity": "Bus",
+      "key": {
+       "session": "selected_bus_id"
+      },
+      "missing": "Bus not found"
+     }
+    ],
+    "rules": [
+     {
+      "when": {
+       "eq": [
+        {
+         "input": "card_number"
+        },
+        "1111222233334444"
+       ]
+      },
+      "message": "Payment failed - Insufficient balance"
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "Booking",
+       "as": "booking",
+       "values": {
+        "user_email": {
+         "user": "email"
+        },
+        "bus_id": {
+         "session": "selected_bus_id"
+        },
+        "bus_name": {
+         "field": "bus.name"
+        },
+        "source": {
+         "field": "bus.source"
+        },
+        "destination": {
+         "field": "bus.destination"
+        },
+        "travel_date": {
+         "session": "selected_travel_date"
+        },
+        "departure_time": {
+         "field": "bus.departure_time"
+        },
+        "seat_number": {
+         "session": "selected_seat"
+        },
+        "passenger_name": {
+         "session": "passenger_name"
+        },
+        "passenger_age": {
+         "session": "passenger_age"
+        },
+        "passenger_gender": {
+         "session": "passenger_gender"
+        },
+        "passenger_mobile": {
+         "session": "passenger_mobile"
+        },
+        "passenger_email": {
+         "session": "passenger_email"
+        },
+        "fare": {
+         "session": "selected_fare"
+        },
+        "booking_date": {
+         "today": true
+        },
+        "status": "Confirmed"
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "email",
+       "to": {
+        "session": "passenger_email"
+       },
+       "subject": {
+        "format": [
+         "Booking Confirmed - {pnr}",
+         {
+          "pnr": {
+           "field": "booking.id"
+          }
+         }
+        ]
+       },
+       "body": {
+        "format": [
+         "Your bus ticket is confirmed. PNR: {pnr}, Seat: {seat}",
+         {
+          "pnr": {
+           "field": "booking.id"
+          },
+          "seat": {
+           "session": "selected_seat"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": "Payment successful. Booking confirmed.",
+    "returns": {
+     "pnr": {
+      "field": "booking.id"
+     },
+     "seat_number": {
+      "field": "booking.seat_number"
+     }
+    },
+    "next_page": "Booking Confirmation"
+   }
+  ],
+  "faults": [
+   {
+    "name": "payment_gateway_down",
+    "applies_to": [
+     "make_payment"
+    ],
+    "message": "Payment gateway unavailable. Please try again later."
+   }
+  ]
+ },
+ "checklists": [
+  {
+   "id": "login-valid-credentials",
+   "title": "Login with valid credentials",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "Test User"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Home"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "login-invalid-password",
+   "title": "Login with invalid password",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "WrongPassword"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid credentials"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Login"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": null
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "search-bus-valid-future-date",
+   "title": "Search bus with valid source, destination and future date",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ],
+     "save_as": "results"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Search Results"
+    },
+    {
+     "check": {
+      "ref": "results"
+     },
+     "expect_includes": [
+      {
+       "id": "BUS-001",
+       "name": "Express Travels"
+      }
+     ]
+    },
+    {
+     "check": {
+      "ref": "results.0"
+     },
+     "expect_includes": {
+      "departure_time": "08:00",
+      "arrival_time": "11:30",
+      "fare": 450.0,
+      "seats_available": 39
+     }
+    },
+    {
+     "check": {
+      "ref": "results"
+     },
+     "expect_includes": [
+      {
+       "id": "BUS-002",
+       "name": "Comfort Coaches"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "search-bus-past-date",
+   "title": "Search bus for past date",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-10"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Past dates cannot be selected"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Home"
+    }
+   ],
+   "recorded_pass": false
+  },
+  {
+   "id": "select-bus-view-details",
+   "title": "Select a bus and view details",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ],
+     "save_as": "bus_details"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Bus Details"
+    },
+    {
+     "check": {
+      "ref": "bus_details"
+     },
+     "expect_includes": {
+      "id": "BUS-001",
+      "name": "Express Travels",
+      "source": "Mumbai",
+      "destination": "Pune",
+      "departure_time": "08:00",
+      "arrival_time": "11:30",
+      "fare": 450.0,
+      "total_seats": 40,
+      "amenities": "AC, WiFi, Charging Point",
+      "boarding_points": "Dadar, Thane, Panvel"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "select-available-seat",
+   "title": "Select available seat successfully",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "Database.find_schedule",
+     "args": [
+      "bus_id",
+      "BUS-001"
+     ],
+     "save_as": "schedules_before"
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A3"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seat selected successfully"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Passenger Details"
+    },
+    {
+     "call": "Database.find_schedule",
+     "args": [
+      "bus_id",
+      "BUS-001"
+     ],
+     "save_as": "schedules_after"
+    },
+    {
+     "check": {
+      "ref": "schedules_before"
+     },
+     "expect": {
+      "ref": "schedules_after"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "select-booked-seat",
+   "title": "Try selecting already booked seat",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_before"
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A1"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Seat already booked"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Bus Details"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_after"
+    },
+    {
+     "check": {
+      "ref": "bookings_after"
+     },
+     "expect": {
+      "ref": "bookings_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "enter-valid-passenger-details",
+   "title": "Enter valid passenger details for single passenger",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A3"
+     ]
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_before"
+    },
+    {
+     "call": "UI.enter_passenger_details",
+     "args": [
+      "Test User",
+      25,
+      "Male",
+      "9876543210",
+      "testuser@busbook.test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Passenger details saved"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Payment"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_after"
+    },
+    {
+     "check": {
+      "ref": "bookings_after"
+     },
+     "expect": {
+      "ref": "bookings_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "invalid-mobile-number",
+   "title": "Enter passenger details with invalid mobile number",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A3"
+     ]
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_before"
+    },
+    {
+     "call": "UI.enter_passenger_details",
+     "args": [
+      "Test User",
+      25,
+      "Male",
+      "98765",
+      "testuser@busbook.test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Please enter valid 10 digit mobile number"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Passenger Details"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_after"
+    },
+    {
+     "check": {
+      "ref": "bookings_after"
+     },
+     "expect": {
+      "ref": "bookings_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "empty-mandatory-fields",
+   "title": "Leave mandatory passenger fields empty",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A3"
+     ]
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_before"
+    },
+    {
+     "call": "UI.enter_passenger_details",
+     "args": [
+      "",
+      25,
+      "Male",
+      "9876543210",
+      "testuser@busbook.test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Name is required"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Passenger Details"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_after"
+    },
+    {
+     "check": {
+      "ref": "bookings_after"
+     },
+     "expect": {
+      "ref": "bookings_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "payment-valid-card",
+   "title": "Complete payment with valid card details",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A3"
+     ]
+    },
+    {
+     "call": "UI.enter_passenger_details",
+     "args": [
+      "Test User",
+      25,
+      "Male",
+      "9876543210",
+      "testuser@busbook.test"
+     ]
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_before"
+    },
+    {
+     "call": "UI.make_payment",
+     "args": [
+      "1234567812345678",
+      "12/25",
+      "123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment successful. Booking confirmed."
+    },
+    {
+     "call": "UI.last_result",
+     "save_as": "payment_result"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Booking Confirmation"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "bookings_after"
+    },
+    {
+     "check": {
+      "ref": "bookings_after"
+     },
+     "expect": 2
+    },
+    {
+     "call": "Database.get_booking",
+     "args": [
+      {
+       "ref": "payment_result.pnr"
+      }
+     ],
+     "save_as": "booking"
+    },
+    {
+     "check": {
+      "ref": "booking"
+     },
+     "expect_includes": {
+      "user_email": "testuser@busbook.test",
+      "bus_id": "BUS-001",
+      "seat_number": "A3",
+      "passenger_name": "Test User",
+      "status": "Confirmed"
+     }
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "emails"
+    },
+    {
+     "check": {
+      "ref": "emails"
+     },
+     "expect_includes": [
+      {
+       "channel": "email",
+       "to": "testuser@busbook.test"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "payment-insufficient-balance",
+   "title": "Payment failure due to insufficient balance",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "booking_count_before"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser@busbook.test",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Home"
+     ]
+    },
+    {
+     "call": "UI.search_buses",
+     "args": [
+      "Mumbai",
+      "Pune",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.view_bus_details",
+     "args": [
+      "BUS-001",
+      "2024-03-20"
+     ]
+    },
+    {
+     "call": "UI.select_seat",
+     "args": [
+      "BUS-001",
+      "2024-03-20",
+      "A3"
+     ]
+    },
+    {
+     "call": "UI.enter_passenger_details",
+     "args": [
+      "Test User",
+      25,
+      "Male",
+      "9876543210",
+      "testuser@busbook.test"
+     ]
+    },
+    {
+     "call": "UI.make_payment",
+     "args": [
+      "1111222233334444",
+      "12/25",
+      "123"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Payment failed - Insufficient balance"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Payment"
+    },
+    {
+     "call": "Database.count_booking",
+     "args": [],
+     "save_as": "booking_count_after"
+    },
+    {
+     "check": {
+      "ref": "booking_count_after"
+     },
+     "expect": {
+      "ref": "booking_count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

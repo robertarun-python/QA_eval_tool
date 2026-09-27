@@ -1,0 +1,1331 @@
+{
+ "label": "r2_2",
+ "title": "Library Management System",
+ "recorded": "12/12",
+ "spec": {
+  "app_name": "Library Management System",
+  "base_url": "https://library.example.test",
+  "now": "2024-02-10T10:00",
+  "entities": {
+   "Member": {
+    "key": "username",
+    "fields": {
+     "username": "string",
+     "password": "string",
+     "name": "string",
+     "status": "string",
+     "borrow_limit": "int"
+    }
+   },
+   "Book": {
+    "key": "id",
+    "fields": {
+     "id": "string",
+     "title": "string",
+     "author": "string",
+     "isbn": "string",
+     "total_copies": "int",
+     "available_copies": "int"
+    }
+   },
+   "Loan": {
+    "key": "id",
+    "id_format": "LN-{n:03}",
+    "fields": {
+     "id": "string",
+     "member": "string",
+     "book_id": "string",
+     "book_title": "string",
+     "borrowed_on": "date",
+     "due_on": "date",
+     "status": "string"
+    }
+   }
+  },
+  "data": {
+   "Member": [
+    {
+     "username": "testuser",
+     "password": "Test@123",
+     "name": "Test User",
+     "status": "Active",
+     "borrow_limit": 5
+    },
+    {
+     "username": "maxuser",
+     "password": "Max@123",
+     "name": "Max User",
+     "status": "Active",
+     "borrow_limit": 5
+    }
+   ],
+   "Book": [
+    {
+     "id": "BK-001",
+     "title": "The Great Gatsby",
+     "author": "F. Scott Fitzgerald",
+     "isbn": "978-0-7432-7356-5",
+     "total_copies": 5,
+     "available_copies": 3
+    },
+    {
+     "id": "BK-002",
+     "title": "To Kill a Mockingbird",
+     "author": "Harper Lee",
+     "isbn": "978-0-06-112008-4",
+     "total_copies": 3,
+     "available_copies": 0
+    },
+    {
+     "id": "BK-003",
+     "title": "1984",
+     "author": "George Orwell",
+     "isbn": "978-0-452-28423-4",
+     "total_copies": 4,
+     "available_copies": 4
+    },
+    {
+     "id": "BK-004",
+     "title": "Tender is the Night",
+     "author": "F. Scott Fitzgerald",
+     "isbn": "978-0-684-80154-5",
+     "total_copies": 2,
+     "available_copies": 2
+    }
+   ],
+   "Loan": [
+    {
+     "id": "LN-001",
+     "member": "maxuser",
+     "book_id": "BK-003",
+     "book_title": "1984",
+     "borrowed_on": "2024-01-27",
+     "due_on": "2024-02-10",
+     "status": "Borrowed"
+    },
+    {
+     "id": "LN-002",
+     "member": "maxuser",
+     "book_id": "BK-004",
+     "book_title": "Tender is the Night",
+     "borrowed_on": "2024-01-27",
+     "due_on": "2024-02-10",
+     "status": "Borrowed"
+    },
+    {
+     "id": "LN-003",
+     "member": "maxuser",
+     "book_id": "BK-002",
+     "book_title": "To Kill a Mockingbird",
+     "borrowed_on": "2024-01-27",
+     "due_on": "2024-02-10",
+     "status": "Borrowed"
+    },
+    {
+     "id": "LN-004",
+     "member": "maxuser",
+     "book_id": "BK-002",
+     "book_title": "To Kill a Mockingbird",
+     "borrowed_on": "2024-01-28",
+     "due_on": "2024-02-11",
+     "status": "Borrowed"
+    },
+    {
+     "id": "LN-005",
+     "member": "maxuser",
+     "book_id": "BK-002",
+     "book_title": "To Kill a Mockingbird",
+     "borrowed_on": "2024-01-29",
+     "due_on": "2024-02-12",
+     "status": "Borrowed"
+    }
+   ]
+  },
+  "users": {
+   "entity": "Member",
+   "login_field": "username",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "blocked_when": {
+    "eq": [
+     {
+      "field": "user.status"
+     },
+     "Suspended"
+    ]
+   },
+   "page": "Login",
+   "messages": {
+    "required_login": "Username is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid username or password",
+    "blocked": "Your account is suspended",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Search",
+   "Book Details",
+   "My Books",
+   "Borrow Confirmation"
+  ],
+  "public_pages": [],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "search_books",
+    "label": "Search",
+    "page": "Search",
+    "entity": "Book",
+    "match": {
+     "input": "term",
+     "fields": [
+      "title",
+      "author",
+      "isbn"
+     ],
+     "mode": "contains",
+     "blank": "error:Please enter a search term",
+     "max_length": 100,
+     "too_long": "Search text must be 100 characters or fewer"
+    },
+    "order_by": [
+     {
+      "field": "title"
+     }
+    ],
+    "show": [
+     "id",
+     "title",
+     "author",
+     "isbn",
+     "available_copies"
+    ],
+    "none_message": "No results found"
+   },
+   {
+    "name": "open_book",
+    "label": "Book details",
+    "page": "Search",
+    "entity": "Book",
+    "key_input": "book_id",
+    "missing": "Book not found",
+    "next_page": "Book Details",
+    "show": [
+     "id",
+     "title",
+     "author",
+     "isbn",
+     "total_copies",
+     "available_copies"
+    ]
+   },
+   {
+    "name": "view_book_details",
+    "label": "Book details",
+    "page": "Book Details",
+    "entity": "Book",
+    "key_input": "book_id",
+    "missing": "Book not found",
+    "show": [
+     "id",
+     "title",
+     "author",
+     "isbn",
+     "total_copies",
+     "available_copies",
+     {
+      "name": "availability_status",
+      "value": {
+       "if": [
+        {
+         "gt": [
+          {
+           "field": "row.available_copies"
+          },
+          0
+         ]
+        },
+        "Available",
+        "Not Available"
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "name": "my_loans",
+    "label": "My borrowed books",
+    "page": "My Books",
+    "entity": "Loan",
+    "where": {
+     "and": [
+      {
+       "eq": [
+        {
+         "field": "row.member"
+        },
+        {
+         "user": "username"
+        }
+       ]
+      },
+      {
+       "eq": [
+        {
+         "field": "row.status"
+        },
+        "Borrowed"
+       ]
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "borrowed_on"
+     }
+    ],
+    "show": [
+     "id",
+     "book_title",
+     "borrowed_on",
+     "due_on",
+     "status"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "borrow_book",
+    "label": "Borrow",
+    "page": "Book Details",
+    "inputs": [
+     {
+      "name": "book_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Book ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "book",
+      "entity": "Book",
+      "key": {
+       "input": "book_id"
+      },
+      "missing": "Book not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "gt": [
+        {
+         "field": "book.available_copies"
+        },
+        0
+       ]
+      },
+      "message": "No copies available"
+     },
+     {
+      "when": {
+       "exists": {
+        "entity": "Loan",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.member"
+            },
+            {
+             "user": "username"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.book_id"
+            },
+            {
+             "field": "book.id"
+            }
+           ]
+          },
+          {
+           "eq": [
+            {
+             "field": "row.status"
+            },
+            "Borrowed"
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": "You have already borrowed this book"
+     },
+     {
+      "unless": {
+       "lt": [
+        {
+         "count": {
+          "entity": "Loan",
+          "where": {
+           "and": [
+            {
+             "eq": [
+              {
+               "field": "row.member"
+              },
+              {
+               "user": "username"
+              }
+             ]
+            },
+            {
+             "eq": [
+              {
+               "field": "row.status"
+              },
+              "Borrowed"
+             ]
+            }
+           ]
+          }
+         }
+        },
+        {
+         "user": "borrow_limit"
+        }
+       ]
+      },
+      "message": "You have reached your borrowing limit"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "book",
+       "field": "available_copies",
+       "value": {
+        "sub": [
+         {
+          "field": "book.available_copies"
+         },
+         1
+        ]
+       }
+      }
+     },
+     {
+      "create": {
+       "entity": "Loan",
+       "as": "loan",
+       "values": {
+        "member": {
+         "user": "username"
+        },
+        "book_id": {
+         "field": "book.id"
+        },
+        "book_title": {
+         "field": "book.title"
+        },
+        "borrowed_on": {
+         "today": true
+        },
+        "due_on": {
+         "add_days": [
+          {
+           "today": true
+          },
+          14
+         ]
+        },
+        "status": "Borrowed"
+       }
+      }
+     }
+    ],
+    "message": "Book borrowed successfully",
+    "next_page": "Borrow Confirmation",
+    "returns": {
+     "loan_id": {
+      "field": "loan.id"
+     },
+     "book_title": {
+      "field": "loan.book_title"
+     },
+     "author": {
+      "field": "book.author"
+     },
+     "borrowed_on": {
+      "field": "loan.borrowed_on"
+     },
+     "due_on": {
+      "field": "loan.due_on"
+     }
+    }
+   },
+   {
+    "name": "return_book",
+    "label": "Return",
+    "page": "My Books",
+    "inputs": [
+     {
+      "name": "loan_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Loan ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "loan",
+      "entity": "Loan",
+      "key": {
+       "input": "loan_id"
+      },
+      "missing": "Loan not found"
+     },
+     {
+      "as": "book",
+      "entity": "Book",
+      "key": {
+       "field": "loan.book_id"
+      },
+      "missing": "Book not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "and": [
+        {
+         "eq": [
+          {
+           "field": "loan.member"
+          },
+          {
+           "user": "username"
+          }
+         ]
+        },
+        {
+         "eq": [
+          {
+           "field": "loan.status"
+          },
+          "Borrowed"
+         ]
+        }
+       ]
+      },
+      "message": "This book is not borrowed by you"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "loan",
+       "field": "status",
+       "value": "Returned"
+      }
+     },
+     {
+      "set": {
+       "record": "book",
+       "field": "available_copies",
+       "value": {
+        "add": [
+         {
+          "field": "book.available_copies"
+         },
+         1
+        ]
+       }
+      }
+     }
+    ],
+    "message": "Book returned successfully"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "successful-login",
+   "title": "Successful login with valid credentials",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Home"
+    },
+    {
+     "call": "UI.signed_in_user",
+     "expect": "Test User"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "login-incorrect-password",
+   "title": "Login fails with incorrect password",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "wrongpass"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Invalid username or password"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Login"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "search-exact-title",
+   "title": "Search for book by exact title match",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "The Great Gatsby"
+     ],
+     "save_as": "results"
+    },
+    {
+     "check": {
+      "ref": "results"
+     },
+     "expect_includes": [
+      {
+       "id": "BK-001",
+       "title": "The Great Gatsby",
+       "author": "F. Scott Fitzgerald",
+       "isbn": "978-0-7432-7356-5",
+       "available_copies": 3
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "search-by-author",
+   "title": "Search for book by author name",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "F. Scott Fitzgerald"
+     ],
+     "save_as": "results"
+    },
+    {
+     "check": {
+      "ref": "results"
+     },
+     "expect_includes": [
+      {
+       "id": "BK-001",
+       "title": "The Great Gatsby",
+       "author": "F. Scott Fitzgerald"
+      }
+     ]
+    },
+    {
+     "check": {
+      "ref": "results"
+     },
+     "expect_includes": [
+      {
+       "id": "BK-004",
+       "title": "Tender is the Night",
+       "author": "F. Scott Fitzgerald"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "search-nonexistent",
+   "title": "Search with non-existent book title",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "XYZ123NonExistentBook999"
+     ],
+     "expect": []
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "No results found"
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "view-available-book",
+   "title": "View book details for available book",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "The Great Gatsby"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "UI.view_book_details",
+     "args": [
+      "BK-001"
+     ],
+     "save_as": "book"
+    },
+    {
+     "check": {
+      "ref": "book"
+     },
+     "expect_includes": {
+      "id": "BK-001",
+      "title": "The Great Gatsby",
+      "author": "F. Scott Fitzgerald",
+      "isbn": "978-0-7432-7356-5",
+      "total_copies": 5,
+      "available_copies": 3,
+      "availability_status": "Available"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "view-unavailable-book",
+   "title": "View book details for unavailable book",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "To Kill a Mockingbird"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "UI.view_book_details",
+     "args": [
+      "BK-002"
+     ],
+     "save_as": "book"
+    },
+    {
+     "check": {
+      "ref": "book"
+     },
+     "expect_includes": {
+      "id": "BK-002",
+      "title": "To Kill a Mockingbird",
+      "author": "Harper Lee",
+      "isbn": "978-0-06-112008-4",
+      "total_copies": 3,
+      "available_copies": 0,
+      "availability_status": "Not Available"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "borrow-available-book",
+   "title": "Borrow an available book successfully",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "The Great Gatsby"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "Database.get_book",
+     "args": [
+      "BK-001"
+     ],
+     "save_as": "book_before"
+    },
+    {
+     "call": "UI.borrow_book",
+     "args": [
+      "BK-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Book borrowed successfully"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Borrow Confirmation"
+    },
+    {
+     "call": "Database.get_book",
+     "args": [
+      "BK-001"
+     ],
+     "save_as": "book_after"
+    },
+    {
+     "check": {
+      "ref": "book_after.available_copies"
+     },
+     "expect": 2
+    },
+    {
+     "call": "Database.find_loan",
+     "args": [
+      "member",
+      "testuser"
+     ],
+     "save_as": "loans"
+    },
+    {
+     "check": {
+      "ref": "loans"
+     },
+     "expect_includes": [
+      {
+       "member": "testuser",
+       "book_id": "BK-001",
+       "book_title": "The Great Gatsby",
+       "status": "Borrowed"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "borrow-unavailable-book",
+   "title": "Attempt to borrow book with zero availability",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "To Kill a Mockingbird"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "Database.count_loan",
+     "args": [
+      "member",
+      "testuser"
+     ],
+     "save_as": "loan_count_before"
+    },
+    {
+     "call": "UI.borrow_book",
+     "args": [
+      "BK-002"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "No copies available"
+    },
+    {
+     "call": "Database.count_loan",
+     "args": [
+      "member",
+      "testuser"
+     ],
+     "save_as": "loan_count_after"
+    },
+    {
+     "check": {
+      "ref": "loan_count_after"
+     },
+     "expect": {
+      "ref": "loan_count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "borrow-at-limit",
+   "title": "Attempt to borrow when at borrowing limit",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "maxuser",
+      "Max@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "The Great Gatsby"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "Database.count_loan",
+     "args": [
+      "member",
+      "maxuser"
+     ],
+     "save_as": "loan_count_before"
+    },
+    {
+     "call": "UI.borrow_book",
+     "args": [
+      "BK-001"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "You have reached your borrowing limit"
+    },
+    {
+     "call": "Database.count_loan",
+     "args": [
+      "member",
+      "maxuser"
+     ],
+     "save_as": "loan_count_after"
+    },
+    {
+     "check": {
+      "ref": "loan_count_after"
+     },
+     "expect": {
+      "ref": "loan_count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "view-borrow-confirmation",
+   "title": "View borrowing confirmation details",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "The Great Gatsby"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "UI.borrow_book",
+     "args": [
+      "BK-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "book_title": "The Great Gatsby",
+      "author": "F. Scott Fitzgerald",
+      "borrowed_on": "2024-02-10",
+      "due_on": "2024-02-24"
+     }
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Book borrowed successfully"
+    },
+    {
+     "call": "UI.current_page",
+     "expect": "Borrow Confirmation"
+    },
+    {
+     "call": "Database.find_loan",
+     "args": [
+      "member",
+      "testuser"
+     ],
+     "expect_includes": [
+      {
+       "book_title": "The Great Gatsby",
+       "borrowed_on": "2024-02-10",
+       "due_on": "2024-02-24",
+       "status": "Borrowed"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "verify-borrowed-in-list",
+   "title": "Verify borrowed book appears in user's borrowed list",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Login"
+     ]
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "testuser",
+      "Test@123"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Books"
+     ]
+    },
+    {
+     "call": "UI.my_loans",
+     "expect": [],
+     "save_as": "before_loans"
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Search"
+     ]
+    },
+    {
+     "call": "UI.search_books",
+     "args": [
+      "The Great Gatsby"
+     ]
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Book Details"
+     ]
+    },
+    {
+     "call": "UI.borrow_book",
+     "args": [
+      "BK-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Books"
+     ]
+    },
+    {
+     "call": "UI.my_loans",
+     "expect_includes": [
+      {
+       "book_title": "The Great Gatsby",
+       "borrowed_on": "2024-02-10",
+       "due_on": "2024-02-24",
+       "status": "Borrowed"
+      }
+     ]
+    },
+    {
+     "call": "Database.find_loan",
+     "args": [
+      "member",
+      "testuser"
+     ],
+     "expect_includes": [
+      {
+       "book_title": "The Great Gatsby",
+       "borrowed_on": "2024-02-10",
+       "due_on": "2024-02-24",
+       "status": "Borrowed"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}

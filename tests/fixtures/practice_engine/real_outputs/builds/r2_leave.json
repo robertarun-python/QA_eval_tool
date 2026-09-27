@@ -1,0 +1,1561 @@
+{
+ "label": "r2_leave",
+ "title": "Employee Leave Management",
+ "recorded": "12/12",
+ "spec": {
+  "app_name": "Employee Leave Management",
+  "base_url": "https://leave.example.test",
+  "now": "2024-03-10T09:00",
+  "entities": {
+   "Employee": {
+    "key": "email",
+    "fields": {
+     "email": "string",
+     "password": "string",
+     "name": "string",
+     "role": "string",
+     "casual_balance": "number",
+     "sick_balance": "number"
+    }
+   },
+   "LeaveRequest": {
+    "key": "id",
+    "id_format": "LR-{n:03}",
+    "fields": {
+     "id": "string",
+     "employee": "string",
+     "leave_type": "string",
+     "from_date": "date",
+     "to_date": "date",
+     "half_day": "bool",
+     "days": "number",
+     "reason": "string",
+     "status": "string",
+     "manager_comment": "string",
+     "applied_on": "datetime"
+    }
+   }
+  },
+  "data": {
+   "Employee": [
+    {
+     "email": "employee@company.test",
+     "password": "Emp@123",
+     "name": "Test Employee",
+     "role": "Employee",
+     "casual_balance": 12.0,
+     "sick_balance": 6.0
+    },
+    {
+     "email": "lowbalance@company.test",
+     "password": "Low@123",
+     "name": "Low Balance Employee",
+     "role": "Employee",
+     "casual_balance": 2.0,
+     "sick_balance": 1.0
+    },
+    {
+     "email": "manager@company.test",
+     "password": "Mgr@123",
+     "name": "Test Manager",
+     "role": "Manager",
+     "casual_balance": 12.0,
+     "sick_balance": 6.0
+    }
+   ],
+   "LeaveRequest": [
+    {
+     "id": "LR-001",
+     "employee": "employee@company.test",
+     "leave_type": "Casual",
+     "from_date": "2024-03-11",
+     "to_date": "2024-03-13",
+     "half_day": false,
+     "days": 3.0,
+     "reason": "Personal work",
+     "status": "Pending",
+     "manager_comment": "",
+     "applied_on": "2024-03-09T10:00"
+    },
+    {
+     "id": "LR-002",
+     "employee": "lowbalance@company.test",
+     "leave_type": "Casual",
+     "from_date": "2024-03-05",
+     "to_date": "2024-03-06",
+     "half_day": false,
+     "days": 2.0,
+     "reason": "Family function",
+     "status": "Approved",
+     "manager_comment": "Approved",
+     "applied_on": "2024-03-04T14:00"
+    }
+   ]
+  },
+  "users": {
+   "entity": "Employee",
+   "login_field": "email",
+   "password_field": "password",
+   "name_field": "name",
+   "session_minutes": 30,
+   "page": "Login",
+   "messages": {
+    "required_login": "Email is required",
+    "required_password": "Password is required",
+    "invalid": "Invalid email or password",
+    "expired": "Your session has expired. Please log in again.",
+    "need_login": "Please log in first"
+   }
+  },
+  "pages": [
+   "Login",
+   "Home",
+   "Apply Leave",
+   "My Leave",
+   "Team Leave"
+  ],
+  "home_page": "Home",
+  "queries": [
+   {
+    "name": "my_leave_requests",
+    "label": "My Leave Requests",
+    "page": "My Leave",
+    "entity": "LeaveRequest",
+    "where": {
+     "eq": [
+      {
+       "field": "row.employee"
+      },
+      {
+       "user": "email"
+      }
+     ]
+    },
+    "order_by": [
+     {
+      "field": "applied_on",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "leave_type",
+     "from_date",
+     "to_date",
+     "half_day",
+     "days",
+     "reason",
+     "status",
+     "manager_comment"
+    ]
+   },
+   {
+    "name": "team_leave_requests",
+    "label": "Team Leave Requests",
+    "page": "Team Leave",
+    "entity": "LeaveRequest",
+    "order_by": [
+     {
+      "field": "applied_on",
+      "desc": true
+     }
+    ],
+    "show": [
+     "id",
+     "employee",
+     "leave_type",
+     "from_date",
+     "to_date",
+     "half_day",
+     "days",
+     "reason",
+     "status",
+     "manager_comment"
+    ]
+   }
+  ],
+  "actions": [
+   {
+    "name": "apply_leave",
+    "label": "Apply Leave",
+    "page": "Apply Leave",
+    "inputs": [
+     {
+      "name": "leave_type",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Leave type is required"
+       },
+       {
+        "rule": "one_of",
+        "value": [
+         "Casual",
+         "Sick"
+        ],
+        "message": "Invalid leave type"
+       }
+      ]
+     },
+     {
+      "name": "from_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "From date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid from date"
+       }
+      ]
+     },
+     {
+      "name": "to_date",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "To date is required"
+       },
+       {
+        "rule": "date",
+        "message": "Invalid to date"
+       }
+      ]
+     },
+     {
+      "name": "half_day",
+      "checks": []
+     },
+     {
+      "name": "reason",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Please enter a reason"
+       }
+      ]
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "le": [
+        {
+         "input": "from_date"
+        },
+        {
+         "input": "to_date"
+        }
+       ]
+      },
+      "message": "From date must be on or before to date"
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "input": "half_day"
+          },
+          true
+         ]
+        },
+        {
+         "ne": [
+          {
+           "input": "from_date"
+          },
+          {
+           "input": "to_date"
+          }
+         ]
+        }
+       ]
+      },
+      "message": "Half day is for a single date only"
+     },
+     {
+      "when": {
+       "exists": {
+        "entity": "LeaveRequest",
+        "where": {
+         "and": [
+          {
+           "eq": [
+            {
+             "field": "row.employee"
+            },
+            {
+             "user": "email"
+            }
+           ]
+          },
+          {
+           "in": [
+            {
+             "field": "row.status"
+            },
+            [
+             "Pending",
+             "Approved"
+            ]
+           ]
+          },
+          {
+           "or": [
+            {
+             "and": [
+              {
+               "le": [
+                {
+                 "field": "row.from_date"
+                },
+                {
+                 "input": "from_date"
+                }
+               ]
+              },
+              {
+               "ge": [
+                {
+                 "field": "row.to_date"
+                },
+                {
+                 "input": "from_date"
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "and": [
+              {
+               "le": [
+                {
+                 "field": "row.from_date"
+                },
+                {
+                 "input": "to_date"
+                }
+               ]
+              },
+              {
+               "ge": [
+                {
+                 "field": "row.to_date"
+                },
+                {
+                 "input": "to_date"
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "and": [
+              {
+               "ge": [
+                {
+                 "field": "row.from_date"
+                },
+                {
+                 "input": "from_date"
+                }
+               ]
+              },
+              {
+               "le": [
+                {
+                 "field": "row.to_date"
+                },
+                {
+                 "input": "to_date"
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       }
+      },
+      "message": "You already have leave on these dates"
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "input": "leave_type"
+          },
+          "Casual"
+         ]
+        },
+        {
+         "lt": [
+          {
+           "user": "casual_balance"
+          },
+          {
+           "if": [
+            {
+             "eq": [
+              {
+               "input": "half_day"
+              },
+              true
+             ]
+            },
+            0.5,
+            {
+             "working_days": [
+              {
+               "input": "from_date"
+              },
+              {
+               "input": "to_date"
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Insufficient casual leave balance ({balance} left)",
+        {
+         "balance": {
+          "user": "casual_balance"
+         }
+        }
+       ]
+      }
+     },
+     {
+      "when": {
+       "and": [
+        {
+         "eq": [
+          {
+           "input": "leave_type"
+          },
+          "Sick"
+         ]
+        },
+        {
+         "lt": [
+          {
+           "user": "sick_balance"
+          },
+          {
+           "if": [
+            {
+             "eq": [
+              {
+               "input": "half_day"
+              },
+              true
+             ]
+            },
+            0.5,
+            {
+             "working_days": [
+              {
+               "input": "from_date"
+              },
+              {
+               "input": "to_date"
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      "message": {
+       "format": [
+        "Insufficient sick leave balance ({balance} left)",
+        {
+         "balance": {
+          "user": "sick_balance"
+         }
+        }
+       ]
+      }
+     }
+    ],
+    "effects": [
+     {
+      "create": {
+       "entity": "LeaveRequest",
+       "as": "request",
+       "values": {
+        "employee": {
+         "user": "email"
+        },
+        "leave_type": {
+         "input": "leave_type"
+        },
+        "from_date": {
+         "input": "from_date"
+        },
+        "to_date": {
+         "input": "to_date"
+        },
+        "half_day": {
+         "input": "half_day"
+        },
+        "days": {
+         "if": [
+          {
+           "eq": [
+            {
+             "input": "half_day"
+            },
+            true
+           ]
+          },
+          0.5,
+          {
+           "working_days": [
+            {
+             "input": "from_date"
+            },
+            {
+             "input": "to_date"
+            }
+           ]
+          }
+         ]
+        },
+        "reason": {
+         "input": "reason"
+        },
+        "status": "Pending",
+        "manager_comment": "",
+        "applied_on": {
+         "now": true
+        }
+       }
+      }
+     }
+    ],
+    "message": {
+     "format": [
+      "Leave request submitted successfully. Request ID: {id}, Days: {days}",
+      {
+       "id": {
+        "field": "request.id"
+       },
+       "days": {
+        "field": "request.days"
+       }
+      }
+     ]
+    },
+    "returns": {
+     "request_id": {
+      "field": "request.id"
+     },
+     "days": {
+      "field": "request.days"
+     }
+    }
+   },
+   {
+    "name": "approve_leave",
+    "label": "Approve Leave",
+    "page": "Team Leave",
+    "inputs": [
+     {
+      "name": "request_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Request ID is required"
+       }
+      ]
+     },
+     {
+      "name": "comment",
+      "checks": []
+     }
+    ],
+    "load": [
+     {
+      "as": "request",
+      "entity": "LeaveRequest",
+      "key": {
+       "input": "request_id"
+      },
+      "missing": "Leave request not found"
+     },
+     {
+      "as": "employee",
+      "entity": "Employee",
+      "key": {
+       "field": "request.employee"
+      },
+      "missing": "Employee not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "Manager"
+       ]
+      },
+      "message": "Only managers can approve leave"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "request.status"
+        },
+        "Pending"
+       ]
+      },
+      "message": "Only pending requests can be approved"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "request",
+       "field": "status",
+       "value": "Approved"
+      }
+     },
+     {
+      "set": {
+       "record": "request",
+       "field": "manager_comment",
+       "value": {
+        "if": [
+         {
+          "empty": {
+           "input": "comment"
+          }
+         },
+         "Approved",
+         {
+          "input": "comment"
+         }
+        ]
+       }
+      }
+     },
+     {
+      "if": [
+       {
+        "eq": [
+         {
+          "field": "request.leave_type"
+         },
+         "Casual"
+        ]
+       },
+       [
+        {
+         "set": {
+          "record": "employee",
+          "field": "casual_balance",
+          "value": {
+           "sub": [
+            {
+             "field": "employee.casual_balance"
+            },
+            {
+             "field": "request.days"
+            }
+           ]
+          }
+         }
+        }
+       ],
+       [
+        {
+         "set": {
+          "record": "employee",
+          "field": "sick_balance",
+          "value": {
+           "sub": [
+            {
+             "field": "employee.sick_balance"
+            },
+            {
+             "field": "request.days"
+            }
+           ]
+          }
+         }
+        }
+       ]
+      ]
+     },
+     {
+      "send": {
+       "channel": "email",
+       "to": {
+        "field": "request.employee"
+       },
+       "subject": "Leave Request Approved",
+       "body": {
+        "format": [
+         "Your leave request {id} has been approved.",
+         {
+          "id": {
+           "field": "request.id"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": "Leave request approved successfully"
+   },
+   {
+    "name": "reject_leave",
+    "label": "Reject Leave",
+    "page": "Team Leave",
+    "inputs": [
+     {
+      "name": "request_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Request ID is required"
+       }
+      ]
+     },
+     {
+      "name": "comment",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "A comment is required to reject"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "request",
+      "entity": "LeaveRequest",
+      "key": {
+       "input": "request_id"
+      },
+      "missing": "Leave request not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "user": "role"
+        },
+        "Manager"
+       ]
+      },
+      "message": "Only managers can reject leave"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "request.status"
+        },
+        "Pending"
+       ]
+      },
+      "message": "Only pending requests can be rejected"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "request",
+       "field": "status",
+       "value": "Rejected"
+      }
+     },
+     {
+      "set": {
+       "record": "request",
+       "field": "manager_comment",
+       "value": {
+        "input": "comment"
+       }
+      }
+     },
+     {
+      "send": {
+       "channel": "email",
+       "to": {
+        "field": "request.employee"
+       },
+       "subject": "Leave Request Rejected",
+       "body": {
+        "format": [
+         "Your leave request {id} has been rejected. Reason: {comment}",
+         {
+          "id": {
+           "field": "request.id"
+          },
+          "comment": {
+           "input": "comment"
+          }
+         }
+        ]
+       }
+      }
+     }
+    ],
+    "message": "Leave request rejected"
+   },
+   {
+    "name": "cancel_leave",
+    "label": "Cancel Leave",
+    "page": "My Leave",
+    "inputs": [
+     {
+      "name": "request_id",
+      "checks": [
+       {
+        "rule": "required",
+        "message": "Request ID is required"
+       }
+      ]
+     }
+    ],
+    "load": [
+     {
+      "as": "request",
+      "entity": "LeaveRequest",
+      "key": {
+       "input": "request_id"
+      },
+      "missing": "Leave request not found"
+     }
+    ],
+    "rules": [
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "request.employee"
+        },
+        {
+         "user": "email"
+        }
+       ]
+      },
+      "message": "You can only cancel your own leave requests"
+     },
+     {
+      "unless": {
+       "eq": [
+        {
+         "field": "request.status"
+        },
+        "Pending"
+       ]
+      },
+      "message": "Approved leave can't be cancelled here"
+     }
+    ],
+    "effects": [
+     {
+      "set": {
+       "record": "request",
+       "field": "status",
+       "value": "Cancelled"
+      }
+     }
+    ],
+    "message": "Leave request cancelled successfully"
+   }
+  ],
+  "faults": []
+ },
+ "checklists": [
+  {
+   "id": "apply-casual-leave-weekdays",
+   "title": "Apply casual leave for weekdays",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-18",
+      "2024-03-20",
+      false,
+      "Personal work"
+     ],
+     "expect": true,
+     "save_as": "result"
+    },
+    {
+     "call": "UI.visible_message",
+     "expect_includes": "Leave request submitted successfully"
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "days": 3.0
+     },
+     "save_as": "details"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      {
+       "ref": "details.request_id"
+      }
+     ],
+     "expect_includes": {
+      "employee": "employee@company.test",
+      "leave_type": "Casual",
+      "from_date": "2024-03-18",
+      "to_date": "2024-03-20",
+      "days": 3.0,
+      "status": "Pending"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "weekend-not-counted",
+   "title": "Weekend not counted",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-15",
+      "2024-03-18",
+      false,
+      "Weekend test"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "days": 2.0
+     },
+     "save_as": "details"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      {
+       "ref": "details.request_id"
+      }
+     ],
+     "expect_includes": {
+      "days": 2.0
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "half-day-leave",
+   "title": "Half day leave",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-20",
+      "2024-03-20",
+      true,
+      "Half day needed"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.last_result",
+     "expect_includes": {
+      "days": 0.5
+     },
+     "save_as": "details"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      {
+       "ref": "details.request_id"
+      }
+     ],
+     "expect_includes": {
+      "days": 0.5,
+      "half_day": true
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "half-day-several-dates",
+   "title": "Half day over several dates",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-20",
+      "2024-03-21",
+      true,
+      "Half day test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Half day is for a single date only"
+    },
+    {
+     "call": "Database.count_leave_request",
+     "args": [
+      "reason",
+      "Half day test"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "more-days-than-balance",
+   "title": "More days than balance",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "lowbalance@company.test",
+      "Low@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-20",
+      "2024-03-22",
+      false,
+      "Need 3 days"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Insufficient casual leave balance (2 left)"
+    },
+    {
+     "call": "Database.count_leave_request",
+     "args": [
+      "reason",
+      "Need 3 days"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "overlapping-leave",
+   "title": "Overlapping leave",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-12",
+      "2024-03-12",
+      false,
+      "Overlapping test"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "You already have leave on these dates"
+    },
+    {
+     "call": "Database.count_leave_request",
+     "args": [
+      "reason",
+      "Overlapping test"
+     ],
+     "expect": 0
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "reason-required",
+   "title": "Reason required",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Apply Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "Database.count_leave_request",
+     "args": [
+      "employee",
+      "employee@company.test"
+     ],
+     "save_as": "count_before"
+    },
+    {
+     "call": "UI.apply_leave",
+     "args": [
+      "Casual",
+      "2024-03-20",
+      "2024-03-20",
+      false,
+      ""
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Please enter a reason"
+    },
+    {
+     "call": "Database.count_leave_request",
+     "args": [
+      "employee",
+      "employee@company.test"
+     ],
+     "save_as": "count_after"
+    },
+    {
+     "check": {
+      "ref": "count_after"
+     },
+     "expect": {
+      "ref": "count_before"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "manager-approves-leave",
+   "title": "Manager approves leave",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_employee",
+     "args": [
+      "employee@company.test"
+     ],
+     "save_as": "emp_before"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "manager@company.test",
+      "Mgr@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Team Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.approve_leave",
+     "args": [
+      "LR-001",
+      "Looks good"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Leave request approved successfully"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      "LR-001"
+     ],
+     "expect_includes": {
+      "status": "Approved",
+      "manager_comment": "Looks good"
+     }
+    },
+    {
+     "call": "Database.get_employee",
+     "args": [
+      "employee@company.test"
+     ],
+     "expect_includes": {
+      "casual_balance": 9.0
+     }
+    },
+    {
+     "call": "Database.outbox",
+     "save_as": "emails"
+    },
+    {
+     "check": {
+      "ref": "emails"
+     },
+     "expect_includes": [
+      {
+       "channel": "email",
+       "to": "employee@company.test",
+       "subject": "Leave Request Approved"
+      }
+     ]
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "manager-rejects-no-comment",
+   "title": "Manager rejects without comment",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "manager@company.test",
+      "Mgr@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Team Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.reject_leave",
+     "args": [
+      "LR-001",
+      ""
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "A comment is required to reject"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      "LR-001"
+     ],
+     "expect_includes": {
+      "status": "Pending"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "employee-tries-approve",
+   "title": "Employee tries to approve",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "Team Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.approve_leave",
+     "args": [
+      "LR-001",
+      "Trying to approve"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Only managers can approve leave"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      "LR-001"
+     ],
+     "expect_includes": {
+      "status": "Pending"
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-pending-leave",
+   "title": "Cancel pending leave",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "Database.get_employee",
+     "args": [
+      "employee@company.test"
+     ],
+     "save_as": "emp_before"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "employee@company.test",
+      "Emp@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.cancel_leave",
+     "args": [
+      "LR-001"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Leave request cancelled successfully"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      "LR-001"
+     ],
+     "expect_includes": {
+      "status": "Cancelled"
+     }
+    },
+    {
+     "call": "Database.get_employee",
+     "args": [
+      "employee@company.test"
+     ],
+     "expect_includes": {
+      "casual_balance": {
+       "ref": "emp_before.casual_balance"
+      }
+     }
+    }
+   ],
+   "recorded_pass": true
+  },
+  {
+   "id": "cancel-approved-leave",
+   "title": "Cancel approved leave",
+   "steps": [
+    {
+     "call": "setup"
+    },
+    {
+     "call": "UI.login",
+     "args": [
+      "lowbalance@company.test",
+      "Low@123"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.open",
+     "args": [
+      "My Leave"
+     ],
+     "expect": true
+    },
+    {
+     "call": "UI.cancel_leave",
+     "args": [
+      "LR-002"
+     ],
+     "expect": false
+    },
+    {
+     "call": "UI.visible_message",
+     "expect": "Approved leave can't be cancelled here"
+    },
+    {
+     "call": "Database.get_leave_request",
+     "args": [
+      "LR-002"
+     ],
+     "expect_includes": {
+      "status": "Approved"
+     }
+    }
+   ],
+   "recorded_pass": true
+  }
+ ],
+ "exchanges": []
+}
