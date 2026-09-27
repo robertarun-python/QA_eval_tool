@@ -51,3 +51,13 @@ def test_screens_never_show_the_apps_messages_and_never_crash(path):
     shown = " ".join(_text(p["source"]) for p in reference.page_sources(spec))
     leaked = [m for m in _messages(spec) if m in shown]
     assert not leaked, f"answer-key messages on the reference screens: {leaked[:3]}"
+
+
+def test_a_live_round2_gets_todays_screens_not_the_copy_saved_at_approval():
+    """Loan's Round 2 was approved before the screens showed data: its saved copy
+    has empty screens. What candidates and HR see is drawn fresh from the description."""
+    stale = {"pages": [{"name": "Loans", "path": "/page/loans", "source": "<html>old</html>"}]}
+    panel = reference.current_panel({"practice_spec": LOAN, "reference_panel": stale})
+    loans = next(p for p in panel["pages"] if p["name"] == "Loans")
+    assert "LN-45678" in _text(loans["source"])
+    assert reference.current_panel({"reference_panel": stale}) is None  # an older practice app has none

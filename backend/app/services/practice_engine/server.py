@@ -213,6 +213,12 @@ class PracticeApp:
         return self.document(page, "".join(parts))
 
 
+def _app_address(spec: dict) -> str:
+    """The host (and port) of the address Round 1 shows for the app - spec base_url - or "" if none."""
+    m = re.match(r"^https?://([^/?#]+)", str(spec.get("base_url") or "").strip(), re.I)
+    return m.group(1).lower() if m else ""
+
+
 def _status_of_action(action: dict) -> int:
     return 201 if any("create" in e for e in action.get("effects") or []) else 200
 
@@ -330,8 +336,16 @@ class Handler(BaseHTTPRequestHandler):
                 except (ValueError, AttributeError):
                     url = ""
                 origins = {f"http://127.0.0.1:{self.server.server_address[1]}", f"http://localhost:{self.server.server_address[1]}"}
+                # The address Round 1 showed (the spec's base_url, e.g. https://loan-emi.example.test) is this
+                # Run's practice app: a candidate who used it got a blocked-address exception (owner's Round 2,
+                # 2026-09-27). Any page under it is sent to the practice app, http or https.
+                named = _app_address(self.app.spec)
+                if named and re.match(rf"^https?://{re.escape(named)}(?=$|[/?#])", url, re.I):
+                    url = f"http://127.0.0.1:{self.server.server_address[1]}" + re.sub(rf"^https?://{re.escape(named)}", "", url, flags=re.I)
+                    body = json.dumps({"url": url}).encode()
                 if not any(url == o or url.startswith(o + "/") for o in origins):
-                    return self._wd_error(403, "Only the practice application can be opened")
+                    return self._wd_error(403, "Only the practice application can be opened - use the address in PRACTICE_APP_URL"
+                                               + (f" (or {named})" if named else ""))
         else:
             return self._wd_error(403, "This command is not available in the practice environment")
         target = self.grid + "/" + "/".join(parts)

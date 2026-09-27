@@ -725,6 +725,19 @@ async function loadReferenceCheck(id) {
   }
 }
 
+// The Round 2 card's reference: fetched, so HR sees exactly the panel candidates get now
+// (drawn from the app's description with today's code - not the copy saved at approval).
+async function fillRound2CardPanel(id) {
+  const box = document.getElementById(`r2-card-panel-${id}`);
+  if (!box) return;
+  try {
+    const d = await api(`/hr/scenarios/${id}/candidate-reference`);
+    box.innerHTML = d.reference_panel ? round2AutomationPanelHtml(d.reference_panel) : "";
+  } catch (e) {
+    box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+  }
+}
+
 async function loadPracticeAppPanel(id) {
   clearTimeout(practiceAppPollTimer);
   const box = document.getElementById("practice-app-panel");
@@ -1043,6 +1056,7 @@ async function loadRound2AutomationSettings() {
     return;
   } else {
     box.innerHTML = renderRound2AutomationSettingsCard(liveScenario, liveRound1 ? liveRound1.title : null, liveRound1);
+    fillRound2CardPanel(liveScenario.id);
   }
   const waitingEl = liveRound1 && document.getElementById(`r2-waiting-${liveRound1.id}`);
   if (waitingEl) {
@@ -1152,7 +1166,7 @@ function renderRound2AutomationSettingsCard(scenario, groundedInTitle, liveRound
       <details class="surface" id="candidate-reference-preview" open>
         <summary><strong>What candidates see in Round 2</strong> - reference panel</summary>
         <p class="muted">This is what candidates see in Round 2 right now - built from the practice app itself, never written by the AI.</p>
-        ${round2AutomationPanelHtml(scenario.config_json.reference_panel)}
+        <div id="r2-card-panel-${scenario.id}"><p class="muted">Loading the reference...</p></div>
       </details>` : `
       <details>
         <summary>Preview: test environment &amp; reference screens (auto-generated, shown to candidates)</summary>

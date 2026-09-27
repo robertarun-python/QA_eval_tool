@@ -219,7 +219,7 @@ def candidate_reference(scenario: Scenario) -> dict | None:
     latest ready build would bring once approved. None for older practice apps."""
     from ..practice_engine import reference
     if scenario.round_number == 2:
-        panel = (scenario.config_json or {}).get("reference_panel")
+        panel = reference.current_panel(scenario.config_json)
         return {"reference_panel": panel, "source": "live"} if isinstance(panel, dict) else None
     if scenario.round_number != 1 or summary(scenario).get("status") != "ready":
         return None

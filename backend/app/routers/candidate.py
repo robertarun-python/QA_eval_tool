@@ -34,7 +34,7 @@ from ..schemas import (
 )
 from ..dependencies import require_candidate
 from ..services import llm_service, execution_service, round_scenarios, round2_typist
-from ..services.practice_engine import practice_run
+from ..services.practice_engine import practice_run, reference
 from ..services.scoring_service import score_submission_in_background, close_expired_submissions
 
 _VALID_PRIORITIES = ("High", "Medium", "Low")
@@ -806,7 +806,7 @@ def _build_auto_state(scenario: Scenario, submission: Submission, candidate: Use
         environment_code=_auto_environment_code(scenario, language) if language else "",
         environment=scenario.environment_json,
         ui_mockup=scenario.ui_mockup_json,
-        reference_panel=(scenario.config_json or {}).get("reference_panel") if _practice_spec(scenario) is not None else None,
+        reference_panel=reference.current_panel(scenario.config_json) if _practice_spec(scenario) is not None else None,
         tc_state=[_auto_tc_state_out(r) for r in selected],
     )
 
@@ -1436,8 +1436,7 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
         if round2_scenario is not None:
             environment, ui_mockup = _round1_environment_view(round2_scenario)
             if _practice_spec(round2_scenario) is not None:
-                from ..services.practice_engine import reference
-                panel = reference.round1_panel((round2_scenario.config_json or {}).get("reference_panel"))
+                panel = reference.round1_panel(reference.current_panel(round2_scenario.config_json))
     return RoundStateOut(scenario=scenario, submission=submission, environment=environment, ui_mockup=ui_mockup, reference_panel=panel)
 
 

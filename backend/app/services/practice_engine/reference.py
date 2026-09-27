@@ -157,6 +157,28 @@ def page_sources(spec: dict) -> list[dict]:
 ROUND1_HIDDEN = ("test_controls", "failures", "connect")  # connect: how a test Run finds the app - Round 1 runs nothing
 
 
+_PANELS: dict = {}
+
+
+def current_panel(config: dict | None) -> dict | None:
+    """A Round 2 scenario's reference panel, drawn from its description with
+    today's code - not the copy saved when it was approved, so an improvement
+    (the screens showing the test user's data, 2026-09-27) reaches every live
+    scenario without approving it again. Kept per description; None for an
+    older practice app."""
+    spec = (config or {}).get("practice_spec")
+    if not isinstance(spec, dict):
+        return None
+    key = json.dumps(spec, sort_keys=True)
+    if key not in _PANELS:
+        try:
+            _PANELS[key] = reference_panel(spec)
+        except Exception:  # noqa: BLE001 - a description today's code can't draw: the saved copy
+            saved = (config or {}).get("reference_panel")
+            return saved if isinstance(saved, dict) else None
+    return _PANELS[key]
+
+
 def round1_panel(panel: dict | None) -> dict | None:
     return {k: v for k, v in panel.items() if k not in ROUND1_HIDDEN} if isinstance(panel, dict) else None
 
