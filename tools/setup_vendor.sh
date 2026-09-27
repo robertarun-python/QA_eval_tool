@@ -21,14 +21,17 @@ M=https://repo1.maven.org/maven2
 for spec in "org/json/json/20240303/json-20240303.jar:json.jar" "com/google/code/gson/gson/2.11.0/gson-2.11.0.jar:gson.jar" \
             "com/fasterxml/jackson/core/jackson-databind/2.17.2/jackson-databind-2.17.2.jar:jackson-databind.jar" \
             "com/fasterxml/jackson/core/jackson-core/2.17.2/jackson-core-2.17.2.jar:jackson-core.jar" \
-            "com/fasterxml/jackson/core/jackson-annotations/2.17.2/jackson-annotations-2.17.2.jar:jackson-annotations.jar"; do
+            "com/fasterxml/jackson/core/jackson-annotations/2.17.2/jackson-annotations-2.17.2.jar:jackson-annotations.jar" \
+            "org/junit/jupiter/junit-jupiter-api/5.11.0/junit-jupiter-api-5.11.0.jar:junit-jupiter-api.jar" \
+            "org/junit/platform/junit-platform-commons/1.11.0/junit-platform-commons-1.11.0.jar:junit-platform-commons.jar" \
+            "org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:opentest4j.jar" "org/testng/testng/7.10.2/testng-7.10.2.jar:testng.jar"; do
   rel=${spec%%:*}; jar=${spec##*:}
   curl -sSfL -o "$jar" "$M/$rel"
   [ "$(curl -sSfL "$M/$rel.sha1" | cut -c1-40)" = "$(shasum -a 1 "$jar" | cut -c1-40)" ] || { echo "checksum mismatch: $jar"; rm -f "$jar"; exit 1; }
 done
 PY="$(cd "$ROOT/backend" && "$ROOT/.venv/bin/python" -c 'from app.services import execution_service as e; print(e.PYTHON)')"
-"$PY" -m pip install --quiet --target python "selenium==4.36.0"
-mkdir -p node && (cd node && [ -f package.json ] || npm init -y >/dev/null) && (cd node && npm install --silent "selenium-webdriver@$SELENIUM")
+"$PY" -m pip install --quiet --target python "selenium==4.36.0" "requests==2.32.3"
+mkdir -p node && (cd node && [ -f package.json ] || npm init -y >/dev/null) && (cd node && npm install --silent "selenium-webdriver@$SELENIUM" "node-fetch@2.7.0" "axios@1.7.7")
 # macOS App Nap slows headless Chrome after a while and its pages then drop input (see practice_run._no_app_nap)
 defaults write com.google.chrome.for.testing NSAppSleepDisabled -bool YES 2>/dev/null || true
 echo "vendor ready in $V"
