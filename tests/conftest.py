@@ -185,14 +185,14 @@ def _auth(token):
     return {"qa_eval_token": token}
 
 
-def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Login form"):
+def _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Login form", description="desc"):
     from app.services import llm_service
     generator_name = _REFERENCE_GENERATOR_BY_ROUND[round_number]
     monkeypatch.setattr(llm_service, generator_name, lambda **kwargs: _FAKE_REFERENCE_BY_ROUND[round_number]())
 
     scenario = client.post(
         "/hr/scenarios",
-        json={"round_number": round_number, "title": title, "description": "desc", "experience_band": band, "time_limit_minutes": 30},
+        json={"round_number": round_number, "title": title, "description": description, "experience_band": band, "time_limit_minutes": 30},
         cookies=_auth(hr_token),
     ).json()
     client.post(f"/hr/scenarios/{scenario['id']}/publish", cookies=_auth(hr_token))

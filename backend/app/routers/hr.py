@@ -245,8 +245,30 @@ def _generate_reference_unsafe(scenario: Scenario, db: Session) -> None:
         # A fresh AI-generated sheet, not HR's own edit anymore - see
         # environment_hr_edited and update_round2_automation_environment below.
         scenario.environment_hr_edited = False
+        _remember_environment(scenario, app_description)
     db.commit()
     db.refresh(scenario)
+
+
+# A Round 2 scenario keeps the environment and screens last generated from a
+# few Round 1 texts (config_json["environment_cache"], keyed by
+# llm_service.round2_automation_environment_source_key), so a Round 1
+# scenario going live again reuses them instead of two more AI calls.
+_ENVIRONMENT_CACHE_SIZE = 5
+
+
+def _remember_environment(scenario: Scenario, app_description: str) -> None:
+    """Stores the scenario's just-generated (never HR-edited) environment and
+    screens under the fingerprint of what they were generated from."""
+    key = llm_service.round2_automation_environment_source_key(app_description)
+    config = dict(scenario.config_json or {})
+    cache = dict(config.get("environment_cache") or {})
+    cache.pop(key, None)
+    cache[key] = {"environment_json": scenario.environment_json, "ui_mockup_json": scenario.ui_mockup_json}
+    while len(cache) > _ENVIRONMENT_CACHE_SIZE:
+        cache.pop(next(iter(cache)))
+    config["environment_cache"] = cache
+    scenario.config_json = config
 
 
 def _resync_round2_automation_reference_for_band(round1_scenario: Scenario, db: Session) -> None:
@@ -307,13 +329,22 @@ def _resync_round2_automation_reference_for_band(round1_scenario: Scenario, db: 
         # test case and round 4 automation both key off the same login.
         # This resync must not silently overwrite that; only HR's own
         # "Regenerate" button (regenerate_reference) is allowed to.
-        if not live_round2_automation.environment_hr_edited:
-            live_round2_automation.environment_json = llm_service.generate_round2_automation_environment(
+        key = llm_service.round2_automation_environment_source_key(round1_scenario.description)
+        stored = ((live_round2_automation.config_json or {}).get("environment_cache") or {}).get(key)
+        if stored:
+            if not live_round2_automation.environment_hr_edited:
+                live_round2_automation.environment_json = stored["environment_json"]
+            live_round2_automation.ui_mockup_json = stored["ui_mockup_json"]
+        else:
+            if not live_round2_automation.environment_hr_edited:
+                live_round2_automation.environment_json = llm_service.generate_round2_automation_environment(
+                    app_description=round1_scenario.description,
+                )
+            live_round2_automation.ui_mockup_json = llm_service.generate_round2_automation_ui_mockup(
                 app_description=round1_scenario.description,
             )
-        live_round2_automation.ui_mockup_json = llm_service.generate_round2_automation_ui_mockup(
-            app_description=round1_scenario.description,
-        )
+            if not live_round2_automation.environment_hr_edited:
+                _remember_environment(live_round2_automation, round1_scenario.description)
         db.commit()
     except Exception:
         db.rollback()

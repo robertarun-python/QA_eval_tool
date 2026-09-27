@@ -235,7 +235,8 @@ def test_round4_reference_resyncs_when_round1_scenario_changes(client, monkeypat
     # A second round1 scenario for the same band, published but not yet
     # promoted live (the first one is still live) - no resync should
     # fire just from publishing it.
-    second_round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Second app")
+    second_round1 = _publish_scenario(client, hr_token, monkeypatch, round_number=1, band="0-7", title="Second app",
+                                     description="A different app")  # same text would reuse the stored environment
     assert len(calls) == 0  # still not live - no resync yet
 
     # Promoting it live is what triggers the resync.

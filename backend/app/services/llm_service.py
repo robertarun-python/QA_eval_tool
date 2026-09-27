@@ -1040,6 +1040,16 @@ def score_round3_coding(
 
 # ---- Round 2 (AI-assisted test automation): reference environment and screens ----
 
+def round2_automation_environment_source_key(app_description: str) -> str:
+    """Fingerprint of everything the two functions below generate from - the
+    model, the system prompt, both prompt files and the app's text - so a
+    stored result is reused only when a fresh one would come from exactly the
+    same inputs (see hr.py's _resync_round2_automation_reference_for_band)."""
+    parts = (settings.claude_model, SYSTEM_PROMPT, _load_prompt("round2_automation_environment_generation.txt"),
+             _load_prompt("round2_automation_ui_mockup_generation.txt"), app_description)
+    return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
+
+
 def generate_round2_automation_environment(app_description: str) -> dict:
     """Auto-generates fictional test-environment reference facts (test
     login credentials, API endpoints, a DB schema reference, ...) for a
