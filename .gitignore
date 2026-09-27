@@ -6,6 +6,8 @@ venv/
 qa_eval.db
 *.db
 *.db.bak-*
+# The lasting AI call record (settings.ai_call_log_path) - local data, not source.
+ai_calls.jsonl
 .pytest_cache/
 .DS_Store
 

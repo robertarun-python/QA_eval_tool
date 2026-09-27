@@ -206,6 +206,26 @@ function resetSettingsToDefaults() {
   document.getElementById("settings-status").textContent = "Defaults filled in - click \"Save changes\" to apply.";
 }
 
+// The recorded AI spend (kept across restarts) on the AI health card: totals,
+// then per day, per round and the costliest candidates.
+function aiSpendHtml(s) {
+  if (!s || !s.calls) return "";
+  const usd = (v) => `$${Number(v || 0).toFixed(2)}`;
+  const roundName = (k) => (k === "none" ? "Set-up / other" : `Round ${k}`);
+  const days = s.by_day.map((d) => `<tr><td>${escapeHtml(d.day)}</td><td>${usd(d.usd)}</td><td>${d.calls}</td></tr>`).join("");
+  const rounds = Object.entries(s.by_round).map(([k, v]) => `<tr><td>${escapeHtml(roundName(k))}</td><td>${usd(v)}</td></tr>`).join("");
+  const people = s.top_candidates.map((c) => `<tr><td>${escapeHtml(c.email || `#${c.user_id}`)}</td><td>${usd(c.usd)}</td><td>${c.calls}</td></tr>`).join("");
+  return `
+    <p>Recorded AI spend (kept across restarts, UTC days): today <strong>${usd(s.today_usd)}</strong>,
+      last 7 days <strong>${usd(s.last_7_days_usd)}</strong>, all time <strong>${usd(s.all_time_usd)}</strong> over ${s.calls} calls.
+      ${s.unpriced_calls ? `<span class="muted">${s.unpriced_calls} call${s.unpriced_calls === 1 ? "" : "s"} had no price (failed, or a model without a listed price).</span>` : ""}</p>
+    <details><summary>Spend by day, round and candidate</summary>
+      <div class="table-scroll"><table><thead><tr><th>Day</th><th>Spend</th><th>Calls</th></tr></thead><tbody>${days}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Round</th><th>Spend</th></tr></thead><tbody>${rounds}</tbody></table></div>
+      ${people ? `<div class="table-scroll"><table><thead><tr><th>Candidate</th><th>Spend</th><th>Calls</th></tr></thead><tbody>${people}</tbody></table></div>` : ""}
+    </details>`;
+}
+
 // HR Settings' AI health card - GET /hr/ai-health (metadata only).
 async function loadAiHealth() {
   const box = document.getElementById("ai-health");
@@ -219,6 +239,7 @@ async function loadAiHealth() {
     box.innerHTML = `
       <p>AI mode: <strong>${escapeHtml(h.mode)}</strong>. ${h.total} AI call${h.total === 1 ? "" : "s"} since the server started. ${counts}</p>
       ${h.total ? `<p class="muted">Estimated cost of these calls: about $${Number(h.estimated_cost_usd || 0).toFixed(2)}${h.saved_by_cache_usd ? ` - prompt caching saved about $${Number(h.saved_by_cache_usd).toFixed(2)}` : ""}.</p>` : ""}
+      ${aiSpendHtml(h.lasting)}
       ${rows ? `<div class="table-scroll"><table><thead><tr><th>When (UTC)</th><th>Step</th><th>Outcome</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`
              : `<p class="muted">No failed AI calls.</p>`}`;
   } catch (e) {

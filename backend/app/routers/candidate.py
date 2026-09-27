@@ -360,17 +360,19 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
     # round2_automation_turn): nothing is
     # persisted below until the LLM call succeeds and validates.
     try:
-        response = llm_service.round3_coding_turn(
-            scenario_description=scenario.description,
-            language=language,
-            conversation_so_far=conversation_so_far,
-            current_code=current_code,
-            candidate_prompt=payload.candidate_prompt,
-            turn_number=turn_number,
-            required_constructs=required_constructs,
-            declared_constructs=declared_constructs,
-            io_format=scenario.round3_io_format,
-        )
+        with llm_service.call_context(round_number=submission.round_number, scenario_id=scenario.id,
+                                      submission_id=submission.id, user_id=candidate.id):
+            response = llm_service.round3_coding_turn(
+                scenario_description=scenario.description,
+                language=language,
+                conversation_so_far=conversation_so_far,
+                current_code=current_code,
+                candidate_prompt=payload.candidate_prompt,
+                turn_number=turn_number,
+                required_constructs=required_constructs,
+                declared_constructs=declared_constructs,
+                io_format=scenario.round3_io_format,
+            )
     except Exception:
         traceback.print_exc()
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -406,12 +408,14 @@ def round3_coding_direct_edit(payload: Round3DirectEditCreate, db: Session = Dep
     declared_constructs = (existing_turns[-1].declared_constructs_json if existing_turns else None) or {}
 
     try:
-        response = llm_service.round3_syntax_fix(
-            code=payload.code,
-            language=language,
-            required_constructs=required_constructs,
-            declared_constructs=declared_constructs,
-        )
+        with llm_service.call_context(round_number=submission.round_number, scenario_id=scenario.id,
+                                      submission_id=submission.id, user_id=candidate.id):
+            response = llm_service.round3_syntax_fix(
+                code=payload.code,
+                language=language,
+                required_constructs=required_constructs,
+                declared_constructs=declared_constructs,
+            )
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try saving again.")
@@ -1079,7 +1083,9 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
     if not lock.acquire(blocking=False):
         raise HTTPException(409, "The assistant is still answering your previous message for this test case - wait for that reply.")
     try:
-        return _round2_automation_turn(payload, db, candidate)
+        with llm_service.call_context(round_number=submission.round_number, scenario_id=scenario.id,
+                                      submission_id=submission.id, user_id=candidate.id):
+            return _round2_automation_turn(payload, db, candidate)
     finally:
         lock.release()
 

@@ -5,6 +5,7 @@ is "what do we do with the answer" - easier to unit test scoring logic
 without mocking the Anthropic client every time.
 """
 import json
+import threading
 import traceback
 from datetime import datetime, timedelta
 
@@ -18,6 +19,10 @@ from . import llm_service, execution_service, round3_scope_guard, round2_automat
 # rather than imported to avoid a routers -> services -> routers import
 # cycle (candidate.py already imports this module).
 _ASSESSMENT_ROUND_SEQUENCE = (1, 2, 3, 4)
+
+# Rounds whose scoring is running now - see score_submission_in_background.
+_scoring_now: set[int] = set()
+_scoring_lock = threading.Lock()
 
 
 def _apply_provenance(score: Score, result: dict) -> None:
@@ -600,10 +605,19 @@ def score_submission_in_background(submission_id: int) -> None:
     hr.py's PATCH /submissions/{id}/score)."""
     from ..database import SessionLocal  # local import: avoid circular import at module load
 
+    # Scored once: two requests lazily closing the same expired round at the
+    # same moment each schedule this, and each run is a paid AI call whose
+    # result overwrites the other's. A run already going for this round (this
+    # process - the app runs as one) or a round that isn't waiting to be
+    # scored makes this a no-op.
+    with _scoring_lock:
+        if submission_id in _scoring_now:
+            return
+        _scoring_now.add(submission_id)
     db = SessionLocal()
     try:
         submission = db.get(Submission, submission_id)
-        if submission is None:
+        if submission is None or submission.status not in (RoundStatus.submitted, RoundStatus.scoring_failed):
             return
         scorer = _SCORERS.get(submission.round_number)
         if scorer is None:
@@ -613,7 +627,9 @@ def score_submission_in_background(submission_id: int) -> None:
         # text sitting next to a fresh, real score.
         submission.scoring_error = None
         try:
-            scorer(db, submission)
+            with llm_service.call_context(round_number=submission.round_number, scenario_id=submission.scenario_id,
+                                          submission_id=submission.id, user_id=submission.user_id):
+                scorer(db, submission)
             # A fresh score means the candidate's cross-round HR summary
             # (routers/hr.py's POST/GET .../summary) is now describing a
             # superseded attempt - drop it rather than let HR read a
@@ -629,6 +645,8 @@ def score_submission_in_background(submission_id: int) -> None:
             db.commit()
     finally:
         db.close()
+        with _scoring_lock:
+            _scoring_now.discard(submission_id)
 
 
 def finalize_abandoned_submission(submission: Submission, reason: str, submitted_at: datetime) -> None:

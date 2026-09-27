@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     # walkthroughs and browser tests without API credit. Never for real
     # candidates: the app shows a banner on every page while it's on.
     llm_fake_mode: bool = False
+    # Every AI call is also appended here as one JSON line (metadata and cost,
+    # never prompts or replies) - the record behind HR's AI health totals,
+    # kept across restarts. See llm_service._append_call_log. Blank = off.
+    ai_call_log_path: str = str(_BACKEND_DIR / "ai_calls.jsonl")
 
     # Seed-default only now, not read anywhere at request time: the
     # migration (migrate_bulk_candidates.py) uses this once to populate
