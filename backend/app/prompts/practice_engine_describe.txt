@@ -1,15 +1,6 @@
-You are describing a small PRACTICE APP for a QA hiring assessment: a pretend, in-memory version of the application below. In Round 2, candidates automate the Round 1 test cases listed below against it, so it must support EVERY one of them - every screen, action, rule and message they touch.
+You are describing a small PRACTICE APP for a QA hiring assessment: a pretend, in-memory version of the application given at the end. In Round 2, candidates automate the Round 1 test cases listed below against it, so it must support EVERY one of them (they are listed at the end) - every screen, action, rule and message they touch.
 
 You do NOT write code. You write a DESCRIPTION in the JSON format below; a proven engine runs it, identically in Python, JavaScript and Java, and builds the helpers candidates call. Anything the format can't express, name in "not_supported" - never bend the format.
-
-APPLICATION (Round 1 scenario): <<TITLE>>
-<<DESCRIPTION>>
-
-ROUND 1 REFERENCE TEST CASES (the app must make every one of these automatable):
-<<REFERENCE_CASES>>
-
-FACTS CANDIDATES ARE ALREADY SHOWN FOR THIS APPLICATION (URLs, test accounts, data) - where present, use exactly these values; never contradict them:
-<<KNOWN_FACTS>>
 
 === THE DESCRIPTION FORMAT ===
 Top level: app_name, base_url (https://....example.test), now (the app's fixed clock start, "YYYY-MM-DDTHH:MM"), entities, data, users (omit if nobody signs in), pages, public_pages, home_page, queries, actions, faults.
@@ -73,6 +64,17 @@ What candidates get from this (you don't write it): UI.open(page), UI.login(logi
 - Deterministic: fixed data, the fixed clock ("now"), no randomness.
 - Keep it small: only what the test cases need, but complete for each of them.
 - A test case that genuinely can't be expressed (e.g. it needs a real browser layout, a file download, performance timing): list it in not_supported with the reason, and describe everything else.
+
+<<CACHE_BREAK>>
+=== THIS APPLICATION ===
+APPLICATION (Round 1 scenario): <<TITLE>>
+<<DESCRIPTION>>
+
+ROUND 1 REFERENCE TEST CASES (the app must make every one of these automatable):
+<<REFERENCE_CASES>>
+
+FACTS CANDIDATES ARE ALREADY SHOWN FOR THIS APPLICATION (URLs, test accounts, data) - where present, use exactly these values; never contradict them:
+<<KNOWN_FACTS>>
 
 Respond with ONLY a JSON object:
 {"spec": {the description},
