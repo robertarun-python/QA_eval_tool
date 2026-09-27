@@ -101,6 +101,16 @@ function round2AutomationAutomateClicked() {
 }
 
 // Test cases are numbered from 1 on screen, as in Round 1; row indexes stay 0-based.
+// What to do after a run that didn't pass - never why it failed (the candidate judges that).
+function round2AutomationNextStepHtml(run, passed) {
+  if (passed || run.infra_error) return "";
+  const step = run.status === "incomplete" ? ((run.stdout || "").match(/INCOMPLETE:\s*(.+)/) || [])[1] : null;
+  const what = step
+    ? `The run stopped at a step that isn't finished yet: <strong>${escapeHtml(step.trim())}</strong>. Tell the assistant how to do it in the box below.`
+    : "The test ran and did not pass - read the log below, then tell the assistant what to change in the box below.";
+  return `<p class="result-state-detail r4a-next-step">${what}</p>`;
+}
+
 function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
   // "status" (new runs): passed only for a complete test that exited cleanly - a test with gaps is INCOMPLETE, never PASS.
@@ -120,6 +130,7 @@ function round2AutomationRunResultHtml(rowIndex, run) {
         ${run.timed_out ? `<p class="result-state-detail">Timed out.</p>` : ""}
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
         ${passed ? `<p class="result-state-caveat">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
+        ${round2AutomationNextStepHtml(run, passed)}
         <details style="margin-top:0.6rem"${passed ? "" : " open"}>
           <summary>Execution log</summary>
           ${run.stdout ? `<pre class="code-snippet">${escapeHtml(run.stdout)}</pre>` : `<p class="muted">No stdout.</p>`}
@@ -395,15 +406,19 @@ function round2AutomationTcSectionHtml(row) {
 
       <div class="section-header"><h3>Your instruction &middot; AI conversation</h3></div>
       <div class="r4a-chat-log">${round2AutomationTurnsHtml(tc.turns)}</div>
-      <div class="field-row" style="margin-top:0.5rem; align-items:flex-start">
+
+      ${codeSectionHtml}
+
+      <!-- At the bottom, like a chat: after a Run the candidate is looking at the result, and a box
+           above the whole program read as "the conversation is over" (owner, 2026-09-28). -->
+      <div class="section-header" style="margin-top:var(--space-default)"><h3>${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</h3></div>
+      <div class="field-row" style="margin-top:0.25rem; align-items:flex-start">
         <div class="field" style="flex:1 1 20rem">
-          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="e.g. Encode step 2 of this test case using UI.login, asserting the expected result I wrote."></textarea>
+          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
         </div>
         <button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button>
       </div>
       <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
-
-      ${codeSectionHtml}
     </div>`;
 }
 
