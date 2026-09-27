@@ -69,7 +69,9 @@ _PROSE_QUOTED_RE = re.compile(r"""(?<!\w)["'`“‘]([^"'`“”‘’\n]{1,200}
 # WebDriverWait(driver, 10) withheld a strong candidate's code).
 _WAIT_LIMIT_RE = re.compile(r"WebDriverWait\s*\([^)]*\)|Duration\.of\w+\(\s*\d+\s*\)|implicitly_?[wW]ait\s*\(\s*[\d.]+|"
                             r"implicit\s*:\s*\d+|\.wait\s*\([^;]*?,\s*\d+\s*\)|(?:time\.)?sleep\s*\(\s*[\d.]+\s*\)|timeout\s*=\s*[\d.]+")
-_PATH_RE = re.compile(r"(?<![\w.:])/[A-Za-z0-9_\-./{}]+")
+# A path has a name after the slash: "//" (a Java/JavaScript comment) is not one - read as a path,
+# it withheld every program with a comment (persona browser test, 2026-09-27).
+_PATH_RE = re.compile(r"(?<![\w.:/])/[A-Za-z0-9_\-.{}][A-Za-z0-9_\-./{}]*")
 _STATUS_RE = re.compile(r"\b[1-5]\d\d\b")
 _METHOD_RE = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\b")
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")

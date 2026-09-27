@@ -42,16 +42,16 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     # old token is never retroactively rejected just for predating this
     # column; only a REAL mismatch (a later login elsewhere actually
     # overwrote the row) triggers this.
+    # Always, not only during a round (journey matrix, 2026-09-27): a logged-out
+    # or replaced session - an old tab whose timer fires, a second device - could
+    # still start and submit a round outside one. Safe to be strict now: such a
+    # session's own automatic logout no longer touches the current session
+    # (routers/auth.logout).
     if user.role == Role.candidate and payload.get("sid") != user.active_session_id:
-        has_in_progress = db.query(Submission).filter(
-            Submission.user_id == user.id, Submission.archived.is_(False),
-            Submission.status == RoundStatus.in_progress,
-        ).first() is not None
-        if has_in_progress:
-            raise HTTPException(
-                status.HTTP_401_UNAUTHORIZED,
-                "You've been logged in from another device or browser - this session is no longer active.",
-            )
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "You've been logged in from another device or browser - this session is no longer active.",
+        )
     return user
 
 

@@ -740,6 +740,10 @@ def _ensure_auto_content(scenario: Scenario, submission: Submission, candidate: 
             "selected": [],
             "refinements": [],
         }
+        if submission.status != RoundStatus.in_progress:
+            # A finished round is only read, never rewritten: opening the screen after the
+            # timer had closed Round 2 replaced its scored content (journey matrix, 2026-09-27).
+            return content
         submission.content = content
         db.commit()
         db.refresh(submission)
@@ -1483,15 +1487,11 @@ def submit_round(
 
     submission = _current_submission(db, candidate, scenario)
     if submission is None:
-        # Allow submitting without an explicit prior /start call too (e.g.
-        # tests, or a client that just posts straight through).
-        submission = Submission(
-            user_id=candidate.id, scenario_id=scenario.id, round_number=round_number,
-            started_at=datetime.utcnow(), time_limit_minutes_at_start=scenario.round_time_limit_minutes,
-            appearance_id=_current_appearance_id(db, candidate),
-        )
-        db.add(submission)
-    elif submission.status != RoundStatus.in_progress:
+        # A submit with no start used to create the round on the spot, its timer
+        # starting at the submit - so the scenario (readable before starting) could
+        # be worked on offline for as long as wanted (journey matrix, 2026-09-27).
+        raise HTTPException(400, "Start the round before submitting it.")
+    if submission.status != RoundStatus.in_progress:
         raise HTTPException(400, "This round has already been submitted.")
 
     _require_within_time_limit(submission, scenario)
