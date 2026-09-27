@@ -786,6 +786,15 @@ def build_practice_app(scenario_id: int, background_tasks: BackgroundTasks, db: 
     return data
 
 
+@router.get("/scenarios/{scenario_id}/candidate-reference")
+def candidate_reference(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """What candidates see in Round 2's reference panel (practice_app.service.candidate_reference)."""
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    return practice_app_service.candidate_reference(scenario) or {"reference_panel": None, "source": None}
+
+
 @router.post("/scenarios/{scenario_id}/practice-app/approve")
 def approve_practice_app(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
     scenario = db.get(Scenario, scenario_id)

@@ -113,3 +113,35 @@ def test_review_brings_the_scenario_into_view(app_page):
     # Its top scrolled up to the top of the window, not just a sliver at the bottom.
     page.wait_for_function("() => { const top = document.getElementById('scenario-detail').getBoundingClientRect().top;"
                            " return top >= 0 && top < 150; }", timeout=5000)
+
+
+def test_hr_sees_the_reference_panel_candidates_get_in_round_2(app_page, e2e_server):
+    """HR double-checks what candidates see: the Round 2 scenario shows the same
+    reference panel (pages, API, database) the candidate's Round 2 screen draws."""
+    import json
+    import sqlite3
+    from pathlib import Path
+
+    from app.services.practice_engine import reference
+    spec = json.loads((Path(__file__).parent.parent / "fixtures" / "practice_engine" / "library_spec.json").read_text())
+    con = sqlite3.connect(e2e_server["log"].parent / "e2e.db")
+    try:
+        (sid, config) = con.execute("SELECT id, config_json FROM scenarios WHERE round_number = 2 AND is_live = 1").fetchone()
+        (r1_id, r1_title) = con.execute("SELECT id, title FROM scenarios WHERE round_number = 1 AND is_live = 1").fetchone()
+        config = {**json.loads(config or "{}"), "practice_spec": spec, "reference_panel": reference.reference_panel(spec),
+                  "paired_round1_scenario_id": r1_id, "paired_round1_title": r1_title}  # as approval pairs them
+        con.execute("UPDATE scenarios SET config_json = ? WHERE id = ?", (json.dumps(config), sid))
+        con.commit()
+    finally:
+        con.close()
+    page = app_page
+    login(page, HR)
+    page.click('button[onclick="selectHRRound(2)"]')
+    preview = page.locator("#candidate-reference-preview")
+    expect(preview).to_contain_text("What candidates see in Round 2")
+    expect(preview).to_contain_text("candidates see in Round 2 right now")
+    expect(page.locator("#round4-settings-panel")).not_to_contain_text("No test environment generated yet")
+    preview.get_by_role("button", name="API").click()
+    expect(preview).to_contain_text("/api/login")
+    preview.get_by_role("button", name="Database").click()
+    expect(preview.locator('[data-r4a-ref-panel="database"]')).to_be_visible()

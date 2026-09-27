@@ -483,3 +483,27 @@ def test_a_recorded_build_that_no_longer_checks_out_is_refused_plainly(client, m
     monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("the install called the AI"))
     data = service.install_recorded(r1["id"], recorded)
     assert data["status"] == "failed" and "no longer pass today's checks" in data["error"]
+
+
+def test_hr_sees_the_round2_reference_panel_candidates_get_before_and_after_approval(client, monkeypatch, builds_dir):
+    """HR must be able to double-check what candidates see: the same panel,
+    from the ready build before approval and from Round 2 once it's live."""
+    from app.services.practice_engine import reference
+    recorded, titles = _recorded_leave()
+    r1 = _leave_round1(client, monkeypatch, titles)
+    hr = _auth(_hr(client))
+    assert client.get(f"/hr/scenarios/{r1['id']}/candidate-reference", cookies=hr).json()["reference_panel"] is None  # nothing built yet
+    monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("no AI call expected"))
+    service.install_recorded(r1["id"], recorded)
+    before = client.get(f"/hr/scenarios/{r1['id']}/candidate-reference", cookies=hr).json()
+    assert before["source"] == "latest build"
+    assert before["reference_panel"] == reference.reference_panel(recorded["plan"]["engine_spec"])
+    assert {"pages", "api", "database", "connect"} <= set(before["reference_panel"])
+    round2_id = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=hr).json()["round2_scenario_id"]
+    after = client.get(f"/hr/scenarios/{round2_id}/candidate-reference", cookies=hr).json()
+    assert after["source"] == "live" and after["reference_panel"] == _db_scenario(round2_id).config_json["reference_panel"]
+    assert after["reference_panel"] == before["reference_panel"]
+    client.cookies.clear()
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    cand = _auth(_login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD))
+    assert client.get(f"/hr/scenarios/{round2_id}/candidate-reference", cookies=cand).status_code == 403
