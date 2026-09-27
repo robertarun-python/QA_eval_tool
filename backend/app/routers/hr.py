@@ -148,6 +148,8 @@ def _lasting_ai_cost(db: Session) -> dict:
     top = sorted(by_candidate.items(), key=lambda item: item[1]["usd"], reverse=True)[:10]
     emails = dict(db.query(User.id, User.email).filter(User.id.in_([user_id for user_id, _ in top])).all()) if top else {}
     return {
+        "month_usd": round(llm_service.month_spent_usd(), 4),
+        "monthly_limit_usd": llm_service.monthly_limit_usd(),
         "calls": len(entries),
         "unpriced_calls": sum(1 for e in entries if e.get("cost_usd") is None),
         "all_time_usd": round(total, 4),
@@ -157,6 +159,16 @@ def _lasting_ai_cost(db: Session) -> dict:
         "by_round": {k: round(v, 4) for k, v in sorted(by_round.items())},
         "top_candidates": [{"user_id": user_id, "email": emails.get(user_id), "usd": round(v["usd"], 4), "calls": v["calls"]} for user_id, v in top],
     }
+
+
+@router.put("/ai-budget")
+def set_ai_budget(payload: dict, hr: User = Depends(require_hr)):
+    """HR sets the monthly AI spending limit (US$); 0 stops all new AI work."""
+    usd = payload.get("monthly_usd") if isinstance(payload, dict) else None
+    if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not 0 <= usd <= 10000:
+        raise HTTPException(400, "monthly_usd must be a number from 0 to 10000")
+    llm_service.set_monthly_limit_usd(usd)
+    return {"monthly_limit_usd": llm_service.monthly_limit_usd(), "month_usd": round(llm_service.month_spent_usd(), 4)}
 
 
 @router.get("/settings", response_model=AppSettingsOut)

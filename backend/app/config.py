@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     # never prompts or replies) - the record behind HR's AI health totals,
     # kept across restarts. See llm_service._append_call_log. Blank = off.
     ai_call_log_path: str = str(_BACKEND_DIR / "ai_calls.jsonl")
+    # The monthly AI spending limit (US$) until HR sets one on the AI health
+    # card (kept in ai_budget.json next to the call record). See
+    # llm_service.check_budget.
+    ai_monthly_limit_usd: float = 10.0
 
     # Seed-default only now, not read anywhere at request time: the
     # migration (migrate_bulk_candidates.py) uses this once to populate

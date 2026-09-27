@@ -312,6 +312,8 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 repaired = ask_json(_shared_context(plan_text) + _render(
                     llm_service._load_prompt("practice_app_repair_checklists.txt"), failing="\n\n".join(blocks)), _CHECKLIST_TOKENS)
                 runnable, rewritten = accept_repairs(plan, runnable, repaired, set(failed))
+            except llm_service.AIBudgetReached:
+                raise
             except Exception as e:  # an unusable reply is not a reason to lose the build
                 rewritten = []
                 result.log.append(f"couldn't re-check the failing checklists ({type(e).__name__})")
@@ -368,6 +370,6 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         result.ok = report.all_passed and all(row["status"] == "works" for row in result.coverage())
         result.approvable = result.ok or result.approval_problem() is None
     except Exception as e:  # the caller shows HR a clear message; nothing is saved
-        result.error = f"{type(e).__name__}: {e}"
+        result.error = str(e) if isinstance(e, llm_service.AIBudgetReached) else f"{type(e).__name__}: {e}"
         result.log.append(f"stopped: {result.error}")
     return result

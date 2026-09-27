@@ -208,6 +208,28 @@ function resetSettingsToDefaults() {
 
 // The recorded AI spend (kept across restarts) on the AI health card: totals,
 // then per day, per round and the costliest candidates.
+function aiBudgetHtml(s) {
+  if (!s || s.monthly_limit_usd === undefined) return "";
+  const used = s.monthly_limit_usd ? s.month_usd / s.monthly_limit_usd : 1;
+  const note = used >= 1 ? `<span class="error-text">Limit reached - no new AI work starts until it is raised or the month ends.</span>`
+    : used >= 0.8 ? `<span class="error-text">Over 80% of the limit used.</span>` : "";
+  return `
+    <p>This month's AI spend: <strong>$${Number(s.month_usd).toFixed(2)}</strong> of the <strong>$${Number(s.monthly_limit_usd).toFixed(2)}</strong> monthly limit. ${note}</p>
+    <p><label>Monthly limit (US$) <input id="ai-budget-input" type="number" min="0" max="10000" step="1" value="${Number(s.monthly_limit_usd)}" style="width:6em"></label>
+      <button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limit</button> <span id="ai-budget-status" class="muted"></span></p>`;
+}
+
+async function saveAiBudget() {
+  const status = document.getElementById("ai-budget-status");
+  try {
+    await api("/hr/ai-budget", { method: "PUT", body: JSON.stringify({ monthly_usd: Number(document.getElementById("ai-budget-input").value) }) });
+    status.textContent = "Saved.";
+    loadAiHealth();
+  } catch (e) {
+    status.textContent = e.message;
+  }
+}
+
 function aiSpendHtml(s) {
   if (!s || !s.calls) return "";
   const usd = (v) => `$${Number(v || 0).toFixed(2)}`;
@@ -239,6 +261,7 @@ async function loadAiHealth() {
     box.innerHTML = `
       <p>AI mode: <strong>${escapeHtml(h.mode)}</strong>. ${h.total} AI call${h.total === 1 ? "" : "s"} since the server started. ${counts}</p>
       ${h.total ? `<p class="muted">Estimated cost of these calls: about $${Number(h.estimated_cost_usd || 0).toFixed(2)}${h.saved_by_cache_usd ? ` - prompt caching saved about $${Number(h.saved_by_cache_usd).toFixed(2)}` : ""}.</p>` : ""}
+      ${aiBudgetHtml(h.lasting)}
       ${aiSpendHtml(h.lasting)}
       ${rows ? `<div class="table-scroll"><table><thead><tr><th>When (UTC)</th><th>Step</th><th>Outcome</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`
              : `<p class="muted">No failed AI calls.</p>`}`;
