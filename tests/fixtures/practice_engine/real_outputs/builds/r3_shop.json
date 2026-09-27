@@ -2197,5 +2197,15 @@
    "recorded_pass": false
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "place order with save10": "Subtotal 2,998, discount 299.80, GST 485.68, total 3,183.88; stock reduced by 2; cart empty",
+  "save10 capped at rs 500": "Discount Rs 500",
+  "quantity above 5": "Error: Maximum 5 per item",
+  "quantity above stock": "Error: Only 3 left in stock",
+  "shipping charged below rs 500": "Shipping Rs 50 added",
+  "place order with empty cart": "Error: Your cart is empty",
+  "out of stock after adding to cart": "Error: Headphones is out of stock; no order created",
+  "order confirmation email": "Email with order number and total"
+ }
 }

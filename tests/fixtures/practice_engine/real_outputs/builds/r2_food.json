@@ -1393,5 +1393,18 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "place an order within hours": "Order placed, fee Rs 20, total Rs 370",
+  "restaurant closed": "Error: Restaurant is closed now",
+  "order at opening time": "Order placed",
+  "below minimum order": "Error: Minimum order is Rs 199",
+  "distance fee slabs": "Fees 20, 40, 40",
+  "beyond delivery range": "Error: We don't deliver to this address",
+  "cancel within 2 minutes": "Cancelled, full refund",
+  "cancel after 2 minutes": "Error: Order can no longer be cancelled",
+  "rate a delivered order": "Rating saved",
+  "rate twice": "Error: You have already rated this order",
+  "rate out of range": "Error: Rating must be 1 to 5"
+ }
 }

@@ -1237,5 +1237,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "login with valid credentials": "Dashboard shown with name",
+  "email is case-insensitive": "Logged in",
+  "password is case-sensitive": "Error: Invalid email or password",
+  "account locked after 3 wrong passwords": "Account locked for 15 minutes; correct password refused with lock message",
+  "lock lifts after 15 minutes": "Logged in",
+  "wrong attempts reset after a successful login": "Never locked",
+  "reset password with valid code": "Password changed; old password no longer works",
+  "expired reset code": "Error: Code has expired",
+  "weak new password": "Error: Password must be 8-20 characters with an upper-case letter, a digit and a special character",
+  "reuse of a recent password": "Error: You can't reuse your last 3 passwords",
+  "confirm password mismatch": "Error: Passwords do not match",
+  "sql injection in email field": "Error: Invalid email or password; not logged in"
+ }
 }

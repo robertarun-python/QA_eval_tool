@@ -1574,5 +1574,18 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "view upcoming emi details for an active loan": "EMI details displayed showing: Amount: ₹5,250.00, Due Date: 15-Feb-2025, Principal: ₹3,800.00, Interest: ₹1,450.00, Outstanding Balance: ₹1,25,000.00",
+  "make successful emi payment with sufficient balance": "Payment successful message displayed with transaction reference (e.g., TXN987654321), account SAV-1001 debited ₹5,250.00, new balance ₹9,750.00, loan outstanding reduced to ₹1,19,750.00, next EMI date updated to 15-Mar-2025",
+  "payment fails when account has insufficient balance": "Error message: 'Insufficient balance. Available: ₹2,100.00, Required: ₹5,250.00'. Payment not processed, no debit from SAV-2002, loan status unchanged",
+  "prevent duplicate payment for already paid emi": "Message displayed: 'Current EMI already paid on 10-Feb-2025 (Ref: TXN111222333). Next EMI due: 15-Mar-2025'. Payment button disabled or payment blocked",
+  "verify payment history shows all completed emi transactions": "Payment history displays 3 transactions in reverse chronological order with Date, Amount, Transaction Reference, and Status (Success) for each entry",
+  "handle payment timeout during transaction processing": "Timeout error message: 'Payment request timed out. Please check payment status before retrying.' Payment status shows 'Pending' or 'In Progress', user can check transaction status separately, no duplicate debit occurs",
+  "validate payment amount cannot be modified by user": "EMI amount field is read-only/disabled showing ₹5,250.00. User cannot modify the amount. If modification attempted, system rejects with error: 'EMI amount cannot be changed'",
+  "payment fails when selecting a closed/inactive account": "Closed account SAV-9999 either not shown in account dropdown, or if shown, payment blocked with error: 'Selected account is inactive. Please choose an active account'",
+  "verify loan balance updates correctly after partial prepayment vs regular emi": "After payment, outstanding balance = ₹1,21,200.00 (reduced by principal ₹3,800.00 only, not full EMI amount). Next EMI details updated showing new principal/interest split",
+  "handle payment when emi amount is exactly equal to account balance": "Payment successful, transaction reference generated, SAV-3003 balance becomes ₹0.00, loan outstanding reduced appropriately, confirmation message displayed",
+  "payment fails with specific error when bank server returns failure code": "Error message: 'Payment failed due to technical issue. Please try again later. If amount debited, it will be reversed in 24-48 hours.' Payment status = Failed, no debit from account, loan status unchanged"
+ }
 }

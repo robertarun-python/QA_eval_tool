@@ -1487,5 +1487,18 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "book an available room": "Booking confirmed, total Rs 11,200 (2 nights x 5,000 + 12% GST), booking id shown",
+  "check-out same as check-in": "Error: Check-out must be after check-in",
+  "check-in date in the past": "Error: Check-in date cannot be in the past",
+  "stay longer than 30 nights": "Error: Maximum stay is 30 nights",
+  "more than 4 guests": "Error: Maximum 4 guests per room",
+  "overlapping booking refused": "Error: Room not available for these dates",
+  "back-to-back booking allowed": "Booking confirmed",
+  "search shows only available rooms": "Booked room not listed",
+  "cancel more than 48 hours before check-in": "Cancelled, refund 100%",
+  "cancel within 48 hours of check-in": "Cancelled, refund 50%",
+  "cancel an already cancelled booking": "Error: Booking is already cancelled"
+ }
 }

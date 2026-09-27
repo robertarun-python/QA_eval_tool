@@ -701,7 +701,7 @@ async function loadPracticeAppPanel(id) {
 
 function practiceAppCoverageTable(rows) {
   if (!rows || !rows.length) return "";
-  const icon = { works: "✅", fails: "❌", "not supported": "➖" };
+  const icon = { works: "✅", fails: "❌", "not supported": "➖", "differs from its test case": "⚠️" };
   return `
     <details ${rows.some((r) => r.status !== "works") ? "open" : ""}>
       <summary>Every Round 1 test case (${rows.length})</summary>

@@ -1681,5 +1681,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "login with valid credentials": "User successfully logs in and is redirected to dashboard/home page",
+  "login with invalid password": "Login fails with error message 'Invalid credentials' or similar, user remains on login page",
+  "search bus with valid source, destination and future date": "List of available buses is displayed with details like bus name, timing, fare, seats available",
+  "search bus for past date": "Past dates should be disabled in calendar or error message shown that past dates cannot be selected",
+  "select a bus and view details": "Bus details page shows timing, fare, amenities, seat layout, boarding points",
+  "select available seat successfully": "Seat changes color to indicate selected state, seat number added to selection summary, fare updated",
+  "try selecting already booked seat": "Seat should not be clickable or show message 'Seat already booked'",
+  "enter valid passenger details for single passenger": "Details accepted, user moved to payment page",
+  "enter passenger details with invalid mobile number": "Validation error shown 'Please enter valid 10 digit mobile number'",
+  "leave mandatory passenger fields empty": "Error message 'Name is required' displayed, cannot proceed",
+  "complete payment with valid card details": "Payment processed successfully, redirected to booking confirmation page",
+  "payment failure due to insufficient balance": "Payment fails, error message shown 'Payment failed - Insufficient balance', seats remain selected for limited time"
+ }
 }

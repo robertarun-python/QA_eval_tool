@@ -1556,5 +1556,18 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "submit a valid claim": "Claim CLM-... Submitted",
+  "discharge before admission": "Error: Discharge date must be on or after admission date",
+  "claim filed after 30 days": "Error: Claims must be filed within 30 days of discharge",
+  "amount above remaining sum insured": "Error: Claim exceeds your remaining sum insured of Rs 1,00,000",
+  "unsupported document type": "Error: Upload a PDF or JPG",
+  "document larger than 5 mb": "Error: File must be 5 MB or smaller",
+  "reviewer approves claim": "Approved amount = claim - 2,000; sum insured reduced",
+  "approve without review": "Error: Claim must be Under Review first",
+  "rejected claim can't be paid": "Error: Only approved claims can be paid",
+  "policy holder can't approve": "Error: You are not allowed to do this",
+  "claim status notification": "SMS to holder with approved amount"
+ }
 }

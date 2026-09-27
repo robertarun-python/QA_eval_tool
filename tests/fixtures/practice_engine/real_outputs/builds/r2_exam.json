@@ -1275,5 +1275,17 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "view published result": "Marks and grades shown; overall Pass",
+  "wrong date of birth": "Error: Roll number and date of birth do not match",
+  "result not yet published": "Message: Results are not published yet",
+  "grade boundaries": "A+, A, A, B, B, C, C, F",
+  "absent subject": "Grade AB, overall Fail",
+  "fail in one subject": "Overall Fail",
+  "request revaluation within 7 days": "Request created, fee Rs 500",
+  "revaluation after 7 days": "Error: Revaluation window has closed",
+  "revaluation twice for a subject": "Error: Revaluation already requested for Physics",
+  "student tries to publish": "Error: Only admins can publish results"
+ }
 }

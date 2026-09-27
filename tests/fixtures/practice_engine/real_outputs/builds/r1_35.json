@@ -1450,5 +1450,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "add a new beneficiary with all valid details": "Beneficiary is added successfully, confirmation message displayed 'Beneficiary added successfully', beneficiary appears in the list with status 'Pending Approval' or 'Active'",
+  "add beneficiary without entering mandatory beneficiary name": "Error message displayed 'Beneficiary name is required' or similar, form is not submitted",
+  "add beneficiary with invalid account number format - less than minimum digits": "Validation error displayed 'Account number must be between 9-18 digits' or similar, form not submitted",
+  "add beneficiary with invalid account number - contains alphabets": "Validation error 'Account number must contain only digits' displayed, form not submitted",
+  "add beneficiary with invalid ifsc code format": "Error message 'Invalid IFSC code format. IFSC must be 11 characters' displayed, form not submitted",
+  "attempt to add duplicate beneficiary with same account number": "Error message 'Beneficiary with this account number already exists' displayed, duplicate not added",
+  "delete an existing beneficiary": "Beneficiary deleted successfully, confirmation message 'Beneficiary deleted' displayed, beneficiary no longer appears in list",
+  "add beneficiary with incorrect otp": "Error message 'Invalid OTP. Please try again' displayed, beneficiary not added, option to resend OTP available",
+  "add beneficiary with expired otp": "Error message 'OTP has expired. Please request a new OTP' displayed, beneficiary not added",
+  "attempt transaction to unapproved beneficiary": "Error message 'Cannot transfer to unapproved beneficiary. Please wait for approval' displayed, transaction blocked",
+  "verify beneficiary status after successful addition": "Beneficiary status shows 'Active' or 'Pending Approval' based on bank policy, status is clearly visible",
+  "verify transaction eligibility for active beneficiary": "Active beneficiary is available in dropdown, can be selected, transaction form allows proceeding to next step"
+ }
 }

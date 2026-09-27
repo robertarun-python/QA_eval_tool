@@ -83,3 +83,18 @@ REAL_BAD_DRAFTS = [
 @pytest.mark.parametrize("said,draft", REAL_BAD_DRAFTS)
 def test_real_bad_drafts_still_caught(said, draft):
     assert round2_typist.unsaid(draft, said, code=False)
+
+
+# Real conflicts between a Round 1 test case and what the build checks, found
+# on 266 real checklists (2026-09-27); every other one must stay unflagged.
+KNOWN_CONFLICTS = {("r1_36", "make successful emi payment with sufficient balance"), ("r2_pharmacy", "senior citizen discount")}
+
+
+@pytest.mark.parametrize("path", BUILDS, ids=lambda p: p.stem)
+def test_reference_conflicts_flag_only_the_real_ones(path):
+    from app.services.practice_app.generator import reference_conflicts
+    entry = _load(path)
+    for c in entry["checklists"]:
+        title = str(c["title"]).strip().lower()
+        flagged = bool(reference_conflicts(entry.get("reference_expected", {}).get(title, ""), c))
+        assert flagged == ((path.stem, title) in KNOWN_CONFLICTS), f"{c['title']}: flagged={flagged}"

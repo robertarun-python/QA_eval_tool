@@ -1223,5 +1223,19 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "successful login with valid credentials": "User is logged in successfully and redirected to the home/dashboard page. Username is displayed in the header.",
+  "login fails with incorrect password": "Login fails with error message 'Invalid username or password' displayed. User remains on login page.",
+  "search for book by exact title match": "Search results display 'The Great Gatsby' with correct author, ISBN, and availability status",
+  "search for book by author name": "All books by F. Scott Fitzgerald are displayed in search results",
+  "search with non-existent book title": "No results found message is displayed. No books are shown in results.",
+  "view book details for available book": "Book details page shows title, author, ISBN, availability status as 'Available', and number of copies (3 available out of total)",
+  "view book details for unavailable book": "Book details page shows title, author, ISBN, availability status as 'Not Available' or 'All copies borrowed', 0 copies available",
+  "borrow an available book successfully": "Book is borrowed successfully. Confirmation message is displayed. Available copies count decreases by 1.",
+  "attempt to borrow book with zero availability": "Borrow button is either disabled/not visible, or clicking it shows error message 'No copies available'",
+  "attempt to borrow when at borrowing limit": "Error message displayed: 'You have reached your borrowing limit' or similar. Book is not borrowed.",
+  "view borrowing confirmation details": "Confirmation displays: book title, author, borrow date (today's date), due date (typically 14-30 days from today), and success message",
+  "verify borrowed book appears in user's borrowed list": "'The Great Gatsby' now appears in the borrowed books list with borrow date and due date"
+ }
 }

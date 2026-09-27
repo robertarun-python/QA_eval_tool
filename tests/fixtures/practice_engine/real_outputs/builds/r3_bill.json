@@ -1022,5 +1022,17 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "fetch and pay bill before due date": "Paid; receipt number; email sent",
+  "consumer number with 9 digits": "Error: Consumer number must be 10 digits",
+  "consumer number with letters": "Error: Consumer number must be 10 digits",
+  "unknown consumer number": "Error: No bill found for this consumer number",
+  "late fee after due date": "Late fee Rs 36.91, total Rs 1,882.41",
+  "minimum late fee": "Late fee Rs 25",
+  "partial payment refused": "Error: Please pay the full amount",
+  "pay an already paid bill": "Error: This bill is already paid",
+  "disconnected account": "Error: This connection is disconnected. Please visit the office.",
+  "payment page timeout": "Error: Payment timed out; bill still unpaid"
+ }
 }

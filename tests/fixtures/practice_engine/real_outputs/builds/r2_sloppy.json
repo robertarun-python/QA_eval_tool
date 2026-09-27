@@ -1424,5 +1424,14 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "order placed using wallet": "order placed wallet reduced by 165",
+  "wallet not enough": "error insufficient wallet balance",
+  "11 items": "error max 10 items",
+  "promo applied": "total 300",
+  "promo below 300": "error promo needs order above 300",
+  "checkout without slot": "error please select delivery slot",
+  "remove item from basket": "basket total 120"
+ }
 }

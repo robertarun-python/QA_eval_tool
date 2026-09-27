@@ -1567,5 +1567,18 @@
    "recorded_pass": false
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "send money with valid upi id and pin": "Payment successful, balance Rs 9,500, SMS sent, transaction listed",
+  "amount above per-transaction limit": "Error: Maximum Rs 50,000 per transaction; no debit",
+  "amount exactly at per-transaction limit": "Payment successful",
+  "zero or negative amount": "Error: Enter an amount of at least Rs 1",
+  "amount with more than 2 decimals": "Error: Amount can have at most 2 decimal places",
+  "invalid upi id format": "Error: Enter a valid UPI ID",
+  "insufficient balance": "Error: Insufficient balance; balance unchanged",
+  "wrong pin three times blocks upi": "3rd attempt: UPI blocked for 24 hours; correct PIN also refused",
+  "upi unblocks after 24 hours": "Payment successful",
+  "daily limit across several payments": "Third payment refused: Daily limit of Rs 1,00,000 reached",
+  "bank server down": "Error: Bank server not responding, try later; no debit"
+ }
 }

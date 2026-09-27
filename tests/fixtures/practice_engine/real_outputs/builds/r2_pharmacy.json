@@ -1406,5 +1406,17 @@
    "recorded_pass": true
   }
  ],
- "exchanges": []
+ "exchanges": [],
+ "reference_expected": {
+  "sell a non-prescription medicine": "Bill Rs 67.20, stock reduced by 2",
+  "expired batch refused": "Error: Batch P-099 has expired",
+  "schedule h without prescription": "Error: Prescription number required for Schedule H medicines",
+  "schedule h with prescription": "Sold; prescription recorded on the bill",
+  "quantity above batch stock": "Error: Only 10 left in batch",
+  "reorder alert": "Alert email to manager",
+  "no alert above reorder level": "No email",
+  "senior citizen discount": "Discount 50, GST 114, total Rs 1,064",
+  "age 59 gets no discount": "No discount",
+  "zero quantity": "Error: Quantity must be at least 1"
+ }
 }
