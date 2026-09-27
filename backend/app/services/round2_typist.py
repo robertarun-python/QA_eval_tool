@@ -96,9 +96,9 @@ _ASK = [
     "What's next for this test?",
 ]
 _BLOCKED = [
-    "I can only use what you've told me. Tell me the details you want for that part.",
-    "I don't have that from you yet - what should it be?",
-    "I'll need that detail from you before I can put it in.",
+    "I can only write what you've told me, and some of it I'd have to guess. Tell me how each step should be done and I'll write it.",
+    "Part of this I'd have to make up, and I won't do that. Tell me exactly how each step should be done, then ask me again.",
+    "I need more from you before I can write it without guessing - how should each step be done?",
 ]
 _NOTE = ("\n\nYour previous draft named things the candidate never said: {terms}. Rewrite it without them - "
          "if you need one of them, ask the candidate for it instead, without naming it or offering examples.")
