@@ -122,7 +122,21 @@ def run_build(scenario_id: int) -> None:
         _run_build(scenario_id)
 
 
-def _run_build(scenario_id: int) -> None:
+def install_recorded(scenario_id: int, recorded: dict) -> dict:
+    """Installs a build already paid for (a measurement run's {"plan",
+    "checklists", "unsupported"}) as this scenario's latest build, re-checked
+    with today's engine in every language - no AI call, nothing paid. HR then
+    approves it as usual. Returns the scenario's practice-app summary."""
+    with llm_service.call_context(round_number=2, scenario_id=scenario_id):
+        _run_build(scenario_id, recorded=recorded)
+    db = database.SessionLocal()
+    try:
+        return summary(db.get(Scenario, scenario_id))
+    finally:
+        db.close()
+
+
+def _run_build(scenario_id: int, recorded: dict | None = None) -> None:
     _RUNNING.add(scenario_id)
     db = database.SessionLocal()
     try:
@@ -141,7 +155,8 @@ def _run_build(scenario_id: int) -> None:
 
         try:
             result = engine_build.generate(scenario.title, scenario.description, list(scenario.reference_json), known_facts,
-                                           progress=progress, reuse=_reusable_build(scenario))
+                                           progress=progress, reuse=recorded or _reusable_build(scenario),
+                                           ai_allowed=recorded is None)
         except Exception as e:  # generator.generate already catches; this is a last resort
             result = generator.PracticeAppResult(error=f"{type(e).__name__}: {e}")
         rows = result.coverage()

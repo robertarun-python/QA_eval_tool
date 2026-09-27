@@ -187,11 +187,13 @@ def _inspect(spec: dict, checklists: list[dict], languages=("python",)) -> check
 
 
 def generate(title: str, description: str, reference_cases: list[dict], known_facts: dict | None = None,
-             progress=None, reuse: dict | None = None) -> PracticeAppResult:
+             progress=None, reuse: dict | None = None, ai_allowed: bool = True) -> PracticeAppResult:
     """Same contract as generator.generate. reuse: the last build's
     {"plan", "checklists", "unsupported"} - when it was an engine build, its
     description and checklists are kept and only the correction rounds run,
-    so "Generate again" continues from where the last build got to."""
+    so "Generate again" continues from where the last build got to.
+    ai_allowed=False: only re-check `reuse` with today's engine - no AI call,
+    nothing paid (service.install_recorded)."""
     result = PracticeAppResult(
         reference_titles=[c.get("title", "") for c in reference_cases if c.get("title")],
         high_priority_titles={(c.get("title") or "").strip().lower() for c in reference_cases if c.get("priority") == "High"},
@@ -282,6 +284,8 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 reused = True
                 unsupported = reuse.get("unsupported") or []
                 result.log.append(f"kept the last build's description and {len(runnable)} checklists - continuing from there")
+        if not reused and not ai_allowed:
+            raise ValueError("the recorded build's description or checklists no longer pass today's checks")
         if not reused:
             step(0)
             spec, raw = describe()
@@ -302,7 +306,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
         best = {"passed": report.languages["python"].passed, "spec": spec, "plan": plan, "runnable": runnable}
         result.log.append(f"python: {best['passed']}/{len(runnable)} checklists pass")
 
-        if _problems_for("python", report):
+        if ai_allowed and _problems_for("python", report):
             # The checklist may be what's wrong (a record the starting data
             # already has used as "new"...) - re-checked first, as before.
             step(3, "re-checking the failing checklists")
@@ -324,7 +328,7 @@ def generate(title: str, description: str, reference_cases: list[dict], known_fa
                 if report.languages["python"].passed > best["passed"]:
                     best.update(passed=report.languages["python"].passed, runnable=runnable)
 
-        for fix_no in range(1, MAX_FIX_ROUNDS + 1):
+        for fix_no in range(1, MAX_FIX_ROUNDS + 1 if ai_allowed else 1):
             if not _problems_for("python", report):
                 break
             step(4, f"{report.languages['python'].passed} of {len(runnable)} pass - correcting (round {fix_no} of {MAX_FIX_ROUNDS})")
