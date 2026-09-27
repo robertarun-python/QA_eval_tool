@@ -231,6 +231,52 @@ def create_scenario(payload: ScenarioCreate, db: Session = Depends(get_db), hr: 
     return scenario
 
 
+@router.get("/scenarios/{scenario_id}/reference-check")
+def reference_check(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """Round 1 test cases that seem to contradict each other (services.reference_check) - no AI call."""
+    from ..services import reference_check as check
+    scenario = db.get(Scenario, scenario_id)
+    if scenario is None:
+        raise HTTPException(404, "Scenario not found")
+    cases = scenario.reference_json if scenario.round_number == 1 and isinstance(scenario.reference_json, list) else []
+    return {"contradictions": check.contradictions(cases)}
+
+
+@router.post("/scenarios/{scenario_id}/copy-as-draft", response_model=ScenarioOut, status_code=201)
+def copy_scenario_as_draft(scenario_id: int, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+    """A published scenario can't be edited (every candidate must get the same
+    version), so correcting one - an answer-key mistake like Loan TC-2 - meant
+    a hand-written database command. This makes an editable draft copy of its
+    content instead, with no AI call: HR fixes it, publishes it and makes it
+    live; the original and everyone's results on it stay as they were. The
+    copy's Round 2 practice app is built for it separately."""
+    import copy as _copy
+    original = db.get(Scenario, scenario_id)
+    if original is None:
+        raise HTTPException(404, "Scenario not found")
+    if original.round_number not in (1, 3):
+        raise HTTPException(400, "Only Round 1 and Round 3 scenarios can be copied - Round 2 is built from its Round 1.")
+    config = {k: v for k, v in _copy.deepcopy(original.config_json or {}).items() if k != "practice_app"}
+    draft = Scenario(
+        round_number=original.round_number,
+        title=f"{original.title} (copy)",
+        description=original.description,
+        experience_band=original.experience_band,
+        time_limit_minutes=original.time_limit_minutes,
+        created_by=hr.id,
+        config_json=config,
+        status=ScenarioStatus.draft,
+        reference_json=_copy.deepcopy(original.reference_json),
+        environment_json=_copy.deepcopy(original.environment_json),
+        ui_mockup_json=_copy.deepcopy(original.ui_mockup_json),
+        environment_hr_edited=original.environment_hr_edited,
+    )
+    db.add(draft)
+    db.commit()
+    db.refresh(draft)
+    return draft
+
+
 def _generate_reference(scenario: Scenario, db: Session) -> None:
     """Synchronous on purpose: HR is actively waiting to review this
     (unlike candidate-facing scoring, which runs in the background).

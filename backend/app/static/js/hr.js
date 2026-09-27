@@ -636,6 +636,7 @@ async function openScenarioDetail(id) {
         <tbody>${refRows || `<tr><td colspan="${isCodingReference ? 4 : showPriorityType ? 8 : 5}" class="muted">No reference generated yet.</td></tr>`}</tbody>
       </table>
     </div>
+    ${scenario.round_number === 1 ? `<div id="reference-check" data-scenario-id="${scenario.id}"></div>` : ""}
     ${scenario.round_number === 1 ? `<div id="practice-app-panel" data-scenario-id="${scenario.id}"></div>` : ""}
     ${[1, 2].includes(scenario.round_number) ? `<div id="candidate-reference-preview" data-scenario-id="${scenario.id}"></div>` : ""}
     ${isCodingReference && scenario.reference_json ? `<p class="muted"><strong>Expected approach:</strong> ${escapeHtml(scenario.reference_json.expected_approach || "")}</p>` : ""}
@@ -666,10 +667,15 @@ async function openScenarioDetail(id) {
         <button onclick="publishScenario(${scenario.id})">Publish</button>
         <button class="btn-danger" onclick="deleteScenario(${scenario.id})">Delete draft</button>
       </div>
+    ` : [1, 3].includes(scenario.round_number) ? `
+      <div class="row">
+        <button class="btn-secondary" onclick="copyScenarioAsDraft(${scenario.id})" title="A published scenario can't be edited - make an editable copy, fix it, then publish the copy">Copy as new draft</button>
+      </div>
     ` : ""}
     <p id="scenario-detail-status" class="muted"></p>
   `;
   if (scenario.round_number === 1) loadPracticeAppPanel(scenario.id);
+  if (scenario.round_number === 1) loadReferenceCheck(scenario.id);
   if (scenario.round_number === 2) loadCandidateReferencePreview(scenario.id);
   // The panel sits below the scenario list, often off-screen - without this,
   // Review (or Create) looked like it did nothing.
@@ -700,6 +706,22 @@ async function loadCandidateReferencePreview(id) {
       <p class="muted">${note}</p>${round2AutomationPanelHtml(d.reference_panel)}</details>`;
   } catch (e) {
     box.innerHTML = `<p class="muted">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// Round 1 test cases that contradict each other (GET /hr/scenarios/{id}/reference-check, no AI call):
+// shown above the Round 2 practice app so HR fixes the answer key before candidates are scored on it.
+async function loadReferenceCheck(id) {
+  const box = document.getElementById("reference-check");
+  if (!box || Number(box.dataset.scenarioId) !== id) return;
+  try {
+    const d = await api(`/hr/scenarios/${id}/reference-check`);
+    box.innerHTML = d.contradictions.length ? `<div class="surface" style="border-left:4px solid var(--warning, #d97706)">
+      <p><strong>⚠️ Test cases that seem to contradict each other</strong></p>
+      <ul>${d.contradictions.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>
+      <p class="muted">Candidates are scored against these test cases. Fix the wrong one - on a published scenario, use "Copy as new draft".</p></div>` : "";
+  } catch (e) {
+    box.innerHTML = "";
   }
 }
 
@@ -1351,6 +1373,20 @@ async function publishScenario(id) {
     openScenarioDetail(id);
   } catch (e) {
     statusEl.textContent = e.message;
+  }
+}
+
+// Published scenarios can't be edited: an editable draft copy (no AI call) is how HR corrects one.
+async function copyScenarioAsDraft(id) {
+  const statusEl = document.getElementById("scenario-detail-status");
+  try {
+    const draft = await api(`/hr/scenarios/${id}/copy-as-draft`, { method: "POST" });
+    await loadScenarios();
+    await openScenarioDetail(draft.id);
+    const s = document.getElementById("scenario-detail-status");
+    if (s) s.textContent = `This is an editable copy (#${draft.id}). Fix it, then Publish - the original stays as it was.`;
+  } catch (e) {
+    if (statusEl) statusEl.textContent = e.message;
   }
 }
 

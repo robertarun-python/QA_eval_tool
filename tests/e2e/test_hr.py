@@ -159,3 +159,27 @@ def test_hr_sees_the_reference_panel_candidates_get_in_round_2(app_page, e2e_ser
     assert len(html.splitlines()) > 15, html[:300]
     assert any(line.startswith("    ") and 'id="login"' in line for line in html.splitlines()), html[:600]
     assert "<script" not in html.lower()
+
+
+def test_hr_is_warned_of_contradicting_test_cases_and_can_copy_a_published_scenario(app_page, e2e_server):
+    import json
+    import sqlite3
+    from pathlib import Path
+    loan = json.loads((Path(__file__).parent.parent / "fixtures" / "loan_reference_before_tc2_fix.json").read_text())
+    con = sqlite3.connect(e2e_server["log"].parent / "e2e.db")
+    try:
+        con.execute("UPDATE scenarios SET reference_json = ? WHERE round_number = 1 AND is_live = 1", (json.dumps(loan),))
+        con.commit()
+    finally:
+        con.close()
+    page = app_page
+    login(page, HR)
+    page.click('button[onclick="selectHRRound(1)"]')
+    page.get_by_role("button", name="Review").first.click()
+    detail = page.locator("#scenario-detail")
+    expect(detail.locator("#reference-check")).to_contain_text("Test cases that seem to contradict each other")
+    expect(detail.locator("#reference-check")).to_contain_text("121,200.00")
+    detail.get_by_role("button", name="Copy as new draft").click()
+    expect(page.locator("#scenario-detail-status")).to_contain_text("This is an editable copy")
+    expect(page.locator("#scenario-detail")).to_contain_text("(copy)")
+    expect(page.locator("#scenario-detail").get_by_role("button", name="Publish", exact=True)).to_be_visible()
