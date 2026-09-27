@@ -188,3 +188,37 @@ def test_after_an_incomplete_run_the_candidate_is_told_why_and_answers_right_the
     box.fill("The Customer id field has id customer_id.")
     page.click(".r4a-ask-btn")
     expect(page.locator(".r4a-chat-log")).to_contain_text("The Customer id field has id customer_id.")
+
+
+def test_the_code_is_readable(app_page, e2e_server):
+    """Walkthrough (2026-09-28): the code panel's dark background was wiped by a CSS rule, leaving
+    pale code on white. The code's text must contrast with what is actually behind it."""
+    _engine_round2(e2e_server)
+    _reset_persona(e2e_server)
+    page = app_page
+    login(page, PERSONA)
+    _open_round(page, 1)
+    page.click("text=Got it - Start Round 1")
+    row = page.locator("#tc-rows tr").first
+    for sel, text in ((".tc-title", "Sign in"), (".tc-pre", "x"), (".tc-steps", "Open the app"), (".tc-data", "x"), (".tc-expected", "Signed in")):
+        row.locator(sel).fill(text)
+    page.locator("#round1-submit-btn").click()
+    _open_round(page, 2)
+    page.select_option("#r4a-intro-language-select", "java")
+    page.click("#r4a-intro-start-btn")
+    page.select_option("#r4a-next-pick-select", index=1)
+    page.click("#r4a-automate-btn")
+    page.fill("#r4a-prompt-0", "Open the app. Generate the code.")
+    page.click(".r4a-ask-btn")
+    expect(page.locator("#r4a-code-0")).to_be_visible()
+    ratio = page.evaluate("""() => {
+        const t = document.querySelector('#r4a-code-0');
+        const rgb = (s) => (s.match(/[\\d.]+/g) || []).map(Number);
+        let e = t, bg = null;
+        while (e) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length >= 3 && (c.length < 4 || c[3] > 0)) { bg = c; break; } e = e.parentElement; }
+        bg = bg || [255, 255, 255];
+        const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+                             return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+        const a = lum(rgb(getComputedStyle(t).color)), b = lum(bg);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); }""")
+    assert ratio >= 4.5, f"code text contrast {ratio:.2f}:1 is unreadable (WCAG asks for 4.5:1)"

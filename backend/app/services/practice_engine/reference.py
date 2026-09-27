@@ -186,6 +186,7 @@ def round1_panel(panel: dict | None) -> dict | None:
 def reference_panel(spec: dict) -> dict:
     return {
         "app_name": spec.get("app_name"),
+        "web_address": spec.get("base_url") or "",  # the address Round 1 shows; it opens the practice app in Round 2 too
         "connect": CONNECT,
         "accounts": accounts(spec),
         "pages": page_sources(spec),

@@ -1476,6 +1476,10 @@ textarea.ta-grow   { resize: none; overflow-y: auto; max-height: 60vh; }
 .result-state-label { font-size: var(--text-md); font-weight: 700; margin-bottom: 0.15rem; }
 .result-state.is-pass .result-state-label { color: var(--success); }
 .result-state.is-fail .result-state-label { color: var(--error); }
+/* Ran cleanly but reported nothing - neither a pass nor a failure. */
+.result-state.is-silent { border-color: var(--warning); background: var(--warning-soft); }
+.result-state.is-silent .result-state-icon { background: var(--warning); color: #fff; }
+.result-state.is-silent .result-state-label { color: var(--warning); }
 .result-state-detail { font-size: var(--text-sm); color: var(--text-secondary); margin: 0; }
 .result-state-caveat { font-size: var(--text-xs); color: var(--text-muted); margin-top: 0.4rem; font-style: italic; }
 
@@ -1526,8 +1530,11 @@ textarea.ta-grow   { resize: none; overflow-y: auto; max-height: 60vh; }
 .code-panel-body { background: #0F1424; padding: 0.9rem 1rem; overflow: auto; }
 .code-panel-body, .code-panel-body textarea, .code-panel-body pre {
   font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.6; color: #E4E8F5;
-  background: transparent; border: none; white-space: pre; margin: 0;
+  border: none; white-space: pre; margin: 0;
 }
+/* Only what sits INSIDE the dark panel is transparent: listing the panel itself here too
+   wiped its dark background, leaving pale code on white (walkthrough, 2026-09-28). */
+.code-panel-body textarea, .code-panel-body pre { background: transparent; }
 .code-panel-body textarea { width: 100%; resize: vertical; min-height: 10rem; padding: 0; }
 .code-panel-body textarea:focus { outline: none; box-shadow: none; }
 
