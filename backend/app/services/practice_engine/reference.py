@@ -103,6 +103,18 @@ def page_sources(spec: dict) -> list[dict]:
         return out
 
 
+# What Round 1 may see of the app: its structure - screens, API, database and starting data -
+# so candidates can write concrete steps and test data (owner, 2026-09-27: "how will they know
+# the API details or the EMI screens?"). Left out: the test controls and simulated failures,
+# which would hand them their negative test ideas. The panel never lists the app's messages
+# or rules - the Round 1 answer key.
+ROUND1_HIDDEN = ("test_controls", "failures", "connect")  # connect: how a test Run finds the app - Round 1 runs nothing
+
+
+def round1_panel(panel: dict | None) -> dict | None:
+    return {k: v for k, v in panel.items() if k not in ROUND1_HIDDEN} if isinstance(panel, dict) else None
+
+
 def reference_panel(spec: dict) -> dict:
     return {
         "app_name": spec.get("app_name"),

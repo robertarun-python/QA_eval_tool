@@ -507,3 +507,26 @@ def test_hr_sees_the_round2_reference_panel_candidates_get_before_and_after_appr
     from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
     cand = _auth(_login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD))
     assert client.get(f"/hr/scenarios/{round2_id}/candidate-reference", cookies=cand).status_code == 403
+
+
+def test_round1_candidates_see_the_apps_structure_but_not_its_answers(client, monkeypatch, builds_dir):
+    """Owner (2026-09-27): a Round 1 candidate can't write concrete steps - "open
+    Payment History", "POST /api/pay-emi" - without the screens and API. Round 1 now
+    shows screens, API and database; not the test controls or simulated failures
+    (their negative test ideas), and never the app's messages (the answer key)."""
+    from .conftest import CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD
+    recorded, titles = _recorded_leave()
+    r1 = _leave_round1(client, monkeypatch, titles)
+    hr = _auth(_hr(client))
+    monkeypatch.setattr(llm_service, "_send", lambda *a, **k: pytest.fail("no AI call expected"))
+    service.install_recorded(r1["id"], recorded)
+    round2_id = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=hr).json()["round2_scenario_id"]
+    assert _db_scenario(r1["id"]).is_live and _db_scenario(round2_id).is_live
+    client.cookies.clear()
+    cand = _auth(_login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD))
+    panel = client.get("/candidate/round/1", cookies=cand).json()["reference_panel"]
+    assert panel["pages"] and panel["api"] and panel["database"] and panel["accounts"]
+    assert not {"test_controls", "failures", "connect"} & set(panel)
+    spec = recorded["plan"]["engine_spec"]
+    messages = [r["message"] for a in spec.get("actions") or [] for r in a.get("rules") or [] if isinstance(r.get("message"), str)]
+    assert messages and not any(m in json.dumps(panel) for m in messages)  # the rules' messages - the answer key - stay hidden

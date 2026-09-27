@@ -247,8 +247,8 @@ function round2AutomationPanelHtml(p) {
     `<button class="tab${active ? " active" : ""}" data-r4a-ref-tab="${name}" onclick="round2AutomationReferenceTabClicked('${name}')">${label}</button>`;
   const panel = (name, html, active) => `<div class="tab-panel${active ? " active" : ""}" data-r4a-ref-panel="${name}">${html}</div>`;
   const connect = `
-    <p class="text-muted">Your test finds the application through these environment variables (set for every Run):</p>
-    <dl class="env-fields">${(p.connect || []).map((c) => `<dt><code>${esc(c.name)}</code></dt><dd>${esc(c.meaning)}</dd>`).join("")}</dl>
+    ${(p.connect || []).length ? `<p class="text-muted">Your test finds the application through these environment variables (set for every Run):</p>
+    <dl class="env-fields">${p.connect.map((c) => `<dt><code>${esc(c.name)}</code></dt><dd>${esc(c.meaning)}</dd>`).join("")}</dl>` : ""}
     ${(p.accounts || []).length ? `<h4>Test accounts</h4><table class="data-table"><thead><tr><th>Login</th><th>Password</th><th>Name</th></tr></thead><tbody>
       ${p.accounts.map((a) => `<tr><td>${cell(a.login)}</td><td>${cell(a.password)}</td><td>${cell(a.name)}</td></tr>`).join("")}</tbody></table>` : ""}
     ${(p.failures || []).length ? `<h4>Simulated failures</h4><p>${p.failures.map((f) => `<code>${esc(f)}</code>`).join(", ")} - switch one on with the test controls.</p>` : ""}`;
@@ -279,8 +279,8 @@ function round2AutomationPanelHtml(p) {
   return `
     <div class="surface">
       <div class="section-header"><h3>Reference - ${esc(p.app_name || "practice application")}</h3></div>
-      <div class="tabs" role="tablist">${tab("connect", "Connect & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${tab("controls", "Test controls")}</div>
-      ${panel("connect", connect, true)}${panel("pages", pages)}${panel("api", api)}${panel("database", db)}${panel("controls", controls)}
+      <div class="tabs" role="tablist">${tab("connect", "Connect & accounts", true)}${tab("pages", "Pages")}${tab("api", "API")}${tab("database", "Database")}${p.test_controls ? tab("controls", "Test controls") : ""}</div>
+      ${panel("connect", connect, true)}${panel("pages", pages)}${panel("api", api)}${panel("database", db)}${p.test_controls ? panel("controls", controls) : ""}
     </div>`;
 }
 

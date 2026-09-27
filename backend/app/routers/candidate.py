@@ -1424,13 +1424,17 @@ def get_round(round_number: int, background_tasks: BackgroundTasks, db: Session 
     submission = _current_submission(db, candidate, scenario)
     environment = None
     ui_mockup = None
+    panel = None
     if round_number == 1:
         # A cut-down look at the Round 2 this Round 1 leads to (see
         # _round1_environment_view), so the test data fits the app.
         round2_scenario = _round2_for_round1(db, scenario)
         if round2_scenario is not None:
             environment, ui_mockup = _round1_environment_view(round2_scenario)
-    return RoundStateOut(scenario=scenario, submission=submission, environment=environment, ui_mockup=ui_mockup)
+            if _practice_spec(round2_scenario) is not None:
+                from ..services.practice_engine import reference
+                panel = reference.round1_panel((round2_scenario.config_json or {}).get("reference_panel"))
+    return RoundStateOut(scenario=scenario, submission=submission, environment=environment, ui_mockup=ui_mockup, reference_panel=panel)
 
 
 @router.post("/round/{round_number}/start", response_model=SubmissionOut, status_code=201)

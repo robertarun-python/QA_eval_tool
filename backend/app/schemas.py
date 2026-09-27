@@ -468,6 +468,9 @@ class RoundStateOut(BaseModel):
     # Same deal as environment above, for the reference app screens
     # (Scenario.ui_mockup_json on that same live round-2 scenario).
     ui_mockup: Optional["Round2AutomationUiMockupOut"] = None
+    # Round 1, when its Round 2 runs on the real practice environment: the app's
+    # structure (screens, API, database) - practice_engine.reference.round1_panel.
+    reference_panel: Optional[dict] = None
 
 
 # ---- HR candidate dashboard ----
