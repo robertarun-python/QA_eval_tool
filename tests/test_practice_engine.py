@@ -237,3 +237,37 @@ def test_a_lookup_can_load_a_related_record_for_its_rules_and_columns():
         {"call": "API.fetch_bill", "args": ["1111111111"], "expect_includes": {"ok": False, "error": "No bill found for this consumer number"}}]}])
     result = report.languages[lang].results[0]
     assert report.languages[lang].error is None and result.passed, result.failures
+
+
+CHECKOUT = {
+    "app_name": "Shop", "base_url": "https://shop.example.test", "now": "2024-03-20T10:00", "pages": ["Login", "Home"], "home_page": "Home",
+    "entities": {"User": {"key": "email", "fields": {"email": "string", "password": "string", "locked_until": "datetime", "used": "string"}},
+                 "Order": {"key": "id", "id_format": "OR-{n:03}", "fields": {"id": "string", "total": "money"}}},
+    "data": {"User": [{"email": "a@s.test", "password": "A@1", "locked_until": None, "used": "SAVE10,FLAT200"}], "Order": []},
+    "users": {"entity": "User", "blocked_when": {"lt": [{"now": True}, {"field": "user.locked_until"}]}},
+    "actions": [{"name": "checkout", "inputs": [{"name": "subtotal"}, {"name": "coupon"}],
+                 "load": [{"as": "me", "entity": "User", "key": {"user": "email"}, "missing": "No user"}],
+                 "compute": [{"name": "discount", "value": {"if": [{"eq": [{"input": "coupon"}, "SAVE10"]}, {"round": [{"mul": [{"input": "subtotal"}, 0.1]}, 2]}, 0]}},
+                             {"name": "taxable", "value": {"sub": [{"input": "subtotal"}, {"var": "discount"}]}},
+                             {"name": "gst", "value": {"round": [{"mul": [{"var": "taxable"}, 0.18]}, 2]}},
+                             {"name": "total", "value": {"add": [{"var": "taxable"}, {"var": "gst"}]}}],
+                 "rules": [{"when": {"contains": [{"split": [{"field": "me.used"}, ","]}, {"input": "coupon"}]}, "message": "Coupon already used"},
+                           {"when": {"ends_with": [{"input": "coupon"}, "X"]}, "message": "Bad coupon"}],
+                 "effects": [{"create": {"entity": "Order", "as": "o", "values": {"total": {"var": "total"}}}}],
+                 "message": {"format": ["Total {t}", {"t": {"var": "total"}}]}, "returns": {"total": {"var": "total"}, "gst": {"var": "gst"}}}],
+}
+
+
+def test_named_values_contains_and_missing_values_behave_the_same_in_every_language():
+    """Measured gaps: checkout totals need named intermediate values (Shop), a value in a list/text
+    (Bus, Security), and a comparison with an empty 'locked until' crashed sign-in (Security)."""
+    lang = _LANGUAGE[0]
+    report = _inspect(lang, CHECKOUT, [{"id": "c", "title": "c", "steps": [
+        {"call": "setup"}, {"call": "UI.login", "args": ["a@s.test", "A@1"], "expect": True},
+        {"call": "API.checkout", "args": [2998, "WELCOME"], "expect": {"ok": True, "error": None, "message": "Total 3537.64", "total": 3537.64, "gst": 539.64}},
+        {"call": "API.checkout", "args": [2998, "SAVE20"], "expect_includes": {"ok": True, "total": 3537.64}},
+        {"call": "API.checkout", "args": [2998, "FLAT200"], "expect_includes": {"ok": False, "error": "Coupon already used"}},
+        {"call": "API.checkout", "args": [2998, "TAX"], "expect_includes": {"ok": False, "error": "Bad coupon"}},
+        {"call": "Database.count_order", "expect": 2}]}])
+    result = report.languages[lang].results[0]
+    assert report.languages[lang].error is None and result.passed, result.failures

@@ -239,6 +239,8 @@ class Engine:
         ev = self.ev
         if op == "input":
             return ctx["inputs"].get(arg)
+        if op == "var":
+            return (ctx["aliases"].get("$vars") or {}).get(arg)
         if op == "field":
             alias, _, field = str(arg).partition(".")
             record = ctx["aliases"].get(alias)
@@ -314,7 +316,7 @@ class Engine:
             return len(value) if isinstance(value, list) else len(self._text(value))
         if op == "concat":
             return "".join(self._text(ev(x, ctx)) for x in arg)
-        if op in ("eq", "ne", "lt", "le", "gt", "ge", "and", "or", "not", "empty", "matches", "in"):
+        if op in ("eq", "ne", "lt", "le", "gt", "ge", "and", "or", "not", "empty", "matches", "in", "contains", "starts_with", "ends_with"):
             return self.cond(expr, ctx)
         raise EngineError(f"unknown operator {op!r}")
 
@@ -343,8 +345,17 @@ class Engine:
             same = _same(a, b) if not (isinstance(a, str) and isinstance(b, str)) else a == b
             return same if op == "eq" else not same
         if op in ("lt", "le", "gt", "ge"):
-            c = _compare(self.ev(arg[0], ctx), self.ev(arg[1], ctx))
+            a, b = self.ev(arg[0], ctx), self.ev(arg[1], ctx)
+            if a is None or b is None:  # compared with a missing value: false, never an error
+                return False
+            c = _compare(a, b)
             return {"lt": c < 0, "le": c <= 0, "gt": c > 0, "ge": c >= 0}[op]
+        if op in ("contains", "starts_with", "ends_with"):
+            whole, part = self.ev(arg[0], ctx), self.ev(arg[1], ctx)
+            if isinstance(whole, list):
+                return op == "contains" and any(_same(item, part) for item in whole)
+            whole, part = self._text(whole), self._text(part)
+            return part in whole if op == "contains" else whole.startswith(part) if op == "starts_with" else whole.endswith(part)
         value = self.ev(expr, ctx)
         if isinstance(value, bool):
             return value
@@ -415,7 +426,11 @@ class Engine:
                     raise _Refused(lockout["message"], status=403)
             raise _Refused(msgs["invalid"], status=401)
         self.failed_logins.pop(who, None)
-        if self.users.get("blocked_when") is not None and self.cond(self.users["blocked_when"], {"inputs": {}, "aliases": {"user": match}}):
+        try:
+            blocked = self.users.get("blocked_when") is not None and self.cond(self.users["blocked_when"], {"inputs": {}, "aliases": {"user": match}})
+        except EngineError:  # a description mistake must never crash signing in
+            blocked = False
+        if blocked:
             raise _Refused(msgs["blocked"], status=403)
         self.user = match
         self.last_active = self.clock
@@ -503,11 +518,18 @@ class Engine:
             if record is None:
                 raise _Refused(load["missing"], status=404)
             ctx["aliases"][load["as"]] = record
+        self._compute(action.get("compute"), ctx)
         self._check_rules(action.get("rules") or [], ctx)
         self._transaction(action.get("effects") or [], ctx)
         message = self._text(self.ev(action["message"], ctx)) if action.get("message") is not None else ""
         returns = {k: self.ev(v, ctx) for k, v in (action.get("returns") or {}).items()}
         return message, returns, action.get("next_page")
+
+    def _compute(self, computed, ctx):
+        """Named values, in order - each may use the ones before it: {"var": "name"}."""
+        values = ctx["aliases"].setdefault("$vars", {})
+        for item in computed or []:
+            values[item["name"]] = self.ev(item["value"], ctx)
 
     def _items(self, source, ctx):
         """What a for_each goes through: records of an entity (matching "where"),
@@ -616,6 +638,7 @@ class Engine:
             if record is None:
                 raise _Refused(load["missing"], status=404)
             ctx["aliases"][load["as"]] = record
+        self._compute(query.get("compute"), ctx)
         self._check_rules(query.get("rules") or [], ctx)
         entity = query["entity"]
         if query.get("key_input"):

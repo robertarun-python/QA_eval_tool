@@ -55,6 +55,12 @@ _OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test
 
 # Specific things a reply or the code could name.
 _QUOTED_RE = re.compile(r"""["'`]([^"'`\n]{1,200})["'`]""")
+# In prose, an apostrophe inside a word (you're, Priya's) is never a quotation mark.
+_PROSE_QUOTED_RE = re.compile(r"""(?<!\w)["'`“‘]([^"'`“”‘’\n]{1,200})["'`”’](?!\w)""")
+# A wait's time limit is plumbing, not knowledge of the application (measured: "10" in
+# WebDriverWait(driver, 10) withheld a strong candidate's code).
+_WAIT_LIMIT_RE = re.compile(r"WebDriverWait\s*\([^)]*\)|Duration\.of\w+\(\s*\d+\s*\)|implicitly_?[wW]ait\s*\(\s*[\d.]+|"
+                            r"implicit\s*:\s*\d+|\.wait\s*\([^;]*?,\s*\d+\s*\)|(?:time\.)?sleep\s*\(\s*[\d.]+\s*\)|timeout\s*=\s*[\d.]+")
 _PATH_RE = re.compile(r"(?<![\w.:])/[A-Za-z0-9_\-./{}]+")
 _STATUS_RE = re.compile(r"\b[1-5]\d\d\b")
 _METHOD_RE = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE)\b")
@@ -132,7 +138,7 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
         check(m)
     for m in _STATUS_RE.findall(text):
         check(m)
-    for literal in _QUOTED_RE.findall(text):
+    for literal in (_QUOTED_RE if code else _PROSE_QUOTED_RE).findall(text):
         if literal.lower() in _GENERIC or literal.startswith("INCOMPLETE"):
             continue
         # a whole literal the candidate said is fine; otherwise every word in it must be theirs
@@ -142,7 +148,7 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
             if len(word) > 1 or word.isdigit():
                 check(word)
     if code:
-        stripped = _QUOTED_RE.sub(" ", text)
+        stripped = _QUOTED_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", text))
         for n in _NUMBER_RE.findall(stripped):
             check(n)
     seen, out = set(), []

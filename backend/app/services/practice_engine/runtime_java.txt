@@ -264,6 +264,7 @@
             Object arg = e.getValue();
             switch (op) {
                 case "input": return inputs.get(str(arg));
+                case "var": { Map<String, Object> vars = aliases.get("$vars"); return vars == null ? null : vars.get(str(arg)); }
                 case "field": {
                     String s = str(arg);
                     int dot = s.indexOf('.');
@@ -336,6 +337,7 @@
                 case "length": { Object v = ev(arg, inputs, aliases); return v instanceof List ? (long) list(v).size() : chars(text(v)); }
                 case "concat": { StringBuilder b = new StringBuilder(); for (Object x : list(arg)) b.append(text(ev(x, inputs, aliases))); return b.toString(); }
                 case "eq": case "ne": case "lt": case "le": case "gt": case "ge": case "and": case "or": case "not": case "empty": case "matches": case "in":
+                case "contains": case "starts_with": case "ends_with":
                     return cond(expr, inputs, aliases);
                 default: throw new EngineError("unknown operator " + op);
             }
@@ -356,8 +358,20 @@
                 case "in": { Object v = ev(list(arg).get(0), inputs, aliases); for (Object o : list(ev(list(arg).get(1), inputs, aliases))) if (same(v, o)) return true; return false; }
                 case "eq": case "ne": { boolean s = same(ev(list(arg).get(0), inputs, aliases), ev(list(arg).get(1), inputs, aliases)); return op.equals("eq") == s; }
                 case "lt": case "le": case "gt": case "ge": {
-                    int c = compare(ev(list(arg).get(0), inputs, aliases), ev(list(arg).get(1), inputs, aliases));
+                    Object a = ev(list(arg).get(0), inputs, aliases), b = ev(list(arg).get(1), inputs, aliases);
+                    if (a == null || b == null) return false;  // compared with a missing value: false, never an error
+                    int c = compare(a, b);
                     return op.equals("lt") ? c < 0 : op.equals("le") ? c <= 0 : op.equals("gt") ? c > 0 : c >= 0;
+                }
+                case "contains": case "starts_with": case "ends_with": {
+                    Object whole = ev(list(arg).get(0), inputs, aliases), part = ev(list(arg).get(1), inputs, aliases);
+                    if (whole instanceof List) {
+                        if (!op.equals("contains")) return false;
+                        for (Object i : list(whole)) if (same(i, part)) return true;
+                        return false;
+                    }
+                    String w = text(whole), p = text(part);
+                    return op.equals("contains") ? w.contains(p) : op.equals("starts_with") ? w.startsWith(p) : w.endsWith(p);
                 }
                 default: { Object v = ev(expr, inputs, aliases); if (v instanceof Boolean) return (Boolean) v; throw new EngineError("not a condition: " + expr); }
             }
@@ -425,7 +439,9 @@
             if (users.get("blocked_when") != null) {
                 Map<String, Map<String, Object>> a = new LinkedHashMap<>();
                 a.put("user", match);
-                if (cond(users.get("blocked_when"), new LinkedHashMap<>(), a)) throw new Refused(str(msgs.get("blocked")));
+                boolean blocked;
+                try { blocked = cond(users.get("blocked_when"), new LinkedHashMap<>(), a); } catch (EngineError e) { blocked = false; }
+                if (blocked) throw new Refused(str(msgs.get("blocked")));
             }
             user = match;
             lastActive = clock;
@@ -503,6 +519,7 @@
                 if (record == null) throw new Refused(str(load.get("missing")));
                 aliases.put(str(load.get("as")), record);
             }
+            compute(action.get("compute"), inputs, aliases);
             checkRules(action.get("rules"), inputs, aliases);
             transaction(action.get("effects"), inputs, aliases);
             String msg = action.get("message") != null ? text(ev(action.get("message"), inputs, aliases)) : "";
@@ -514,6 +531,12 @@
         String entityOf(Map<String, Object> record) {
             for (Map.Entry<String, List<Object>> e : store.entrySet()) for (Object r : e.getValue()) if (r == record) return e.getKey();
             return null;
+        }
+
+        // Named values, in order - each may use the ones before it: {"var": "name"}.
+        void compute(Object computed, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
+            Map<String, Object> vars = aliases.computeIfAbsent("$vars", k -> new LinkedHashMap<>());
+            for (Object c : computed == null ? List.of() : list(computed)) vars.put(str(map(c).get("name")), ev(map(c).get("value"), inputs, aliases));
         }
 
         List<Map<String, Object>> items(Map<String, Object> source, Map<String, Object> inputs, Map<String, Map<String, Object>> aliases) {
@@ -651,6 +674,7 @@
                 if (record == null) throw new Refused(str(load.get("missing")));
                 aliases.put(str(load.get("as")), record);
             }
+            compute(query.get("compute"), inputs, aliases);
             checkRules(query.get("rules"), inputs, aliases);
             String entity = str(query.get("entity"));
             if (query.get("key_input") != null) {

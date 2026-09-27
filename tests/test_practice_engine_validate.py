@@ -129,3 +129,14 @@ def test_only_actions_that_change_stored_records_must_be_checked_in_the_database
     by_name = {(h["layer"], h["name"]): h for h in plan["helpers"]}
     assert by_name[("UI", "pick_slot")]["changes_data"] is False and by_name[("UI", "borrow_book")]["changes_data"] is True
     assert "never true/false" in by_name[("UI", "search_books")]["returns"]
+
+
+def test_named_values_are_checked():
+    from tests.test_practice_engine import CHECKOUT
+    assert validate.problems(CHECKOUT) == []
+    broken = copy.deepcopy(CHECKOUT)
+    broken["actions"][0]["message"] = {"var": "grand_total"}
+    assert any("not a value computed earlier" in p for p in validate.problems(broken))
+    out_of_order = copy.deepcopy(CHECKOUT)
+    out_of_order["actions"][0]["compute"].reverse()
+    assert any("not a value computed earlier" in p for p in validate.problems(out_of_order))

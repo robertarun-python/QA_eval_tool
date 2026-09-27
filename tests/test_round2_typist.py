@@ -110,3 +110,20 @@ def test_the_prompt_template_formats():
     text = llm_service._load_prompt("round2_typist_turn.txt").format(language="java", conventions="c", design="d", current_code="",
                                                                    conversation="", candidate_prompt="p")
     assert '{"reply"' in text and "<<CACHE_BREAK>>" in text
+
+
+def test_apostrophes_in_prose_are_not_quotes():
+    """Measured: "Got it, you're asking what Priya's password is. I don't know that" - a correct reply - was blocked."""
+    said = round2_typist.candidate_text(DESIGN, [{"candidate_prompt": "Log in as Priya.", "response_message": "x"}], "What's Priya's password?")
+    reply = "Got it, you're asking what Priya's password is. I don't know that - I need you to tell me. What password should I use for Priya?"
+    assert round2_typist.unsaid(reply, said, code=False) == []
+    # a real quoted name the candidate never said is still caught
+    assert "Sign" in round2_typist.unsaid('Should I use the "Sign in" button?', said, code=False)
+
+
+def test_a_waits_time_limit_is_not_an_invented_value():
+    """Measured: WebDriverWait(driver, 10) withheld a strong candidate's code."""
+    said = "Open PRACTICE_APP_URL, click id login, wait until the page title contains Home. Generate it."
+    code = 'wait = WebDriverWait(driver, 10)\nwait.until(EC.title_contains("Home"))\ndriver.find_element(By.ID, "login").click()'
+    assert round2_typist.unsaid(code, said, code=True) == []
+    assert round2_typist.unsaid(code + "\nassert total == 3537", said, code=True) == ["3537"]  # other numbers still checked

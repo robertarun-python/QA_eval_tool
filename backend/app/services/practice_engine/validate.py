@@ -16,10 +16,11 @@ TOP_KEYS = {"app_name", "base_url", "now", "entities", "data", "users", "pages",
 USER_KEYS = {"entity", "login_field", "password_field", "name_field", "session_minutes", "blocked_when", "messages", "page", "lockout"}
 USER_MESSAGES = {"required_login", "required_password", "invalid", "blocked", "expired", "need_login"}
 QUERY_KEYS = {"name", "label", "description", "page", "entity", "match", "inputs", "key_input", "missing", "where", "order_by", "show",
-              "none_message", "next_page", "requires_login", "rules", "as", "load"}
+              "none_message", "next_page", "requires_login", "rules", "as", "load", "compute"}
 _ITEM = "(list item)"  # the pseudo record type of a for_each over a list: its one field is "value"
 MATCH_KEYS = {"input", "fields", "mode", "blank", "max_length", "too_long"}
-ACTION_KEYS = {"name", "label", "description", "page", "requires_login", "inputs", "load", "rules", "effects", "message", "returns", "next_page"}
+ACTION_KEYS = {"name", "label", "description", "page", "requires_login", "inputs", "load", "rules", "effects", "message", "returns", "next_page",
+               "compute"}
 CHECK_RULES = {"required", "min_length", "max_length", "pattern", "min", "max", "number", "one_of", "date", "not_past", "not_future"}
 DATE_FORMATS = {"YYYY-MM-DD", "DD-MM-YYYY", "DD/MM/YYYY", "MM/DD/YYYY", "DD-Mon-YYYY", "DD Mon YYYY"}
 CURRENCIES = {"INR", "USD", "EUR", "GBP"}
@@ -40,10 +41,10 @@ UNPORTABLE_REGEX = [(r"\(\?<[=!]", "look-behind"), (r"\(\?P", "named groups"), (
                     (r"\[[^\]]*\[", "[ inside [...]")]
 EXPR_OPS = {"input", "field", "user", "session", "today", "now", "add", "sub", "mul", "div", "round", "add_days", "add_months",
             "days_between", "minutes_since", "count", "sum", "exists", "if", "format", "format_date", "format_money", "upper", "lower",
-            "trim", "length", "concat", "minutes_between", "time", "weekday", "working_days", "split", "occurrences", "add_minutes"}
-COND_OPS = {"and", "or", "not", "empty", "matches", "in", "eq", "ne", "lt", "le", "gt", "ge"}
+            "trim", "length", "concat", "minutes_between", "time", "weekday", "working_days", "split", "occurrences", "add_minutes", "var"}
+COND_OPS = {"and", "or", "not", "empty", "matches", "in", "eq", "ne", "lt", "le", "gt", "ge", "contains", "starts_with", "ends_with"}
 PAIR_OPS = {"add", "sub", "mul", "div", "add_days", "add_months", "days_between", "eq", "ne", "lt", "le", "gt", "ge", "in", "matches",
-            "minutes_between", "working_days", "occurrences", "add_minutes"}
+            "minutes_between", "working_days", "occurrences", "add_minutes", "contains", "starts_with", "ends_with"}
 
 
 def problems(spec) -> list[str]:
@@ -377,6 +378,7 @@ class _Checker:
             self.message(q.get("missing"), f"{where} missing")
         self.params(first + [n for n in extra if n not in first], where)
         loaded = self.loads(q.get("load"), where, {"inputs": set(first + extra), "aliases": {}})
+        loaded = self.computed(q.get("compute"), where, {"inputs": set(first + extra), "aliases": dict(loaded)})
         self.rules(q.get("rules"), where, {"inputs": set(first + extra), "aliases": dict(loaded)})
         scope = {"inputs": set(first + extra), "aliases": {**loaded, "row": entity}}
         if q.get("as") is not None:
@@ -408,6 +410,7 @@ class _Checker:
         self.params(names, where)
         scope = {"inputs": set(names), "aliases": {}}
         scope["aliases"].update(self.loads(a.get("load"), where, scope))
+        scope["aliases"] = self.computed(a.get("compute"), where, scope)
         self.rules(a.get("rules"), where, scope)
         for j, effect in enumerate(a.get("effects") or []):
             self.effect(effect, f"{where} effect {j + 1}", scope)
@@ -480,6 +483,27 @@ class _Checker:
             self.message(load.get("missing"), f"{w} missing")
             found[load["as"]] = load["entity"]
         return found
+
+    def computed(self, computed, where: str, scope: dict) -> dict:
+        """Named values {"name", "value"}, in order: the aliases plus "$vars" (the names so far)."""
+        aliases = dict(scope["aliases"])
+        if computed is None:
+            return aliases
+        if not isinstance(computed, list):
+            self.err(where, 'compute must be a list of {"name": "lower_snake_case", "value": <expression>}')
+            return aliases
+        names = list(aliases.get("$vars") or ())
+        for j, item in enumerate(computed):
+            w = f"{where} compute[{j}]"
+            if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not NAME.fullmatch(item["name"]) or "value" not in item:
+                self.err(w, 'needs {"name": "lower_snake_case", "value": <expression>}')
+                continue
+            self.expr(item["value"], w, {"inputs": scope["inputs"], "aliases": {**aliases, "$vars": tuple(names)}})
+            if item["name"] in names:
+                self.err(w, f"{item['name']!r} is computed twice")
+            names.append(item["name"])
+        aliases["$vars"] = tuple(names)
+        return aliases
 
     def effect(self, effect, where: str, scope: dict) -> None:
         if not isinstance(effect, dict) or len(effect) != 1:
@@ -571,10 +595,13 @@ class _Checker:
         if op == "input":
             if arg not in scope["inputs"]:
                 self.err(where, f"input {arg!r} is not one of this action's inputs")
+        elif op == "var":
+            if not isinstance(arg, str) or arg not in (scope["aliases"].get("$vars") or ()):
+                self.err(where, f"{{\"var\": {arg!r}}} is not a value computed earlier in this action or lookup's \"compute\" list")
         elif op == "field":
             alias, _, field = str(arg).partition(".")
             if alias not in scope["aliases"]:
-                self.err(where, f"{arg!r}: no record called {alias!r} here (available: {', '.join(sorted(scope['aliases'])) or 'none'})")
+                self.err(where, f"{arg!r}: no record called {alias!r} here (available: {', '.join(sorted(a for a in scope['aliases'] if a != '$vars')) or 'none'})")
             elif field not in self.fields(scope["aliases"][alias]):
                 self.err(where, f"{arg!r}: {field!r} is not a field of {scope['aliases'][alias]}")
         elif op == "user":
@@ -660,7 +687,8 @@ class _Checker:
             self.expr(arg[0], where, scope)
             if op == "matches":
                 if not isinstance(arg[1], str):
-                    self.err(where, 'matches needs [value, "fixed regular expression text"] - the pattern must be written out, not an expression; '
+                    self.err(where, 'matches needs [value, "fixed regular expression text"] - the pattern must be written out, not an expression. '
+                                    'To check whether a text or list holds a value use {"contains": [text_or_list, value]} (or starts_with / ends_with); '
                                     'for several requirements (e.g. an upper-case letter AND a digit) use one input check or rule per requirement')
                     return
                 p = regex_problem(arg[1])

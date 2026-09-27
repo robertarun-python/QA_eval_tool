@@ -166,6 +166,7 @@ class Engine {
     const [op, arg] = one(expr);
     switch (op) {
       case "input": return ctx.inputs[arg] === undefined ? null : ctx.inputs[arg];
+      case "var": { const vars = ctx.aliases["$vars"] || {}; return vars[arg] === undefined ? null : vars[arg]; }
       case "field": {
         const i = String(arg).indexOf(".");
         const alias = i < 0 ? String(arg) : String(arg).slice(0, i), field = i < 0 ? "" : String(arg).slice(i + 1);
@@ -221,6 +222,7 @@ class Engine {
       case "length": { const v = this.ev(arg, ctx); return Array.isArray(v) ? v.length : chars(text(v)); }
       case "concat": return arg.map((x) => text(this.ev(x, ctx))).join("");
       case "eq": case "ne": case "lt": case "le": case "gt": case "ge": case "and": case "or": case "not": case "empty": case "matches": case "in":
+      case "contains": case "starts_with": case "ends_with":
         return this.cond(expr, ctx);
       default: throw new EngineError(`unknown operator ${op}`);
     }
@@ -238,8 +240,16 @@ class Engine {
       case "in": { const v = this.ev(arg[0], ctx); return this.ev(arg[1], ctx).some((o) => same(v, o)); }
       case "eq": case "ne": { const a = this.ev(arg[0], ctx), b = this.ev(arg[1], ctx); const s = same(a, b); return op === "eq" ? s : !s; }
       case "lt": case "le": case "gt": case "ge": {
-        const c = compare(this.ev(arg[0], ctx), this.ev(arg[1], ctx));
+        const a = this.ev(arg[0], ctx), b = this.ev(arg[1], ctx);
+        if (a === null || a === undefined || b === null || b === undefined) return false;  // missing value: false, never an error
+        const c = compare(a, b);
         return op === "lt" ? c < 0 : op === "le" ? c <= 0 : op === "gt" ? c > 0 : c >= 0;
+      }
+      case "contains": case "starts_with": case "ends_with": {
+        const whole = this.ev(arg[0], ctx), part = this.ev(arg[1], ctx);
+        if (Array.isArray(whole)) return op === "contains" && whole.some((i) => same(i, part));
+        const w = text(whole), p = text(part);
+        return op === "contains" ? w.includes(p) : op === "starts_with" ? w.startsWith(p) : w.endsWith(p);
       }
       default: { const v = this.ev(expr, ctx); if (typeof v === "boolean") return v; throw new EngineError(`not a condition: ${JSON.stringify(expr)}`); }
     }
@@ -288,7 +298,9 @@ class Engine {
       throw new Refused(msgs.invalid);
     }
     delete this.failedLogins[who];
-    if (this.users.blocked_when && this.cond(this.users.blocked_when, { inputs: {}, aliases: { user: match } })) throw new Refused(msgs.blocked);
+    let blocked = false;
+    try { blocked = !!this.users.blocked_when && this.cond(this.users.blocked_when, { inputs: {}, aliases: { user: match } }); } catch (e) { blocked = false; }
+    if (blocked) throw new Refused(msgs.blocked);
     this.user = match;
     this.lastActive = new Date(this.clock.getTime());
     this.session = {};
@@ -346,6 +358,7 @@ class Engine {
       if (!record) throw new Refused(load.missing);
       ctx.aliases[load.as] = record;
     }
+    this.compute(action.compute, ctx);
     this.checkRules(action.rules || [], ctx);
     this.transaction(action.effects || [], ctx);
     const message = action.message !== undefined && action.message !== null ? text(this.ev(action.message, ctx)) : "";
@@ -356,6 +369,10 @@ class Engine {
   entityOf(record) {
     for (const [e, rows] of Object.entries(this.store)) if (rows.includes(record)) return e;
     return null;
+  }
+  compute(computed, ctx) {
+    const vars = ctx.aliases["$vars"] || (ctx.aliases["$vars"] = {});
+    for (const item of computed || []) vars[item.name] = this.ev(item.value, ctx);
   }
   items(source, ctx) {
     if ("entity" in source) return this.rows(source.entity, source.where, ctx).slice();
@@ -447,6 +464,7 @@ class Engine {
       if (!record) throw new Refused(load.missing);
       ctx.aliases[load.as] = record;
     }
+    this.compute(query.compute, ctx);
     this.checkRules(query.rules || [], ctx);
     const entity = query.entity;
     if (query.key_input) {
