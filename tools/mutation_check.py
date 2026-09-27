@@ -25,8 +25,8 @@ MUTATIONS = [
     ("intermediate maths rounded to 2 places again", 'quantize(Decimal("1e-10")', 'quantize(Decimal("0.01")'),
     ("stray spaces in keys not ignored", "wanted = str(key).strip().lower()", "wanted = str(key).lower()"),
     ("refused action still sends email", "    def _check_rules(self, rules, ctx):", "    def _check_rules(self, rules, ctx):\n        self.outbox.append({'x': 'y'})"),
-    ("unexpected problem crashes instead of refusing", "        except Exception:\n            raise _Refused(UNEXPECTED)\n\n    def run_query",
-     "        except ZeroDivisionError:\n            raise _Refused(UNEXPECTED)\n\n    def run_query"),
+    ("unexpected problem crashes instead of refusing", "        except Exception:\n            raise _Refused(UNEXPECTED, status=500)\n\n    def run_query",
+     "        except ZeroDivisionError:\n            raise _Refused(UNEXPECTED, status=500)\n\n    def run_query"),
     ("session never expires", "if minutes and self.last_active is not None", "if False and self.last_active is not None"),
 ]
 
