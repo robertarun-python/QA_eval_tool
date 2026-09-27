@@ -136,15 +136,19 @@ def test_second_login_kicks_out_the_first_session_mid_round(client, monkeypatch)
     assert res.json()["submission"]["status"] == "in_progress"
 
 
-def test_second_login_does_not_kick_the_first_session_between_rounds(client, monkeypatch):
-    """No round in_progress means nothing at stake - a candidate switching
-    devices between rounds (or just idly logged in twice) isn't punished."""
+def test_a_second_login_replaces_the_first_session_even_between_rounds(client, monkeypatch):
+    """Changed 2026-09-27 (journey matrix): between rounds the old session used to
+    keep working, so a logged-out or replaced session - an old tab whose timer
+    fires, a second device - could still start and submit a round. Only the
+    latest session acts; the old one gets a clear message and signs itself out
+    without touching the new one (see test_a_replaced_sessions_logout_...)."""
     _login(client, HR_EMAIL, HR_PASSWORD)
     device_a_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
     device_b_token = _login(client, CANDIDATE1_EMAIL, CANDIDATE1_PASSWORD)
-
-    # Both still work - no round in progress for either to protect.
-    assert client.get("/auth/me", cookies=_auth(device_a_token)).status_code == 200
+    client.cookies.clear()
+    old = client.get("/auth/me", cookies=_auth(device_a_token))
+    assert old.status_code == 401 and "another device" in old.json()["detail"]
+    client.cookies.clear()
     assert client.get("/auth/me", cookies=_auth(device_b_token)).status_code == 200
 
 

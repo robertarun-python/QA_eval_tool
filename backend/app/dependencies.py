@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from .database import get_db
-from .models import User, Role, Submission, RoundStatus
+from .models import User, Role
 from .security import decode_access_token
 
 COOKIE_NAME = "qa_eval_token"
