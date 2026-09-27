@@ -100,6 +100,7 @@ def ensure_grid(timeout_seconds: float = 60) -> str:
         missing = [str(p) for p in (jar, driver, chrome) if not p.exists()]
         if missing:
             raise EnvironmentUnavailable("browser tools are not installed (run tools/setup_vendor.sh): " + ", ".join(missing))
+        _no_app_nap()
         config = vendor() / "grid.toml"
         # Background throttling off: with other browser windows active, Chrome treats a headless page as
         # in the background - timers slow down and clicks can be dropped (found when the practice Runs
@@ -124,6 +125,15 @@ def ensure_grid(timeout_seconds: float = 60) -> str:
                 break
             time.sleep(0.5)
         raise EnvironmentUnavailable("the Selenium Grid did not start (see vendor/grid.log)")
+
+
+def _no_app_nap() -> None:
+    """macOS App Nap slows an app with no visible window after a while - headless
+    Chrome for Testing included - and its pages then drop clicks and typing:
+    Runs failed in clusters until it was switched off (Chrome's own
+    anti-throttling options can't override it). Harmless if already off."""
+    if sys.platform == "darwin":
+        subprocess.run(["defaults", "write", "com.google.chrome.for.testing", "NSAppSleepDisabled", "-bool", "YES"], capture_output=True)
 
 
 class PracticeServer:

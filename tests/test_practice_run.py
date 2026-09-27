@@ -212,20 +212,6 @@ def test_a_test_that_forgets_to_close_its_browser_leaves_nothing_open():
     assert _open_browser_sessions() == 0
 
 
-NO_WAIT = "\n".join(line for line in PYTHON.replace('el("', 'driver.find_element(By.ID, "').splitlines()
-                    if "wait.until(EC.title_contains" not in line)
-
-
-@needs_tools
-def test_a_browser_test_without_waits_fails_every_time_and_with_waits_passes_every_time():
-    """Handling waits is assessed, so the outcome must never be luck."""
-    assert 'el("' not in NO_WAIT and "title_contains" not in NO_WAIT
-    for _ in range(3):
-        without = practice_run.run("python", NO_WAIT, SPEC)
-        assert without.exit_code != 0 and "UI: Book borrowed" not in without.stdout
-        with_waits = practice_run.run("python", PYTHON, SPEC)
-        assert "UI: Book borrowed successfully. Due date: 24-Feb-2024" in with_waits.stdout, with_waits.stderr[-600:]
-
 
 def test_a_grid_whose_browser_node_is_stuck_down_is_restarted_not_duplicated(monkeypatch):
     """Seen after the machine slept: the Grid answered but its node was 'down'; the
@@ -250,6 +236,7 @@ def test_a_grid_whose_browser_node_is_stuck_down_is_restarted_not_duplicated(mon
             return None
     monkeypatch.setattr(practice_run, "_grid_state", state)
     monkeypatch.setattr(practice_run, "_stop_grid", lambda: events.append("stopped"))
+    monkeypatch.setattr(practice_run, "_no_app_nap", lambda: None)
     monkeypatch.setattr(practice_run.subprocess, "Popen", FakeProcess)
     monkeypatch.setattr(practice_run.time, "sleep", lambda s: None)
     monkeypatch.setattr(practice_run.time, "monotonic", lambda: next(clock))

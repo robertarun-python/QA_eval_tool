@@ -945,6 +945,8 @@ class Round2AutomationTCStateOut(BaseModel):
 
 
 class Round2AutomationStateOut(BaseModel):
+    # The real practice environment's reference panel (practice_engine.reference) - None for older practice apps.
+    reference_panel: Optional[dict] = None
     """Everything the automation round's candidate screen needs. Nothing
     here carries ground truth, validation notes, the scoring rubric, or
     the traceability signal - those are HR/system-only (see

@@ -48,25 +48,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from .render import snake
 from .runtime import Engine, _Refused
 
-# Every page shows its content this long after it opens (like an application
-# that loads its screen after the page itself), and a click on a button or link
-# hides the current content at once. So a browser test that uses a page without
-# waiting for it fails EVERY time (a hidden element can't be clicked or typed
-# into, and its text reads as empty), and one that waits for the new page and
-# its elements passes every time. Handling waits is part of what Round 2
-# assesses and must never be luck: on plain pages a test without waits failed
-# only 9 times in 10. (Delaying the server's reply instead made chromedriver
-# lose track of the page.)
-CONTENT_DELAY_MS = 400
-_PAGE_SCRIPT = (
-    "<script>(function(){var main=document.getElementById('content');"
-    "setTimeout(function(){main.hidden=false;},%d);"
-    # hidden just after the submit / link click has gone out (changing the page during the event can cancel it)
-    "function leaving(){setTimeout(function(){main.hidden=true;},0);}"
-    "document.addEventListener('submit',leaving,true);"
-    "document.addEventListener('click',function(e){if(e.target.closest&&e.target.closest('a'))leaving();},true);})();</script>"
-) % CONTENT_DELAY_MS
-
 CLIENT_STATE = ("user", "session", "page", "message", "last", "last_active")
 SQL_TYPES = {"int": "INTEGER", "number": "REAL", "money": "REAL", "bool": "INTEGER"}
 
@@ -176,8 +157,7 @@ class PracticeApp:
                 '<style>body{font-family:sans-serif;margin:24px;max-width:900px}form{margin:12px 0;padding:12px;border:1px solid #ccc}'
                 'label{display:block;margin-top:6px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}'
                 '#message{font-weight:bold}</style></head>'
-                f'<body><header><strong id="app-name">{app_name}</strong></header><main id="content" hidden>{content}</main>'
-                f'{_PAGE_SCRIPT}</body></html>')
+                f'<body><header><strong id="app-name">{app_name}</strong></header>{content}</body></html>')
 
     def form(self, form_id: str, action: str, method: str, fields: list[tuple[str, str]], button_id: str, button: str) -> str:
         inputs = "".join(f'<label for="{html.escape(n)}">{html.escape(lbl)}</label><input id="{html.escape(n)}" name="{html.escape(n)}"'

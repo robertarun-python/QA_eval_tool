@@ -20,6 +20,15 @@ import re
 
 from . import llm_service, round2_automation_policy
 
+# The candidate's file before anything is written - the assistant writes the
+# whole program from what they say (no provided helpers any more).
+STARTERS = {
+    "java": "// Your automated test. Tell the assistant what it should do - it writes this file from your words.\n"
+            "public class Main {\n    public static void main(String[] args) throws Exception {\n    }\n}\n",
+    "python": "# Your automated test. Tell the assistant what it should do - it writes this file from your words.\n",
+    "javascript": "// Your automated test. Tell the assistant what it should do - it writes this file from your words.\n",
+}
+
 INCOMPLETE_MARKER = "INCOMPLETE:"
 INCOMPLETE_EXIT = 3
 

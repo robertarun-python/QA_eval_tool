@@ -407,3 +407,31 @@ def test_approval_is_refused_while_a_candidate_is_mid_round2(client, monkeypatch
     res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
     assert res.status_code == 400 and "middle of Round 2" in res.json()["detail"]
     assert _db_scenario(live_r2["id"]).is_live
+
+
+def test_approving_an_engine_built_app_puts_round2_on_the_real_environment(client, monkeypatch, builds_dir):
+    from pathlib import Path as _Path
+
+    from app.services import round2_typist
+    spec = json.loads((_Path(__file__).parent / "fixtures" / "practice_engine" / "library_spec.json").read_text())
+    token = _hr(client)
+    r1 = _r1(client, token, monkeypatch)
+    _fake_factory(monkeypatch)
+    real = engine_build.generate
+
+    def engine_plan(*args, **kwargs):
+        result = real(*args, **kwargs)
+        result.plan = {**result.plan, "engine_spec": spec}
+        return result
+    monkeypatch.setattr(engine_build, "generate", engine_plan)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    res = client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
+    assert res.status_code == 200, res.text
+    round2 = _db_scenario(res.json()["round2_scenario_id"])
+    config = round2.config_json
+    assert config["practice_spec"] == spec
+    assert config["environment_code_by_language"] == round2_typist.STARTERS and config["environment_support_by_language"] == {}
+    panel = config["reference_panel"]
+    assert panel["app_name"] == spec["app_name"] and any(a["path"] == "/api/borrow-book" for a in panel["api"])
+    assert "No copies available" not in json.dumps(panel)
+    assert round2.ui_mockup_json is None  # the panel shows the real pages instead of a drawn sketch

@@ -798,6 +798,7 @@ def _build_auto_state(scenario: Scenario, submission: Submission, candidate: Use
         environment_code=_auto_environment_code(scenario, language) if language else "",
         environment=scenario.environment_json,
         ui_mockup=scenario.ui_mockup_json,
+        reference_panel=(scenario.config_json or {}).get("reference_panel") if _practice_spec(scenario) is not None else None,
         tc_state=[_auto_tc_state_out(r) for r in selected],
     )
 

@@ -19,4 +19,6 @@ curl -sSfL -o sqlite-jdbc.jar "https://repo1.maven.org/maven2/org/xerial/sqlite-
 PY="$(cd "$ROOT/backend" && "$ROOT/.venv/bin/python" -c 'from app.services import execution_service as e; print(e.PYTHON)')"
 "$PY" -m pip install --quiet --target python "selenium==4.36.0"
 mkdir -p node && (cd node && [ -f package.json ] || npm init -y >/dev/null) && (cd node && npm install --silent "selenium-webdriver@$SELENIUM")
+# macOS App Nap slows headless Chrome after a while and its pages then drop input (see practice_run._no_app_nap)
+defaults write com.google.chrome.for.testing NSAppSleepDisabled -bool YES 2>/dev/null || true
 echo "vendor ready in $V"
