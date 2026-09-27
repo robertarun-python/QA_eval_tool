@@ -115,6 +115,26 @@ its generator, and prove the generator fails on the old code.
   (tests/fixtures/practice_engine/imagined); they widen coverage but never
   replace real outputs - the pattern is only proven once real ones pass too.
 
-## 8. Report
+## 8. The whole journey, not only the parts (added 2026-09-27)
+Why: the owner kept finding bugs within minutes of using the tool, weeks in -
+always between parts: a replaced session's automatic logout ended the round
+the candidate had just started elsewhere (three rules, each tested alone).
+The owner was the first person to walk the whole journey.
+- **Gate before the owner tests anything:** (1) the journey state x event
+  matrix passes, (2) persona candidates (strong, weak, cheating) complete
+  Round 1 -> Round 2 end to end in every language with the fake AI, (3) my
+  own exploratory pass in a real browser as candidate and HR, with
+  screenshots, (4) a few-cents real-AI smoke with the owner's yes. The owner
+  then does acceptance, not bug-hunting.
+- **State x event matrix:** states (logged out, round intro, round in
+  progress, submitted, scored, reset by HR) x events (second login
+  elsewhere, old tab request, refresh, logout from old/new session, timer
+  ends, HR reset, network drop, server restart), random sequences with the
+  journey's promises checked after every event - applied to EXISTING code the
+  change relies on (auth, sessions, timers, resets), not only new code.
+- **Never act as an account the owner is using** (logging in as it replaces
+  their session); use a separate test account.
+
+## 9. Report
 Plain words for the owner: promises checked, random steps run, breaks caught
 (N of N), and the list of what is NOT covered. Never "should work".

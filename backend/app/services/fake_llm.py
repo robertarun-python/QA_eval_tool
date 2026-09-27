@@ -86,6 +86,12 @@ def _reply(caller: str, prompt: str):
     if caller == "generate_round2_automation_ui_mockup":
         return {"screens": [{"name": "Login", "elements": [{"type": "label", "text": "Email"}, {"type": "input", "text": "Email"},
                                                            {"type": "button", "text": "Login"}]}]}
+    if caller == "turn":  # round2_typist.turn - the Round 2 typing assistant
+        said = " ".join((_between(prompt, "<candidate_message>", "</candidate_message>") or "").split())
+        code = None
+        if re.search(r"\b(generate|write|create)\b", said, re.I):  # asked for code: the current file, unchanged
+            code = (_between(prompt, "<candidate_code>", "</candidate_code>") or "").strip("\n") + "\n"
+        return {"reply": "Fake AI mode - the assistant would write down: " + said[:200], "code": code}
     if caller == "round2_automation_clarify":
         return {"status": "sufficient", "question": None, "prior_value": None, "current_value": None}
     if caller in ("round2_automation_turn", "_round3_coding_turn_once"):

@@ -166,3 +166,13 @@ def test_withheld_code_never_leaves_a_reply_promising_code(monkeypatch):
     assert "write the code now" not in out["response_message"]
     assert out["response_message"] in round2_typist._BLOCKED
     assert "incomplete(" in model.prompts[1]  # the retry was told to mark the unsaid steps incomplete
+
+
+def test_a_comment_is_not_a_path_but_a_path_in_a_comment_still_is():
+    """Persona browser test (2026-09-27): "//" was read as an unsaid path, so every
+    Java/JavaScript program with a comment - even the untouched starter file - was withheld."""
+    said = "Sign in and check the name. Generate the code."
+    for language, starter in round2_typist.STARTERS.items():
+        assert round2_typist.unsaid(starter, said, code=True) == [], language
+    assert round2_typist.unsaid("// sign in\nx = 1;", said, code=True) == []
+    assert "/api/login" in round2_typist.unsaid("// call /api/login\nx = 1;", said, code=True)
