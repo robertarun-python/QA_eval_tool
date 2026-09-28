@@ -409,21 +409,20 @@ function round2AutomationTcSectionHtml(row) {
       ${(row.refinements || []).length > 0 ? `<p class="muted" style="margin:0 0 0.5rem 0"><strong>Your refinement notes:</strong> ${row.refinements.map((n) => escapeHtml(n)).join(" &middot; ")}</p>` : ""}
       <p class="muted" style="margin:0 0 var(--space-compact) 0">AI-generated code may be buggy, incomplete, or subtly wrong even when it runs cleanly - review it before trusting a PASS.</p>
 
-      <div class="section-header"><h3>Your instruction &middot; AI conversation</h3></div>
-      <div class="r4a-chat-log">${round2AutomationTurnsHtml(tc.turns)}</div>
-
-      ${codeSectionHtml}
-
-      <!-- At the bottom, like a chat: after a Run the candidate is looking at the result, and a box
-           above the whole program read as "the conversation is over" (owner, 2026-09-28). -->
-      <div class="section-header" style="margin-top:var(--space-default)"><h3>${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</h3></div>
-      <div class="field-row" style="margin-top:0.25rem; align-items:flex-start">
-        <div class="field" style="flex:1 1 20rem">
-          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
+      <!-- Side by side (owner, 2026-09-28): the conversation with its reply box on the left, the code,
+           Run and result on the right - both in view, instead of new messages landing far above the
+           result the candidate is reading. Stacked on a narrow screen, reply box under the conversation. -->
+      <div class="r4a-work">
+        <div class="r4a-chat-col">
+          <div class="section-header"><h3>Conversation with the assistant</h3></div>
+          <div class="r4a-chat-log" id="r4a-chat-log-${row.index}">${round2AutomationTurnsHtml(tc.turns)}</div>
+          <div class="field-label" style="margin-top:0.6rem">${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</div>
+          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="3" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
+          <div class="row" style="justify-content:flex-end"><button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button></div>
+          <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
         </div>
-        <button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button>
+        <div class="r4a-code-col">${codeSectionHtml}</div>
       </div>
-      <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
     </div>`;
 }
 

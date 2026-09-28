@@ -54,7 +54,19 @@ _GENERATE_RE = re.compile(
     r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead)\b", re.I)
 _YES_RE = re.compile(r"^\s*(yes|yeah|yep|ok(ay)?|sure|please do|do it|go on|that'?s (all|it|everything))\b", re.I)
 _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|test)\b", re.I)
-_OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+)\b", re.I)
+_OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+|"
+                            r"(the |this )(selected |chosen )?test case)\b", re.I)
+# "Fix the syntax error": the assistant's own mistakes in the code it wrote - it fixes those, and only those
+# (owner's Round 2, 2026-09-28: asked twice, it changed nothing and then said it had).
+_SYNTAX_FIX_RE = re.compile(r"\b(fix|correct|resolve|repair|sort out)\b.*\b(syntax|compil\w*|indent\w*|bracket|parenthes\w*|typo)", re.I | re.S)
+# A fix request, or a mention of the error - acted on only when the current code really doesn't compile
+# (so "is the syntax error fixed?" about code that compiles is just a question).
+_FIX_ANY_RE = re.compile(r"\b(fix|correct|resolve|repair)\b|\b(syntax|compil\w*) (error|problem|issue)|"
+                         r"doesn'?t compile|does not compile|won'?t compile", re.I)
+# A reply claiming a change to the code when this reply carries no code is not true.
+_CLAIMS_CHANGE_RE = re.compile(
+    r"\b(i'?ve|i have|i)\s+(now\s+)?(fixed|removed|updated|changed|corrected|rewritten|rewrote|modified|edited)\b|"
+    r"\b(syntax error|error|code|it)\s+(is|has been|was)\s+(now\s+)?(fixed|corrected|removed|updated|resolved)\b", re.I)
 
 # Specific things a reply or the code could name.
 # A string literal in code, honouring escapes: Java and JavaScript JSON bodies are written
@@ -149,7 +161,7 @@ def candidate_text(design: dict | None, conversation: list[dict], prompt: str) -
 
 
 def wants_code(prompt: str, conversation: list[dict]) -> bool:
-    if _GENERATE_RE.search(prompt or ""):
+    if _GENERATE_RE.search(prompt or "") or _SYNTAX_FIX_RE.search(prompt or ""):
         return True
     last = conversation[-1]["response_message"] if conversation else ""
     return bool(_YES_RE.search(prompt or "") and _OFFERED_RE.search(last or ""))
@@ -235,6 +247,9 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     if round2_automation_policy.is_prohibited(candidate_prompt):
         return {"response_kind": "refuse", "response_message": _pick(_REFUSE, used), "code_after": None}
     allow_code = wants_code(candidate_prompt, conversation)
+    current_problem = compile_problem(language, current_code) if _FIX_ANY_RE.search(candidate_prompt or "") else None
+    syntax_fix = bool(_SYNTAX_FIX_RE.search(candidate_prompt or "") or current_problem)
+    allow_code = allow_code or syntax_fix
     said = candidate_text(design, conversation, candidate_prompt)
     prompt = llm_service._load_prompt("round2_typist_turn.txt").format(
         language=language, conventions=CONVENTIONS.get(language, ""),
@@ -243,7 +258,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
                                                     for t in conversation) or "(none yet)"),
         candidate_prompt=llm_service._as_data(candidate_prompt),
     )
-    note = ""
+    note = _SYNTAX_FIX_NOTE.format(error=current_problem or compile_problem(language, current_code) or "the candidate reports one") if syntax_fix else ""
     reply, code = "", None
     for attempt in range(3):
         raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
@@ -271,6 +286,15 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
             reply = _pick(_BLOCKED, used)
         elif not reply or unsaid(reply, said, code=False) or _repeats(reply, earlier):
             reply = _pick(_ASK, used)
+    problem = compile_problem(language, code) if code is not None else None
+    if problem:
+        # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
+        raw = llm_service._call_claude_json(prompt + _COMPILE_NOTE.format(error=problem), max_tokens=llm_service._CODE_REPLY_TOKENS)
+        fixed = (raw or {}).get("code") if isinstance(raw, dict) else None
+        if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, said, code=True) and not compile_problem(language, fixed):
+            code = fixed
+    if code is None and _CLAIMS_CHANGE_RE.search(reply or ""):
+        reply = _pick(_NO_CHANGE, used)  # never claim a change this reply doesn't carry
     if code is not None:
         todo = _still_to_do(code, said)
         if todo:
@@ -282,6 +306,14 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
 
 
 _XPATH_LITERAL_RE = re.compile(r""""\(?\.?//(?:[^"\\\n]|\\.)*"|'\(?\.?//(?:[^'\\\n]|\\.)*'""")
+_SYNTAX_FIX_NOTE = ("\n\nThe candidate asks you to fix a syntax/compile error in the current code ({error}). These are your own "
+                    "mistakes: write the complete program again with exactly that fixed - change nothing else (no steps, "
+                    "locators, values or checks).")
+_COMPILE_NOTE = ("\n\nThe program you wrote doesn't compile:\n{error}\nWrite it again with only that fixed - change nothing else.")
+_NO_CHANGE = [
+    "I haven't changed the code in this reply. Tell me what to change - or ask me to fix a syntax error - and I'll rewrite it.",
+    "No change to the code yet. Say what should be different and I'll write it again.",
+]
 _LAST_CODE_NOTE = ("\n\nYour code still used things the candidate never said: {terms}. Find every element ONLY by what the "
                    "candidate gave - the exact text or label they named (\"the Log in button\" is the button whose text is "
                    "Log in), or an id they gave - and use only their values. Anything else becomes incomplete(\"<their words>\").")
@@ -318,3 +350,41 @@ def run_status(exit_code: int | None, stdout: str, timed_out: bool, infra_error:
     if timed_out:
         return "timed_out"
     return "passed" if exit_code == 0 else "failed"
+
+
+
+def compile_problem(language: str, code: str | None) -> str | None:
+    """Why the program doesn't compile - its first errors - or None when it does (or the
+    language's tools aren't here to check). Syntax and compile errors are the assistant's
+    own mistakes, never a candidate's task (owner, 2026-09-28)."""
+    if not code or not code.strip():
+        return None
+    if language == "python":
+        try:
+            compile(code, "main.py", "exec")
+        except SyntaxError as e:
+            return f"line {e.lineno}: {e.msg}" + (f" - {e.text.strip()}" if e.text else "")
+        return None
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory(prefix="typist_check_") as tmp:
+        try:
+            if language == "javascript" and shutil.which("node"):
+                (Path(tmp) / "main.js").write_text(code, encoding="utf-8")
+                done = subprocess.run(["node", "--check", "main.js"], cwd=tmp, capture_output=True, text=True, timeout=30)
+            elif language == "java" and shutil.which("javac"):
+                from .practice_engine import practice_run
+                jars = [str(practice_run.vendor() / j) for j in practice_run.JAVA_JARS if (practice_run.vendor() / j).exists()]
+                (Path(tmp) / "Main.java").write_text(code, encoding="utf-8")
+                done = subprocess.run(["javac", "-proc:none", "-nowarn", "-d", tmp, "-cp", ":".join(jars) or ".", "Main.java"],
+                                      cwd=tmp, capture_output=True, text=True, timeout=60)
+            else:
+                return None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if done.returncode == 0:
+            return None
+        lines = [l for l in (done.stderr or done.stdout).splitlines() if l.strip()][:6]
+        return "\n".join(lines)[:800] or "it does not compile"

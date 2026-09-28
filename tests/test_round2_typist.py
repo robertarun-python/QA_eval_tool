@@ -213,3 +213,44 @@ def test_a_third_plainest_try_when_the_code_keeps_guessing(monkeypatch):
     assert "ONLY by what the candidate gave" in model.prompts[2]
     label = 'driver.findElement(By.xpath("//input[@id=(//label[contains(text(), \'Customer id\')]/@for)]")).sendKeys("CUST001");'
     assert round2_typist.unsaid(label, "Enter CUST001 in the field labelled Customer id.", code=True) == []
+
+
+BROKEN = 'import sys\nlogin_button = find(By.XPATH, "//button[contains(text(), \'Log in\')]"))\n'
+FIXED = 'import sys\nlogin_button = find(By.XPATH, "//button[contains(text(), \'Log in\')]")\n'
+SAID_LOGIN = "Click on Log in button. Generate the code."
+
+
+def test_code_that_does_not_compile_is_fixed_before_the_candidate_sees_it(monkeypatch):
+    """Owner's Round 2 (2026-09-28): the assistant's code had an extra ")" and the candidate got a SyntaxError."""
+    model = Model({"reply": "Here it is.", "code": BROKEN}, {"reply": "Here it is.", "code": FIXED})
+    out = _turn(monkeypatch, model, SAID_LOGIN)
+    assert out["code_after"] == FIXED and round2_typist.compile_problem("python", out["code_after"]) is None
+    assert "doesn't compile" in model.prompts[-1] and "unmatched" in model.prompts[-1]
+
+
+def test_fix_the_syntax_error_rewrites_the_code(monkeypatch):
+    """The owner asked "Fix the syntax error" - it changed nothing."""
+    model = Model({"reply": "Fixed the extra parenthesis.", "code": FIXED})
+    monkeypatch.setattr(llm_service, "_call_claude_json", model)
+    out = round2_typist.turn("python", DESIGN, [{"candidate_prompt": SAID_LOGIN, "response_message": "Here it is."}], BROKEN,
+                             "Fix the syntax error")
+    assert out["response_kind"] == "code_edit" and out["code_after"] == FIXED
+    assert "fix a syntax/compile error" in model.prompts[0] and "unmatched" in model.prompts[0]
+    out = round2_typist.turn("python", DESIGN, [{"candidate_prompt": SAID_LOGIN, "response_message": "Here it is."}], BROKEN,
+                             "fix the error on line 2")  # no "syntax" - but the current code doesn't compile
+    assert out["code_after"] == FIXED
+
+
+def test_it_never_claims_a_change_it_did_not_make(monkeypatch):
+    """Asked "is the syntax error fixed?", it said "Yes, the syntax error is fixed" - with no new code."""
+    model = Model({"reply": "Yes, the syntax error is fixed - I removed the extra parenthesis.", "code": None})
+    monkeypatch.setattr(llm_service, "_call_claude_json", model)
+    out = round2_typist.turn("python", DESIGN, [{"candidate_prompt": SAID_LOGIN, "response_message": "Here it is."}], FIXED,
+                             "is the syntax error fixed?")
+    assert out["code_after"] is None
+    assert "fixed" not in out["response_message"].lower() or "haven't changed" in out["response_message"]
+    assert out["response_message"] in round2_typist._NO_CHANGE
+
+
+def test_the_selected_test_case_counts_as_the_candidates_own_design():
+    assert round2_typist._OWN_DESIGN_RE.search("automate the selected test case")

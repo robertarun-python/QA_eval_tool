@@ -1358,6 +1358,11 @@ textarea.code-editor-input {
 .r4a-code-panel textarea.r4a-code-editor { min-height: 12rem; }
 /* The conversation above the code no longer pushes it down the page. */
 .r4a-chat-log { max-height: 18rem; overflow-y: auto; }
+.r4a-work { display: grid; grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr); gap: var(--space-default); align-items: start; }
+.r4a-chat-col { position: sticky; top: 5.5rem; }
+.r4a-work .r4a-chat-log { max-height: calc(100vh - 22rem); min-height: 8rem; }
+.r4a-code-col > .section-header:first-child { margin-top: 0; }
+@media (max-width: 75rem) { .r4a-work { grid-template-columns: 1fr; } .r4a-chat-col { position: static; } }
 /* The fixed practice environment above the candidate's code - collapsed
    by default, read-only, scrolls on its own when opened. */
 .r4a-env { margin: 0 0 0.75rem; border-bottom: 1px solid rgba(228, 232, 245, 0.12); padding-bottom: 0.5rem; }
