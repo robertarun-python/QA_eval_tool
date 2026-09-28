@@ -256,6 +256,9 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     # The code may use what the Reference shows (ids, labels, API paths, tables) - the mechanics; its test
     # data only when the candidate chose it, or pointed at the Reference's test account.
     code_said = said + "\n" + _reference_terms(app_reference, said)
+    # A reply may repeat the test account's login/password once the candidate pointed at it
+    # ("use the test account password from the Reference") - a correct answer was blocked (2026-09-28).
+    reply_said = said + "\n" + "\n".join(_ACCOUNTS_LINE_RE.findall(app_reference or "")) if _ACCOUNT_REF_RE.search(said or "") else said
     prompt = llm_service._load_prompt("round2_typist_turn.txt").format(
         language=language, conventions=CONVENTIONS.get(language, ""),
         app_reference=llm_service._as_data(app_reference or "(not available)"),
@@ -271,7 +274,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
         code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
         code = code if isinstance(code, str) and code.strip() else None
-        bad = unsaid(reply, said, code=False) + unsaid(code, code_said, code=True)
+        bad = unsaid(reply, reply_said, code=False) + unsaid(code, code_said, code=True)
         missing_code = allow_code and code is None
         if not bad and reply and not _repeats(reply, earlier) and not missing_code:
             break
@@ -290,7 +293,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
             reply = _pick(_BLOCKED, used)
-        elif not reply or unsaid(reply, said, code=False) or _repeats(reply, earlier):
+        elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier):
             reply = _pick(_ASK, used)
     problem = compile_problem(language, code) if code is not None else None
     if problem:

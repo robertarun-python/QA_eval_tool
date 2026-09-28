@@ -932,8 +932,8 @@ def round2_automation_select(payload: Round2AutomationSelectCreate, db: Session 
         raise HTTPException(400, "Lock your language first.")
     existing = content.get("selected") or []
     already_selected = {r["index"] for r in existing}
-    if len(existing) >= 2:
-        raise HTTPException(400, "You've already automated two test cases - that's the most this round allows.")
+    if len(existing) >= 3:  # three, so UI, API and database checks can each have one (owner, 2026-09-28)
+        raise HTTPException(400, "You've already automated three test cases - that's the most this round allows.")
 
     rows = _round1_rows_for(candidate, db)
     if len(set(payload.row_indexes)) != len(payload.row_indexes):

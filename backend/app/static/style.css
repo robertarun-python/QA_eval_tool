@@ -1358,6 +1358,9 @@ textarea.code-editor-input {
 .r4a-code-panel textarea.r4a-code-editor { min-height: 12rem; }
 /* The conversation above the code no longer pushes it down the page. */
 .r4a-chat-log { max-height: 18rem; overflow-y: auto; }
+.r4a-tc-table td { vertical-align: top; font-size: var(--text-sm); }
+.r4a-tc-table .r4a-tc-cell { white-space: pre-line; max-width: 22rem; }
+.r4a-tc-table tr.is-selected td { background: var(--accent-soft); }
 .r4a-work { display: grid; grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr); gap: var(--space-default); align-items: start; }
 .r4a-chat-col { position: sticky; top: 5.5rem; }
 .r4a-work .r4a-chat-log { max-height: calc(100vh - 22rem); min-height: 8rem; }

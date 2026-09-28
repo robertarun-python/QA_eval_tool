@@ -38,34 +38,19 @@ async function loadRound2Automation(box) {
 function round2AutomationTcTableHtml(rows, selectedIndexes) {
   if (rows.length === 0) return `<p class="muted">No Round 1 test cases found.</p>`;
   const selectedSet = new Set(selectedIndexes || []);
-  return rows.map((r) => `
-    <div class="tc-card${selectedSet.has(r.index) ? " is-selected" : ""}">
-      <div class="tc-card-head">
-        <div class="tc-card-title-group">
-          <span class="tc-card-num">${r.index + 1}</span>
-          <span class="tc-card-title">${escapeHtml(r.title || "(untitled)")}</span>
-        </div>
-        ${selectedSet.has(r.index) ? `<span class="tc-card-selected-tag">Being automated</span>` : ""}
-      </div>
-      <div class="tc-card-grid">
-        <div>
-          <div class="tc-card-field-label">Preconditions</div>
-          <div class="tc-card-field-value">${escapeHtml(r.preconditions || "-")}</div>
-        </div>
-        <div>
-          <div class="tc-card-field-label">Steps</div>
-          <div class="tc-card-field-value">${escapeHtml(r.steps || "-")}</div>
-        </div>
-        <div>
-          <div class="tc-card-field-label">Test Data</div>
-          <div class="tc-card-field-value">${escapeHtml(r.test_data || "-")}</div>
-        </div>
-        <div>
-          <div class="tc-card-field-label">Expected Result</div>
-          <div class="tc-card-field-value">${escapeHtml(r.expected_result || "-")}</div>
-        </div>
-      </div>
-    </div>`).join("");
+  // A read-only table, one row per test case - the regular test-case format; the cards took a screen
+  // each (owner, 2026-09-28).
+  const cell = (v) => `<td class="r4a-tc-cell">${escapeHtml(v || "-")}</td>`;
+  return `
+    <div class="table-scroll r4a-tc-table-wrap"><table class="data-table r4a-tc-table">
+      <thead><tr><th>#</th><th>Test case</th><th>Preconditions</th><th>Steps</th><th>Test data</th><th>Expected result</th></tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr class="${selectedSet.has(r.index) ? "is-selected" : ""}">
+          <td>${r.index + 1}</td>
+          <td class="r4a-tc-cell"><strong>${escapeHtml(r.title || "(untitled)")}</strong>${selectedSet.has(r.index) ? `<br><span class="tc-card-selected-tag">Being automated</span>` : ""}</td>
+          ${cell(r.preconditions)}${cell(r.steps)}${cell(r.test_data)}${cell(r.expected_result)}
+        </tr>`).join("")}</tbody>
+    </table></div>`;
 }
 
 // The dropdown that starts automating one more test case (see
@@ -468,7 +453,7 @@ function renderRound2AutomationLayout(box) {
   // again after the most recently added one has a result (pass or fail
   // - "has a result" is the trigger, not whether it's correct yet) - as
   // long as the two-test-case cap isn't reached and something's left.
-  const showPicker = remaining.length > 0 && selected.length < 2 && (selected.length === 0 || lastHasResult);
+  const showPicker = remaining.length > 0 && selected.length < 3 && (selected.length === 0 || lastHasResult);
 
   box.innerHTML = `
     <div class="page-header">
@@ -480,7 +465,7 @@ function renderRound2AutomationLayout(box) {
       <div class="row" style="margin-top:var(--space-compact); margin-bottom:0">
         <span class="tag tag-accent">Language locked: ${escapeHtml(s.language)}</span>
       </div>
-      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to two, one at a time - you'll decide on a second only after finishing the first.</p>
+      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to three, one at a time. To score fully, show UI, API and database checks - across one or more test cases.</p>
     </div>
 
     <div class="section-header"><h2>Your Round 1 test cases</h2></div>
