@@ -184,7 +184,10 @@ def wants_code(prompt: str, conversation: list[dict]) -> bool:
     # an offer, not "I don't have enough details to generate the code yet" (replay 2026-09-28: a "yes"
     # to that sentence was taken as asking for code)
     offered = any(_OFFERED_RE.search(s) and not _NOT_OFFER_RE.search(s) for s in re.split(r"(?<=[.?!])\s+|\n+", last or ""))
-    return bool(_YES_RE.search(prompt or "") and offered)
+    yes = _YES_RE.search(prompt or "")
+    # "yes" (or "ok, go ahead") answers the offer; "Yes, continue. Next step: log in..." adds a step instead
+    # (simulated candidate, 2026-09-28: taken as "generate", then the code was refused)
+    return bool(yes and offered and len((prompt or "")[yes.end():].split()) <= 4)
 
 
 def _norm(text: str) -> str:
@@ -312,6 +315,8 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         note = _WRITE_NOTE
     reply, code, steps = "", None, prior
     may_remove = bool(_REMOVE_RE.search(candidate_prompt or ""))
+    own = candidate_text(None, conversation, candidate_prompt)  # their messages only, not their Round 1 case
+    attempts = []  # every draft and what was wrong with it - for the simulated-candidate tester
     for attempt in range(3):
         raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
         reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
@@ -322,8 +327,19 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         missing_code = allow_code and code is None
         dropped = [] if may_remove else _dropped(prior, steps)
         left_out = _left_out_of_code(steps, code) if code else []
-        if not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out:
+        invented = _not_theirs(prior, steps, reply_said)
+        retyped = _values_not_typed(said, code, own) if code else []
+        attempts.append({"reply": reply, "code": code, "problems": {"named": bad, "dropped": dropped, "left_out": left_out,
+                                                                   "invented": invented, "retyped": retyped}})
+        if (not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out
+                and not invented and not retyped):
             break
+        if invented or retyped:
+            # Simulated candidates (2026-09-28): a step nobody gave ("verify you're on the login page"), and
+            # "locate Password and enter Password" typed as the test account's real password.
+            note = _NOT_THEIRS_NOTE.format(steps="; ".join(f'"{x}"' for x in invented) or "none",
+                                           values="; ".join(f'"{x}"' for x in retyped) or "none")
+            continue
         if dropped or left_out:
             # The candidate's test is theirs: a step of theirs silently gone is as bad as one added (owner's
             # Round 2 replay, 2026-09-28: "should I skip those steps?", then "yes" deleted two of them).
@@ -339,16 +355,17 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
                 else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
-        if unsaid(code, code_said, code=True) or (code and _left_out_of_code(steps, code)):
+        if unsaid(code, code_said, code=True) or (code and (_left_out_of_code(steps, code) or _values_not_typed(said, code, own))):
             code = None
-        if dropped or unsaid(_steps_text(steps), reply_said, code=False):
+        if dropped or invented or unsaid(_steps_text(steps), reply_said, code=False):
             steps = prior + ([{"step": " ".join(candidate_prompt.split())[:300], "missing": ""}]
                              if _is_a_step(candidate_prompt, conversation) else [])
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
             reply = _pick(_BLOCKED, used)
         elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier):
-            reply = _noted(candidate_prompt, used)
+            # with code going out, say so - "shall I generate the code?" beside new code read as a mix-up
+            reply = _pick(_CODE_READY, used) if code is not None else _noted(candidate_prompt, used)
     problem = compile_problem(language, code) if code is not None else None
     if problem:
         # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
@@ -368,8 +385,8 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
             # Said by the tool, not left to the model: the owner's Round 2 (2026-09-27) got code
             # full of incomplete() with no word about why, and was left guessing.
             reply = (reply + "\n\n" + _TODO_NOTE + "\n" + "\n".join(f"{i}. {t}" for i, t in enumerate(todo, 1))).strip()
-        return {"response_kind": "code_edit", "response_message": reply, "code_after": code, "steps": steps}
-    return {"response_kind": "clarify", "response_message": reply, "code_after": None, "steps": steps}
+        return {"response_kind": "code_edit", "response_message": reply, "code_after": code, "steps": steps, "attempts": attempts}
+    return {"response_kind": "clarify", "response_message": reply, "code_after": None, "steps": steps, "attempts": attempts}
 
 
 # ---- The candidate's test, kept by the tool (not in the model's memory) ----
@@ -433,6 +450,62 @@ def _left_out_of_code(steps: list, code: str | None) -> list[str]:
         return []
     have = _words(code.replace("_", " ").replace("-", " ")) | _words(code)
     return [s["step"] for s in steps if (w := _words(s["step"])) and _shared(w, have) < max(1, round(len(w) * 0.5))]
+
+
+_NOT_THEIRS_NOTE = ("\n\nYour previous draft broke the candidate's test. Steps they never gave: {steps} - remove them (never "
+                    "add a step, even a check that seems obvious). Values they typed that your code changed: {values} - type "
+                    "exactly what they wrote (\"enter Password\" types the word Password).")
+_CODE_READY = [
+    "The code for your steps is in the code panel - run it when you're ready.",
+    "Here's the program for the steps you gave; it's in the code panel.",
+    "Your code is written - see the code panel, then run it.",
+]
+# "Locate <field> and enter <value>" - a single word, typed as written; and any value with a digit or symbol
+_LOCATE_ENTER_RE = re.compile(r"\b(?:locate|find)\s+(?P<field>[^\n.,;]{1,40}?)\s+and\s+(?:enter|type|input)\s+"
+                              r"(?P<val>[^\s,;\n]+?)(?=[.!?]\s|[.!?]?\s*$|\s*[\n,;]|\s+(?:and|then)\b)", re.I | re.M)
+_ENTER_TOKEN_RE = re.compile(r"\b(?:enter|type|input)\s+(?:the\s+value\s+)?[\"']?(?P<val>[^\s,;\n\"']*[\d@#$%&*!][^\s,;\n\"']*?)[.]?(?=[\s,;\n\"']|$)", re.I)
+_NOT_A_VALUE = set("his her their its my your the a an it them this that some any valid correct details value data account "
+                   "accounts id number amount".split())
+
+
+def _values_not_typed(said: str, code: str | None, own: str | None = None) -> list[str]:
+    """Values the candidate told it to type that the program doesn't type as written. `own` is what they
+    said in the conversation: a field they talk about there follows their words there, not their Round 1
+    wording (simulated candidate, 2026-09-28: Round 1 "enter Password", then "enter Pass@123")."""
+    if not code:
+        return []
+    own = said if own is None else own
+    literals = " ".join(re.sub(r"\\(.)", r"\1", "".join(g)) for g in _CODE_STRING_RE.findall(code))
+    out = []
+    for m in _LOCATE_ENTER_RE.finditer(said or ""):
+        val, fld = m.group("val"), m.group("field").strip().lower()
+        # "use the test account password (from the Reference)" later means the account's value instead
+        from_round1 = m.group(0) not in own
+        if from_round1 and re.search(rf"\b{re.escape(fld)}\b", own, re.I):
+            continue
+        if val.lower() in _NOT_A_VALUE or re.search(rf"(test account|reference)\W+(\w+\W+){{0,3}}{re.escape(fld)}|"
+                                                    rf"{re.escape(fld)}\W+(\w+\W+){{0,3}}(from|in|of) the (test account|reference)",
+                                                    said, re.I):
+            continue
+        if val not in literals and val not in out:
+            out.append(val)
+    for m in _ENTER_TOKEN_RE.finditer(said or ""):
+        val = m.group("val")
+        if val not in literals and val not in out:
+            out.append(val)
+    return out
+
+
+def _not_theirs(prior: list, steps: list, said: str) -> list[str]:
+    """New steps with little of the candidate's own wording - a step they never gave."""
+    have = _words(said.replace("_", " ").replace("-", " ")) | _words(said)
+    old = {s["step"] for s in prior}
+    out = []
+    for s in steps:
+        w = _words(s["step"])
+        if s["step"] not in old and w and _shared(w, have) < max(1, round(len(w) * 0.5)):
+            out.append(s["step"])
+    return out
 
 
 def _is_a_step(prompt: str, conversation: list) -> bool:

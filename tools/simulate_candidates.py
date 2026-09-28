@@ -188,7 +188,10 @@ def converse(persona: str, language: str, case: dict, spec: dict, panel: dict, s
         if t.cost >= budget_left:
             t.error = "budget reached"
             break
-        convo = "\n".join(f"Candidate: {c['candidate_prompt']}\nAssistant: {c['response_message']}" for c in conversation) or "(nothing yet)"
+        # what the candidate sees: the reply, and whether the code panel changed (it can't read code)
+        convo = "\n".join(f"Candidate: {c['candidate_prompt']}\nAssistant: {c['response_message']}"
+                          + ("\n[the code panel now shows new code - you can run it]" if c.get("response_kind") == "code_edit" else "")
+                          for c in conversation) or "(nothing yet)"
         decision, c = sim(SIM_PROMPT.format(persona=PERSONAS[persona], case=case_text, reference=view, conversation=convo,
                                             last_run=last_run))
         t.cost += c
@@ -214,7 +217,9 @@ def converse(persona: str, language: str, case: dict, spec: dict, panel: dict, s
         if out.get("code_after"):
             code = out["code_after"]
         t.turns.append({"say": say, "reply": out["response_message"], "kind": out["response_kind"],
-                        "code": out.get("code_after"), "steps": out.get("steps")})
+                        "code": out.get("code_after"), "steps": out.get("steps"),
+                        # every draft the assistant wrote this turn and what the tool found wrong with it
+                        "attempts": out.get("attempts") or []})
     return t
 
 

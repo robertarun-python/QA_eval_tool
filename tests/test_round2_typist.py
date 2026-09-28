@@ -378,3 +378,50 @@ def test_yes_to_not_enough_details_is_not_asking_for_code():
     assert not round2_typist.wants_code("yes", said)
     offer = [{"candidate_prompt": "x", "response_message": "I have everything. Shall I generate the code now?"}]
     assert round2_typist.wants_code("yes", offer)
+
+
+# ---- Simulated candidates, Java, 2026-09-28 ----
+
+def test_yes_followed_by_a_new_step_is_not_asking_for_code():
+    offer = [{"candidate_prompt": "x", "response_message": "Shall I generate the code for this step now?"}]
+    assert not round2_typist.wants_code("Yes, continue. Next step: Log in using the test account CUST001 / Pass@123.", offer)
+    assert round2_typist.wants_code("yes please", offer) and round2_typist.wants_code("ok, go ahead", offer)
+
+
+@pytest.mark.parametrize("said, own, code, missing", [
+    ("Locate Password and enter Password", None, 'send("Pass@123")', ["Password"]),        # the owner's rule
+    ("Locate Password and enter Password", None, 'send("Password")', []),
+    ("Locate Customer id and enter CUST001", None, 'send("CUST01")', ["CUST001"]),
+    ("Enter SAV-1001 in the account field", None, 'send("LN-45678")', ["SAV-1001"]),
+    ("Locate loan account and enter his account details", None, 'send("x")', []),        # not a value
+    ("Locate Password and enter Password. use the test account password from the reference", None, 'send("Pass@123")', []),
+    # Round 1 said "enter Password", the conversation said Pass@123: their latest words win
+    ("Locate Password and enter Password\nEnter Pass@123 in the password field", "Enter Pass@123 in the password field",
+     'send("Pass@123")', []),
+])
+def test_values_the_candidate_typed_are_typed_as_written(said, own, code, missing):
+    assert round2_typist._values_not_typed(said, code, own) == missing
+
+
+def test_code_that_changes_a_typed_value_is_redrafted(monkeypatch):
+    wrong = {"reply": "Here it is.", "steps": [{"step": "Locate Password and enter Password", "missing": ""}],
+             "code": 'password.send_keys("Pass@123")\n# Locate Password and enter Password\n'}
+    right = dict(wrong, code='password.send_keys("Password")\n# Locate Password and enter Password\n')
+    model = Model(wrong, right)
+    out = _turn(monkeypatch, model, "Locate Password and enter Password. Generate the code.")
+    assert out["code_after"] == right["code"] and "Password" in model.prompts[1].split("changed:")[1]
+
+
+def test_a_new_step_nobody_gave_is_redrafted(monkeypatch):
+    s1 = [{"step": "Click EMI Details", "missing": ""}]
+    extra = {"reply": "Noted.", "steps": s1 + [{"step": "Verify the application header shows the bank name", "missing": ""}], "code": None}
+    model = Model(extra, {"reply": "Noted.", "steps": s1, "code": None})
+    out = _turn(monkeypatch, model, "Click EMI Details")
+    assert [s["step"] for s in out["steps"]] == ["Click EMI Details"] and "never gave" in model.prompts[1]
+
+
+def test_when_code_goes_out_a_blocked_reply_never_asks_whether_to_generate(monkeypatch):
+    code = 'incomplete("Just generate the code")\n'
+    earlier = [{"candidate_prompt": "Generate", "response_message": "The code is ready."}]
+    out = _turn(monkeypatch, Model({"reply": "The code is ready.", "code": code}), "Just generate the code.", earlier)
+    assert out["code_after"] and "shall I generate" not in out["response_message"]

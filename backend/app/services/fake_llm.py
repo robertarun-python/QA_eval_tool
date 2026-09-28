@@ -97,7 +97,7 @@ def _reply(caller: str, prompt: str):
             lang = (re.search(r"^LANGUAGE: (\w+)", prompt, re.M) or [None, "python"])[1]
             mark = "#" if lang == "python" else "//"
             code = ((_between(prompt, "<candidate_code>", "</candidate_code>") or "").strip("\n") + "\n"
-                    + "".join(f"{mark} step: {s['step']}\n" for s in steps))
+                    + "".join(f"{mark} step: \"{x.replace(chr(34), chr(39))}\"\n" for x in [s["step"] for s in steps] + [said]))
         elif said:
             steps.append({"step": said[:300], "missing": ""})
         return {"reply": "Fake AI mode - the assistant would write down: " + said[:200], "steps": steps, "code": code}
