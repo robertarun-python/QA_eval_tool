@@ -21,6 +21,7 @@ def paid(tmp_path, monkeypatch):
     monkeypatch.setattr(llm_service.settings, "claude_model", "claude-sonnet-4-5")
     monkeypatch.setattr(llm_service.settings, "ai_monthly_limit_usd", 10.0)
     monkeypatch.setattr(llm_service, "_MONTH_SPEND", {"month": None, "usd": 0.0})
+    monkeypatch.setattr(llm_service, "_SPEND", {"day": None, "day_usd": 0.0, "candidates": {}})
     llm_service._CALL_LOG.clear()
     calls = []
 

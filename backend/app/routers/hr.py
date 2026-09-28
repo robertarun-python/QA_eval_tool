@@ -131,7 +131,10 @@ def _lasting_ai_cost(db: Session) -> dict:
     by_round: dict[str, float] = {}
     by_candidate: dict[int, dict] = {}
     total = 0.0
+    blocked = [e for e in entries if e.get("outcome") in ("budget_reached", "limit_reached")]
     for entry in entries:
+        if not llm_service._is_call(entry):
+            continue  # a blocked call or a note, not a request to the model
         usd = entry.get("cost_usd") or 0.0
         total += usd
         day = by_day.setdefault(str(entry.get("at", ""))[:10], {"usd": 0.0, "calls": 0})
@@ -146,11 +149,18 @@ def _lasting_ai_cost(db: Session) -> dict:
     today = datetime.utcnow().date()
     week = {(today - timedelta(days=n)).isoformat() for n in range(7)}
     top = sorted(by_candidate.items(), key=lambda item: item[1]["usd"], reverse=True)[:10]
-    emails = dict(db.query(User.id, User.email).filter(User.id.in_([user_id for user_id, _ in top])).all()) if top else {}
+    recent_blocked = blocked[-20:][::-1]
+    ids = {user_id for user_id, _ in top} | {e["user_id"] for e in recent_blocked if e.get("user_id") is not None}
+    emails = dict(db.query(User.id, User.email).filter(User.id.in_(ids)).all()) if ids else {}
     return {
         "month_usd": round(llm_service.month_spent_usd(), 4),
         "monthly_limit_usd": llm_service.monthly_limit_usd(),
-        "calls": len(entries),
+        "limits": llm_service.limits(),
+        "limit_labels": {k: label for k, (_setting, label) in llm_service.LIMITS.items()},
+        # which limit stopped which call, for whom, when - HR raises it right here on the card
+        "limits_reached": [{"at": e.get("at"), "limit": e.get("limit") or "monthly", "detail": e.get("detail"),
+                            "email": emails.get(e.get("user_id")), "round_number": e.get("round_number")} for e in recent_blocked],
+        "calls": sum(1 for e in entries if llm_service._is_call(e)),
         "unpriced_calls": sum(1 for e in entries if e.get("cost_usd") is None),
         "all_time_usd": round(total, 4),
         "today_usd": round(by_day.get(today.isoformat(), {}).get("usd", 0.0), 4),
@@ -163,12 +173,23 @@ def _lasting_ai_cost(db: Session) -> dict:
 
 @router.put("/ai-budget")
 def set_ai_budget(payload: dict, hr: User = Depends(require_hr)):
-    """HR sets the monthly AI spending limit (US$); 0 stops all new AI work."""
-    usd = payload.get("monthly_usd") if isinstance(payload, dict) else None
-    if isinstance(usd, bool) or not isinstance(usd, (int, float)) or not 0 <= usd <= 10000:
-        raise HTTPException(400, "monthly_usd must be a number from 0 to 10000")
-    llm_service.set_monthly_limit_usd(usd)
-    return {"monthly_limit_usd": llm_service.monthly_limit_usd(), "month_usd": round(llm_service.month_spent_usd(), 4)}
+    """HR sets the AI limits: monthly_usd (0 stops all new AI work), daily_usd, candidate_round_usd,
+    candidate_round_calls - any of them; the others keep their values."""
+    if not isinstance(payload, dict):
+        raise HTTPException(400, "Send the limits to change as a JSON object")
+    ranges = {"monthly_usd": 10000, "daily_usd": 10000, "candidate_round_usd": 1000, "candidate_round_calls": 100000}
+    changes = {}
+    for key, value in payload.items():
+        if key not in ranges:
+            raise HTTPException(400, f"Unknown limit {key!r}")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= ranges[key]:
+            raise HTTPException(400, f"{key} must be a number from 0 to {ranges[key]}")
+        changes[key] = value
+    if not changes:
+        raise HTTPException(400, "No limit given")
+    llm_service.set_limits(**changes)
+    return {"monthly_limit_usd": llm_service.monthly_limit_usd(), "limits": llm_service.limits(),
+            "month_usd": round(llm_service.month_spent_usd(), 4)}
 
 
 @router.get("/settings", response_model=AppSettingsOut)

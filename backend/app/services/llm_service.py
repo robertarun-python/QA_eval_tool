@@ -293,6 +293,17 @@ _MONTH_LOCK = threading.Lock()
 
 class AIBudgetReached(RuntimeError):
     """This month's AI spending limit is reached - no call was made or paid."""
+    limit = "monthly"
+    # What a candidate sees whenever any limit pauses their assistant - never the amounts.
+    candidate_message = ("The assistant is paused for now. Your work so far is saved. "
+                         "Please contact HR - they can let the assistant continue.")
+
+
+class AILimitReached(AIBudgetReached):
+    """A daily or per-candidate limit is reached - no call was made or paid."""
+    def __init__(self, limit: str, message: str):
+        super().__init__(message)
+        self.limit = limit
 
 
 def _budget_path() -> Path:
@@ -309,8 +320,83 @@ def monthly_limit_usd() -> float:
     return float(settings.ai_monthly_limit_usd)
 
 
+def _budget_file() -> dict:
+    try:
+        data = json.loads(_budget_path().read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def set_monthly_limit_usd(usd: float) -> None:
-    _budget_path().write_text(json.dumps({"monthly_usd": round(float(usd), 2)}), encoding="utf-8")
+    set_limits(monthly_usd=usd)
+
+
+# The guardrails beside the monthly limit: (key in ai_budget.json, settings default, what HR reads)
+LIMITS = {
+    "daily_usd": ("ai_daily_limit_usd", "Daily AI spend (US$)"),
+    "candidate_round_usd": ("ai_candidate_round_limit_usd", "AI spend per candidate per round (US$)"),
+    "candidate_round_calls": ("ai_candidate_round_calls", "AI calls per candidate per round"),
+}
+
+
+def limits() -> dict:
+    """Every limit in force: monthly_usd plus LIMITS, HR's values over the settings defaults."""
+    data, out = _budget_file(), {"monthly_usd": monthly_limit_usd()}
+    for key, (setting, _label) in LIMITS.items():
+        value = data.get(key)
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+        out[key] = float(value) if ok else float(getattr(settings, setting))
+    out["candidate_round_calls"] = int(out["candidate_round_calls"])
+    return out
+
+
+def set_limits(**values) -> None:
+    """HR changes one or more limits; the others keep their values."""
+    data = _budget_file()
+    for key, value in values.items():
+        data[key] = int(value) if key == "candidate_round_calls" else round(float(value), 2)
+    _budget_path().write_text(json.dumps(data), encoding="utf-8")
+
+
+# Spend so far today (UTC) and per candidate per round, kept up to date like the month's.
+_SPEND = {"day": None, "day_usd": 0.0, "candidates": {}}  # candidates: (user_id, round_number) -> [usd, calls]
+_NOT_A_CALL = {"fake", "budget_reached", "limit_reached", "tool_output_disabled", "invalid_json_retrying", "invalid_json",
+               "invalid_reply"}  # records that aren't a paid request to the model
+
+
+def _is_call(entry: dict) -> bool:
+    return entry.get("outcome") not in _NOT_A_CALL
+
+
+def _candidate_key(entry: dict):
+    if entry.get("user_id") is None or entry.get("round_number") is None:
+        return None
+    return (entry["user_id"], entry["round_number"])
+
+
+def _count(entry: dict) -> None:
+    if not _is_call(entry):
+        return
+    usd = entry.get("cost_usd") or 0.0
+    if str(entry.get("at", "")).startswith(_SPEND["day"] or "-"):
+        _SPEND["day_usd"] += usd
+    key = _candidate_key(entry)
+    if key is not None:
+        spent = _SPEND["candidates"].setdefault(key, [0.0, 0])
+        spent[0] += usd
+        spent[1] += 1
+
+
+def _spend_now() -> dict:
+    """Loaded from the call record once a day (a candidate's round is counted in full), then kept up to date."""
+    day = datetime.utcnow().strftime("%Y-%m-%d")
+    with _MONTH_LOCK:
+        if _SPEND["day"] != day:
+            _SPEND.update(day=day, day_usd=0.0, candidates={})
+            for entry in read_call_log():
+                _count(entry)
+        return _SPEND
 
 
 def month_spent_usd() -> float:
@@ -326,21 +412,52 @@ def month_spent_usd() -> float:
 
 def _add_month_spend(entry: dict) -> None:
     month_spent_usd()  # make sure the month is loaded
+    _spend_now()       # ... and today's and the candidates' spend
     with _MONTH_LOCK:
         if str(entry.get("at", "")).startswith(_MONTH_SPEND["month"] or "-"):
             _MONTH_SPEND["usd"] += entry.get("cost_usd") or 0.0
+        _count(entry)
+
+
+def _blocked(limit: str, detail: str) -> None:
+    """A call a limit stopped: logged (with the candidate and round from call_context), never sent."""
+    entry = {"at": datetime.utcnow().isoformat(timespec="seconds") + "Z", "caller": _calling_function(),
+             "outcome": "budget_reached" if limit == "monthly" else "limit_reached", "limit": limit, "detail": detail}
+    _CALL_LOG.append(entry)
+    print("[llm] blocked " + " ".join(f"{k}={v}" for k, v in entry.items()), file=sys.stderr)
+    _append_call_log({**entry, "cost_usd": 0.0, **_CALL_CONTEXT.get()})
 
 
 def check_budget() -> None:
-    """Raises AIBudgetReached before a call once the month's limit is used up."""
+    """Raises before a call - every call, retries included - once a limit is used up: the month's
+    (a candidate in a test may go 10% over), the day's (the same grace), or one candidate's spend or
+    number of calls in the round they're in. Nothing is sent; the blocked call is logged."""
+    ctx = _CALL_CONTEXT.get()
     limit, spent = monthly_limit_usd(), month_spent_usd()
-    in_a_test = any(_CALL_CONTEXT.get().get(k) is not None for k in ("submission_id", "user_id"))
-    if spent < limit * (CANDIDATE_GRACE if in_a_test else 1):
-        return
-    _CALL_LOG.append({"at": datetime.utcnow().isoformat(timespec="seconds") + "Z", "caller": _calling_function(),
-                      "outcome": "budget_reached", "detail": f"spent ${spent:.2f} of the ${limit:.2f} monthly limit"})
-    raise AIBudgetReached(f"This month's AI spending limit (${limit:.2f}) has been reached, so no AI call was made. "
-                          "HR can raise the limit on the AI health card in Settings.")
+    in_a_test = any(ctx.get(k) is not None for k in ("submission_id", "user_id"))
+    grace = CANDIDATE_GRACE if in_a_test else 1
+    if spent >= limit * grace:
+        _blocked("monthly", f"spent ${spent:.2f} of the ${limit:.2f} monthly limit")
+        raise AIBudgetReached(f"This month's AI spending limit (${limit:.2f}) has been reached, so no AI call was made. "
+                              "HR can raise the limit on the AI health card in Settings.")
+    caps, now = limits(), _spend_now()
+    where = "HR can change it on the AI health card in Settings."
+    if now["day_usd"] >= caps["daily_usd"] * grace:
+        detail = f"spent ${now['day_usd']:.2f} of the ${caps['daily_usd']:.2f} daily limit"
+        _blocked("daily", detail)
+        raise AILimitReached("daily", f"Today's AI spending limit (${caps['daily_usd']:.2f}) has been reached, so no AI call "
+                                      f"was made. {where}")
+    key = _candidate_key(ctx)
+    if key is not None:
+        usd, calls = now["candidates"].get(key, [0.0, 0])
+        if usd >= caps["candidate_round_usd"]:
+            _blocked("candidate_round_usd", f"candidate spent ${usd:.2f} of ${caps['candidate_round_usd']:.2f} in round {key[1]}")
+            raise AILimitReached("candidate_round_usd", f"This candidate has reached the AI spend limit for round {key[1]} "
+                                                        f"(${caps['candidate_round_usd']:.2f}), so no AI call was made. {where}")
+        if calls >= caps["candidate_round_calls"]:
+            _blocked("candidate_round_calls", f"candidate made {calls} of {caps['candidate_round_calls']} AI calls in round {key[1]}")
+            raise AILimitReached("candidate_round_calls", f"This candidate has reached the limit of {caps['candidate_round_calls']} "
+                                                          f"AI calls for round {key[1]}, so no AI call was made. {where}")
 
 
 # ---- Cheaper test runs: saved replies and half-price batches ----
@@ -513,11 +630,12 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     if settings.llm_fake_mode:
         _record_call("fake", max_tokens=max_tokens, detail="fake AI mode - scripted reply")
         return fake_llm.reply_text(_calling_function(), _without_cache_breaks(prompt))
-    check_budget()
-    base_client = _get_client()
+    base_client = None
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     budget = max_tokens
     for _ in range(2):
+        check_budget()  # before every request, the cut-off retry too - a retry never gets past a limit
+        base_client = base_client or _get_client()
         client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:
@@ -622,10 +740,11 @@ def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict
     call - already-parsed fields, so a code file inside it can't break JSON."""
     extra = {"temperature": 0.0} if _accepts_temperature(settings.claude_model) else {}
     tool = {"name": _TOOL_NAME, "description": "Submit your reply - its arguments are the reply's fields.", "input_schema": schema}
-    check_budget()
-    base_client = _get_client()
+    base_client = None
     budget = max_tokens
     for _ in range(2):
+        check_budget()  # before every request, the cut-off retry too
+        base_client = base_client or _get_client()
         client, timeout = _client_and_timeout(base_client, budget)
         started = time.monotonic()
         try:

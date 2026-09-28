@@ -216,13 +216,18 @@ function aiBudgetHtml(s) {
   return `
     <p>This month's AI spend: <strong>$${Number(s.month_usd).toFixed(2)}</strong> of the <strong>$${Number(s.monthly_limit_usd).toFixed(2)}</strong> monthly limit. ${note}</p>
     <p><label>Monthly limit (US$) <input id="ai-budget-input" type="number" min="0" max="10000" step="1" value="${Number(s.monthly_limit_usd)}" style="width:6em"></label>
-      <button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limit</button> <span id="ai-budget-status" class="muted"></span></p>`;
+      ${Object.entries(s.limit_labels || {}).map(([key, label]) => `<label style="margin-left:0.8rem">${escapeHtml(label)} <input class="ai-limit-input" data-limit="${key}" type="number" min="0" step="${key === "candidate_round_calls" ? 1 : 0.05}" value="${Number((s.limits || {})[key])}" style="width:6em"></label>`).join("")}
+      <button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limits</button> <span id="ai-budget-status" class="muted"></span></p>
+    ${(s.limits_reached || []).length ? `<p class="error-text">Limits reached recently - the AI call was stopped before it was made (raise the limit above to let it continue):</p>
+      <ul>${s.limits_reached.map((b) => `<li>${escapeHtml(b.at || "")} &middot; <strong>${escapeHtml(((s.limit_labels || {})[b.limit]) || "Monthly limit")}</strong>${b.email ? ` &middot; ${escapeHtml(b.email)}` : ""}${b.round_number ? ` &middot; round ${escapeHtml(String(b.round_number))}` : ""} &middot; ${escapeHtml(b.detail || "")}</li>`).join("")}</ul>` : ""}`;
 }
 
 async function saveAiBudget() {
   const status = document.getElementById("ai-budget-status");
   try {
-    await api("/hr/ai-budget", { method: "PUT", body: JSON.stringify({ monthly_usd: Number(document.getElementById("ai-budget-input").value) }) });
+    const body = { monthly_usd: Number(document.getElementById("ai-budget-input").value) };
+    document.querySelectorAll(".ai-limit-input").forEach((el) => { body[el.dataset.limit] = Number(el.value); });
+    await api("/hr/ai-budget", { method: "PUT", body: JSON.stringify(body) });
     status.textContent = "Saved.";
     loadAiHealth();
   } catch (e) {

@@ -374,6 +374,8 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
                 declared_constructs=declared_constructs,
                 io_format=scenario.round3_io_format,
             )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -417,6 +419,8 @@ def round3_coding_direct_edit(payload: Round3DirectEditCreate, db: Session = Dep
                 required_constructs=required_constructs,
                 declared_constructs=declared_constructs,
             )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try saving again.")
@@ -705,6 +709,13 @@ def _auto_environment_code(scenario: Scenario, language: str) -> str:
     if configured.get(language):
         return configured[language]
     return llm_service._load_prompt(_AUTO_LANGUAGE_HELPER_FILES[language])
+
+
+def _paused(limit: "llm_service.AIBudgetReached") -> HTTPException:
+    """A spending limit stopped the assistant before any AI call: nothing of the candidate's is lost (a turn
+    is saved only after its reply), and the candidate is told to contact HR - never the amounts. HR sees
+    which limit on the AI health card."""
+    return HTTPException(429, limit.candidate_message)
 
 
 def _practice_spec(scenario: Scenario) -> dict | None:
@@ -1124,6 +1135,8 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
             app_reference = reference.assistant_reference(reference.current_panel({**(scenario.config_json or {}), "practice_spec": _practice_spec(scenario)}))
             response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt,
                                           app_reference=app_reference)
+        except llm_service.AIBudgetReached as limit:
+            raise _paused(limit)
         except Exception:
             traceback.print_exc()
             raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -1184,6 +1197,8 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
                 conversation_so_far=conversation_so_far,
                 candidate_prompt=payload.candidate_prompt,
             )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -1253,6 +1268,8 @@ def round2_automation_clarify(payload: Round2AutomationClarifyCreate, db: Sessio
             conversation_so_far=conversation_so_far,
             candidate_prompt=payload.candidate_prompt,
         )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
