@@ -461,3 +461,36 @@ def test_more_ways_of_asking_for_the_code(prompt):
 def test_repeating_the_request_back_as_a_question_is_not_an_offer():
     said = "Add debugging output printing the API response"
     assert round2_typist.unsaid("So you want me to add debugging output printing the API response - is that right?", said, code=False) == []
+
+
+# ---- Simulated candidates, run 3 (2026-09-28): a best-guess check withheld correct code for 12 turns ----
+
+def test_the_later_value_for_a_field_wins_in_the_same_message():
+    said = ("Steps: Locate Customer id and enter CUST001\nlocate Password and enter Password\n"
+            "Please use the real one: enter Pass@123 in the password field (CUST001 as the id).")
+    assert round2_typist._values_not_typed(said, 'id("CUST001"); pw("Pass@123")', said) == []
+
+
+def test_a_best_guess_check_never_withholds_the_code(monkeypatch):
+    """A draft that keeps missing a step still goes out - with a note naming the step to check."""
+    steps = [{"step": "Open the Loans page", "missing": ""}, {"step": "Check the outstanding balance", "missing": ""}]
+    draft = {"reply": "Here it is.", "steps": steps, "code": 'open("Open the Loans page")\n'}
+    out = _turn(monkeypatch, Model(draft), "Open the Loans page, check the outstanding balance. Generate the code.")
+    assert out["code_after"] == draft["code"]
+    assert "Please check these in the code" in out["response_message"] and "Check the outstanding balance" in out["response_message"]
+
+
+def test_a_hard_rule_still_withholds_the_code(monkeypatch):
+    leak = {"reply": "Here it is.", "code": 'book("BK-009")\n'}
+    out = _turn(monkeypatch, Model(leak), "Borrow a book. Generate the code.")
+    assert out["code_after"] is None and "BK-009" not in out["response_message"]
+
+
+def test_the_last_good_draft_is_kept_when_a_later_one_breaks_a_hard_rule(monkeypatch):
+    good = {"reply": "Here it is.", "steps": [{"step": "Borrow a book", "missing": ""}],
+            "code": 'incomplete("Borrow a book")\n'}
+    leak = {"reply": "Here it is.", "code": 'book("BK-009")\n'}
+    # the first draft only fails the best-guess check (typed value) - the redrafts leak
+    monkeypatch.setattr(round2_typist, "_values_not_typed", lambda said, code, own=None: ["x"] if code == good["code"] else [])
+    out = _turn(monkeypatch, Model(good, leak, leak), "Borrow a book. Generate the code.")
+    assert out["code_after"] == good["code"]

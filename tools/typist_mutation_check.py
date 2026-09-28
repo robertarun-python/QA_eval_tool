@@ -34,6 +34,10 @@ M = [
     (T, "HTML tag names read as values", "td tr th tbody thead tfoot table div span li ul ol p a h1 h2 h3 h4 form label select option body html head img dl dt dd\n", ""),
     (T, "'proceed' not asking for code", "go ahead|proceed(?! to)|", "go ahead|"),
     (S, "a doubled api/ path is a 404", "        while path.startswith(\"/api/api/\"):\n            path = path[4:]\n", ""),
+    (T, "a best-guess check withholds the code (the run-3 deadlock)",
+     "        if code is None or unsaid(code, code_said, code=True):\n            code = best_code\n",
+     "        if code is None or unsaid(code, code_said, code=True) or _left_out_of_code(steps, code) or _values_not_typed(said, code, own):\n            code = None\n"),
+    (T, "an earlier value wins over the later one", "        if re.search(rf\"\\b{re.escape(fld)}\\b\", said[m.end():], re.I):\n            continue\n", ""),
     (R, "a value's visible label dropped from the Reference", "                    el[\"label\"] = self._term", "                    pass"),
 ]
 caught = 0

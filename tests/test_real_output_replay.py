@@ -22,7 +22,7 @@ from app.services.practice_engine import render, validate
 
 LIBRARY = Path(__file__).parent / "fixtures" / "practice_engine" / "real_outputs"
 BUILDS = sorted((LIBRARY / "builds").glob("*.json"))
-ASSISTANT = sorted(p for p in (LIBRARY / "assistant").glob("*.json") if not p.stem.endswith("_conversation"))
+ASSISTANT = sorted(p for p in (LIBRARY / "assistant").glob("*.json") if not p.stem.endswith("_conversation") and p.stem != "simulated_java_programs")
 
 
 def _load(path):
@@ -138,3 +138,13 @@ def test_real_conversation_drafts_judged_as_recorded(entry, draft):
         assert named == [], f"a correct draft would be blocked for {named}"
     else:
         assert named, f"a draft that {draft['why']} would get through"
+
+
+SIM_PROGRAMS = _load(LIBRARY / "assistant" / "simulated_java_programs.json")["programs"]
+
+
+@pytest.mark.parametrize("p", SIM_PROGRAMS, ids=lambda p: p["persona"])
+def test_real_programs_that_typed_the_values_as_asked_pass_the_typed_values_check(p):
+    """Run 3 of the simulated candidates (2026-09-28): this check misfired and withheld correct code
+    for 12 turns. Every real program here typed what its candidate asked."""
+    assert round2_typist._values_not_typed(p["said"], p["code"], p["own"]) == []

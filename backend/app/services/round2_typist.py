@@ -329,6 +329,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     reply, code, steps = "", None, prior
     may_remove = bool(_REMOVE_RE.search(candidate_prompt or ""))
     own = candidate_text(None, conversation, candidate_prompt)  # their messages only, not their Round 1 case
+    best_code = None  # the latest draft code that breaks no hard rule (see below)
     attempts = []  # every draft and what was wrong with it - for the simulated-candidate tester
     for attempt in range(3):
         raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
@@ -342,6 +343,8 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         left_out = _left_out_of_code(steps, code) if code else []
         invented = _not_theirs(prior, steps, reply_said)
         retyped = _values_not_typed(said, code, own) if code else []
+        if code is not None and not unsaid(code, code_said, code=True):
+            best_code = code
         attempts.append({"reply": reply, "code": code, "problems": {"named": bad, "dropped": dropped, "left_out": left_out,
                                                                    "invented": invented, "retyped": retyped}})
         if (not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out
@@ -368,15 +371,25 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
                 else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
-        if unsaid(code, code_said, code=True) or (code and (_left_out_of_code(steps, code) or _values_not_typed(said, code, own))):
-            code = None
+        # Hard rules withhold the code: something the candidate never said (a hint, a guessed value). The
+        # best-guess checks (a step missing from the code, a typed value changed) only ask for redrafts - left
+        # unsatisfied, the code goes out with a note naming what to check. Run 3 of the simulated candidates
+        # (2026-09-28): a misfiring best-guess check withheld correct code for 12 turns running.
+        if code is None or unsaid(code, code_said, code=True):
+            code = best_code
+        check = []
+        if code is not None:
+            check = [f'your step "{x}"' for x in _left_out_of_code(steps, code)] + \
+                    [f'typing "{v}" as you asked' for v in _values_not_typed(said, code, own)]
         if dropped or invented or unsaid(_steps_text(steps), reply_said, code=False):
             steps = prior + ([{"step": " ".join(candidate_prompt.split())[:300], "missing": ""}]
                              if _is_a_step(candidate_prompt, conversation) else [])
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
             reply = _pick(_BLOCKED, used)
-        elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier):
+        elif code is not None and check:
+            reply = _pick(_CODE_READY, used) + "\n\n" + _CHECK_NOTE + "\n" + "\n".join(f"- {c}" for c in check)
+        elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier) or missing_code:
             # with code going out, say so - "shall I generate the code?" beside new code read as a mix-up
             reply = _pick(_CODE_READY, used) if code is not None else _noted(candidate_prompt, used)
     problem = compile_problem(language, code) if code is not None else None
@@ -468,6 +481,7 @@ def _left_out_of_code(steps: list, code: str | None) -> list[str]:
 _NOT_THEIRS_NOTE = ("\n\nYour previous draft broke the candidate's test. Steps they never gave: {steps} - remove them (never "
                     "add a step, even a check that seems obvious). Values they typed that your code changed: {values} - type "
                     "exactly what they wrote (\"enter Password\" types the word Password).")
+_CHECK_NOTE = "Please check these in the code against what you asked - tell me if anything should change:"
 _CODE_READY = [
     "The code for your steps is in the code panel - run it when you're ready.",
     "Here's the program for the steps you gave; it's in the code panel.",
@@ -496,6 +510,9 @@ def _values_not_typed(said: str, code: str | None, own: str | None = None) -> li
         from_round1 = m.group(0) not in own
         if from_round1 and re.search(rf"\b{re.escape(fld)}\b", own, re.I):
             continue
+        # said again later ("... enter Password ... enter Pass@123 in the password field"): the later words win
+        if re.search(rf"\b{re.escape(fld)}\b", said[m.end():], re.I):
+            continue
         if val.lower() in _NOT_A_VALUE or re.search(rf"(test account|reference)\W+(\w+\W+){{0,3}}{re.escape(fld)}|"
                                                     rf"{re.escape(fld)}\W+(\w+\W+){{0,3}}(from|in|of) the (test account|reference)",
                                                     said, re.I):
@@ -503,7 +520,7 @@ def _values_not_typed(said: str, code: str | None, own: str | None = None) -> li
         if val not in literals and val not in out:
             out.append(val)
     for m in _ENTER_TOKEN_RE.finditer(said or ""):
-        val = m.group("val")
+        val = m.group("val").strip("()[]{}'\"")
         if val not in literals and val not in out:
             out.append(val)
     return out
