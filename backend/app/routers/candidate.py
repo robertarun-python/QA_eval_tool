@@ -1115,7 +1115,8 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
 
     turns = list(row.get("turns") or [])
     conversation_so_far = [
-        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind")} for t in turns
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind"),
+         **({"steps": t["steps"]} if isinstance(t.get("steps"), list) else {})} for t in turns
     ]
     language = content.get("language", "python")
     if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
@@ -1197,6 +1198,8 @@ def _record_round2_turn(submission, content, selected, row, turns, candidate_pro
         "response_message": response["response_message"],
         "code_after": response.get("code_after"),
     }
+    if isinstance(response.get("steps"), list):
+        turn_record["steps"] = response["steps"]
     for key in ("planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"):  # assessor-only - see schemas.SubmissionOut
         if response.get(key):
             turn_record[key] = response[key]

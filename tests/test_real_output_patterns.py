@@ -257,10 +257,20 @@ FAITHFUL = [
     "Okay, I'll print one line per check, UTF-8 safe.",
     "Fine — I'll leave the element with id login as the click target.",
 ]
-LEAKS = ["Should I go to the Dashboard page first?", "Is the button labelled “Log In”?", "Try the /members endpoint.",
-         "Maybe it returns 401?", "I'd use PUT for that.", "The username might be admin@library.test.", "Is it the members table?",
+LEAKS = ["Should I go to the Dashboard page first?", "Try the /members endpoint.",
+         "Maybe it returns 401?", "I'd use PUT for that.", "The username might be admin@library.test.", "Is it the members table? Check the database.",
          "Do you mean the Borrow button?", "Use the id 'signin-btn'.", "The password could be Pass@1234.",
-         "Perhaps wait for the spinner to disappear?", "Is the login done via the API or via the form?"]
+         "Perhaps wait for the spinner to disappear?", "Is the login done via the API or via the form?",
+         "Should I also check the total?", "You could add a wait after login.", "I'd suggest checking the status."]
+# Fine under the agreed design (2026-09-28): the candidate said "log in", and asking which button their
+# step means is how the assistant asks for a detail. Kept as a record of what changed.
+NOW_FAITHFUL = ["Is the button labelled “Log In”?", "Which page is that on?", "Which field takes the email?",
+                "What should the test check after login?", "What specific checks would you like me to include?"]
+
+
+@pytest.mark.parametrize("reply", NOW_FAITHFUL)
+def test_asking_which_element_or_what_to_check_is_let_through(reply):
+    assert round2_typist.unsaid(reply, SAID_UI, code=False) == []
 # Not covered: an invented message written without quotes ("Should it show Welcome back, Priya!?").
 
 

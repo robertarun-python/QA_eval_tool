@@ -59,7 +59,13 @@ function round2AutomationTcTableHtml(rows, selectedIndexes) {
 // with every test case when nothing's picked yet, and again after the
 // most recently added test case has a run result, as long as the
 // two-test-case cap hasn't been reached and something's left to offer.
-function round2AutomationNextPickHtml(remaining) {
+function round2AutomationNextPickHtml(remaining, compact = false) {
+  if (compact) return `
+      <select id="r4a-next-pick-select" aria-label="Automate another test case">
+        <option value="" selected>+ Automate another test case...</option>
+        ${remaining.map((r) => `<option value="${r.index}">${escapeHtml(r.title || `Test case ${r.index + 1}`)}</option>`).join("")}
+      </select>
+      <button class="btn-secondary" id="r4a-automate-btn" onclick="round2AutomationAutomateClicked()">Automate</button>`;
   return `
     <div class="surface" style="margin:var(--space-default) 0; border-style:dashed">
       <div class="field-label" style="margin-bottom:0.4rem">Automate a test case</div>
@@ -82,7 +88,10 @@ function round2AutomationAutomateClicked() {
     if (statusEl) statusEl.textContent = "Select a test case first.";
     return;
   }
-  round2AutomationAction(() => api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: [Number(val)] }) }));
+  round2AutomationAction(async () => {
+    await api("/candidate/round/2/auto/select", { method: "POST", body: JSON.stringify({ row_indexes: [Number(val)] }) });
+    r4aActiveRow = Number(val);  // the new test case opens in the workspace
+  });
 }
 
 // Test cases are numbered from 1 on screen, as in Round 1; row indexes stay 0-based.
@@ -346,6 +355,36 @@ function round2AutomationCode(rowIndex) {
   return el ? (r4aFixedPrefix[id] || "") + el.value : "";
 }
 
+// The candidate's test as the tool keeps it (round2_typist): every step in their words, marked with
+// what the assistant still needs - the list the conversation builds, never lost in the chat.
+function round2AutomationStepsHtml(tc) {
+  const last = [...(tc.turns || [])].reverse().find((t) => Array.isArray(t.steps));
+  const steps = last ? last.steps : [];
+  if (!steps.length) return `<p class="muted">No steps yet - describe your test to the assistant and each step you give appears here.</p>`;
+  return `<ol class="r4a-steps">${steps.map((st) => `
+    <li class="${st.missing ? "is-missing" : "is-ready"}"><span class="r4a-step-text">${escapeHtml(st.step)}</span>
+      ${st.missing ? `<span class="r4a-step-missing">Still needed: ${escapeHtml(st.missing)}</span>` : ""}</li>`).join("")}</ol>`;
+}
+
+// Which workspace tab is open, per test case - kept across the re-render after every action.
+const r4aTab = {};
+let r4aActiveRow = null;
+
+function round2AutomationTabHtml(rowIndex, name, label, active) {
+  return `<button class="tab${active ? " active" : ""}" data-r4a-ws-tab="${rowIndex}:${name}" onclick="round2AutomationWorkspaceTab(${rowIndex}, '${name}')">${label}</button>`;
+}
+
+function round2AutomationWorkspaceTab(rowIndex, name) {
+  r4aTab[rowIndex] = name;
+  document.querySelectorAll(`[data-r4a-ws-tab^="${rowIndex}:"]`).forEach((b) => b.classList.toggle("active", b.dataset.r4aWsTab === `${rowIndex}:${name}`));
+  document.querySelectorAll(`[data-r4a-ws-panel^="${rowIndex}:"]`).forEach((el) => el.classList.toggle("active", el.dataset.r4aWsPanel === `${rowIndex}:${name}`));
+  if (name === "code") initCodeEditors(document.getElementById("round-view"));
+}
+
+// One test case's workspace (owner, 2026-09-28: one side full, the other blank, and scrolling to find
+// the Reference or earlier messages). It fills the screen height and the page doesn't scroll: the
+// conversation on the left (it scrolls inside, the reply box always at its foot), and on the right
+// tabs that fill the height - the test as kept so far, code + Run + result, the Reference, Round 1.
 function round2AutomationTcSectionHtml(row) {
   const tc = round2AutomationTcState(row.index);
   const unlocked = round2AutomationTcIsUnlocked(tc);
@@ -358,15 +397,9 @@ function round2AutomationTcSectionHtml(row) {
             <summary>Practice environment &middot; read-only &middot; lines 1&ndash;${fixedLines} (the app and helpers your test uses)</summary>
             <div class="code-with-lines r4a-env-code">${codeWithLineNumbersHtml(split.fixed.replace(/\n$/, ""))}</div>
           </details>` : "";
-  // Order matches the actual workflow: prompt first (below), code
-  // appears as a result of that and sits right under where the
-  // candidate was just typing, then the test data it's about to run
-  // against (a "run space", editable right before running - not
-  // scattered after the result it's supposed to explain), THEN the Run
-  // action, and the result comes last - only after everything it
-  // depends on has already been shown.
-  const codeSectionHtml = unlocked ? `
-      <div class="section-header"><h3>Generated code &middot; your edits</h3></div>
+  const active = r4aTab[row.index] || (unlocked ? "code" : "steps");
+  const panel = (name, html) => `<div class="r4a-ws-panel${active === name ? " active" : ""}" data-r4a-ws-panel="${row.index}:${name}">${html}</div>`;
+  const codeHtml = unlocked ? `
       <div class="code-panel r4a-code-panel">
         <div class="code-panel-head"><span>Automation code</span><span>Editable - review before you trust a PASS</span></div>
         <div class="code-panel-body">
@@ -374,39 +407,50 @@ function round2AutomationTcSectionHtml(row) {
           ${codeEditorHtml(codeId, split.editable, "round4-pilot-code r4a-code-editor", `data-first-line="${fixedLines + 1}"`)}
         </div>
       </div>
-      ${round2AutomationTestDataHtml(row)}
-      <div class="action-bar code-actions-sticky" style="border-top:none; margin-top:0">
-        <span class="muted">Run uses exactly this file - the practice environment plus your code box. Your own edits are recorded separately from the assistant's.</span>
+      <div class="r4a-run-bar">
+        <span class="muted">Run uses exactly this file.</span>
         <div class="action-bar-buttons">
           <button class="btn-secondary r4a-save-btn" onclick="round2AutomationSaveCodeClicked(${row.index})">Save my edit</button>
           <button class="btn-primary r4a-run-btn" onclick="round2AutomationRunClicked(${row.index})">Run</button>
         </div>
       </div>
-      <div class="section-header" style="margin-top:var(--space-default)"><h3>Execution result</h3></div>
-      <div id="r4a-run-result-${row.index}">${round2AutomationRunResultHtml(row.index, tc.last_run)}</div>` : `
-      <p class="muted" style="margin-top:1.25rem">No code yet - describe what you want automated above. Once the assistant has enough detail to encode it without guessing, it'll write the first version here.</p>`;
-
+      <div class="r4a-result" id="r4a-run-result-${row.index}">${round2AutomationRunResultHtml(row.index, tc.last_run)}</div>` : `
+      <p class="muted">No code yet. When you ask the assistant to generate it, the code appears here with a Run button.</p>`;
+  const r1 = `
+      <table class="data-table r4a-tc-table"><tbody>
+        <tr><th>Test case</th><td class="r4a-tc-cell">${escapeHtml(row.title || "")}</td></tr>
+        <tr><th>Preconditions</th><td class="r4a-tc-cell">${escapeHtml(row.preconditions || "")}</td></tr>
+        <tr><th>Steps</th><td class="r4a-tc-cell">${escapeHtml(row.steps || "")}</td></tr>
+        <tr><th>Expected result</th><td class="r4a-tc-cell">${escapeHtml(row.expected_result || "")}</td></tr>
+      </tbody></table>`;
   return `
-    <div class="surface r4a-tc-panel" data-row-index="${row.index}" style="margin:var(--space-default) 0">
-      <div class="section-header">
-        <h2>Test case ${row.index + 1} <span class="muted" style="font-weight:400">- ${escapeHtml(row.title || "(untitled)")}</span></h2>
-      </div>
-      ${(row.refinements || []).length > 0 ? `<p class="muted" style="margin:0 0 0.5rem 0"><strong>Your refinement notes:</strong> ${row.refinements.map((n) => escapeHtml(n)).join(" &middot; ")}</p>` : ""}
-      <p class="muted" style="margin:0 0 var(--space-compact) 0">AI-generated code may be buggy, incomplete, or subtly wrong even when it runs cleanly - review it before trusting a PASS.</p>
-
-      <!-- Side by side (owner, 2026-09-28): the conversation with its reply box on the left, the code,
-           Run and result on the right - both in view, instead of new messages landing far above the
-           result the candidate is reading. Stacked on a narrow screen, reply box under the conversation. -->
-      <div class="r4a-work">
-        <div class="r4a-chat-col">
-          <div class="section-header"><h3>Conversation with the assistant</h3></div>
-          <div class="r4a-chat-log" id="r4a-chat-log-${row.index}">${round2AutomationTurnsHtml(tc.turns)}</div>
-          <div class="field-label" style="margin-top:0.6rem">${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</div>
-          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="3" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
-          <div class="row" style="justify-content:flex-end"><button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button></div>
-          <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
+    <div class="r4a-tc-panel r4a-cockpit" data-row-index="${row.index}">
+      <div class="r4a-chat-col">
+        <div class="r4a-col-head"><h3>Conversation with the assistant</h3></div>
+        <div class="r4a-chat-log" id="r4a-chat-log-${row.index}">${round2AutomationTurnsHtml(tc.turns)}</div>
+        <div class="r4a-reply">
+          <div class="field-label">${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</div>
+          <textarea id="r4a-prompt-${row.index}" class="ta-short" rows="3" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."
+            onkeydown="if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) round2AutomationAskClicked(${row.index})"></textarea>
+          <div class="row r4a-reply-foot"><span class="muted">Ctrl+Enter to send</span><button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button></div>
+          <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite"></p>
         </div>
-        <div class="r4a-code-col">${codeSectionHtml}</div>
+      </div>
+      <div class="r4a-side-col">
+        <div class="tabs r4a-ws-tabs" role="tablist">
+          ${round2AutomationTabHtml(row.index, "steps", "Your test", active === "steps")}
+          ${round2AutomationTabHtml(row.index, "code", unlocked ? "Code &amp; run" : "Code", active === "code")}
+          ${round2AutomationTabHtml(row.index, "reference", "Reference", active === "reference")}
+          ${round2AutomationTabHtml(row.index, "round1", "Round 1 cases", active === "round1")}
+        </div>
+        ${panel("steps", `
+          <h4>Your test so far</h4>
+          ${round2AutomationStepsHtml(tc)}
+          ${round2AutomationTestDataHtml(row)}
+          <details class="r4a-own-case"><summary>This test case as you wrote it in Round 1</summary>${r1}</details>`)}
+        ${panel("code", codeHtml)}
+        ${panel("reference", round2AutomationReferenceHtml())}
+        ${panel("round1", round2AutomationTcTableHtml(round2AutomationState.available_rows || [], (round2AutomationState.selected || []).map((r) => r.index)))}
       </div>
     </div>`;
 }
@@ -455,36 +499,44 @@ function renderRound2AutomationLayout(box) {
   // long as the two-test-case cap isn't reached and something's left.
   const showPicker = remaining.length > 0 && selected.length < 3 && (selected.length === 0 || lastHasResult);
 
-  box.innerHTML = `
-    <div class="page-header">
-      <span class="eyebrow">Round 2 &middot; AI-Assisted Test Automation</span>
-      <h1>${escapeHtml(scenario.title)}</h1>
-    </div>
-    <div class="surface">
+  if (!selected.some((r) => r.index === r4aActiveRow)) r4aActiveRow = lastSelected ? lastSelected.index : null;
+  const activeRow = selected.find((r) => r.index === r4aActiveRow);
+  const intro = `
       ${formatScenarioDescription(scenario.description)}
       <div class="row" style="margin-top:var(--space-compact); margin-bottom:0">
         <span class="tag tag-accent">Language locked: ${escapeHtml(s.language)}</span>
       </div>
-      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to three, one at a time. To score fully, show UI, API and database checks - across one or more test cases.</p>
+      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to three, one at a time. To score fully, show UI, API and database checks - across one or more test cases.</p>`;
+
+  box.innerHTML = `
+    ${selected.length ? "" : `<div class="page-header">
+      <span class="eyebrow">Round 2 &middot; AI-Assisted Test Automation</span>
+      <h1>${escapeHtml(scenario.title)}</h1>
+    </div>`}
+    ${selected.length ? "" : `<div class="surface">${intro}</div>`}
+
+    ${selected.length ? "" : `<div class="section-header"><h2>Your Round 1 test cases</h2></div>
+    ${round2AutomationTcTableHtml(s.available_rows || [], [])}
+    ${round2AutomationReferenceHtml()}`}
+
+    ${selected.length ? `
+    <div class="r4a-tc-switch" role="tablist">
+      ${selected.map((r) => `<button class="tab${r.index === r4aActiveRow ? " active" : ""}" onclick="round2AutomationSwitchTestCase(${r.index})">Test case ${r.index + 1} <span class="muted">&middot; ${escapeHtml((r.title || "").slice(0, 40))}</span></button>`).join("")}
+      ${showPicker ? `<span class="r4a-switch-pick">${round2AutomationNextPickHtml(remaining, true)}</span>` : ""}
+      <span class="r4a-switch-end">
+        <details class="r4a-intro-fold"><summary class="btn-secondary">Instructions</summary><div class="r4a-intro-pop">${intro}</div></details>
+        <button id="r4a-submit-btn" class="btn-primary" onclick="round2AutomationSubmitClicked()">Submit Round 2</button></span>
     </div>
-
-    <div class="section-header"><h2>Your Round 1 test cases</h2></div>
-    ${round2AutomationTcTableHtml(s.available_rows || [], selected.map((r) => r.index))}
-    ${round2AutomationReferenceHtml()}
-
-    ${selected.map((r) => round2AutomationTcSectionHtml(r)).join("")}
-
-    ${showPicker ? round2AutomationNextPickHtml(remaining) : ""}
-
-    ${selected.length > 0 ? `
-    <div class="action-bar">
-      <span class="muted">Submitting ends Round 2 and moves you on - you can't return to it afterward.</span>
-      <div class="action-bar-buttons">
-        <button id="r4a-submit-btn" class="btn-primary" onclick="round2AutomationSubmitClicked()">Submit Round 2</button>
-      </div>
-    </div>` : ""}
+    ${activeRow ? round2AutomationTcSectionHtml(activeRow) : ""}
+    ${selected.filter((r) => r.index !== r4aActiveRow).map((r) => `<div class="r4a-tc-panel" data-row-index="${r.index}" hidden></div>`).join("")}` :
+    (showPicker ? round2AutomationNextPickHtml(remaining) : "")}
     <p id="r4a-status" class="muted"></p>`;
   round2AutomationAfterRender();
+}
+
+function round2AutomationSwitchTestCase(rowIndex) {
+  r4aActiveRow = rowIndex;
+  renderRound2AutomationLayout(document.getElementById("round-view"));
 }
 
 // Where each code box was left, keyed by its id - every action re-renders
@@ -516,9 +568,26 @@ function round2AutomationAfterRender() {
     el.addEventListener("input", remember);
   });
   autoGrowAll(document.getElementById("round-view"));  // prompts / test data restored from state
-  // The conversation is capped in height (style.css) - keep the newest message in view.
+  // The conversation scrolls inside its column - keep the newest message in view.
   document.querySelectorAll(".r4a-chat-log").forEach((log) => { log.scrollTop = log.scrollHeight; });
+  round2AutomationFitWorkspace();
 }
+
+// The workspace ends at the bottom of the window, so the page itself never has to scroll while working
+// (wide screens; on a narrow one it stacks and the page scrolls as usual).
+function round2AutomationFitWorkspace() {
+  const ws = document.querySelector(".r4a-cockpit");
+  if (!ws) return;
+  if (window.innerWidth <= 992) { ws.style.height = ""; return; }
+  const top = ws.getBoundingClientRect().top + window.scrollY;  // where it starts with the page at the top
+  let height = Math.max(420, window.innerHeight - top - 16);
+  ws.style.height = `${height}px`;
+  // whatever still overflows (the card's padding, a banner) comes off the workspace, not the page
+  const over = document.documentElement.scrollHeight - window.innerHeight;
+  if (over > 0 && height - over >= 420) { height -= over + 2; ws.style.height = `${height}px`; }
+  if (document.documentElement.scrollHeight <= window.innerHeight + 2) window.scrollTo(0, 0);
+}
+window.addEventListener("resize", () => round2AutomationFitWorkspace());
 
 // Shared by every action except submit: call the endpoint, re-fetch state,
 // re-render - the server
@@ -559,8 +628,10 @@ function round2AutomationAskClicked(rowIndex) {
   const promptEl = document.getElementById(`r4a-prompt-${rowIndex}`);
   const prompt = promptEl.value.trim();
   if (!prompt) return;
-  round2AutomationAction(() => api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) }),
-    rowIndex, "Asking the assistant - writing code can take up to a minute or two...");
+  round2AutomationAction(async () => {
+    const turn = await api("/candidate/round/2/auto/turn", { method: "POST", body: JSON.stringify({ candidate_prompt: prompt, row_index: rowIndex }) });
+    if (turn && turn.code_after) r4aTab[rowIndex] = "code";  // new code: show it
+  }, rowIndex, "Asking the assistant - writing code can take up to a minute or two...");
 }
 
 function round2AutomationSaveCodeClicked(rowIndex) {
@@ -571,6 +642,7 @@ function round2AutomationSaveCodeClicked(rowIndex) {
 
 function round2AutomationRunClicked(rowIndex) {
   const code = round2AutomationCode(rowIndex);
+  r4aTab[rowIndex] = "code";  // the result appears under the code
   round2AutomationAction(() => api("/candidate/round/2/auto/run", { method: "POST", body: JSON.stringify({ code, row_index: rowIndex }) }), rowIndex, "Running...");
 }
 
@@ -586,16 +658,17 @@ async function round2AutomationSubmitClicked() {
   // the expected result is scored from the code and result alone.
   const entries = [];
   for (const r of selected) {
-    const sectionEl = document.querySelector(`.r4a-tc-panel[data-row-index="${r.index}"]`);
     const tc = round2AutomationTcState(r.index);
     if (!round2AutomationTcIsUnlocked(tc)) {
-      if (sectionEl) sectionEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (statusEl) statusEl.textContent = `Ask the assistant to generate code for "${r.title || `test case ${r.index}`}" before submitting.`;
+      round2AutomationSwitchTestCase(r.index);
+      const st = document.getElementById("r4a-status");
+      if (st) st.textContent = `Ask the assistant to generate code for "${r.title || `test case ${r.index}`}" before submitting.`;
       return;
     }
     if (!tc.last_run) {
-      if (sectionEl) sectionEl.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (statusEl) statusEl.textContent = `Run "${r.title || `test case ${r.index}`}" at least once before submitting.`;
+      round2AutomationSwitchTestCase(r.index);
+      const st = document.getElementById("r4a-status");
+      if (st) st.textContent = `Run "${r.title || `test case ${r.index}`}" at least once before submitting.`;
       return;
     }
     entries.push({ row_index: r.index, code: round2AutomationCode(r.index) });

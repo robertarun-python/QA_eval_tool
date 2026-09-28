@@ -228,3 +228,47 @@ def test_the_code_is_readable(app_page, e2e_server):
         const a = lum(rgb(getComputedStyle(t).color)), b = lum(bg);
         return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05); }""")
     assert ratio >= 4.5, f"code text contrast {ratio:.2f}:1 is unreadable (WCAG asks for 4.5:1)"
+
+
+@pytest.mark.parametrize("size", [(1440, 900), (1280, 720)])
+def test_the_round2_workspace_fits_the_screen_and_keeps_the_candidates_steps(app_page, e2e_server, size):
+    """Owner (2026-09-28): one side full, the other blank, and scrolling to find the Reference or earlier
+    messages. The workspace fills the window and the page itself doesn't scroll: a long conversation
+    scrolls inside its column with the reply box always in view, and "Your test" lists every step given."""
+    _engine_round2(e2e_server)
+    _reset_persona(e2e_server)
+    page = app_page
+    page.set_viewport_size({"width": size[0], "height": size[1]})
+    login(page, PERSONA)
+    _open_round(page, 1)
+    page.click("text=Got it - Start Round 1")
+    row = page.locator("#tc-rows tr").first
+    row.locator(".tc-title").fill("Verify the EMI details")
+    row.locator(".tc-pre").fill("Logged in")
+    row.locator(".tc-steps").fill("Open EMI Details")
+    row.locator(".tc-data").fill("LN-45678")
+    row.locator(".tc-expected").fill("EMI details shown")
+    page.locator("#round1-submit-btn").click()
+    _open_round(page, 2)
+    page.select_option("#r4a-intro-language-select", "java")
+    page.click("#r4a-intro-start-btn")
+    page.select_option("#r4a-next-pick-select", index=1)
+    page.click("#r4a-automate-btn")
+    said = [f"Step {i}: locate field number {i} and enter value {i}" for i in range(1, 9)]
+    for msg in said:
+        page.fill("#r4a-prompt-0", msg)
+        page.click(".r4a-ask-btn")
+        expect(page.locator(".r4a-chat-log")).to_contain_text(msg)
+    banner = page.evaluate("""() => { const b = [...document.querySelectorAll('body *')].find(e => e.children.length === 0
+        && /FAKE AI MODE/.test(e.textContent)); return b ? b.getBoundingClientRect().height : 0; }""")  # test mode only
+    over = page.evaluate("document.documentElement.scrollHeight - window.innerHeight")
+    assert over <= banner + 2, f"the page scrolls by {over}px while working"
+    box = page.locator("#r4a-prompt-0").bounding_box()
+    assert box["y"] + box["height"] <= size[1], "the reply box is below the window"
+    log = page.locator("#r4a-chat-log-0")
+    assert log.evaluate("e => e.scrollHeight > e.clientHeight"), "a long conversation scrolls inside its column"
+    page.click("[data-r4a-ws-tab='0:steps']")
+    for msg in said:
+        expect(page.locator(".r4a-steps")).to_contain_text(msg)
+    page.click("[data-r4a-ws-tab='0:reference']")
+    expect(page.locator("[data-r4a-ws-panel='0:reference']")).to_contain_text("Test accounts")

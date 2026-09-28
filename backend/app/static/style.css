@@ -1357,15 +1357,9 @@ textarea.code-editor-input {
 .r4a-code-panel .code-panel-body { overflow: hidden; }
 .r4a-code-panel textarea.r4a-code-editor { min-height: 12rem; }
 /* The conversation above the code no longer pushes it down the page. */
-.r4a-chat-log { max-height: 18rem; overflow-y: auto; }
 .r4a-tc-table td { vertical-align: top; font-size: var(--text-sm); }
 .r4a-tc-table .r4a-tc-cell { white-space: pre-line; max-width: 22rem; }
 .r4a-tc-table tr.is-selected td { background: var(--accent-soft); }
-.r4a-work { display: grid; grid-template-columns: minmax(18rem, 2fr) minmax(0, 3fr); gap: var(--space-default); align-items: start; }
-.r4a-chat-col { position: sticky; top: 5.5rem; }
-.r4a-work .r4a-chat-log { max-height: calc(100vh - 22rem); min-height: 8rem; }
-.r4a-code-col > .section-header:first-child { margin-top: 0; }
-@media (max-width: 75rem) { .r4a-work { grid-template-columns: 1fr; } .r4a-chat-col { position: static; } }
 /* The fixed practice environment above the candidate's code - collapsed
    by default, read-only, scrolls on its own when opened. */
 .r4a-env { margin: 0 0 0.75rem; border-bottom: 1px solid rgba(228, 232, 245, 0.12); padding-bottom: 0.5rem; }
@@ -2160,3 +2154,49 @@ span.cdd-mini-label { margin-right: 0.35rem; }
 .practice-steps li { padding: 2px 0; }
 .practice-steps li.done { color: var(--text-muted); }
 .practice-steps li.current { font-weight: 600; }
+
+/* Round 2 workspace (owner, 2026-09-28): fills the screen height, the page doesn't scroll - the
+   conversation scrolls inside the left column with the reply box always at its foot; the right
+   column's tabs (the test so far, code & run, Reference, Round 1) fill the same height. */
+.r4a-intro-fold { position: relative; display: inline-block; }
+.r4a-intro-fold > summary { list-style: none; cursor: pointer; display: inline-block; }
+.r4a-intro-fold > summary::-webkit-details-marker { display: none; }
+.r4a-intro-pop { position: absolute; right: 0; top: calc(100% + 0.4rem); z-index: 30; width: min(46rem, 80vw); max-height: 60vh;
+  overflow: auto; background: var(--surface-elevated); border: 1px solid var(--border-strong); border-radius: 10px;
+  box-shadow: var(--shadow-card); padding: 1rem 1.2rem; }
+.r4a-tc-switch { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.6rem; }
+.r4a-tc-switch .r4a-switch-pick { display: inline-flex; gap: 0.4rem; align-items: center; }
+.r4a-tc-switch .r4a-switch-pick select { max-width: 18rem; }
+.r4a-tc-switch .r4a-switch-end { margin-left: auto; display: inline-flex; gap: 0.5rem; align-items: center; }
+.r4a-cockpit { display: grid; grid-template-columns: minmax(20rem, 2fr) minmax(0, 3fr); gap: var(--space-default);
+  height: calc(100vh - 12rem); min-height: 30rem; }
+.r4a-chat-col, .r4a-side-col { display: flex; flex-direction: column; min-height: 0; background: var(--surface, #fff);
+  border: 1px solid var(--border, #e3e6ef); border-radius: 10px; padding: 0.75rem 0.9rem; }
+.r4a-col-head h3 { margin: 0 0 0.5rem; }
+.r4a-cockpit .r4a-chat-log { flex: 1 1 auto; min-height: 6rem; max-height: none; overflow-y: auto; padding-right: 0.25rem; }
+.r4a-reply { flex: 0 0 auto; border-top: 1px solid var(--border, #e3e6ef); padding-top: 0.5rem; margin-top: 0.5rem; }
+.r4a-reply textarea { width: 100%; resize: vertical; min-height: 4.5rem; max-height: 12rem; }
+.r4a-reply-foot { justify-content: space-between; align-items: center; margin-top: 0.35rem; }
+.r4a-reply p[role="status"] { margin: 0.25rem 0 0; }
+.r4a-ws-tabs { flex: 0 0 auto; margin-bottom: 0.6rem; }
+.r4a-ws-panel { display: none; flex: 1 1 auto; min-height: 0; overflow: auto; }
+.r4a-ws-panel.active { display: flex; flex-direction: column; }
+.r4a-ws-panel > .surface { margin: 0 0 0.75rem; }
+.r4a-ws-panel .r4a-code-panel { flex: 1 1 auto; min-height: 14rem; display: flex; flex-direction: column; }
+.r4a-ws-panel .r4a-code-panel .code-panel-body { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.r4a-run-bar { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin: 0.5rem 0; flex-wrap: wrap; }
+.r4a-result { flex: 0 1 auto; max-height: 45%; overflow: auto; }
+.r4a-steps { margin: 0 0 0.75rem; padding-left: 1.4rem; }
+.r4a-steps li { margin: 0.25rem 0; }
+.r4a-steps li.is-missing::marker { color: var(--warning, #b45309); }
+.r4a-step-missing { display: block; font-size: var(--text-sm); color: var(--warning, #b45309); }
+.r4a-own-case { margin-top: 0.5rem; }
+@media (max-width: 62rem) {
+  .r4a-cockpit { grid-template-columns: 1fr; height: auto; }
+  .r4a-cockpit .r4a-chat-log { max-height: 50vh; }
+  .r4a-ws-panel.active { max-height: none; }
+}
+/* the body is a layout box: its markup's line breaks must not show as blank lines above the code */
+.r4a-code-panel .code-panel-body { white-space: normal; }
+.r4a-code-panel .code-panel-body textarea { white-space: pre; }
+.r4a-ws-tabs .tab.active, .r4a-ws-tabs .tab.active:focus, .r4a-ws-tabs .tab.active:hover { background: var(--surface-elevated); color: var(--accent); }
