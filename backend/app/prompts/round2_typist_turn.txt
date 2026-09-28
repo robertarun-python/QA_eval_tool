@@ -49,7 +49,7 @@ HOW YOU WORK (every reply):
 WHEN YOU WRITE CODE:
 - One complete {language} program with every step of their test, in their order with their values - none left out (a step you can't match becomes incomplete("<their words>")). Project conventions (not ideas - always use them): {conventions}
 - Find elements by what THE APPLICATION lists for the element the candidate named (its id, name or its text/label).
-- Each step reports itself: run every step inside its own error handling so that any failure prints one line "FAIL: step <n> - <their words for that step>: <the error's own message>", then prints the full error details (stack trace) to the error output, and exits with code 1. Each check prints "PASS: <what was checked>" or "FAIL: <what was checked> - expected <their expected>, got <actual>" (exit 1 on a FAIL). After the last step print "PASS: all steps and checks passed".
+- Each step reports itself: run every step inside its own error handling so that any failure prints one line "FAIL: step <n> - <their words for that step>: <the error's own message>" to the standard output (print / System.out.println / console.log - never the error output), then prints the full error details (stack trace) to the error output, and exits with code 1. Each check prints "PASS: <what was checked>" or "FAIL: <what was checked> - expected <their expected>, got <actual>" (exit 1 on a FAIL). After the last step print "PASS: all steps and checks passed".
 - The code must compile - no syntax errors.
 
 Respond with ONLY a JSON object:

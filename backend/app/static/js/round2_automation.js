@@ -105,6 +105,14 @@ function round2AutomationNextStepHtml(run, passed) {
   return `<p class="result-state-detail r4a-next-step">${what}</p>`;
 }
 
+// The step that failed, in the program's own words - from either output (replay 2026-09-28: the
+// "FAIL: step 2 - ..." line went to the error output and the result said only FAIL).
+function round2AutomationFirstFailHtml(run, passed) {
+  if (passed) return "";
+  const line = `${run.stdout || ""}\n${run.stderr || ""}`.split("\n").find((l) => /^\s*(FAIL|INCOMPLETE):/.test(l));
+  return line ? `<p class="result-state-detail r4a-first-fail"><strong>${escapeHtml(line.trim().slice(0, 400))}</strong></p>` : "";
+}
+
 function round2AutomationRunResultHtml(rowIndex, run) {
   if (!run) return `<p class="muted">Not run yet.</p>`;
   // "status" (new runs): passed only for a complete test that exited cleanly - a test with gaps is INCOMPLETE, never PASS.
@@ -126,6 +134,7 @@ function round2AutomationRunResultHtml(rowIndex, run) {
         ${run.infra_error ? `<p class="result-state-detail">The execution service had a problem - try running again.</p>` : ""}
         ${silent ? `<p class="result-state-detail">It ran without errors but printed nothing - make sure the test actually checks something and reports it.</p>`
                  : passed ? `<p class="result-state-caveat">PASS does not necessarily mean correct - check what was actually verified.</p>` : ""}
+        ${round2AutomationFirstFailHtml(run, passed)}
         ${round2AutomationNextStepHtml(run, passed)}
         <details style="margin-top:0.6rem"${passed ? "" : " open"}>
           <summary>Execution log</summary>

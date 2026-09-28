@@ -370,3 +370,11 @@ def test_code_that_leaves_out_a_step_of_theirs_never_reaches_them(monkeypatch):
                                    "Should I remove the EMI Payment steps?"])
 def test_offering_to_skip_or_drop_their_steps_is_blocked(reply):
     assert round2_typist.unsaid(reply, "After login. Locate EMI Payment and click", code=False)
+
+
+def test_yes_to_not_enough_details_is_not_asking_for_code():
+    """Replay 2026-09-28: "I don't have enough details to generate the code yet" read as an offer."""
+    said = [{"candidate_prompt": "x", "response_message": "Noted. I don't have enough details to generate the code yet - which value?"}]
+    assert not round2_typist.wants_code("yes", said)
+    offer = [{"candidate_prompt": "x", "response_message": "I have everything. Shall I generate the code now?"}]
+    assert round2_typist.wants_code("yes", offer)

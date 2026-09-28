@@ -56,6 +56,7 @@ _GENERATE_RE = re.compile(
     r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead)\b", re.I)
 _YES_RE = re.compile(r"^\s*(yes|yeah|yep|ok(ay)?|sure|please do|do it|go on|that'?s (all|it|everything))\b", re.I)
 _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|test)\b", re.I)
+_NOT_OFFER_RE = re.compile(r"\b(not enough|don'?t have enough|do not have enough|can'?t|cannot|yet|before i can)\b", re.I)
 _OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+|"
                             r"(the |this )(selected |chosen )?test case)\b", re.I)
 # "Fix the syntax error": the assistant's own mistakes in the code it wrote - it fixes those, and only those
@@ -180,7 +181,10 @@ def wants_code(prompt: str, conversation: list[dict]) -> bool:
     if _GENERATE_RE.search(prompt or "") or _SYNTAX_FIX_RE.search(prompt or ""):
         return True
     last = conversation[-1]["response_message"] if conversation else ""
-    return bool(_YES_RE.search(prompt or "") and _OFFERED_RE.search(last or ""))
+    # an offer, not "I don't have enough details to generate the code yet" (replay 2026-09-28: a "yes"
+    # to that sentence was taken as asking for code)
+    offered = any(_OFFERED_RE.search(s) and not _NOT_OFFER_RE.search(s) for s in re.split(r"(?<=[.?!])\s+|\n+", last or ""))
+    return bool(_YES_RE.search(prompt or "") and offered)
 
 
 def _norm(text: str) -> str:
