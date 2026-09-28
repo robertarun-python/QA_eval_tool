@@ -27,12 +27,19 @@ def _turn(monkeypatch, model, prompt, conversation=()):
     return round2_typist.turn("python", DESIGN, list(conversation), "", prompt)
 
 
-def test_the_model_never_sees_the_application(monkeypatch):
+def test_the_model_sees_the_apps_reference_but_never_the_answer_key(monkeypatch):
+    """Owner and CTO (2026-09-28): only the idea matters - the assistant finds each step in the app by the
+    candidate's words, so it sees what the candidate's Reference shows; never the app's messages or data."""
+    import json as _json
+    from pathlib import Path as _Path
+    from app.services.practice_engine import reference
+    spec = _json.loads((_Path(__file__).parent / "fixtures" / "practice_engine" / "library_spec.json").read_text())
     model = Model({"reply": "Got it, the user is Priya. What next?", "code": None})
-    _turn(monkeypatch, model, "Log in as Priya")
+    monkeypatch.setattr(llm_service, "_call_claude_json", model)
+    round2_typist.turn("python", DESIGN, [], "", "Log in as Priya", app_reference=reference.assistant_reference(reference.reference_panel(spec)))
     prompt = model.prompts[0]
-    assert "PRACTICE_APP_URL" in prompt  # the project conventions only
-    assert "library_spec" not in prompt and "available_copies" not in prompt and "/api/login" not in prompt
+    assert "PRACTICE_APP_URL" in prompt and "/api/login" in prompt and 'labelled "Email"' in prompt  # the Reference
+    assert "No copies available" not in prompt and "BK-002" not in prompt  # no messages, no data rows
 
 
 def test_no_code_unless_the_candidate_asks(monkeypatch):
@@ -108,7 +115,7 @@ def test_run_status(exit_code, stdout, timed_out, infra, status):
 
 def test_the_prompt_template_formats():
     text = llm_service._load_prompt("round2_typist_turn.txt").format(language="java", conventions="c", design="d", current_code="",
-                                                                   conversation="", candidate_prompt="p")
+                                                                   conversation="", candidate_prompt="p", app_reference="a")
     assert '{"reply"' in text and "<<CACHE_BREAK>>" in text
 
 

@@ -197,3 +197,100 @@ def reference_panel(spec: dict) -> dict:
         "test_controls": TEST_CONTROLS,
         "failures": [f["name"] for f in spec.get("faults") or []],
     }
+
+
+# ---- What the Round 2 assistant knows of the app (owner and CTO, 2026-09-28) ----------------------
+# The candidate gives the idea - steps, data, checks, waits - in their own words; the assistant finds each
+# step in the app by those words, like a tester reading the screen. It sees what the candidate sees in the
+# Reference - each screen's elements, the API, the database layout, the test accounts - and nothing of the
+# answer key: no Round 1 reference cases, no messages or rules, no database rows (test data is the
+# candidate's to choose).
+
+from html.parser import HTMLParser  # noqa: E402
+
+
+class _Elements(HTMLParser):
+    """The elements a test could use on a page: fields with their labels, buttons, links, headings and any
+    text element that has an id, with their id/name/type - one line each."""
+    def __init__(self):
+        super().__init__()
+        self.items, self.labels, self._open, self._skip = [], {}, [], 0
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag in ("style", "script", "head"):
+            self._skip += 1
+            return
+        if tag == "input" or tag in ("select", "textarea"):
+            self.items.append({"tag": tag, **{k: a[k] for k in ("id", "name", "type") if a.get(k)}})
+        elif tag in ("button", "a", "label", "h1", "h2", "h3", "th", "dt", "dd", "span", "p", "strong", "table"):
+            self._open.append({"tag": tag, "text": "", **{k: a[k] for k in ("id", "name", "type", "for", "href") if a.get(k)}})
+
+    def handle_endtag(self, tag):
+        if tag in ("style", "script", "head"):
+            self._skip = max(0, self._skip - 1)
+            return
+        for i in range(len(self._open) - 1, -1, -1):
+            if self._open[i]["tag"] == tag:
+                el = self._open.pop(i)
+                el["text"] = " ".join(el["text"].split())
+                if tag == "label" and el.get("for"):
+                    self.labels[el["for"]] = el["text"]
+                elif tag in ("button", "a", "h1", "h2", "h3", "th", "table") or el.get("id"):
+                    if el["text"] or el.get("id"):
+                        self.items.append(el)
+                break
+
+    def handle_data(self, data):
+        if not self._skip:
+            for el in self._open:
+                el["text"] += data
+
+
+def _element_line(el: dict, labels: dict) -> str:
+    bits = [el["tag"]]
+    if el["tag"] in ("input", "select", "textarea") and el.get("id") in labels:
+        bits.append(f'labelled "{labels[el["id"]]}"')
+    if el.get("text") and el["tag"] not in ("dd", "span", "table"):  # values are data - the id says what it is
+        bits.append(f'text "{el["text"][:60]}"')
+    for k in ("id", "name", "type", "href"):
+        if el.get(k):
+            bits.append(f"{k}={el[k]}")
+    return " ".join(bits)
+
+
+def assistant_reference(panel: dict | None, round1_address: str = "") -> str:
+    """The app as plain text for the Round 2 assistant (see the section comment above)."""
+    if not isinstance(panel, dict):
+        return "(no application reference - older practice app)"
+    out = [f"APPLICATION: {panel.get('app_name') or ''}",
+           f"Address: PRACTICE_APP_URL in code (the address Round 1 showed, {panel.get('web_address') or round1_address or '-'}, is the same app)",
+           "API base: PRACTICE_API_URL; database file: PRACTICE_DB (SQLite); browser: SELENIUM_GRID_URL",
+           "Test accounts (as the Reference shows them): " + "; ".join(
+               f"login {a.get('login')} / password {a.get('password')} ({a.get('name')})" for a in panel.get("accounts") or [])]
+    for page in panel.get("pages") or []:
+        parser = _Elements()
+        try:
+            parser.feed(page.get("source") or "")
+        except Exception:  # noqa: BLE001 - an odd page still lists what was read
+            pass
+        lines = [_element_line(el, parser.labels) for el in parser.items]
+        lines = list(dict.fromkeys(lines))[:60]
+        out.append(f"\nPAGE {page.get('name')} ({page.get('path')}):\n  " + "\n  ".join(lines))
+    if panel.get("api"):
+        out.append("\nAPI:")
+        for r in panel["api"]:
+            out.append(f"  {r.get('method')} {r.get('path')} body[{', '.join(r.get('body') or [])}] query[{', '.join(r.get('query') or [])}] "
+                       f"-> {r.get('success')} returns[{', '.join(r.get('returns') or [])}]"
+                       + (f" fields[{', '.join(r.get('fields') or [])}]" if r.get("fields") else "") + (" (sign-in needed)" if r.get("sign_in") else ""))
+        if panel.get("api_sign_in"):
+            out.append("  " + panel["api_sign_in"])
+    if panel.get("database"):
+        out.append("\nDATABASE (tables and columns - no data):")
+        for t in panel["database"]:
+            out.append(f"  {t.get('table')}: " + ", ".join(c.get("name", "") for c in t.get("columns") or []))
+    if panel.get("test_controls"):
+        out.append("\nTEST CONTROLS: " + "; ".join(f"{c.get('method')} {c.get('path')} ({c.get('meaning')})" for c in panel["test_controls"]))
+        if panel.get("failures"):
+            out.append("Simulated failures: " + ", ".join(panel["failures"]))
+    return "\n".join(out)[:12000]

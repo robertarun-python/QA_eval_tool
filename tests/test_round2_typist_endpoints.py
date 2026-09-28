@@ -35,7 +35,7 @@ def _generate(client, cand, monkeypatch):
     assert res.status_code == 201 and res.json()["response_kind"] == "code_edit", res.text
 
 
-def test_messages_go_to_the_typist_which_never_sees_the_app(client, monkeypatch):
+def test_messages_go_to_the_assistant_which_sees_the_reference_not_the_answer_key(client, monkeypatch):
     cand = _environment_round(client, monkeypatch)
     prompts = []
 
@@ -46,8 +46,9 @@ def test_messages_go_to_the_typist_which_never_sees_the_app(client, monkeypatch)
     res = client.post("/candidate/round/2/auto/turn", json={"candidate_prompt": "Log in as jordan", "row_index": 0}, cookies=_auth(cand))
     assert res.status_code == 201, res.text
     assert res.json()["response_kind"] == "clarify" and res.json()["code_after"] is None
-    assert len(prompts) == 1 and "typing assistant" in prompts[0]
-    for secret in ("testuser@library.test", "available_copies", "No copies available", "borrow_book"):
+    assert len(prompts) == 1 and "automation assistant" in prompts[0]
+    assert "/api/borrow-book" in prompts[0]  # the Reference's API list
+    for secret in ("No copies available", "BK-002", "The Great Gatsby"):  # messages and data rows stay out
         assert secret not in prompts[0]
 
 

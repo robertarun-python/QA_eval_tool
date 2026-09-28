@@ -209,7 +209,8 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
     if not code:
         said_words = {w.lower().rstrip("s") for w in re.findall(r"[A-Za-z]+", said or "")}
         for m in _STRUCTURE_RE.findall(text):
-            if m.lower().split()[0].rstrip("s") not in said_words:
+            # "element" is how the assistant asks which element a step means (rule 5) - never a part of the app
+            if m.lower().split()[0].rstrip("s") not in said_words | {"element"}:
                 found.append(m)
         for name, part in _NAMED_STRUCTURE_RE.findall(text):
             if name.lower() not in _NAME_NOT_SPECIFIC and name.lower().rstrip("s") not in said_words:
@@ -240,7 +241,8 @@ def _repeats(reply: str, earlier: list[str]) -> bool:
 
 
 @llm_service.candidate_turn
-def turn(language: str, design: dict, conversation: list[dict], current_code: str, candidate_prompt: str) -> dict:
+def turn(language: str, design: dict, conversation: list[dict], current_code: str, candidate_prompt: str,
+         app_reference: str = "") -> dict:
     """One reply: {"response_kind": "clarify"|"refuse"|"code_edit", "response_message", "code_after"}."""
     earlier = [t.get("response_message") or "" for t in conversation]
     used = {_norm(e) for e in earlier}
@@ -251,8 +253,12 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     syntax_fix = bool(_SYNTAX_FIX_RE.search(candidate_prompt or "") or current_problem)
     allow_code = allow_code or syntax_fix
     said = candidate_text(design, conversation, candidate_prompt)
+    # The code may use what the Reference shows (ids, labels, API paths, tables) - the mechanics; its test
+    # data only when the candidate chose it, or pointed at the Reference's test account.
+    code_said = said + "\n" + _reference_terms(app_reference, said)
     prompt = llm_service._load_prompt("round2_typist_turn.txt").format(
         language=language, conventions=CONVENTIONS.get(language, ""),
+        app_reference=llm_service._as_data(app_reference or "(not available)"),
         design=llm_service._as_data(_design_text(design)), current_code=llm_service._as_data(current_code or ""),
         conversation=llm_service._as_data("\n".join(f"Candidate: {t.get('candidate_prompt')}\nYou: {t.get('response_message')}"
                                                     for t in conversation) or "(none yet)"),
@@ -265,11 +271,11 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
         code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
         code = code if isinstance(code, str) and code.strip() else None
-        bad = unsaid(reply, said, code=False) + unsaid(code, said, code=True)
+        bad = unsaid(reply, said, code=False) + unsaid(code, code_said, code=True)
         missing_code = allow_code and code is None
         if not bad and reply and not _repeats(reply, earlier) and not missing_code:
             break
-        bad_code = unsaid(code, said, code=True)
+        bad_code = unsaid(code, code_said, code=True)
         if attempt == 1 and bad_code:
             # Still guessing after one reminder (realistic check, 2026-09-27: a button found by a guessed
             # type="submit" twice, the candidate left with "I need more from you"): the plainest instruction.
@@ -279,7 +285,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
                 else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
-        if unsaid(code, said, code=True):
+        if unsaid(code, code_said, code=True):
             code = None
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
@@ -291,8 +297,12 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
         raw = llm_service._call_claude_json(prompt + _COMPILE_NOTE.format(error=problem), max_tokens=llm_service._CODE_REPLY_TOKENS)
         fixed = (raw or {}).get("code") if isinstance(raw, dict) else None
-        if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, said, code=True) and not compile_problem(language, fixed):
+        if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, code_said, code=True) and not compile_problem(language, fixed):
             code = fixed
+        else:
+            # Code that doesn't compile never reaches the candidate (owner: "no syntax error at any point").
+            code = None
+            reply = _pick(_NO_WORKING_CODE, used)
     if code is None and _CLAIMS_CHANGE_RE.search(reply or ""):
         reply = _pick(_NO_CHANGE, used)  # never claim a change this reply doesn't carry
     if code is not None:
@@ -310,6 +320,22 @@ _SYNTAX_FIX_NOTE = ("\n\nThe candidate asks you to fix a syntax/compile error in
                     "mistakes: write the complete program again with exactly that fixed - change nothing else (no steps, "
                     "locators, values or checks).")
 _COMPILE_NOTE = ("\n\nThe program you wrote doesn't compile:\n{error}\nWrite it again with only that fixed - change nothing else.")
+_NO_WORKING_CODE = [
+    "I couldn't write working code for that. Please describe the step differently and ask me again.",
+    "That didn't come out as working code on my side. Try wording the step another way, then ask again.",
+]
+_ACCOUNT_REF_RE = re.compile(r"\b(test account|reference|given (credentials|details|login)|login details|credentials (given|shown)|as shown|test user)\b", re.I)
+_ACCOUNTS_LINE_RE = re.compile(r"^Test accounts.*$", re.M)
+
+
+def _reference_terms(app_reference: str, said: str) -> str:
+    """What code may use from the Reference: everything but the test accounts' logins and passwords,
+    unless the candidate pointed at them ("the test account", "as given in the Reference")."""
+    if not app_reference:
+        return ""
+    return app_reference if _ACCOUNT_REF_RE.search(said or "") else _ACCOUNTS_LINE_RE.sub("", app_reference)
+
+
 _NO_CHANGE = [
     "I haven't changed the code in this reply. Tell me what to change - or ask me to fix a syntax error - and I'll rewrite it.",
     "No change to the code yet. Say what should be different and I'll write it again.",

@@ -1120,7 +1120,9 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
     language = content.get("language", "python")
     if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
         try:
-            response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt)
+            app_reference = reference.assistant_reference(reference.current_panel({**(scenario.config_json or {}), "practice_spec": _practice_spec(scenario)}))
+            response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt,
+                                          app_reference=app_reference)
         except Exception:
             traceback.print_exc()
             raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
