@@ -331,12 +331,23 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     own = candidate_text(None, conversation, candidate_prompt)  # their messages only, not their Round 1 case
     best_code = None  # the latest draft code that breaks no hard rule (see below)
     attempts = []  # every draft and what was wrong with it - for the simulated-candidate tester
+    keep = None           # a correct program whose reply alone was rejected: only a new reply is asked for
+    tried_reply_only = False
     for attempt in range(3):
-        raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
-        reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
-        code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
-        code = code if isinstance(code, str) and code.strip() else None
-        steps = _steps_from(raw, prior)
+        if keep is not None:
+            # Reply-only redraft (P1 2b, owner-approved 2026-09-28): the program was fine - paying for the whole
+            # program again (~2,500 output tokens) to fix a sentence was most of a redraft's cost.
+            raw = llm_service._call_claude_json(prompt + _REPLY_ONLY_NOTE.format(program=keep, problems=keep_why),
+                                                max_tokens=llm_service._CODE_REPLY_TOKENS)
+            reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
+            code, steps = keep, _steps_from(raw, steps)  # the program stays exactly as it was - whatever came back
+            keep, tried_reply_only = None, True
+        else:
+            raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
+            reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
+            code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
+            code = code if isinstance(code, str) and code.strip() else None
+            steps = _steps_from(raw, prior)
         bad = unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False) + unsaid(code, code_said, code=True)
         missing_code = allow_code and code is None
         dropped = [] if may_remove else _dropped(prior, steps)
@@ -350,6 +361,14 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         if (not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out
                 and not invented and not retyped):
             break
+        reply_bad = unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False)
+        if (code is not None and not tried_reply_only and attempt < 2 and not unsaid(code, code_said, code=True)
+                and not dropped and not left_out and not invented and not retyped
+                and (reply_bad or not reply or _repeats(reply, earlier)) and not compile_problem(language, code)):
+            keep = code  # every code check passed and it compiles: only the reply is redone
+            keep_why = ("it named things the candidate never said: " + ", ".join(reply_bad)) if reply_bad else \
+                       ("it was empty" if not reply else "it repeated an earlier reply word for word")
+            continue
         if invented or retyped:
             # Simulated candidates (2026-09-28): a step nobody gave ("verify you're on the login page"), and
             # "locate Password and enter Password" typed as the test account's real password.
@@ -478,6 +497,10 @@ def _left_out_of_code(steps: list, code: str | None) -> list[str]:
     return [s["step"] for s in steps if (w := _words(s["step"])) and _shared(w, have) < max(1, round(len(w) * 0.5))]
 
 
+_REPLY_ONLY_NOTE = ("\n\nYou already wrote this program for the candidate's message and it is correct - it will be used exactly as "
+                    "it is:\n<kept_program>\n{program}\n</kept_program>\nOnly your reply text was rejected ({problems}). Write a "
+                    "new reply to the candidate that describes exactly this program - nothing it doesn't do - following every rule "
+                    "above. Put the whole test in \"steps\" as usual and \"code\": null.")
 _NOT_THEIRS_NOTE = ("\n\nYour previous draft broke the candidate's test. Steps they never gave: {steps} - remove them (never "
                     "add a step, even a check that seems obvious). Values they typed that your code changed: {values} - type "
                     "exactly what they wrote (\"enter Password\" types the word Password).")

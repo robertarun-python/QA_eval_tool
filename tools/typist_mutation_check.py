@@ -11,7 +11,7 @@ T = WT / "backend/app/services/round2_typist.py"
 R = WT / "backend/app/services/practice_engine/reference.py"
 S = WT / "backend/app/services/practice_engine/server.py"
 TESTS = ["tests/test_round2_typist.py", "tests/test_real_output_replay.py", "tests/test_real_output_patterns.py", "tests/test_reference_screens.py",
-         "tests/test_practice_run.py::test_the_api_paths_join_either_way"]
+         "tests/test_practice_run.py::test_the_api_paths_join_either_way", "tests/test_round2_reply_only.py"]
 M = [
     (T, "a dropped step is let through", "dropped = [] if may_remove else _dropped(prior, steps)", "dropped = []"),
     (T, "a step left out of the code is let through", "left_out = _left_out_of_code(steps, code) if code else []", "left_out = []"),
@@ -38,6 +38,9 @@ M = [
      "        if code is None or unsaid(code, code_said, code=True):\n            code = best_code\n",
      "        if code is None or unsaid(code, code_said, code=True) or _left_out_of_code(steps, code) or _values_not_typed(said, code, own):\n            code = None\n"),
     (T, "an earlier value wins over the later one", "        if re.search(rf\"\\b{re.escape(fld)}\\b\", said[m.end():], re.I):\n            continue\n", ""),
+    (T, "a reply-only redraft replaces the kept program", "            code, steps = keep, _steps_from(raw, steps)",
+     "            code, steps = (raw or {}).get(\"code\") or keep, _steps_from(raw, steps)"),
+    (T, "a reply-only redraft that fails doesn't fall back", "            keep, tried_reply_only = None, True", "            keep, tried_reply_only = None, False"),
     (R, "a value's visible label dropped from the Reference", "                    el[\"label\"] = self._term", "                    pass"),
 ]
 caught = 0
