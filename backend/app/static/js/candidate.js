@@ -323,7 +323,7 @@ function showRound2AutomationIntro(timeLimitMinutes) {
       <h3>Before you start Round 2</h3>
       <ol>
         <li>Choose the language you'll automate in - locked for the rest of this round.</li>
-        <li>Pick one or two of your own Round 1 test cases to automate.</li>
+        <li>Pick up to three of your own Round 1 test cases to automate. To score fully, show UI, API and database checks across them.</li>
         <li>Tell the AI assistant, step by step, what the test should do - including how to find each thing on the page (the words you see on it, or its id) and which exact values to use.</li>
         <li>Review the code it writes, and edit it yourself where you disagree.</li>
         <li>Run it, read the result, and tell the assistant what to change - as often as you need.</li>

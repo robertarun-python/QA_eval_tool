@@ -932,8 +932,8 @@ def round2_automation_select(payload: Round2AutomationSelectCreate, db: Session 
         raise HTTPException(400, "Lock your language first.")
     existing = content.get("selected") or []
     already_selected = {r["index"] for r in existing}
-    if len(existing) >= 2:
-        raise HTTPException(400, "You've already automated two test cases - that's the most this round allows.")
+    if len(existing) >= 3:  # three, so UI, API and database checks can each have one (owner, 2026-09-28)
+        raise HTTPException(400, "You've already automated three test cases - that's the most this round allows.")
 
     rows = _round1_rows_for(candidate, db)
     if len(set(payload.row_indexes)) != len(payload.row_indexes):
@@ -1120,7 +1120,9 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
     language = content.get("language", "python")
     if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
         try:
-            response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt)
+            app_reference = reference.assistant_reference(reference.current_panel({**(scenario.config_json or {}), "practice_spec": _practice_spec(scenario)}))
+            response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt,
+                                          app_reference=app_reference)
         except Exception:
             traceback.print_exc()
             raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")

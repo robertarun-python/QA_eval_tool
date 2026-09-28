@@ -38,34 +38,19 @@ async function loadRound2Automation(box) {
 function round2AutomationTcTableHtml(rows, selectedIndexes) {
   if (rows.length === 0) return `<p class="muted">No Round 1 test cases found.</p>`;
   const selectedSet = new Set(selectedIndexes || []);
-  return rows.map((r) => `
-    <div class="tc-card${selectedSet.has(r.index) ? " is-selected" : ""}">
-      <div class="tc-card-head">
-        <div class="tc-card-title-group">
-          <span class="tc-card-num">${r.index + 1}</span>
-          <span class="tc-card-title">${escapeHtml(r.title || "(untitled)")}</span>
-        </div>
-        ${selectedSet.has(r.index) ? `<span class="tc-card-selected-tag">Being automated</span>` : ""}
-      </div>
-      <div class="tc-card-grid">
-        <div>
-          <div class="tc-card-field-label">Preconditions</div>
-          <div class="tc-card-field-value">${escapeHtml(r.preconditions || "-")}</div>
-        </div>
-        <div>
-          <div class="tc-card-field-label">Steps</div>
-          <div class="tc-card-field-value">${escapeHtml(r.steps || "-")}</div>
-        </div>
-        <div>
-          <div class="tc-card-field-label">Test Data</div>
-          <div class="tc-card-field-value">${escapeHtml(r.test_data || "-")}</div>
-        </div>
-        <div>
-          <div class="tc-card-field-label">Expected Result</div>
-          <div class="tc-card-field-value">${escapeHtml(r.expected_result || "-")}</div>
-        </div>
-      </div>
-    </div>`).join("");
+  // A read-only table, one row per test case - the regular test-case format; the cards took a screen
+  // each (owner, 2026-09-28).
+  const cell = (v) => `<td class="r4a-tc-cell">${escapeHtml(v || "-")}</td>`;
+  return `
+    <div class="table-scroll r4a-tc-table-wrap"><table class="data-table r4a-tc-table">
+      <thead><tr><th>#</th><th>Test case</th><th>Preconditions</th><th>Steps</th><th>Test data</th><th>Expected result</th></tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr class="${selectedSet.has(r.index) ? "is-selected" : ""}">
+          <td>${r.index + 1}</td>
+          <td class="r4a-tc-cell"><strong>${escapeHtml(r.title || "(untitled)")}</strong>${selectedSet.has(r.index) ? `<br><span class="tc-card-selected-tag">Being automated</span>` : ""}</td>
+          ${cell(r.preconditions)}${cell(r.steps)}${cell(r.test_data)}${cell(r.expected_result)}
+        </tr>`).join("")}</tbody>
+    </table></div>`;
 }
 
 // The dropdown that starts automating one more test case (see
@@ -409,21 +394,20 @@ function round2AutomationTcSectionHtml(row) {
       ${(row.refinements || []).length > 0 ? `<p class="muted" style="margin:0 0 0.5rem 0"><strong>Your refinement notes:</strong> ${row.refinements.map((n) => escapeHtml(n)).join(" &middot; ")}</p>` : ""}
       <p class="muted" style="margin:0 0 var(--space-compact) 0">AI-generated code may be buggy, incomplete, or subtly wrong even when it runs cleanly - review it before trusting a PASS.</p>
 
-      <div class="section-header"><h3>Your instruction &middot; AI conversation</h3></div>
-      <div class="r4a-chat-log">${round2AutomationTurnsHtml(tc.turns)}</div>
-
-      ${codeSectionHtml}
-
-      <!-- At the bottom, like a chat: after a Run the candidate is looking at the result, and a box
-           above the whole program read as "the conversation is over" (owner, 2026-09-28). -->
-      <div class="section-header" style="margin-top:var(--space-default)"><h3>${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</h3></div>
-      <div class="field-row" style="margin-top:0.25rem; align-items:flex-start">
-        <div class="field" style="flex:1 1 20rem">
-          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="2" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
+      <!-- Side by side (owner, 2026-09-28): the conversation with its reply box on the left, the code,
+           Run and result on the right - both in view, instead of new messages landing far above the
+           result the candidate is reading. Stacked on a narrow screen, reply box under the conversation. -->
+      <div class="r4a-work">
+        <div class="r4a-chat-col">
+          <div class="section-header"><h3>Conversation with the assistant</h3></div>
+          <div class="r4a-chat-log" id="r4a-chat-log-${row.index}">${round2AutomationTurnsHtml(tc.turns)}</div>
+          <div class="field-label" style="margin-top:0.6rem">${unlocked ? "Tell the assistant what to change or add" : "Tell the assistant what to automate"}</div>
+          <textarea id="r4a-prompt-${row.index}" class="ta-short ta-grow" rows="3" placeholder="Describe the steps, or answer the assistant - e.g. how to find an element on the page and which value to use."></textarea>
+          <div class="row" style="justify-content:flex-end"><button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button></div>
+          <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
         </div>
-        <button class="btn-primary r4a-ask-btn" onclick="round2AutomationAskClicked(${row.index})">Ask AI</button>
+        <div class="r4a-code-col">${codeSectionHtml}</div>
       </div>
-      <p id="r4a-tc-status-${row.index}" class="muted" role="status" aria-live="polite" style="margin:0.25rem 0 0"></p>
     </div>`;
 }
 
@@ -469,7 +453,7 @@ function renderRound2AutomationLayout(box) {
   // again after the most recently added one has a result (pass or fail
   // - "has a result" is the trigger, not whether it's correct yet) - as
   // long as the two-test-case cap isn't reached and something's left.
-  const showPicker = remaining.length > 0 && selected.length < 2 && (selected.length === 0 || lastHasResult);
+  const showPicker = remaining.length > 0 && selected.length < 3 && (selected.length === 0 || lastHasResult);
 
   box.innerHTML = `
     <div class="page-header">
@@ -481,7 +465,7 @@ function renderRound2AutomationLayout(box) {
       <div class="row" style="margin-top:var(--space-compact); margin-bottom:0">
         <span class="tag tag-accent">Language locked: ${escapeHtml(s.language)}</span>
       </div>
-      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to two, one at a time - you'll decide on a second only after finishing the first.</p>
+      <p class="text-muted" style="margin:var(--space-compact) 0 0">Pick a test case below to automate it (your Round 1 design stays exactly as you wrote it). You can automate up to three, one at a time. To score fully, show UI, API and database checks - across one or more test cases.</p>
     </div>
 
     <div class="section-header"><h2>Your Round 1 test cases</h2></div>

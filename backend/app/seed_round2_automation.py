@@ -38,14 +38,15 @@ _HELPER_FILES = {
 
 INSTRUCTIONS = (
     "Automate the test case(s) you designed in Round 1.\n\n"
-    "Pick one or two of your own Round 1 test cases and tell the AI assistant, step by step, what "
+    "Pick up to three of your own Round 1 test cases and tell the AI assistant, step by step, what "
     "the test should do - including how to find each thing on the page (the words you see on it, or "
     "its id from the page source) and which exact values to use. It writes only what you tell it: "
     "it never guesses steps, data, checks or how to find things, and it tells you which of your "
     "steps still need more detail.\n\n"
     "Everything about the application is in the Reference panel: its screens with their page "
-    "source, API, database, business rules and test controls. Review the code, edit it yourself "
-    "where you disagree, run it until you're satisfied, then submit."
+    "source, API, database, business rules and test controls. To score fully, show UI, API and "
+    "database checks - across one or more test cases. Review the code, run it until you're "
+    "satisfied, then submit."
 )
 
 GROUND_TRUTH = (

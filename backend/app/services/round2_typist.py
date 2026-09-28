@@ -54,7 +54,19 @@ _GENERATE_RE = re.compile(
     r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead)\b", re.I)
 _YES_RE = re.compile(r"^\s*(yes|yeah|yep|ok(ay)?|sure|please do|do it|go on|that'?s (all|it|everything))\b", re.I)
 _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|test)\b", re.I)
-_OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+)\b", re.I)
+_OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+|"
+                            r"(the |this )(selected |chosen )?test case)\b", re.I)
+# "Fix the syntax error": the assistant's own mistakes in the code it wrote - it fixes those, and only those
+# (owner's Round 2, 2026-09-28: asked twice, it changed nothing and then said it had).
+_SYNTAX_FIX_RE = re.compile(r"\b(fix|correct|resolve|repair|sort out)\b.*\b(syntax|compil\w*|indent\w*|bracket|parenthes\w*|typo)", re.I | re.S)
+# A fix request, or a mention of the error - acted on only when the current code really doesn't compile
+# (so "is the syntax error fixed?" about code that compiles is just a question).
+_FIX_ANY_RE = re.compile(r"\b(fix|correct|resolve|repair)\b|\b(syntax|compil\w*) (error|problem|issue)|"
+                         r"doesn'?t compile|does not compile|won'?t compile", re.I)
+# A reply claiming a change to the code when this reply carries no code is not true.
+_CLAIMS_CHANGE_RE = re.compile(
+    r"\b(i'?ve|i have|i)\s+(now\s+)?(fixed|removed|updated|changed|corrected|rewritten|rewrote|modified|edited)\b|"
+    r"\b(syntax error|error|code|it)\s+(is|has been|was)\s+(now\s+)?(fixed|corrected|removed|updated|resolved)\b", re.I)
 
 # Specific things a reply or the code could name.
 # A string literal in code, honouring escapes: Java and JavaScript JSON bodies are written
@@ -149,7 +161,7 @@ def candidate_text(design: dict | None, conversation: list[dict], prompt: str) -
 
 
 def wants_code(prompt: str, conversation: list[dict]) -> bool:
-    if _GENERATE_RE.search(prompt or ""):
+    if _GENERATE_RE.search(prompt or "") or _SYNTAX_FIX_RE.search(prompt or ""):
         return True
     last = conversation[-1]["response_message"] if conversation else ""
     return bool(_YES_RE.search(prompt or "") and _OFFERED_RE.search(last or ""))
@@ -197,7 +209,8 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
     if not code:
         said_words = {w.lower().rstrip("s") for w in re.findall(r"[A-Za-z]+", said or "")}
         for m in _STRUCTURE_RE.findall(text):
-            if m.lower().split()[0].rstrip("s") not in said_words:
+            # "element" is how the assistant asks which element a step means (rule 5) - never a part of the app
+            if m.lower().split()[0].rstrip("s") not in said_words | {"element"}:
                 found.append(m)
         for name, part in _NAMED_STRUCTURE_RE.findall(text):
             if name.lower() not in _NAME_NOT_SPECIFIC and name.lower().rstrip("s") not in said_words:
@@ -228,33 +241,44 @@ def _repeats(reply: str, earlier: list[str]) -> bool:
 
 
 @llm_service.candidate_turn
-def turn(language: str, design: dict, conversation: list[dict], current_code: str, candidate_prompt: str) -> dict:
+def turn(language: str, design: dict, conversation: list[dict], current_code: str, candidate_prompt: str,
+         app_reference: str = "") -> dict:
     """One reply: {"response_kind": "clarify"|"refuse"|"code_edit", "response_message", "code_after"}."""
     earlier = [t.get("response_message") or "" for t in conversation]
     used = {_norm(e) for e in earlier}
     if round2_automation_policy.is_prohibited(candidate_prompt):
         return {"response_kind": "refuse", "response_message": _pick(_REFUSE, used), "code_after": None}
     allow_code = wants_code(candidate_prompt, conversation)
+    current_problem = compile_problem(language, current_code) if _FIX_ANY_RE.search(candidate_prompt or "") else None
+    syntax_fix = bool(_SYNTAX_FIX_RE.search(candidate_prompt or "") or current_problem)
+    allow_code = allow_code or syntax_fix
     said = candidate_text(design, conversation, candidate_prompt)
+    # The code may use what the Reference shows (ids, labels, API paths, tables) - the mechanics; its test
+    # data only when the candidate chose it, or pointed at the Reference's test account.
+    code_said = said + "\n" + _reference_terms(app_reference, said)
+    # A reply may repeat the test account's login/password once the candidate pointed at it
+    # ("use the test account password from the Reference") - a correct answer was blocked (2026-09-28).
+    reply_said = said + "\n" + "\n".join(_ACCOUNTS_LINE_RE.findall(app_reference or "")) if _ACCOUNT_REF_RE.search(said or "") else said
     prompt = llm_service._load_prompt("round2_typist_turn.txt").format(
         language=language, conventions=CONVENTIONS.get(language, ""),
+        app_reference=llm_service._as_data(app_reference or "(not available)"),
         design=llm_service._as_data(_design_text(design)), current_code=llm_service._as_data(current_code or ""),
         conversation=llm_service._as_data("\n".join(f"Candidate: {t.get('candidate_prompt')}\nYou: {t.get('response_message')}"
                                                     for t in conversation) or "(none yet)"),
         candidate_prompt=llm_service._as_data(candidate_prompt),
     )
-    note = ""
+    note = _SYNTAX_FIX_NOTE.format(error=current_problem or compile_problem(language, current_code) or "the candidate reports one") if syntax_fix else ""
     reply, code = "", None
     for attempt in range(3):
         raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
         reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
         code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
         code = code if isinstance(code, str) and code.strip() else None
-        bad = unsaid(reply, said, code=False) + unsaid(code, said, code=True)
+        bad = unsaid(reply, reply_said, code=False) + unsaid(code, code_said, code=True)
         missing_code = allow_code and code is None
         if not bad and reply and not _repeats(reply, earlier) and not missing_code:
             break
-        bad_code = unsaid(code, said, code=True)
+        bad_code = unsaid(code, code_said, code=True)
         if attempt == 1 and bad_code:
             # Still guessing after one reminder (realistic check, 2026-09-27: a button found by a guessed
             # type="submit" twice, the candidate left with "I need more from you"): the plainest instruction.
@@ -264,13 +288,26 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
                 else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
-        if unsaid(code, said, code=True):
+        if unsaid(code, code_said, code=True):
             code = None
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
             reply = _pick(_BLOCKED, used)
-        elif not reply or unsaid(reply, said, code=False) or _repeats(reply, earlier):
+        elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier):
             reply = _pick(_ASK, used)
+    problem = compile_problem(language, code) if code is not None else None
+    if problem:
+        # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
+        raw = llm_service._call_claude_json(prompt + _COMPILE_NOTE.format(error=problem), max_tokens=llm_service._CODE_REPLY_TOKENS)
+        fixed = (raw or {}).get("code") if isinstance(raw, dict) else None
+        if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, code_said, code=True) and not compile_problem(language, fixed):
+            code = fixed
+        else:
+            # Code that doesn't compile never reaches the candidate (owner: "no syntax error at any point").
+            code = None
+            reply = _pick(_NO_WORKING_CODE, used)
+    if code is None and _CLAIMS_CHANGE_RE.search(reply or ""):
+        reply = _pick(_NO_CHANGE, used)  # never claim a change this reply doesn't carry
     if code is not None:
         todo = _still_to_do(code, said)
         if todo:
@@ -282,6 +319,30 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
 
 
 _XPATH_LITERAL_RE = re.compile(r""""\(?\.?//(?:[^"\\\n]|\\.)*"|'\(?\.?//(?:[^'\\\n]|\\.)*'""")
+_SYNTAX_FIX_NOTE = ("\n\nThe candidate asks you to fix a syntax/compile error in the current code ({error}). These are your own "
+                    "mistakes: write the complete program again with exactly that fixed - change nothing else (no steps, "
+                    "locators, values or checks).")
+_COMPILE_NOTE = ("\n\nThe program you wrote doesn't compile:\n{error}\nWrite it again with only that fixed - change nothing else.")
+_NO_WORKING_CODE = [
+    "I couldn't write working code for that. Please describe the step differently and ask me again.",
+    "That didn't come out as working code on my side. Try wording the step another way, then ask again.",
+]
+_ACCOUNT_REF_RE = re.compile(r"\b(test account|reference|given (credentials|details|login)|login details|credentials (given|shown)|as shown|test user)\b", re.I)
+_ACCOUNTS_LINE_RE = re.compile(r"^Test accounts.*$", re.M)
+
+
+def _reference_terms(app_reference: str, said: str) -> str:
+    """What code may use from the Reference: everything but the test accounts' logins and passwords,
+    unless the candidate pointed at them ("the test account", "as given in the Reference")."""
+    if not app_reference:
+        return ""
+    return app_reference if _ACCOUNT_REF_RE.search(said or "") else _ACCOUNTS_LINE_RE.sub("", app_reference)
+
+
+_NO_CHANGE = [
+    "I haven't changed the code in this reply. Tell me what to change - or ask me to fix a syntax error - and I'll rewrite it.",
+    "No change to the code yet. Say what should be different and I'll write it again.",
+]
 _LAST_CODE_NOTE = ("\n\nYour code still used things the candidate never said: {terms}. Find every element ONLY by what the "
                    "candidate gave - the exact text or label they named (\"the Log in button\" is the button whose text is "
                    "Log in), or an id they gave - and use only their values. Anything else becomes incomplete(\"<their words>\").")
@@ -318,3 +379,41 @@ def run_status(exit_code: int | None, stdout: str, timed_out: bool, infra_error:
     if timed_out:
         return "timed_out"
     return "passed" if exit_code == 0 else "failed"
+
+
+
+def compile_problem(language: str, code: str | None) -> str | None:
+    """Why the program doesn't compile - its first errors - or None when it does (or the
+    language's tools aren't here to check). Syntax and compile errors are the assistant's
+    own mistakes, never a candidate's task (owner, 2026-09-28)."""
+    if not code or not code.strip():
+        return None
+    if language == "python":
+        try:
+            compile(code, "main.py", "exec")
+        except SyntaxError as e:
+            return f"line {e.lineno}: {e.msg}" + (f" - {e.text.strip()}" if e.text else "")
+        return None
+    import shutil
+    import subprocess
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory(prefix="typist_check_") as tmp:
+        try:
+            if language == "javascript" and shutil.which("node"):
+                (Path(tmp) / "main.js").write_text(code, encoding="utf-8")
+                done = subprocess.run(["node", "--check", "main.js"], cwd=tmp, capture_output=True, text=True, timeout=30)
+            elif language == "java" and shutil.which("javac"):
+                from .practice_engine import practice_run
+                jars = [str(practice_run.vendor() / j) for j in practice_run.JAVA_JARS if (practice_run.vendor() / j).exists()]
+                (Path(tmp) / "Main.java").write_text(code, encoding="utf-8")
+                done = subprocess.run(["javac", "-proc:none", "-nowarn", "-d", tmp, "-cp", ":".join(jars) or ".", "Main.java"],
+                                      cwd=tmp, capture_output=True, text=True, timeout=60)
+            else:
+                return None
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if done.returncode == 0:
+            return None
+        lines = [l for l in (done.stderr or done.stdout).splitlines() if l.strip()][:6]
+        return "\n".join(lines)[:800] or "it does not compile"

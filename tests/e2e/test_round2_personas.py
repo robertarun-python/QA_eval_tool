@@ -183,7 +183,13 @@ def test_after_an_incomplete_run_the_candidate_is_told_why_and_answers_right_the
     result = page.locator("#r4a-run-result-0")
     expect(result).to_contain_text("The run stopped at a step that isn't finished yet: Locate Customer id and enter CUST001", timeout=90_000)
     box = page.locator("#r4a-prompt-0")
-    assert box.bounding_box()["y"] > result.bounding_box()["y"], "the reply box must sit under the run result"
+    # wide screen: the reply box beside the result, both in view; narrow: under the conversation
+    b, r = box.bounding_box(), result.bounding_box()
+    assert b["x"] + b["width"] <= r["x"] + 1, "on a wide screen the reply box sits beside the run result"
+    page.set_viewport_size({"width": 900, "height": 900})
+    log = page.locator("#r4a-chat-log-0").bounding_box()
+    assert box.bounding_box()["y"] > log["y"], "on a narrow screen the reply box sits under the conversation"
+    page.set_viewport_size({"width": 1280, "height": 720})
     expect(page.locator("body")).to_contain_text("Tell the assistant what to change or add")
     box.fill("The Customer id field has id customer_id.")
     page.click(".r4a-ask-btn")
