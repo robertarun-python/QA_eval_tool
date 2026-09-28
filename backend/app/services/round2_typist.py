@@ -53,7 +53,8 @@ CONVENTIONS = {
 
 _GENERATE_RE = re.compile(
     r"\b(generate|write (the |my |this )?(code|test|script|program)|create (the )?(code|test)|code (it|this|that)|"
-    r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead)\b", re.I)
+    r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead|proceed(?! to)|"
+    r"implement (it|this|that|the test)|automate (it|this|that)|write it)\b", re.I)
 _YES_RE = re.compile(r"^\s*(yes|yeah|yep|ok(ay)?|sure|please do|do it|go on|that'?s (all|it|everything))\b", re.I)
 _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|test)\b", re.I)
 _NOT_OFFER_RE = re.compile(r"\b(not enough|don'?t have enough|do not have enough|can'?t|cannot|yet|before i can)\b", re.I)
@@ -110,10 +111,13 @@ _VALUE_TOKEN_RE = re.compile(r"(?<![\w@#$%&*!-])(?=[\w@#$%&*!.-]*[A-Za-z])(?=[\w
 # A step, wait or check offered to the candidate ("Perhaps wait for the spinner?", "Should I also check the
 # total?") - waiting and checking are theirs to ask for. Offering to generate the code, or asking for more, is fine.
 _OFFER_RE = re.compile(r"\b(perhaps|maybe|how about|you (?:could|might|may want to)|i'?d (?:use|suggest|recommend|add)|"
-                       r"(?:should|shall|can|could) i (?:also|add|include|skip|drop|remove|leave out|ignore|merge|combine)|"
-                       r"or (?:should|shall) i|want me to (?:also|add|include|skip|drop|remove)|"
-                       r"(?:would|do) you (?:like|want) (?:me )?to (?:also|add|include)|consider|try (?:the|a|an|adding|using))\b", re.I)
-_OFFER_OK_RE = re.compile(r"\b(generate|write (?:it|the|this)|the code|anything else|something else|more steps?|in your own words|what|which)\b", re.I)
+                       r"(?:should|shall|can|could) i (?:also|add|include|skip|drop|remove|leave out|ignore|merge|combine)\b[^.!]*\?|"
+                       r"or (?:should|shall) i\b[^.!]*\?|(?:do you )?want me to (?:also|add|include|skip|drop|remove)\b[^.!]*\?|"
+                       r"(?:would|do) you (?:like|want) (?:me )?to (?:also|add|include)\b[^.!]*\?|consider|^\s*try (?:the|a|an|adding|using))(?:\b|(?<=\?))", re.I)
+# ... and a sentence repeating what the candidate asked for ("I understand you want me to add ...") isn't an
+# offer (simulated API tester, 2026-09-28: that echo was blocked 8 turns running and nothing changed)
+_OFFER_OK_RE = re.compile(r"\b(generate|write (?:it|the|this)|the code|anything else|something else|more steps?|in your own words|what|which|"
+                          r"you want|you'?d like|you asked|you said|you (?:would|wish)|understood|i understand|as you)\b", re.I)
 # Bringing up the API or the database when the candidate hasn't hints at a kind of check that is scored
 # (full marks need UI, API and database checks) - screen words like page, field or table are fine.
 _API_DB_RE = re.compile(r"\b(api|apis|endpoints?|database|db|sql|quer(?:y|ies)|status codes?|http status|headers?|"
@@ -121,6 +125,7 @@ _API_DB_RE = re.compile(r"\b(api|apis|endpoints?|database|db|sql|quer(?:y|ies)|s
 _DATA_WORD_RE = re.compile(r"\b(tables?|columns?|records?|rows?|requests?|responses?|status|stored|saved)\b", re.I)
 # a name (or call) inside braces, never a JSON body: {"password": "Admin@999"} starts with a quote
 _PLACEHOLDER_RE = re.compile(r"\$?\{\s*[A-Za-z_][^{}\"'\n:]*(?::[^{}\"'\n]*)?\}")
+_DURATION_RE = re.compile(r"\d+(?:\.\d+)?[- ]?(?:ms|milliseconds?|s|secs?|seconds?|minutes?|mins?)", re.I)
 _COMMENT_LINE_RE = re.compile(r"^[ \t]*(?:#|//).*$", re.M)
 _ORDINAL_RE = re.compile(r"^\d+(st|nd|rd|th)$", re.I)
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*|\d+(?:\.\d+)?")
@@ -135,8 +140,9 @@ normalize-space following following-sibling preceding preceding-sibling ancestor
 starts-with input button label link span div
 for type name class value placeholder aria-label title href role tag
 __main__ main __name__ utf8 strict
+td tr th tbody thead tfoot table div span li ul ol p a h1 h2 h3 h4 form label select option body html head img dl dt dd
 """.split()}
-_GENERIC_NUMBERS = {"0", "1", "2", "3", "-1", "100"}  # indexes, exit codes, percentages - never application values
+_GENERIC_NUMBERS = {"0", "1", "2", "3", "-1", "100", "0.01", "0.001", "0.005", "0.5"}  # also comparison tolerances  # indexes, exit codes, percentages - never application values
 
 _REFUSE = [
     "That's your call to make - tell me what you want and I'll write it down.",
@@ -202,7 +208,13 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
     found = []
 
     def check(term: str) -> None:
-        t = term.strip().strip(".,;:!?")
+        t = term.strip().strip(".,;:!?*_`")  # "Perfect!", "PASS**" - punctuation and markdown aren't values
+        if _DURATION_RE.fullmatch(t):
+            return  # "3-second", "5 seconds" - how long to wait is the candidate's words or plumbing
+        parts = [x for x in re.split(r"[-_/]", t) if re.search(r"\d", x)]
+        if parts and len(parts) < len(re.split(r"[-_/]", t)) and all(x.lower() in haystack for x in parts):
+            return  # "non-200" when they said 200
+
         if not t or t.lower() in _GENERIC or t in _GENERIC_NUMBERS or _norm(t) in haystack:
             return
         found.append(t)
@@ -237,7 +249,8 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
             if name.lower() not in _NAME_NOT_SPECIFIC and name.lower().rstrip("s") not in said_words and _norm(name) not in haystack:
                 found.append(f"{name} {part}")
         for token in _VALUE_TOKEN_RE.findall(text):
-            if not _ORDINAL_RE.match(token):
+            token = token.rstrip("!*.?")  # "Perfect!" is a word, not a value
+            if token and not _ORDINAL_RE.match(token) and _VALUE_TOKEN_RE.fullmatch(token):
                 check(token)
         for m in _API_DB_RE.findall(text):
             if not (_API_DB_RE.search(said or "") or _DATA_WORD_RE.search(said or "")):

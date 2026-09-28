@@ -85,3 +85,22 @@ def test_every_persona_has_a_style_and_the_prompt_formats():
         assert len(style) > 40, name
     text = sim.SIM_PROMPT.format(persona="p", case="c", reference=sim.candidate_view(PANEL), conversation="", last_run="")
     assert '"say"' in text and "Test accounts" in text and "TABLE" in text
+
+
+def test_the_test_account_is_no_hint_once_the_candidate_logs_in():
+    acct = "testuser@library.test Test@123"
+    t = sim.Transcript("drip", "python", "x", turns=[{"say": "After login, open Loans", "reply": "I'll log in with Test@123.", "steps": []}])
+    assert "J6" not in {f["check"].split()[0] for f in sim.judge(t, {"Test@123"}, lambda lang, code: None, acct)}
+    t.turns[0]["say"] = "Open Loans"
+    assert "J6" in {f["check"].split()[0] for f in sim.judge(t, {"Test@123"}, lambda lang, code: None, acct)}
+
+
+def test_an_unreadable_answer_from_the_simulated_candidate_is_asked_again():
+    class Msg:
+        def __init__(self, text):
+            self.content = [type("B", (), {"type": "text", "text": text})()]
+            self.usage = type("U", (), {"input_tokens": 10, "output_tokens": 5})()
+    answers = [Msg("I think I'll say hello"), Msg('{"say": "Log in", "run": false, "done": false}')]
+    client = type("C", (), {"messages": type("M", (), {"create": lambda self, **k: answers.pop(0)})()})()
+    decision, _ = sim._sim_call(client, "p")
+    assert decision["say"] == "Log in"

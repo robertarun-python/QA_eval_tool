@@ -65,7 +65,8 @@ EXPECT_FAIL = {"wrong_data"}
 
 SIM_PROMPT = """You are role-playing a QA engineer taking a hiring assessment (Round 2). You know testing well but you
 do NOT write or read code. An automation assistant writes the code from your instructions; you only give ideas:
-steps, values, waits, checks. You can see the application's Reference below (screens and their elements, API,
+steps, values, waits, checks. When you want the code, ASK the assistant for it ("generate the code"). You never run
+anything yourself: set "run" to true and the assessment tool runs the current code and shows you the result. You can see the application's Reference below (screens and their elements, API,
 database and its starting rows, test accounts).
 
 YOUR STYLE: {persona}
@@ -124,7 +125,7 @@ def data_values(panel: dict) -> set[str]:
     return vals
 
 
-def judge(t: Transcript, values: set[str], compile_problem) -> list[dict]:
+def judge(t: Transcript, values: set[str], compile_problem, accounts: str = "") -> list[dict]:
     """J1-J7 over one transcript - every finding with the turn it happened in."""
     from app.services import round2_typist as rt
     out = []
@@ -146,8 +147,9 @@ def judge(t: Transcript, values: set[str], compile_problem) -> list[dict]:
             out.append({"check": "J3 asked for code, got none", "turn": i, "detail": reply[:160]})
         if turn.get("code") and compile_problem(t.language, turn["code"]):
             out.append({"check": "J4 code doesn't compile", "turn": i, "detail": compile_problem(t.language, turn["code"])[:200]})
+        allowed = said + (" " + accounts if rt._ACCOUNT_REF_RE.search(said) else "")  # the test account once they log in
         for v in values:
-            if v in reply and v not in said:
+            if v in reply and v not in allowed:
                 out.append({"check": "J6 value hinted", "turn": i, "detail": v})
     for r in t.runs:
         if r["status"] == "error":
@@ -160,14 +162,22 @@ def judge(t: Transcript, values: set[str], compile_problem) -> list[dict]:
 
 
 def _sim_call(client, prompt: str) -> tuple[dict, float]:
-    msg = client.messages.create(model=SIM_MODEL, max_tokens=600, messages=[{"role": "user", "content": prompt}])
-    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
-    cost = (msg.usage.input_tokens * SIM_PRICE[0] + msg.usage.output_tokens * SIM_PRICE[1]) / 1e6
-    m = re.search(r"\{.*\}", text, re.S)
-    try:
-        return (json.loads(m.group(0)) if m else {}), cost
-    except ValueError:
-        return {}, cost
+    """The simulated candidate's next move - asked again once if its answer isn't readable JSON (run 2,
+    2026-09-28: two candidates ended before saying anything)."""
+    cost = 0.0
+    for _ in range(2):
+        msg = client.messages.create(model=SIM_MODEL, max_tokens=1500, messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        cost += (msg.usage.input_tokens * SIM_PRICE[0] + msg.usage.output_tokens * SIM_PRICE[1]) / 1e6
+        m = re.search(r"\{.*\}", text, re.S)
+        try:
+            decision = json.loads(m.group(0)) if m else None
+        except ValueError:
+            decision = None
+        if isinstance(decision, dict) and (decision.get("say") or decision.get("run") or decision.get("done")):
+            return decision, cost
+        prompt += "\n\nYour last answer wasn't the JSON object asked for. Reply with ONLY that JSON object."
+    return {}, cost
 
 
 def _typist_cost(calls) -> float:
@@ -258,7 +268,8 @@ def main() -> None:
             except Exception as e:  # noqa: BLE001 - one broken conversation is a finding, not the end of the run
                 t = Transcript(persona, language, case.get("title", ""), error=f"{type(e).__name__}: {e}")
             spent += t.cost
-            findings = judge(t, values, round2_typist.compile_problem)
+            accounts = " ".join(f"{x.get('login')} {x.get('password')}" for x in panel.get("accounts") or [])
+            findings = judge(t, values, round2_typist.compile_problem, accounts)
             if t.error and t.error != "budget reached":
                 findings.append({"check": "J0 crashed", "turn": len(t.turns), "detail": t.error})
             results.append({"persona": persona, "language": language, "case": t.case_title, "turns": len(t.turns),

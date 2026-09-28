@@ -9,7 +9,9 @@ from pathlib import Path
 WT = Path(__file__).resolve().parent.parent
 T = WT / "backend/app/services/round2_typist.py"
 R = WT / "backend/app/services/practice_engine/reference.py"
-TESTS = ["tests/test_round2_typist.py", "tests/test_real_output_replay.py", "tests/test_real_output_patterns.py", "tests/test_reference_screens.py"]
+S = WT / "backend/app/services/practice_engine/server.py"
+TESTS = ["tests/test_round2_typist.py", "tests/test_real_output_replay.py", "tests/test_real_output_patterns.py", "tests/test_reference_screens.py",
+         "tests/test_practice_run.py::test_the_api_paths_join_either_way"]
 M = [
     (T, "a dropped step is let through", "dropped = [] if may_remove else _dropped(prior, steps)", "dropped = []"),
     (T, "a step left out of the code is let through", "left_out = _left_out_of_code(steps, code) if code else []", "left_out = []"),
@@ -26,6 +28,12 @@ M = [
     (T, "sentence-level repeat blocking back", "    return bool(reply) and _norm(reply) in {_norm(e) for e in earlier}",
      "    return bool(reply) and any(_norm(s) in _norm(' '.join(earlier)) for s in re.split(r'(?<=[.?!])\\s+', reply) if len(s.split()) >= 4)"),
     (T, "'write it now' only after a refusal", "        note = _WRITE_NOTE\n", "        pass\n"),
+    (T, "the candidate's own request read as an offer", "r\"you want|you'?d like|you asked|you said|you (?:would|wish)|understood|i understand|as you)",
+     "r\"zzz)"),
+    (T, "'Perfect!' read as a value", '            token = token.rstrip("!*.?")  # "Perfect!" is a word, not a value', "            pass"),
+    (T, "HTML tag names read as values", "td tr th tbody thead tfoot table div span li ul ol p a h1 h2 h3 h4 form label select option body html head img dl dt dd\n", ""),
+    (T, "'proceed' not asking for code", "go ahead|proceed(?! to)|", "go ahead|"),
+    (S, "a doubled api/ path is a 404", "        while path.startswith(\"/api/api/\"):\n            path = path[4:]\n", ""),
     (R, "a value's visible label dropped from the Reference", "                    el[\"label\"] = self._term", "                    pass"),
 ]
 caught = 0

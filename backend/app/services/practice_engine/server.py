@@ -372,6 +372,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle(self, method: str) -> None:
         path, _, query = self.path.partition("?")
+        # PRACTICE_API_URL already ends in "api/", and the Reference lists "/api/login": joined, that's
+        # ".../api//api/login" - a trap for the assistant's code, not a test idea (simulated API tester,
+        # 2026-09-28: 8 turns stuck on a 404). Doubled slashes and a doubled "api/" mean the same path.
+        path = re.sub(r"/{2,}", "/", path)
+        while path.startswith("/api/api/"):
+            path = path[4:]
         params = {k: v[-1] for k, v in urllib.parse.parse_qs(query, keep_blank_values=True).items()}
         try:
             if path.startswith("/api/"):

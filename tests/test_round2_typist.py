@@ -425,3 +425,39 @@ def test_when_code_goes_out_a_blocked_reply_never_asks_whether_to_generate(monke
     earlier = [{"candidate_prompt": "Generate", "response_message": "The code is ready."}]
     out = _turn(monkeypatch, Model({"reply": "The code is ready.", "code": code}), "Just generate the code.", earlier)
     assert out["code_after"] and "shall I generate" not in out["response_message"]
+
+
+# ---- Simulated candidates, run 2 (Java, 12 of 12, 2026-09-28): drafts blocked for nothing ----
+
+@pytest.mark.parametrize("reply, said", [
+    ("I understand you want me to add debugging output to print the full API response.", "Add debugging output printing the API response"),
+    ("You want to try a different approach: after the Loans page, enter the loan account.", "try a different approach: Loans page first, then the loan account"),
+    ("Perfect! I'll generate the complete code now.", "Generate the code"),
+    ("Done - PASS** lines for each check.", "print PASS for each check"),
+    ("I'll add a 3-second wait after clicking.", "wait 3 seconds after clicking"),
+    ("It fails on a non-200 status.", "check the status is 200"),
+])
+def test_what_the_simulation_found_blocked_for_nothing_now_goes_through(reply, said):
+    assert round2_typist.unsaid(reply, said, code=False) == []
+
+
+def test_html_tags_and_tolerances_in_code_are_plumbing():
+    code = 'rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr td")\nassert abs(a - b) < 0.01\n'
+    assert round2_typist.unsaid(code, "check the table", code=True) == []
+
+
+@pytest.mark.parametrize("reply", ["Would you like me to add a step to verify the login API returns HTTP 200 status?",
+                                   "Should I also check the total?", "Perfect! The booking is BK-009."])
+def test_real_offers_and_values_are_still_blocked(reply):
+    assert round2_typist.unsaid(reply, "Log in via the API and check the loans", code=False)
+
+
+@pytest.mark.parametrize("prompt", ["Now proceed with the code", "Please implement it", "ok, automate this"])
+def test_more_ways_of_asking_for_the_code(prompt):
+    assert round2_typist.wants_code(prompt, [])
+    assert not round2_typist.wants_code("proceed to the payment page", [])
+
+
+def test_repeating_the_request_back_as_a_question_is_not_an_offer():
+    said = "Add debugging output printing the API response"
+    assert round2_typist.unsaid("So you want me to add debugging output printing the API response - is that right?", said, code=False) == []

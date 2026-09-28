@@ -324,3 +324,20 @@ def test_a_candidates_browser_cannot_escape_the_practice_environment(tmp_path):
         assert f"{label} ->" in out, (label, out, result.stderr[-800:])
     assert "raw cdp command -> refused" in out and "grid admin -> refused" in out
     assert "practice app still works: True" in out, (out, result.stderr[-800:])
+
+
+def test_the_api_paths_join_either_way():
+    """Simulated API tester (2026-09-28): PRACTICE_API_URL ends in "api/" and the Reference lists
+    "/api/login" - the assistant joined them into ".../api//api/login", got a 404 and the candidate was
+    stuck for 8 turns. Every way of joining the two reaches the same API."""
+    code = '''import json, os, urllib.request
+app, api = os.environ["PRACTICE_APP_URL"], os.environ["PRACTICE_API_URL"]
+body = json.dumps({"email": "testuser@library.test", "password": "Test@123"}).encode()
+for label, url in (("app+path", app + "api/login"), ("app+/path", app + "/api/login"), ("api+name", api + "login"),
+                   ("api+/api/path", api + "/api/login"), ("api+api/path", api + "api/login")):
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    print(label, "token" in json.loads(urllib.request.urlopen(req).read()))
+'''
+    out = practice_run.run("python", code, SPEC, browser=False).stdout
+    for label in ("app+path", "app+/path", "api+name", "api+/api/path", "api+api/path"):
+        assert f"{label} True" in out, out

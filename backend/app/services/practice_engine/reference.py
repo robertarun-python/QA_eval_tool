@@ -273,7 +273,9 @@ def assistant_reference(panel: dict | None, round1_address: str = "") -> str:
         return "(no application reference - older practice app)"
     out = [f"APPLICATION: {panel.get('app_name') or ''}",
            f"Address: PRACTICE_APP_URL in code (the address Round 1 showed, {panel.get('web_address') or round1_address or '-'}, is the same app)",
-           "API base: PRACTICE_API_URL; database file: PRACTICE_DB (SQLite); browser: SELENIUM_GRID_URL",
+           "API: the paths listed below go after PRACTICE_APP_URL (PRACTICE_APP_URL ends with \"/\": PRACTICE_APP_URL + "
+           "\"api/login\"); PRACTICE_API_URL is PRACTICE_APP_URL + \"api/\" (so PRACTICE_API_URL + \"login\"). "
+           "Database file: PRACTICE_DB (SQLite); browser: SELENIUM_GRID_URL",
            "Test accounts (as the Reference shows them): " + "; ".join(
                f"login {a.get('login')} / password {a.get('password')} ({a.get('name')})" for a in panel.get("accounts") or [])]
     for page in panel.get("pages") or []:
