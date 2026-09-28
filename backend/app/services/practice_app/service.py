@@ -84,6 +84,19 @@ def _set_summary(scenario: Scenario, data: dict) -> None:
     scenario.config_json = config  # reassigned, so SQLAlchemy sees the JSON change
 
 
+UNCHANGED = ("The Round 1 test cases haven't changed since the approved practice app was built, so it is reused as it is - "
+             "no AI call, nothing to pay. Build fresh only if you want a different app.")
+
+
+def unchanged_since_approved(scenario: Scenario) -> bool:
+    """The approved practice app was built from exactly these Round 1 test cases: building again would
+    only pay for the same app (owner, 2026-09-28). Approvals saved before the fingerprint was kept count
+    as changed - the existing build behaviour."""
+    data = summary(scenario)
+    return bool(data.get("approved_round2_scenario_id") and data.get("approved_reference_hash")
+                and data["approved_reference_hash"] == _reference_hash(scenario))
+
+
 def can_start(scenario: Scenario) -> str | None:
     """Why a build can't start now, or None."""
     if scenario.round_number != 1:
@@ -106,6 +119,8 @@ def start_build(scenario: Scenario, db: Session) -> dict:
     previous = summary(scenario)
     if previous.get("approved_round2_scenario_id"):
         data["approved_round2_scenario_id"] = previous["approved_round2_scenario_id"]
+        if previous.get("approved_reference_hash"):
+            data["approved_reference_hash"] = previous["approved_reference_hash"]
     # Kept for _reusable_build: this summary is about to replace the previous
     # one, and builds saved before "unsupported" was stored only had it here.
     data["previous_unsupported"] = [{"title": r["title"], "reason": (r.get("details") or [""])[0]}
@@ -384,6 +399,7 @@ def approve(round1: Scenario, db: Session) -> Scenario:
 
     data = summary(round1)
     data["approved_round2_scenario_id"] = round2.id
+    data["approved_reference_hash"] = _reference_hash(round1)  # see unchanged_since_approved
     data["approved_at"] = datetime.utcnow().isoformat(timespec="seconds")
     _set_summary(round1, data)
     if round1.is_live:

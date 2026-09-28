@@ -21,6 +21,7 @@ from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, UploadFile, File
+from fastapi.responses import JSONResponse
 from fpdf import FPDF
 from fpdf.fonts import FontFace
 from sqlalchemy import or_
@@ -813,7 +814,9 @@ def practice_app_status(scenario_id: int, db: Session = Depends(get_db), hr: Use
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
+    unchanged = scenario.round_number == 1 and practice_app_service.unchanged_since_approved(scenario)
     return {**practice_app_service.summary(scenario), "cannot_start": practice_app_service.can_start(scenario),
+            "unchanged": unchanged, "unchanged_message": practice_app_service.UNCHANGED if unchanged else None,
             "steps": practice_app_service.engine_build.STEPS,
             "waiting_candidates": _candidates_waiting_for_round2(scenario, db) if scenario.round_number == 1 else 0}
 
@@ -838,13 +841,20 @@ def _candidates_waiting_for_round2(round1: Scenario, db: Session) -> int:
 
 
 @router.post("/scenarios/{scenario_id}/practice-app", status_code=202)
-def build_practice_app(scenario_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_db), hr: User = Depends(require_hr)):
+def build_practice_app(scenario_id: int, background_tasks: BackgroundTasks, fresh: bool = False, db: Session = Depends(get_db),
+                       hr: User = Depends(require_hr)):
     """Starts building the Round 2 practice app for this Round 1 scenario.
     Makes paid AI calls (about 5, at most ~11) - the HR screen asks for
-    confirmation first. Runs in the background; poll GET for its progress."""
+    confirmation first. Runs in the background; poll GET for its progress.
+    When the Round 1 test cases are unchanged since the approved build, nothing
+    is built and no AI is called - the approved app stays - unless HR asks for
+    a fresh build (?fresh=true)."""
     scenario = db.get(Scenario, scenario_id)
     if scenario is None:
         raise HTTPException(404, "Scenario not found")
+    if not fresh and scenario.round_number == 1 and practice_app_service.unchanged_since_approved(scenario):
+        return JSONResponse({**practice_app_service.summary(scenario), "unchanged": True,
+                             "message": practice_app_service.UNCHANGED}, status_code=200)
     reason = practice_app_service.can_start(scenario)
     if reason:
         raise HTTPException(400, reason)

@@ -787,7 +787,10 @@ function practiceAppReadyLine(d, stats) {
 
 function renderPracticeAppPanel(id, d) {
   const intro = `<p class="muted">In Round 2, candidates automate the test cases they designed in Round 1, against a small pretend version of this application. Build it here: it is checked automatically against every reference test case in Python, JavaScript and Java before you can approve it.</p>`;
-  const buildButton = (label) => d.cannot_start
+  // Round 1 test cases unchanged since the approved build: say so, and a fresh (paid) build only on purpose.
+  const buildButton = (label) => d.unchanged
+    ? `<span class="muted">${escapeHtml(d.unchanged_message || "")}</span> <button class="btn-secondary" onclick="buildPracticeApp(${id}, true)">Build fresh anyway (paid)</button>`
+    : d.cannot_start
     ? `<p class="muted">${escapeHtml(d.cannot_start)}</p>`
     : `<button onclick="buildPracticeApp(${id})">${label}</button>`;
   const approved = d.approved_round2_scenario_id
@@ -829,7 +832,12 @@ async function buildPracticeAppFromRound2(round1Id) {
   const status = document.getElementById("practice-app-r2-status");
   if (status) { status.className = "muted"; status.textContent = "Starting…"; }
   try {
-    await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
+    const result = await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
+    if (result && result.unchanged) {  // nothing built, nothing paid - the approved app stays
+      buttons.forEach((b) => { b.disabled = false; });
+      if (status) { status.className = "muted"; status.textContent = result.message; }
+      return;
+    }
   } catch (e) {
     buttons.forEach((b) => { b.disabled = false; });
     if (status) { status.className = "error-text"; status.textContent = e.message; }
@@ -988,10 +996,15 @@ function showToast(message, kind = "info", action = null) {
 // Pick up builds started before a page reload.
 startPracticeAppWatch();
 
-async function buildPracticeApp(id) {
+async function buildPracticeApp(id, fresh = false) {
   if (!confirm(`Build the Round 2 practice app for this scenario? ${PRACTICE_APP_BUILD_COST} Nothing changes for candidates until you approve it.`)) return;
   try {
-    await api(`/hr/scenarios/${id}/practice-app`, { method: "POST" });
+    const result = await api(`/hr/scenarios/${id}/practice-app` + (fresh ? "?fresh=true" : ""), { method: "POST" });
+    if (result && result.unchanged) {  // nothing built, nothing paid - the approved app stays
+      const status = document.getElementById("practice-app-status");
+      if (status) status.textContent = result.message;
+      return;
+    }
   } catch (e) {
     const status = document.getElementById("practice-app-status");
     if (status) status.textContent = e.message;

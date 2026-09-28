@@ -1073,6 +1073,18 @@ _FILLER_WORDS = {"please", "pls", "can", "could", "would", "you", "the", "a", "a
 _EXACT_VALUE_RE = re.compile(r"""["'][^"']*["']|\d+(?:\.\d+)?|[\w.+-]+@[\w.-]+""")
 
 
+def _test_data_now(row: dict) -> str:
+    """The test data as it stands - the candidate's correction (Save test data) if they made one."""
+    return str(row.get("test_data_override") or row.get("test_data") or "")
+
+
+def _identical_message(a: str | None, b: str | None) -> bool:
+    """Word for word the same message (case, spacing and end punctuation aside) - a reworded one is new."""
+    def norm(t: str | None) -> str:
+        return " ".join((t or "").lower().split()).strip(" .!?")
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
 def _same_message(a: str | None, b: str | None) -> bool:
     """The same request again, even reworded ("write code to log in" / "please
     write the code to log in again"): the same exact values (numbers, quoted
@@ -1131,6 +1143,17 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
     ]
     language = content.get("language", "python")
     if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
+        last = turns[-1] if turns else None
+        if (last and _identical_message(last.get("candidate_prompt"), payload.candidate_prompt)
+                and last.get("state_seen") == _state_fingerprint(row) and last.get("test_data_seen", _test_data_now(row)) == _test_data_now(row)):
+            # The same message again, and nothing changed since (no edit, no Run, same test data): the earlier
+            # reply still stands - given again with no AI call (simulated candidates, 2026-09-28: "Just generate
+            # the code" twice paid for the same program twice).
+            response = {"response_kind": "explain" if last.get("response_kind") == "code_edit" else last.get("response_kind", "clarify"),
+                        "response_message": last.get("response_message") or REPEAT_MESSAGE, "code_after": None}
+            if isinstance(last.get("steps"), list):
+                response["steps"] = last["steps"]
+            return _record_round2_turn(submission, content, selected, row, turns, payload.candidate_prompt, db, response)
         try:
             app_reference = reference.assistant_reference(reference.current_panel({**(scenario.config_json or {}), "practice_spec": _practice_spec(scenario)}))
             response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt,
@@ -1215,6 +1238,8 @@ def _record_round2_turn(submission, content, selected, row, turns, candidate_pro
     }
     if isinstance(response.get("steps"), list):
         turn_record["steps"] = response["steps"]
+    if "steps" in response:  # the typing assistant's turns: what the test data was, for the same-message check
+        turn_record["test_data_seen"] = _test_data_now(row)
     for key in ("planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"):  # assessor-only - see schemas.SubmissionOut
         if response.get(key):
             turn_record[key] = response[key]
