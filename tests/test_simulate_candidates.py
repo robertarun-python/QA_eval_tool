@@ -8,9 +8,8 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
 
-from app.services import execution_service, llm_service, round2_typist
+from app.services import execution_service, llm_service
 from app.services.practice_engine import practice_run, reference
 
 ROOT = Path(__file__).resolve().parent.parent

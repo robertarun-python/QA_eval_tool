@@ -10,7 +10,12 @@ from pathlib import Path
 import pytest
 
 from app.services import llm_service, round2_typist
-from .test_ai_guardrails import CANDIDATE, paid  # noqa: F401 - fixture
+from .test_ai_guardrails import CANDIDATE, make_paid
+
+
+@pytest.fixture
+def paid(tmp_path, monkeypatch):
+    return make_paid(tmp_path, monkeypatch)
 
 LEAK = "Should the booking be BK-009?"          # a reply the guard always rejects (a value nobody gave)
 GOOD = "Here is the program for the steps you gave."
