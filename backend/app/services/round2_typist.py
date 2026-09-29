@@ -1,15 +1,17 @@
 """
 The Round 2 typing assistant for the real practice environment (agreed with
-the owner 2026-09-27): it writes down and codes exactly what the candidate
-says, knows nothing about the application, and never supplies or hints at a
-step, value or check. The rules are in prompts/round2_typist_turn.txt; the
+the owner 2026-09-27, revised 2026-09-28): the candidate gives the ideas,
+the assistant does the mechanics. It sees what the candidate sees (the
+Reference: screens, API, database layout, test accounts) - never the answer
+key - and never supplies or hints at a step, value or check. The rules are in prompts/round2_typist_turn.txt; the
 ones that must never depend on the model's obedience are enforced here, in
 plain code:
 
   - code only when the candidate asks for it (or says yes to "shall I generate?")
-  - nothing specific the candidate never said - an address, a status code, an
-    HTTP method, a value, a table or column, an email, a number - may appear
-    in a reply or in the code: one redraft, then a neutral reply without it
+  - nothing specific that is neither the candidate's nor on the Reference - an
+    address, a status code, an HTTP method, a value, a page or table name, an
+    email - may appear in a reply or in the code: redrafts, then a reply
+    built from the candidate's own words
   - no reply repeats an earlier one word for word
   - requests to decide / invent / add are refused before the model is called
   - a step they didn't say how to do is an incomplete("...") call, so a Run
@@ -51,9 +53,11 @@ CONVENTIONS = {
 
 _GENERATE_RE = re.compile(
     r"\b(generate|write (the |my |this )?(code|test|script|program)|create (the )?(code|test)|code (it|this|that)|"
-    r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead)\b", re.I)
+    r"build (it|the test)|produce (the )?code|give me the code|let'?s (see|have) the code|go ahead|proceed(?! to)|"
+    r"implement (it|this|that|the test)|automate (it|this|that)|write it)\b", re.I)
 _YES_RE = re.compile(r"^\s*(yes|yeah|yep|ok(ay)?|sure|please do|do it|go on|that'?s (all|it|everything))\b", re.I)
 _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|test)\b", re.I)
+_NOT_OFFER_RE = re.compile(r"\b(not enough|don'?t have enough|do not have enough|can'?t|cannot|yet|before i can)\b", re.I)
 _OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+|"
                             r"(the |this )(selected |chosen )?test case)\b", re.I)
 # "Fix the syntax error": the assistant's own mistakes in the code it wrote - it fixes those, and only those
@@ -91,24 +95,38 @@ _NUMBER_RE = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?![\w.])")
 # What a program prints or logs is the program reporting what happened, not knowledge of the
 # application (measured: print(f"FAIL: got {actual_name}") withheld a strong candidate's code).
 _REPORTING_RE = re.compile(r"(?:\bprint|console\.(?:log|error)|System\.(?:out|err)\.print(?:ln|f)?|\bincomplete)\s*\((?:[^()\n]|\([^()\n]*\))*\)")
-# Things of the application a reply must never bring up unless the candidate did (measured: asked
-# to generate with details missing, the model replied "I need to know: what's the URL or page...").
-_STRUCTURE_RE = re.compile(r"\b(urls?|web ?address(?:es)?|endpoints?|paths?|routes?|pages?|screens?|fields?|buttons?|links?|locators?|"
-                           r"selectors?|xpaths?|css|ids?|methods?|status(?: codes?)?|headers?|tables?|columns?|rows?|queries|query|"
-                           r"credentials?|usernames?|passwords?|tokens?|elements?|"
-                           # screen parts an assistant guessing at the app reaches for (found by writing leak variants)
-                           r"spinners?|loaders?|modals?|pop-?ups?|dialogs?|toasts?|banners?|dropdowns?|drop-downs?|checkbox(?:es)?|"
-                           r"radio(?: buttons?)?|tabs?|menus?|forms?|icons?|iframes?|captchas?)\b", re.I)
-# A name joined to one of those ("the Dashboard page", "the members table"): the candidate
-# having said "page" doesn't make every page name theirs.
+# A name joined to a screen part ("the Dashboard page", "the members table"): a name that is neither
+# the candidate's nor on the Reference is a guess at the application.
 _NAMED_STRUCTURE_RE = re.compile(r"\b([A-Za-z][\w-]*)\s+(pages?|screens?|buttons?|fields?|tabs?|tables?|links?|forms?|menus?|"
                                  r"sections?|columns?|endpoints?|dialogs?|modals?|pop-?ups?)\b", re.I)
 _NAME_NOT_SPECIFIC = {w for w in """the a an this that these those same next previous first last your my their its our which what
 another other correct new each every one any some no main given right wrong login log sign in on of to for from with
-different current whole entire following specific particular separate final second third earlier later same"""
+different current whole entire following specific particular separate final second third earlier later same
+navigation nav input text submit search result results detail details data login password username email number
+account user test target matching relevant required respective corresponding appropriate displayed visible
+or and but then as at by into onto via than also both either neither"""
                      .split()}
 # A value written without quotes: letters with a digit or a symbol ("Pass@1234", "BK-009").
 _VALUE_TOKEN_RE = re.compile(r"(?<![\w@#$%&*!-])(?=[\w@#$%&*!.-]*[A-Za-z])(?=[\w@#$%&*!.-]*[\d@#$%&*!])[A-Za-z0-9][\w@#$%&*!.-]*[\w@#$%&*!]")
+# A step, wait or check offered to the candidate ("Perhaps wait for the spinner?", "Should I also check the
+# total?") - waiting and checking are theirs to ask for. Offering to generate the code, or asking for more, is fine.
+_OFFER_RE = re.compile(r"\b(perhaps|maybe|how about|you (?:could|might|may want to)|i'?d (?:use|suggest|recommend|add)|"
+                       r"(?:should|shall|can|could) i (?:also|add|include|skip|drop|remove|leave out|ignore|merge|combine)\b[^.!]*\?|"
+                       r"or (?:should|shall) i\b[^.!]*\?|(?:do you )?want me to (?:also|add|include|skip|drop|remove)\b[^.!]*\?|"
+                       r"(?:would|do) you (?:like|want) (?:me )?to (?:also|add|include)\b[^.!]*\?|consider|^\s*try (?:the|a|an|adding|using))(?:\b|(?<=\?))", re.I)
+# ... and a sentence repeating what the candidate asked for ("I understand you want me to add ...") isn't an
+# offer (simulated API tester, 2026-09-28: that echo was blocked 8 turns running and nothing changed)
+_OFFER_OK_RE = re.compile(r"\b(generate|write (?:it|the|this)|the code|anything else|something else|more steps?|in your own words|what|which|"
+                          r"you want|you'?d like|you asked|you said|you (?:would|wish)|understood|i understand|as you)\b", re.I)
+# Bringing up the API or the database when the candidate hasn't hints at a kind of check that is scored
+# (full marks need UI, API and database checks) - screen words like page, field or table are fine.
+_API_DB_RE = re.compile(r"\b(api|apis|endpoints?|database|db|sql|quer(?:y|ies)|status codes?|http status|headers?|"
+                        r"request body|response body|json)\b", re.I)
+_DATA_WORD_RE = re.compile(r"\b(tables?|columns?|records?|rows?|requests?|responses?|status|stored|saved)\b", re.I)
+# a name (or call) inside braces, never a JSON body: {"password": "Admin@999"} starts with a quote
+_PLACEHOLDER_RE = re.compile(r"\$?\{\s*[A-Za-z_][^{}\"'\n:]*(?::[^{}\"'\n]*)?\}")
+_DURATION_RE = re.compile(r"\d+(?:\.\d+)?[- ]?(?:ms|milliseconds?|s|secs?|seconds?|minutes?|mins?)", re.I)
+_COMMENT_LINE_RE = re.compile(r"^[ \t]*(?:#|//).*$", re.M)
 _ORDINAL_RE = re.compile(r"^\d+(st|nd|rd|th)$", re.I)
 _WORD_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_\-]*|\d+(?:\.\d+)?")
 
@@ -121,29 +139,34 @@ limit as on join like in true false none api page ui step check result expected 
 normalize-space following following-sibling preceding preceding-sibling ancestor descendant parent self text contains
 starts-with input button label link span div
 for type name class value placeholder aria-label title href role tag
+__main__ main __name__ utf8 strict
+td tr th tbody thead tfoot table div span li ul ol p a h1 h2 h3 h4 form label select option body html head img dl dt dd
 """.split()}
-_GENERIC_NUMBERS = {"0", "1", "2", "3", "-1", "100"}  # indexes, exit codes, percentages - never application values
+_GENERIC_NUMBERS = {"0", "1", "2", "3", "-1", "100", "0.01", "0.001", "0.005", "0.5"}  # also comparison tolerances  # indexes, exit codes, percentages - never application values
 
 _REFUSE = [
     "That's your call to make - tell me what you want and I'll write it down.",
     "I can't decide that for you. What would you like the test to do?",
     "That part is up to you. Let me know what you want, in your own words.",
 ]
-_ASK = [
-    "What would you like the test to do next?",
-    "Tell me the next thing the test should do.",
-    "What's next for this test?",
+# When no draft can go out, the reply is built from the candidate's own words - never a bare "What's next?"
+# (owner's Round 2, 2026-09-28: four of them in a row read as the assistant ignoring what was said).
+_NOTED = [
+    'Noted: "{said}". Is there more for this test, or shall I generate the code?',
+    'Got it - "{said}". Tell me the next step, or ask me to generate the code.',
+    'I have added: "{said}". Anything else, or shall I generate the code now?',
 ]
 _BLOCKED = [
-    "I can only write what you've told me, and some of it I'd have to guess. Tell me how each step should be done and I'll write it.",
-    "Part of this I'd have to make up, and I won't do that. Tell me exactly how each step should be done, then ask me again.",
-    "I need more from you before I can write it without guessing - how should each step be done?",
+    "I couldn't write the whole program from your words without guessing part of it. For each step, tell me which "
+    "element (the words you see on it) or which exact value it uses, then ask me to generate again.",
+    "Part of the program would have been my guess, so I haven't written it. Say which element or exact value each step "
+    "uses, then ask me to generate again.",
 ]
 _NOTE = ("\n\nYour previous draft named things the candidate never said: {terms}. Rewrite it without them - "
          "if you need one of them, ask the candidate for it instead, without naming it or offering examples.")
 _WRITE_NOTE = ("\n\nThey asked for the code: write the complete program now. For every step they didn't say how to do, put "
                "incomplete(\"<their own words for that step>\") where it belongs. Don't list or describe what is missing.")
-_REPEAT_NOTE = "\n\nYour previous draft repeated a sentence you already wrote in this conversation. Say it differently."
+_REPEAT_NOTE = "\n\nYour previous draft repeated an earlier reply word for word. Say it differently."
 # The code named things the candidate never said (measured, Java check 2026-09-27: asked "Generate it" with no
 # element ids given, the model guessed locators both times): the step goes in as incomplete() instead.
 _CODE_NOTE = ("\n\nYour previous code used things the candidate never said: {terms}. Write the program again without "
@@ -164,7 +187,13 @@ def wants_code(prompt: str, conversation: list[dict]) -> bool:
     if _GENERATE_RE.search(prompt or "") or _SYNTAX_FIX_RE.search(prompt or ""):
         return True
     last = conversation[-1]["response_message"] if conversation else ""
-    return bool(_YES_RE.search(prompt or "") and _OFFERED_RE.search(last or ""))
+    # an offer, not "I don't have enough details to generate the code yet" (replay 2026-09-28: a "yes"
+    # to that sentence was taken as asking for code)
+    offered = any(_OFFERED_RE.search(s) and not _NOT_OFFER_RE.search(s) for s in re.split(r"(?<=[.?!])\s+|\n+", last or ""))
+    yes = _YES_RE.search(prompt or "")
+    # "yes" (or "ok, go ahead") answers the offer; "Yes, continue. Next step: log in..." adds a step instead
+    # (simulated candidate, 2026-09-28: taken as "generate", then the code was refused)
+    return bool(yes and offered and len((prompt or "")[yes.end():].split()) <= 4)
 
 
 def _norm(text: str) -> str:
@@ -179,7 +208,13 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
     found = []
 
     def check(term: str) -> None:
-        t = term.strip().strip(".,;:!?")
+        t = term.strip().strip(".,;:!?*_`")  # "Perfect!", "PASS**" - punctuation and markdown aren't values
+        if _DURATION_RE.fullmatch(t):
+            return  # "3-second", "5 seconds" - how long to wait is the candidate's words or plumbing
+        parts = [x for x in re.split(r"[-_/]", t) if re.search(r"\d", x)]
+        if parts and len(parts) < len(re.split(r"[-_/]", t)) and all(x.lower() in haystack for x in parts):
+            return  # "non-200" when they said 200
+
         if not t or t.lower() in _GENERIC or t in _GENERIC_NUMBERS or _norm(t) in haystack:
             return
         found.append(t)
@@ -195,7 +230,9 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
     for m in _STATUS_RE.findall(text):
         check(m)
     scanned = _REPORTING_RE.sub(" ", _MODULE_RE.sub(" ", text)) if code else text
-    literals = ([re.sub(r"\\(.)", r"\1", "".join(g)) for g in _CODE_STRING_RE.findall(scanned)] if code
+    # a placeholder inside a literal (f"{practice_url}/page/login", `${base}/api`) is code, not text
+    # (owner's Round 2 replay, 2026-09-28: the variable name withheld correct code)
+    literals = ([_PLACEHOLDER_RE.sub(" ", re.sub(r"\\(.)", r"\1", "".join(g))) for g in _CODE_STRING_RE.findall(scanned)] if code
                 else _PROSE_QUOTED_RE.findall(scanned))
     for literal in literals:
         if literal.lower() in _GENERIC or literal.startswith("INCOMPLETE"):
@@ -208,20 +245,26 @@ def unsaid(text: str | None, said: str, *, code: bool) -> list[str]:
                 check(word)
     if not code:
         said_words = {w.lower().rstrip("s") for w in re.findall(r"[A-Za-z]+", said or "")}
-        for m in _STRUCTURE_RE.findall(text):
-            # "element" is how the assistant asks which element a step means (rule 5) - never a part of the app
-            if m.lower().split()[0].rstrip("s") not in said_words | {"element"}:
-                found.append(m)
         for name, part in _NAMED_STRUCTURE_RE.findall(text):
-            if name.lower() not in _NAME_NOT_SPECIFIC and name.lower().rstrip("s") not in said_words:
+            if name.lower() not in _NAME_NOT_SPECIFIC and name.lower().rstrip("s") not in said_words and _norm(name) not in haystack:
                 found.append(f"{name} {part}")
         for token in _VALUE_TOKEN_RE.findall(text):
-            if not _ORDINAL_RE.match(token):
+            token = token.rstrip("!*.?")  # "Perfect!" is a word, not a value
+            if token and not _ORDINAL_RE.match(token) and _VALUE_TOKEN_RE.fullmatch(token):
                 check(token)
+        for m in _API_DB_RE.findall(text):
+            if not (_API_DB_RE.search(said or "") or _DATA_WORD_RE.search(said or "")):
+                found.append(m)
+        for sentence in re.split(r"(?<=[.?!])\s+|\n+", text):
+            if _OFFER_RE.search(sentence) and not _OFFER_OK_RE.search(sentence):
+                found.append("an offered step: " + sentence.strip()[:80])
     if code:
-        stripped = _CODE_STRING_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", scanned))
+        stripped = _CODE_STRING_RE.sub(" ", _WAIT_LIMIT_RE.sub(" ", _COMMENT_LINE_RE.sub(" ", scanned)))
         for n in _NUMBER_RE.findall(stripped):
-            check(n)
+            # a value is a decimal or 3+ digits; a small whole number is a step, an index or an exit code
+            # (owner's Round 2, 2026-09-28: "step 4" / "sys.exit(1)" style numbers withheld correct code)
+            if "." in n or len(n) >= 3:
+                check(n)
     seen, out = set(), []
     for t in found:
         if t.lower() not in seen:
@@ -236,15 +279,25 @@ def _pick(pool: list[str], used: set[str]) -> str:
 
 
 def _repeats(reply: str, earlier: list[str]) -> bool:
-    sentences = {_norm(s) for e in earlier for s in re.split(r"(?<=[.?!])\s+", e or "") if len(s.split()) >= 4}
-    return any(_norm(s) in sentences for s in re.split(r"(?<=[.?!])\s+", reply or "") if len(s.split()) >= 4)
+    """The whole reply was already given word for word. Single sentences may recur: the rules make the
+    assistant say "I don't have enough details to generate the code yet" whenever it is true, and a
+    sentence check blocked it the second time (owner's Round 2, 2026-09-28)."""
+    return bool(reply) and _norm(reply) in {_norm(e) for e in earlier}
+
+
+def _noted(prompt: str, used: set[str]) -> str:
+    said = " ".join((prompt or "").split())
+    said = said if len(said) <= 160 else said[:157].rsplit(" ", 1)[0] + "..."
+    return _pick([n.format(said=said.replace('"', "'")) for n in _NOTED], used)
 
 
 @llm_service.candidate_turn
 def turn(language: str, design: dict, conversation: list[dict], current_code: str, candidate_prompt: str,
          app_reference: str = "") -> dict:
     """One reply: {"response_kind": "clarify"|"refuse"|"code_edit", "response_message", "code_after"}."""
+    design = _as_shown(design)
     earlier = [t.get("response_message") or "" for t in conversation]
+    prior = next((t["steps"] for t in reversed(conversation) if isinstance(t.get("steps"), list)), [])
     used = {_norm(e) for e in earlier}
     if round2_automation_policy.is_prohibited(candidate_prompt):
         return {"response_kind": "refuse", "response_message": _pick(_REFUSE, used), "code_after": None}
@@ -253,12 +306,13 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     syntax_fix = bool(_SYNTAX_FIX_RE.search(candidate_prompt or "") or current_problem)
     allow_code = allow_code or syntax_fix
     said = candidate_text(design, conversation, candidate_prompt)
-    # The code may use what the Reference shows (ids, labels, API paths, tables) - the mechanics; its test
-    # data only when the candidate chose it, or pointed at the Reference's test account.
+    # The code may use what the Reference shows (ids, labels, API paths, tables) - the mechanics; the test
+    # account only once they log in or point at it. A reply is judged by the candidate's words (plus that
+    # account): naming a page, button, value or address they never said is a hint, even one on the Reference.
     code_said = said + "\n" + _reference_terms(app_reference, said)
-    # A reply may repeat the test account's login/password once the candidate pointed at it
-    # ("use the test account password from the Reference") - a correct answer was blocked (2026-09-28).
     reply_said = said + "\n" + "\n".join(_ACCOUNTS_LINE_RE.findall(app_reference or "")) if _ACCOUNT_REF_RE.search(said or "") else said
+    # an element's id ("I found signed-in-user") is mechanics, not a hint - replies may name it
+    reply_said += "\n" + " ".join(_REF_ID_RE.findall(app_reference or ""))
     prompt = llm_service._load_prompt("round2_typist_turn.txt").format(
         language=language, conventions=CONVENTIONS.get(language, ""),
         app_reference=llm_service._as_data(app_reference or "(not available)"),
@@ -266,18 +320,67 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         conversation=llm_service._as_data("\n".join(f"Candidate: {t.get('candidate_prompt')}\nYou: {t.get('response_message')}"
                                                     for t in conversation) or "(none yet)"),
         candidate_prompt=llm_service._as_data(candidate_prompt),
+        steps_so_far=llm_service._as_data(_steps_text(prior) or "(none yet)"),
     )
     note = _SYNTAX_FIX_NOTE.format(error=current_problem or compile_problem(language, current_code) or "the candidate reports one") if syntax_fix else ""
-    reply, code = "", None
+    if allow_code and not syntax_fix:
+        # Said from the first try: asked for code with details missing, the model argued three times and
+        # the candidate got no code (owner's Round 2 replay, 2026-09-28).
+        note = _WRITE_NOTE
+    reply, code, steps = "", None, prior
+    may_remove = bool(_REMOVE_RE.search(candidate_prompt or ""))
+    own = candidate_text(None, conversation, candidate_prompt)  # their messages only, not their Round 1 case
+    best_code = None  # the latest draft code that breaks no hard rule (see below)
+    attempts = []  # every draft and what was wrong with it - for the simulated-candidate tester
+    keep = None           # a correct program whose reply alone was rejected: only a new reply is asked for
+    tried_reply_only = False
     for attempt in range(3):
-        raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
-        reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
-        code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
-        code = code if isinstance(code, str) and code.strip() else None
-        bad = unsaid(reply, reply_said, code=False) + unsaid(code, code_said, code=True)
+        if keep is not None:
+            # Reply-only redraft (P1 2b, owner-approved 2026-09-28): the program was fine - paying for the whole
+            # program again (~2,500 output tokens) to fix a sentence was most of a redraft's cost.
+            raw = llm_service._call_claude_json(prompt + _REPLY_ONLY_NOTE.format(program=keep, problems=keep_why),
+                                                max_tokens=llm_service._CODE_REPLY_TOKENS)
+            reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
+            code, steps = keep, _steps_from(raw, steps)  # the program stays exactly as it was - whatever came back
+            keep, tried_reply_only = None, True
+        else:
+            raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
+            reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
+            code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
+            code = code if isinstance(code, str) and code.strip() else None
+            steps = _steps_from(raw, prior)
+        bad = unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False) + unsaid(code, code_said, code=True)
         missing_code = allow_code and code is None
-        if not bad and reply and not _repeats(reply, earlier) and not missing_code:
+        dropped = [] if may_remove else _dropped(prior, steps)
+        left_out = _left_out_of_code(steps, code) if code else []
+        invented = _not_theirs(prior, steps, reply_said)
+        retyped = _values_not_typed(said, code, own) if code else []
+        if code is not None and not unsaid(code, code_said, code=True):
+            best_code = code
+        attempts.append({"reply": reply, "code": code, "problems": {"named": bad, "dropped": dropped, "left_out": left_out,
+                                                                   "invented": invented, "retyped": retyped}})
+        if (not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out
+                and not invented and not retyped):
             break
+        reply_bad = unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False)
+        if (code is not None and not tried_reply_only and attempt < 2 and not unsaid(code, code_said, code=True)
+                and not dropped and not left_out and not invented and not retyped
+                and (reply_bad or not reply or _repeats(reply, earlier)) and not compile_problem(language, code)):
+            keep = code  # every code check passed and it compiles: only the reply is redone
+            keep_why = ("it named things the candidate never said: " + ", ".join(reply_bad)) if reply_bad else \
+                       ("it was empty" if not reply else "it repeated an earlier reply word for word")
+            continue
+        if invented or retyped:
+            # Simulated candidates (2026-09-28): a step nobody gave ("verify you're on the login page"), and
+            # "locate Password and enter Password" typed as the test account's real password.
+            note = _NOT_THEIRS_NOTE.format(steps="; ".join(f'"{x}"' for x in invented) or "none",
+                                           values="; ".join(f'"{x}"' for x in retyped) or "none")
+            continue
+        if dropped or left_out:
+            # The candidate's test is theirs: a step of theirs silently gone is as bad as one added (owner's
+            # Round 2 replay, 2026-09-28: "should I skip those steps?", then "yes" deleted two of them).
+            note = _DROPPED_NOTE.format(steps="; ".join(f'"{x}"' for x in dropped + left_out))
+            continue
         bad_code = unsaid(code, code_said, code=True)
         if attempt == 1 and bad_code:
             # Still guessing after one reminder (realistic check, 2026-09-27: a button found by a guessed
@@ -288,13 +391,27 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
                 else _NOTE.format(terms=", ".join(bad)) if bad else (_WRITE_NOTE if missing_code else _REPEAT_NOTE))
     else:
         # Still naming something unsaid (or repeating): nothing of it reaches the candidate.
-        if unsaid(code, code_said, code=True):
-            code = None
+        # Hard rules withhold the code: something the candidate never said (a hint, a guessed value). The
+        # best-guess checks (a step missing from the code, a typed value changed) only ask for redrafts - left
+        # unsatisfied, the code goes out with a note naming what to check. Run 3 of the simulated candidates
+        # (2026-09-28): a misfiring best-guess check withheld correct code for 12 turns running.
+        if code is None or unsaid(code, code_said, code=True):
+            code = best_code
+        check = []
+        if code is not None:
+            check = [f'your step "{x}"' for x in _left_out_of_code(steps, code)] + \
+                    [f'typing "{v}" as you asked' for v in _values_not_typed(said, code, own)]
+        if dropped or invented or unsaid(_steps_text(steps), reply_said, code=False):
+            steps = prior + ([{"step": " ".join(candidate_prompt.split())[:300], "missing": ""}]
+                             if _is_a_step(candidate_prompt, conversation) else [])
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
             reply = _pick(_BLOCKED, used)
-        elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier):
-            reply = _pick(_ASK, used)
+        elif code is not None and check:
+            reply = _pick(_CODE_READY, used) + "\n\n" + _CHECK_NOTE + "\n" + "\n".join(f"- {c}" for c in check)
+        elif not reply or unsaid(reply, reply_said, code=False) or _repeats(reply, earlier) or missing_code:
+            # with code going out, say so - "shall I generate the code?" beside new code read as a mix-up
+            reply = _pick(_CODE_READY, used) if code is not None else _noted(candidate_prompt, used)
     problem = compile_problem(language, code) if code is not None else None
     if problem:
         # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
@@ -314,8 +431,140 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
             # Said by the tool, not left to the model: the owner's Round 2 (2026-09-27) got code
             # full of incomplete() with no word about why, and was left guessing.
             reply = (reply + "\n\n" + _TODO_NOTE + "\n" + "\n".join(f"{i}. {t}" for i, t in enumerate(todo, 1))).strip()
-        return {"response_kind": "code_edit", "response_message": reply, "code_after": code}
-    return {"response_kind": "clarify", "response_message": reply, "code_after": None}
+        return {"response_kind": "code_edit", "response_message": reply, "code_after": code, "steps": steps, "attempts": attempts}
+    return {"response_kind": "clarify", "response_message": reply, "code_after": None, "steps": steps, "attempts": attempts}
+
+
+# ---- The candidate's test, kept by the tool (not in the model's memory) ----
+_REMOVE_RE = re.compile(r"\b(remove|delete|drop|skip|leave out|take out|get rid of|instead|replace|change|forget|undo|"
+                        r"don'?t|do not|no need|not needed|without|merge|combine|reorder|move)\b", re.I)
+_CONTENT_WORD_RE = re.compile(r"[a-z0-9@._-]{3,}")
+_FILLER = set("the and then his her their its with for from into after before now this that locate find enter click check "
+              "verify should will shall test case step steps".split())
+_DROPPED_NOTE = ("\n\nYour previous draft left out steps the candidate gave: {steps}. Their test is theirs - keep every one "
+                 "of their steps (in \"steps\" and in the code, as incomplete(\"<their words>\") if unclear) unless they ask "
+                 "to remove it. Never offer to skip or drop a step.")
+
+
+def _steps_from(raw, prior: list) -> list:
+    """The whole test as the model returned it - [{"step", "missing"}] - or the earlier list when it sent none."""
+    items = raw.get("steps") if isinstance(raw, dict) else None
+    if not isinstance(items, list) or not items:
+        return prior
+    out = []
+    for it in items[:40]:
+        text = it.get("step") if isinstance(it, dict) else it
+        if isinstance(text, str) and text.strip():
+            missing = it.get("missing") if isinstance(it, dict) else ""
+            out.append({"step": " ".join(text.split())[:300], "missing": " ".join(str(missing or "").split())[:200]})
+    return out or prior
+
+
+def _steps_text(steps: list) -> str:
+    return "\n".join(f"{i}. {s['step']}" + (f"  [missing: {s['missing']}]" if s.get("missing") else "")
+                     for i, s in enumerate(steps or [], 1))
+
+
+def _words(text: str) -> set:
+    return {w.strip("._-") for w in _CONTENT_WORD_RE.findall((text or "").lower())} - _FILLER - {""}
+
+
+def _stem(word: str) -> str:
+    return word[:4]
+
+
+def _shared(words: set, have: set) -> int:
+    """How many of `words` appear in `have`, allowing other forms of a word (log in / login, clicks / click)."""
+    stems = {_stem(h) for h in have}
+    return sum(1 for w in words if w in have or _stem(w) in stems or any(h.startswith(w) for h in have))
+
+
+def _dropped(prior: list, steps: list) -> list[str]:
+    """Earlier steps with no counterpart in the new list (most of their words gone)."""
+    now = [_words(s["step"] + " " + s.get("missing", "")) for s in steps]
+    out = []
+    for s in prior:
+        w = _words(s["step"])
+        if w and not any(_shared(w, n) >= max(1, round(len(w) * 0.6)) for n in now):
+            out.append(s["step"])
+    return out
+
+
+def _left_out_of_code(steps: list, code: str | None) -> list[str]:
+    """Steps of theirs the program doesn't carry (most of their words absent from it)."""
+    if not code:
+        return []
+    have = _words(code.replace("_", " ").replace("-", " ")) | _words(code)
+    return [s["step"] for s in steps if (w := _words(s["step"])) and _shared(w, have) < max(1, round(len(w) * 0.5))]
+
+
+_REPLY_ONLY_NOTE = ("\n\nYou already wrote this program for the candidate's message and it is correct - it will be used exactly as "
+                    "it is:\n<kept_program>\n{program}\n</kept_program>\nOnly your reply text was rejected ({problems}). Write a "
+                    "new reply to the candidate that describes exactly this program - nothing it doesn't do - following every rule "
+                    "above. Put the whole test in \"steps\" as usual and \"code\": null.")
+_NOT_THEIRS_NOTE = ("\n\nYour previous draft broke the candidate's test. Steps they never gave: {steps} - remove them (never "
+                    "add a step, even a check that seems obvious). Values they typed that your code changed: {values} - type "
+                    "exactly what they wrote (\"enter Password\" types the word Password).")
+_CHECK_NOTE = "Please check these in the code against what you asked - tell me if anything should change:"
+_CODE_READY = [
+    "The code for your steps is in the code panel - run it when you're ready.",
+    "Here's the program for the steps you gave; it's in the code panel.",
+    "Your code is written - see the code panel, then run it.",
+]
+# "Locate <field> and enter <value>" - a single word, typed as written; and any value with a digit or symbol
+_LOCATE_ENTER_RE = re.compile(r"\b(?:locate|find)\s+(?P<field>[^\n.,;]{1,40}?)\s+and\s+(?:enter|type|input)\s+"
+                              r"(?P<val>[^\s,;\n]+?)(?=[.!?]\s|[.!?]?\s*$|\s*[\n,;]|\s+(?:and|then)\b)", re.I | re.M)
+_ENTER_TOKEN_RE = re.compile(r"\b(?:enter|type|input)\s+(?:the\s+value\s+)?[\"']?(?P<val>[^\s,;\n\"']*[\d@#$%&*!][^\s,;\n\"']*?)[.]?(?=[\s,;\n\"']|$)", re.I)
+_NOT_A_VALUE = set("his her their its my your the a an it them this that some any valid correct details value data account "
+                   "accounts id number amount".split())
+
+
+def _values_not_typed(said: str, code: str | None, own: str | None = None) -> list[str]:
+    """Values the candidate told it to type that the program doesn't type as written. `own` is what they
+    said in the conversation: a field they talk about there follows their words there, not their Round 1
+    wording (simulated candidate, 2026-09-28: Round 1 "enter Password", then "enter Pass@123")."""
+    if not code:
+        return []
+    own = said if own is None else own
+    literals = " ".join(re.sub(r"\\(.)", r"\1", "".join(g)) for g in _CODE_STRING_RE.findall(code))
+    out = []
+    for m in _LOCATE_ENTER_RE.finditer(said or ""):
+        val, fld = m.group("val"), m.group("field").strip().lower()
+        # "use the test account password (from the Reference)" later means the account's value instead
+        from_round1 = m.group(0) not in own
+        if from_round1 and re.search(rf"\b{re.escape(fld)}\b", own, re.I):
+            continue
+        # said again later ("... enter Password ... enter Pass@123 in the password field"): the later words win
+        if re.search(rf"\b{re.escape(fld)}\b", said[m.end():], re.I):
+            continue
+        if val.lower() in _NOT_A_VALUE or re.search(rf"(test account|reference)\W+(\w+\W+){{0,3}}{re.escape(fld)}|"
+                                                    rf"{re.escape(fld)}\W+(\w+\W+){{0,3}}(from|in|of) the (test account|reference)",
+                                                    said, re.I):
+            continue
+        if val not in literals and val not in out:
+            out.append(val)
+    for m in _ENTER_TOKEN_RE.finditer(said or ""):
+        val = m.group("val").strip("()[]{}'\"")
+        if val not in literals and val not in out:
+            out.append(val)
+    return out
+
+
+def _not_theirs(prior: list, steps: list, said: str) -> list[str]:
+    """New steps with little of the candidate's own wording - a step they never gave."""
+    have = _words(said.replace("_", " ").replace("-", " ")) | _words(said)
+    old = {s["step"] for s in prior}
+    out = []
+    for s in steps:
+        w = _words(s["step"])
+        if s["step"] not in old and w and _shared(w, have) < max(1, round(len(w) * 0.5)):
+            out.append(s["step"])
+    return out
+
+
+def _is_a_step(prompt: str, conversation: list) -> bool:
+    text = (prompt or "").strip()
+    return bool(text) and not text.endswith("?") and not _YES_RE.search(text) and not wants_code(text, conversation)
 
 
 _XPATH_LITERAL_RE = re.compile(r""""\(?\.?//(?:[^"\\\n]|\\.)*"|'\(?\.?//(?:[^'\\\n]|\\.)*'""")
@@ -327,7 +576,11 @@ _NO_WORKING_CODE = [
     "I couldn't write working code for that. Please describe the step differently and ask me again.",
     "That didn't come out as working code on my side. Try wording the step another way, then ask again.",
 ]
-_ACCOUNT_REF_RE = re.compile(r"\b(test account|reference|given (credentials|details|login)|login details|credentials (given|shown)|as shown|test user)\b", re.I)
+# The test account is used once the candidate logs in at all ("After login") or points at it: logging in
+# with no account named means the Reference's test account (agreed with the owner, 2026-09-28).
+_ACCOUNT_REF_RE = re.compile(r"\b(test account|reference|given (credentials|details|login)|login details|credentials (given|shown)|"
+                             r"as shown|test user|log ?in|logged ?in|logs ?in|logging ?in|sign(ed|s)? ?in|signing ?in)\b", re.I)
+_REF_ID_RE = re.compile(r"\bid=([\w-]+)")
 _ACCOUNTS_LINE_RE = re.compile(r"^Test accounts.*$", re.M)
 
 
@@ -360,6 +613,15 @@ def _still_to_do(code: str, said: str) -> list[str]:
         if step and step not in steps and not unsaid(f'"{step}"', said, code=False):
             steps.append(step)
     return steps[:10]
+
+
+def _as_shown(design: dict | None) -> dict | None:
+    """The candidate's test case as their screen shows it: test data they corrected in Round 2 ("Save test
+    data" - kept beside the Round 1 record, which never changes) replaces the Round 1 value. The assistant
+    used to see only the Round 1 value (found 2026-09-28)."""
+    if isinstance(design, dict) and design.get("test_data_override"):
+        return {**design, "test_data": design["test_data_override"]}
+    return design
 
 
 def _design_text(design: dict | None) -> str:

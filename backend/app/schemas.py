@@ -829,6 +829,7 @@ class Round2AutomationTurnOut(BaseModel):
     response_kind: Literal["clarify", "explain", "code_edit", "refuse"]
     response_message: str
     code_after: Optional[str] = None
+    steps: Optional[list[dict]] = None  # the candidate's test so far, kept by the tool (round2_typist)
 
 
 class Round2AutomationClarifyCreate(BaseModel):

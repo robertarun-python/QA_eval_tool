@@ -1,0 +1,208 @@
+{
+ "label": "Owner's Round 2, Loan EMI, Python, 2026-09-28: 23 of these 26 correct drafts were blocked by the old guard",
+ "language": "python",
+ "design": {
+  "title": "Verify the EMI details",
+  "preconditions": "User should be logged in",
+  "steps": "After login\nLocate EMI Details and click\nNow enter the account details\nLocate loan account and enter his account details\n",
+  "test_data": "User should give his account details",
+  "expected_result": "User should be able to view his EMI details of what payments done and whats tbo be paid and its due dates"
+ },
+ "messages": [
+  "After login\nLocate EMI Details and click\nNow enter the account details\nLocate loan account and enter his account details",
+  "Locate Outstanding balance and 125000.00. If found pass the test case else fail",
+  "yes",
+  "First check if you have logged in successfully. Try to locate Signed in as Test User",
+  "Locate EMI Payment and click",
+  "Locate EMI Payment",
+  "After locating click it",
+  "Account detail is SAV-1001",
+  "Locate Outstanding balance and verify it shows 125000.00. if so pass the test case, else fail it",
+  "nothing generate code"
+ ],
+ "app_reference": "APPLICATION: Online Loan EMI Payment System\nAddress: PRACTICE_APP_URL in code (the address Round 1 showed, https://loan-emi.example.test, is the same app)\nAPI base: PRACTICE_API_URL; database file: PRACTICE_DB (SQLite); browser: SELENIUM_GRID_URL\nTest accounts (as the Reference shows them): login CUST001 / password Pass@123 (Test User)\n\nPAGE Login (/page/login):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"Login\" id=page-title\n  a text \"Login\" id=nav-login href=/page/login\n  p id=message\n  input labelled \"Customer id\" id=customer_id name=customer_id\n  input labelled \"Password\" id=password name=password type=password\n  button text \"Log in\" id=login type=submit\n\nPAGE Home (/page/home):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"Home\" id=page-title\n  span id=signed-in-user\n  button text \"Log out\" id=logout type=submit\n  a text \"Login\" id=nav-login href=/page/login\n  a text \"Home\" id=nav-home href=/page/home\n  a text \"Loans\" id=nav-loans href=/page/loans\n  a text \"EMI Details\" id=nav-emi-details href=/page/emi-details\n  a text \"EMI Payment\" id=nav-emi-payment href=/page/emi-payment\n  a text \"Payment Confirmation\" id=nav-payment-confirmation href=/page/payment-confirmation\n  a text \"Payment History\" id=nav-payment-history href=/page/payment-history\n  p id=message\n\nPAGE Loans (/page/loans):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"Loans\" id=page-title\n  span id=signed-in-user\n  button text \"Log out\" id=logout type=submit\n  a text \"Login\" id=nav-login href=/page/login\n  a text \"Home\" id=nav-home href=/page/home\n  a text \"Loans\" id=nav-loans href=/page/loans\n  a text \"EMI Details\" id=nav-emi-details href=/page/emi-details\n  a text \"EMI Payment\" id=nav-emi-payment href=/page/emi-payment\n  a text \"Payment Confirmation\" id=nav-payment-confirmation href=/page/payment-confirmation\n  a text \"Payment History\" id=nav-payment-history href=/page/payment-history\n  p id=message\n  button text \"View Loans\" id=view-loans type=submit\n  input labelled \"Loan account\" id=loan_account name=loan_account\n  button text \"View EMI Details\" id=view-emi-details type=submit\n  button text \"Select Loan\" id=select-loan type=submit\n  th text \"Account number\"\n  th text \"Outstanding balance\"\n  th text \"Emi amount\"\n  th text \"Next emi date\"\n  th text \"Status\"\n  table id=results\n\nPAGE EMI Details (/page/emi-details):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"EMI Details\" id=page-title\n  span id=signed-in-user\n  button text \"Log out\" id=logout type=submit\n  a text \"Login\" id=nav-login href=/page/login\n  a text \"Home\" id=nav-home href=/page/home\n  a text \"Loans\" id=nav-loans href=/page/loans\n  a text \"EMI Details\" id=nav-emi-details href=/page/emi-details\n  a text \"EMI Payment\" id=nav-emi-payment href=/page/emi-payment\n  a text \"Payment Confirmation\" id=nav-payment-confirmation href=/page/payment-confirmation\n  a text \"Payment History\" id=nav-payment-history href=/page/payment-history\n  p id=message\n  dd id=detail-account-number\n  dd id=detail-emi-amount\n  dd id=detail-next-emi-date\n  dd id=detail-principal-component\n  dd id=detail-interest-component\n  dd id=detail-outstanding-balance\n\nPAGE EMI Payment (/page/emi-payment):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"EMI Payment\" id=page-title\n  span id=signed-in-user\n  button text \"Log out\" id=logout type=submit\n  a text \"Login\" id=nav-login href=/page/login\n  a text \"Home\" id=nav-home href=/page/home\n  a text \"Loans\" id=nav-loans href=/page/loans\n  a text \"EMI Details\" id=nav-emi-details href=/page/emi-details\n  a text \"EMI Payment\" id=nav-emi-payment href=/page/emi-payment\n  a text \"Payment Confirmation\" id=nav-payment-confirmation href=/page/payment-confirmation\n  a text \"Payment History\" id=nav-payment-history href=/page/payment-history\n  p id=message\n  button text \"Payment Accounts\" id=get-payment-accounts type=submit\n  input labelled \"Loan account\" id=loan_account name=loan_account\n  input labelled \"Payment account\" id=payment_account name=payment_account\n  button text \"Pay EMI\" id=pay-emi type=submit\n  th text \"Account number\"\n  th text \"Account type\"\n  th text \"Balance\"\n  table id=results\n\nPAGE Payment Confirmation (/page/payment-confirmation):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"Payment Confirmation\" id=page-title\n  span id=signed-in-user\n  button text \"Log out\" id=logout type=submit\n  a text \"Login\" id=nav-login href=/page/login\n  a text \"Home\" id=nav-home href=/page/home\n  a text \"Loans\" id=nav-loans href=/page/loans\n  a text \"EMI Details\" id=nav-emi-details href=/page/emi-details\n  a text \"EMI Payment\" id=nav-emi-payment href=/page/emi-payment\n  a text \"Payment Confirmation\" id=nav-payment-confirmation href=/page/payment-confirmation\n  a text \"Payment History\" id=nav-payment-history href=/page/payment-history\n  p id=message\n\nPAGE Payment History (/page/payment-history):\n  strong text \"Online Loan EMI Payment System\" id=app-name\n  h1 text \"Payment History\" id=page-title\n  span id=signed-in-user\n  button text \"Log out\" id=logout type=submit\n  a text \"Login\" id=nav-login href=/page/login\n  a text \"Home\" id=nav-home href=/page/home\n  a text \"Loans\" id=nav-loans href=/page/loans\n  a text \"EMI Details\" id=nav-emi-details href=/page/emi-details\n  a text \"EMI Payment\" id=nav-emi-payment href=/page/emi-payment\n  a text \"Payment Confirmation\" id=nav-payment-confirmation href=/page/payment-confirmation\n  a text \"Payment History\" id=nav-payment-history href=/page/payment-history\n  p id=message\n  button text \"Payment History\" id=view-payment-history type=submit\n  th text \"Payment date\"\n  th text \"Amount\"\n  th text \"Transaction ref\"\n  th text \"Status\"\n  table id=results\n\nAPI:\n  POST /api/login body[customer_id, password] query[] -> 200 returns[token, name]\n  POST /api/logout body[] query[] -> 200 returns[message] (sign-in needed)\n  GET /api/view-loans body[] query[] -> 200 returns[results] fields[account_number, outstanding_balance, emi_amount, next_emi_date, status] (sign-in needed)\n  GET /api/view-emi-details body[] query[loan_account] -> 200 returns[record] fields[account_number, emi_amount, next_emi_date, principal_component, interest_component, outstanding_balance] (sign-in needed)\n  GET /api/get-payment-accounts body[] query[] -> 200 returns[results] fields[account_number, account_type, balance] (sign-in needed)\n  GET /api/view-payment-history body[] query[] -> 200 returns[results] fields[payment_date, amount, transaction_ref, status] (sign-in needed)\n  POST /api/select-loan body[loan_account] query[] -> 200 returns[message] (sign-in needed)\n  POST /api/pay-emi body[loan_account, payment_account] query[] -> 201 returns[message, transaction_ref, new_balance, new_outstanding] (sign-in needed)\n  Sign in with POST /api/login; send the token it returns as \"Authorization: Bearer <token>\".\n\nDATABASE (tables and columns - no data):\n  customer: customer_id, password, name, email, status\n  loan: account_number, customer_id, outstanding_balance, emi_amount, principal_component, interest_component, next_emi_date, status, last_payment_date, last_payment_txn\n  account: account_number, customer_id, account_type, balance, status\n  payment: transaction_ref, loan_account, payment_account, amount, principal, interest, payment_date, payment_datetime, status\n\nTEST CONTROLS: POST /test/reset (Back to the starting data.); POST /test/advance-minutes (Move the application's clock forward.); POST /test/simulate (Switch on a simulated failure (see the list).); GET /test/outbox (Emails, SMS and alerts the application has sent.); GET /test/clock (The application's current date and time.)\nSimulated failures: payment_timeout, bank_server_error",
+ "drafts": [
+  {
+   "turn": 1,
+   "reply": "I understand you want to automate these steps:\n1. After login\n2. Locate EMI Details and click\n3. Now enter the account details\n4. Locate loan account and enter his account details\n\nI can see \"EMI Details\" as a navigation link in the application. However, I need a few more details:\n\n- For step 1 \"After login\" - should I log in using the test account (CUST001 / Pass@123)?\n- For step 3 \"enter the account details\" - which specific account details value should I enter, and into which field?\n- For step 4 \"enter his account details\" - which specific account number value should I enter into the loan account field?\n\nI don't have enough details to generate the code yet. I need:\n- Confirmation on whether to perform login in step 1\n- The specific account details value for step 3\n- The specific loan account value for step 4",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 1,
+   "reply": "I understand you want to automate these steps:\n1. After login\n2. Locate EMI Details and click\n3. Now enter the account details\n4. Locate loan account and enter his account details\n\nI can match \"EMI Details\" to a navigation element in the application, and \"loan account\" to an input field. However, I need a few details:\n\n- For step 1 (\"After login\"): What customer id and password should I use to log in?\n- For steps 3 and 4 (\"enter the account details\" / \"enter his account details\"): What specific account number value should I enter?\n- What should the test check after these steps are complete?\n\nI don't have enough details to generate the code yet. Once you provide the login credentials, the account number to enter, and what to verify, I can write the automation code for you.",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 1,
+   "reply": "I understand you want to:\n1. After login\n2. Locate EMI Details and click\n3. Now enter the account details\n4. Locate loan account and enter his account details\n\nI can see EMI Details in the application. However, I need a few more details:\n- For step 1 \"After login\" - which login details should I use?\n- For step 3 \"enter the account details\" - which specific account details value should I enter?\n- For step 4 \"enter his account details\" - which specific value should I enter in loan account?\n\nI don't have enough details to generate the code yet. Could you tell me what values to use for these steps?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 2,
+   "reply": "I understand you want to:\n- Locate Outstanding balance and 125000.00. If found pass the test case else fail\n\nI can see \"Outstanding balance\" in the application. However, I need more details:\n- Where should I locate \"Outstanding balance and 125000.00\"? Should I look for this on a specific page (like EMI Details page, or Loans page in the results table)?\n- What does \"If found\" mean - should I check if the outstanding balance equals 125000.00, or contains it, or something else?\n\nAlso, from the earlier conversation, I still need:\n- Which login details should I use for logging in?\n- Which loan account number should I enter?\n\nI don't have enough details to generate the code yet. Could you clarify these points?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 2,
+   "reply": "I understand you want to:\n- Locate Outstanding balance and 125000.00. If found pass the test case else fail\n\nI can see Outstanding balance in the application. However, I need more details:\n- Should I locate Outstanding balance after the steps from our earlier conversation (login, click EMI Details, enter account details)?\n- When you say \"locate Outstanding balance and 125000.00\" - do you mean check that Outstanding balance shows 125000.00, or something else?\n\nI don't have enough details to generate the code yet. Could you clarify what you want me to do with Outstanding balance and 125000.00?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 2,
+   "reply": "I understand you want to:\n- Locate Outstanding balance and 125000.00. If found pass the test case else fail\n\nI can see from the application that Outstanding balance appears in the EMI Details page as detail-outstanding-balance. However, I still need the missing details from the earlier steps:\n- For \"After login\" - which login credentials should I use?\n- For \"enter the account details\" - what specific value should I enter?\n- For \"enter his account details\" in loan account - what specific value should I use?\n\nI don't have enough details to generate the code yet. Could you provide these values so I can complete the automation?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 3,
+   "reply": "I understand you want me to generate the code now.\n\nLet me confirm what I have:\n1. After login (using test account credentials)\n2. Locate EMI Details and click\n3. Enter account details\n4. Enter loan account details\n5. Locate Outstanding balance and check if it equals 125000.00 - pass if found, fail otherwise\n\nHowever, I still need:\n- For step 3 \"enter the account details\" - which specific value should I enter?\n- For step 4 \"enter his account details\" - which specific loan account number should I enter?\n\nI don't have enough details to generate the code yet. Could you tell me what values to use for these steps?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 3,
+   "reply": "I understand you want me to generate the code now.\n\nLet me confirm what I have:\n1. After login\n2. Locate EMI Details and click\n3. Now enter the account details\n4. Locate loan account and enter his account details\n5. Locate Outstanding balance and 125000.00. If found pass the test case else fail\n\nI still need:\n- For step 1 \"After login\" - which login details should I use?\n- For step 3 \"enter the account details\" - which specific value should I enter?\n- For step 4 \"enter his account details\" - which specific value should I enter in loan account?\n\nI don't have enough details to generate the code yet. Could you tell me what values to use for these steps?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 3,
+   "reply": "I understand you'd like me to proceed with generating the code.\n\nLooking at your steps:\n1. After login - you haven't specified which login credentials to use\n2. Locate EMI Details and click - I can find this in the application\n3. Now enter the account details - you haven't specified which account number value to enter\n4. Locate loan account and enter his account details - you haven't specified which value to enter\n5. Locate Outstanding balance and 125000.00. If found pass the test case else fail - I can find Outstanding balance in the application\n\nI don't have enough details to generate the code yet. Could you tell me:\n- Which login credentials should I use for step 1?\n- Which specific account number value should I enter in step 3?\n- Which specific value should I enter in the loan account field in step 4?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 4,
+   "reply": "I understand you want to add a check: First check if you have logged in successfully. Try to locate Signed in as Test User.\n\nSo far, I have:\n1. After login (but I still need which login details to use)\n2. Locate EMI Details and click\n3. Now enter the account details (but I still need which specific account details value to enter)\n4. Locate loan account and enter his account details (but I still need which specific value to enter)\n5. Locate Outstanding balance and 125000.00. If found pass the test case else fail\n6. First check if you have logged in successfully. Try to locate Signed in as Test User\n\nI don't have enough details to generate the code yet. I still need:\n- For step 1 \"After login\" - which login details should I use?\n- For step 3 \"enter the account details\" - which specific account details value should I enter?\n- For step 4 \"enter his account details\" - which specific value to enter in loan account?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 4,
+   "reply": "I understand you want to add a check: verify that \"Signed in as Test User\" is located after logging in successfully.\n\nI can see the signed-in-user element in the application. However, I still need the missing details from before:\n- For \"After login\" - which login credentials should I use?\n- For \"enter the account details\" - what specific value should I enter?\n- For \"enter his account details\" in the loan account field - what specific value should I enter?\n\nI don't have enough details to generate the code yet. Could you provide these values?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 4,
+   "reply": "I understand you want to add a check: First check if you have logged in successfully. Try to locate Signed in as Test User.\n\nSo the full test is now:\n1. After login\n2. Locate EMI Details and click\n3. Now enter the account details\n4. Locate loan account and enter his account details\n5. Locate Outstanding balance and 125000.00. If found pass the test case else fail\n6. First check if you have logged in successfully. Try to locate Signed in as Test User\n\nI still need:\n- For step 1 \"After login\" - which login details should I use?\n- For step 3 \"enter the account details\" - which specific value should I enter?\n- For step 4 \"enter his account details\" - which specific value should I enter in loan account?\n\nI don't have enough details to generate the code yet. Could you tell me what values to use for these steps?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 5,
+   "reply": "I understand you want to:\nLocate EMI Payment and click\n\nI can see EMI Payment in the application. So far, your test includes:\n1. First check if you have logged in successfully. Try to locate Signed in as Test User\n2. Locate Outstanding balance and 125000.00. If found pass the test case else fail\n3. Locate EMI Payment and click\n\nBut I still need:\n- For the login step - which login details should I use?\n- For step 1 \"locate Signed in as Test User\" - should I check that this text is present?\n\nWhat would you like the test to do next?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 5,
+   "reply": "I understand you want to:\nLocate EMI Payment and click\n\nI can see EMI Payment in the application. Would you like me to write the code now?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 6,
+   "reply": "I understand you want to:\nLocate EMI Payment\n\nI can see EMI Payment in the application. However, I need more details:\n- What should the test do with EMI Payment? (click it, check something about it, etc.)\n\nI don't have enough details to generate the code yet. Could you tell me what action to take with EMI Payment?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 7,
+   "reply": "I understand you want to:\nAfter locating click it\n\nI can see EMI Payment in the application. Let me confirm I have all the steps so far:\n1. Login (need login details)\n2. Check if logged in successfully by locating \"Signed in as Test User\"\n3. Locate EMI Details and click\n4. Enter account details (need specific value)\n5. Locate loan account and enter account details (need specific value)\n6. Locate Outstanding balance and check if it equals 125000.00\n7. Locate EMI Payment and click it\n\nI still need:\n- Which login details to use for step 1?\n- Which specific account details value to enter in step 4?\n- Which specific loan account value to enter in step 5?\n\nI don't have enough details to generate the code yet. Could you tell me what values to use for these steps?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 7,
+   "reply": "I understand you want to:\nAfter locating click it\n\nI can see EMI Payment in the application. I have all the details I need. Should I write the code now?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 8,
+   "reply": "I understand you want to provide the account detail as SAV-1001.\n\nLet me confirm what I have so far:\n1. Login (need to know which login details to use)\n2. Check if logged in successfully by locating \"Signed in as Test User\"\n3. Locate EMI Details and click\n4. Enter account details (now I have SAV-1001)\n5. Locate loan account and enter account details (need to know which value)\n6. Locate Outstanding balance and check if it's 125000.00 (pass if found, fail otherwise)\n7. Locate EMI Payment and click it\n\nI still need a few more details:\n- For step 1: which login details should I use?\n- For step 5 \"Locate loan account and enter account details\": which specific value should I enter in the loan account field?\n\nI don't have enough details to generate the code yet. Could you tell me what values to use for these steps?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 8,
+   "reply": "I understand you want to use the account detail SAV-1001.\n\nLet me check if I have all the details I need:\n- Login with the test account (CUST001 / Pass@123)\n- Check if logged in successfully by locating \"Signed in as Test User\"\n- Locate EMI Details and click\n- Enter account details: SAV-1001\n- Locate Outstanding balance and check if it's 125000.00 (pass if found, fail if not)\n- Locate EMI Payment and click\n\nI can see all these elements in the application. However, I need one more detail:\n- After clicking EMI Details, where should I enter the account detail SAV-1001? (Which input or field should receive this value?)\n\nI don't have enough details to generate the code yet. Could you tell me where to enter SAV-1001?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 8,
+   "reply": "I understand you want to use the account detail SAV-1001.\n\nLooking at all the steps you've described:\n1. Login (using the test account)\n2. Check if logged in successfully by locating \"Signed in as Test User\"\n3. Locate EMI Details and click\n4. Enter account details (SAV-1001)\n5. Locate Outstanding balance and check for 125000.00 (pass if found, fail otherwise)\n6. Locate EMI Payment and click\n\nI can see EMI Details, Outstanding balance, and EMI Payment in the application. However, I need more details:\n- For step 4 \"enter account details\" - which specific element should I enter SAV-1001 into?\n\nI don't have enough details to generate the code yet. Could you tell me where to enter SAV-1001?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 9,
+   "reply": "I understand you want to:\nLocate Outstanding balance and verify it shows 125000.00. if so pass the test case, else fail it\n\nI can see outstanding_balance in the application. However, I need more details:\n- Where should the test locate Outstanding balance? (which page or API response should it check?)\n\nI don't have enough details to generate the code yet. Could you tell me where to find Outstanding balance?",
+   "code": null,
+   "followed_rules": false,
+   "why": "hints at an API check the candidate never mentioned"
+  },
+  {
+   "turn": 9,
+   "reply": "I understand you want to:\nLocate Outstanding balance and verify it shows 125000.00. if so pass the test case, else fail it\n\nI can see Outstanding balance in the application. I have all the details I need. Should I write the code now?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 9,
+   "reply": "I understand you want to:\nLocate Outstanding balance and verify it shows 125000.00. if so pass the test case, else fail it\n\nI can see Outstanding balance in the application. I have all the details I need. Would you like me to generate the code now?",
+   "code": null,
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 10,
+   "reply": "I understand you want me to generate the code now.\n\nI have all the details I need from our conversation:\n1. Login (using the test account)\n2. Check if logged in successfully by locating \"Signed in as Test User\"\n3. Locate EMI Details and click\n4. Enter account details SAV-1001\n5. Locate EMI Payment and click\n6. Locate Outstanding balance and verify it shows 125000.00\n\nGenerating the code now.",
+   "code": "import os\nimport sys\nimport traceback\nfrom selenium import webdriver\nfrom selenium.webdriver.common.by import By\nfrom selenium.webdriver.chrome.options import Options as ChromeOptions\n\ndef incomplete(step):\n    print(\"INCOMPLETE: \" + step)\n    sys.exit(3)\n\ndef main():\n    driver = None\n    try:\n        # Setup\n        options = ChromeOptions()\n        options.add_argument('--headless=new')\n        driver = webdriver.Remote(os.environ[\"SELENIUM_GRID_URL\"], options=options)\n        practice_url = os.environ[\"PRACTICE_APP_URL\"]\n        \n        # Step 1: After login\n        try:\n            driver.get(practice_url + \"/page/login\")\n            driver.find_element(By.ID, \"customer_id\").send_keys(\"CUST001\")\n            driver.find_element(By.ID, \"password\").send_keys(\"Pass@123\")\n            driver.find_element(By.ID, \"login\").click()\n        except Exception as e:\n            print(f\"FAIL: step 1 - After login: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        # Step 2: Check if logged in successfully by locating Signed in as Test User\n        try:\n            signed_in_text = driver.find_element(By.ID, \"signed-in-user\").text\n            if \"Signed in as Test User\" in signed_in_text:\n                print(\"PASS: Signed in as Test User found\")\n            else:\n                print(f\"FAIL: Signed in as Test User - expected 'Signed in as Test User', got '{signed_in_text}'\")\n                sys.exit(1)\n        except Exception as e:\n            print(f\"FAIL: step 2 - Check if logged in successfully by locating Signed in as Test User: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        # Step 3: Locate EMI Details and click\n        try:\n            driver.find_element(By.ID, \"nav-emi-details\").click()\n        except Exception as e:\n            print(f\"FAIL: step 3 - Locate EMI Details and click: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        # Step 4: Enter account details SAV-1001\n        try:\n            driver.find_element(By.ID, \"loan_account\").send_keys(\"SAV-1001\")\n        except Exception as e:\n            print(f\"FAIL: step 4 - Enter account details SAV-1001: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        # Step 5: Locate EMI Payment and click\n        try:\n            driver.find_element(By.ID, \"nav-emi-payment\").click()\n        except Exception as e:\n            print(f\"FAIL: step 5 - Locate EMI Payment and click: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        # Step 6: Locate Outstanding balance and verify it shows 125000.00\n        try:\n            outstanding_balance = driver.find_element(By.ID, \"detail-outstanding-balance\").text\n            if \"125000.00\" in outstanding_balance:\n                print(\"PASS: Outstanding balance shows 125000.00\")\n            else:\n                print(f\"FAIL: Outstanding balance - expected '125000.00', got '{outstanding_balance}'\")\n                sys.exit(1)\n        except Exception as e:\n            print(f\"FAIL: step 6 - Locate Outstanding balance and verify it shows 125000.00: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        print(\"PASS: all steps and checks passed\")\n        \n    finally:\n        if driver:\n            driver.quit()\n\nif __name__ == \"__main__\":\n    main()\n",
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 10,
+   "reply": "I understand you want me to generate the code now.\n\nI have all the steps you described:\n1. Login with test account credentials\n2. Check if logged in successfully by locating \"Signed in as Test User\"\n3. Locate EMI Details and click\n4. Enter account details SAV-1001\n5. Locate EMI Payment and click\n6. Locate Outstanding balance and verify it shows 125000.00\n\nI'll write the code now.",
+   "code": "import os\nimport sys\nimport traceback\nfrom selenium import webdriver\nfrom selenium.webdriver.common.by import By\nfrom selenium.webdriver.chrome.options import Options as ChromeOptions\n\ndef incomplete(step):\n    print(\"INCOMPLETE: \" + step)\n    sys.exit(3)\n\ndef main():\n    driver = None\n    try:\n        options = ChromeOptions()\n        options.add_argument('--headless=new')\n        driver = webdriver.Remote(os.environ[\"SELENIUM_GRID_URL\"], options=options)\n        \n        step = 1\n        try:\n            driver.get(os.environ[\"PRACTICE_APP_URL\"] + \"/page/login\")\n            driver.find_element(By.ID, \"customer_id\").send_keys(\"CUST001\")\n            driver.find_element(By.ID, \"password\").send_keys(\"Pass@123\")\n            driver.find_element(By.ID, \"login\").click()\n        except Exception as e:\n            print(f\"FAIL: step {step} - After login: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        step = 2\n        try:\n            signed_in_text = driver.find_element(By.ID, \"signed-in-user\").text\n            if \"Signed in as Test User\" in signed_in_text:\n                print(\"PASS: Signed in as Test User found\")\n            else:\n                print(f\"FAIL: Signed in as Test User - expected 'Signed in as Test User', got '{signed_in_text}'\")\n                sys.exit(1)\n        except Exception as e:\n            print(f\"FAIL: step {step} - First check if you have logged in successfully. Try to locate Signed in as Test User: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        step = 3\n        try:\n            driver.find_element(By.ID, \"nav-emi-details\").click()\n        except Exception as e:\n            print(f\"FAIL: step {step} - Locate EMI Details and click: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        step = 5\n        try:\n            driver.find_element(By.ID, \"loan_account\").send_keys(\"SAV-1001\")\n        except Exception as e:\n            print(f\"FAIL: step {step} - Now enter the account details: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        step = 7\n        try:\n            driver.find_element(By.ID, \"nav-emi-payment\").click()\n        except Exception as e:\n            print(f\"FAIL: step {step} - Locate EMI Payment and click: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        step = 8\n        try:\n            outstanding_balance = driver.find_element(By.ID, \"detail-outstanding-balance\").text\n            if \"125000.00\" in outstanding_balance:\n                print(\"PASS: Outstanding balance shows 125000.00\")\n            else:\n                print(f\"FAIL: Outstanding balance - expected '125000.00', got '{outstanding_balance}'\")\n                sys.exit(1)\n        except Exception as e:\n            print(f\"FAIL: step {step} - Locate Outstanding balance and verify it shows 125000.00: {str(e)}\")\n            traceback.print_exc(file=sys.stderr)\n            sys.exit(1)\n        \n        print(\"PASS: all steps and checks passed\")\n        \n    finally:\n        if driver:\n            driver.quit()\n\nif __name__ == \"__main__\":\n    main()\n",
+   "followed_rules": true,
+   "why": ""
+  },
+  {
+   "turn": 10,
+   "reply": "I understand you want me to generate the code now.\n\nI have all the steps you described:\n1. Login with test account credentials\n2. Check if logged in successfully by locating \"Signed in as Test User\"\n3. Locate EMI Details and click\n4. Enter account details SAV-1001\n5. Locate Outstanding balance and verify it shows 125000.00\n6. Locate EMI Payment and click\n7. Locate Outstanding balance and verify it shows 125000.00\n\nGenerating the code now.",
+   "code": "import os\nimport sys\nfrom selenium import webdriver\nfrom selenium.webdriver.chrome.options import Options as ChromeOptions\nfrom selenium.webdriver.common.by import By\nfrom selenium.webdriver.support.ui import WebDriverWait\nfrom selenium.webdriver.support import expected_conditions as EC\n\ndef incomplete(step):\n    print(\"INCOMPLETE: \" + step)\n    sys.exit(3)\n\ndriver = None\n\ntry:\n    # Setup\n    chrome_options = ChromeOptions()\n    chrome_options.add_argument(\"--headless=new\")\n    driver = webdriver.Remote(os.environ[\"SELENIUM_GRID_URL\"], options=chrome_options)\n    practice_url = os.environ[\"PRACTICE_APP_URL\"]\n    \n    # Step 1: After login\n    try:\n        driver.get(practice_url + \"/page/login\")\n        customer_id_field = driver.find_element(By.ID, \"customer_id\")\n        customer_id_field.send_keys(\"CUST001\")\n        password_field = driver.find_element(By.ID, \"password\")\n        password_field.send_keys(\"Pass@123\")\n        login_button = driver.find_element(By.ID, \"login\")\n        login_button.click()\n    except Exception as e:\n        print(f\"FAIL: step 1 - After login: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    # Step 2: Check if logged in successfully - locate Signed in as Test User\n    try:\n        signed_in_user = driver.find_element(By.ID, \"signed-in-user\")\n        if \"Test User\" in signed_in_user.text:\n            print(\"PASS: Signed in as Test User found\")\n        else:\n            print(f\"FAIL: Signed in as Test User - expected 'Test User', got '{signed_in_user.text}'\")\n            sys.exit(1)\n    except Exception as e:\n        print(f\"FAIL: step 2 - Check if logged in successfully by locating Signed in as Test User: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    # Step 3: Locate EMI Details and click\n    try:\n        emi_details_link = driver.find_element(By.ID, \"nav-emi-details\")\n        emi_details_link.click()\n    except Exception as e:\n        print(f\"FAIL: step 3 - Locate EMI Details and click: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    # Step 4: Enter account details SAV-1001\n    try:\n        driver.get(practice_url + \"/page/loans\")\n        loan_account_field = driver.find_element(By.ID, \"loan_account\")\n        loan_account_field.send_keys(\"SAV-1001\")\n        view_emi_details_button = driver.find_element(By.ID, \"view-emi-details\")\n        view_emi_details_button.click()\n    except Exception as e:\n        print(f\"FAIL: step 4 - Enter account details SAV-1001: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    # Step 5: Locate Outstanding balance and verify it shows 125000.00\n    try:\n        outstanding_balance = driver.find_element(By.ID, \"detail-outstanding-balance\")\n        if \"125000.00\" in outstanding_balance.text:\n            print(\"PASS: Outstanding balance shows 125000.00\")\n        else:\n            print(f\"FAIL: Outstanding balance - expected '125000.00', got '{outstanding_balance.text}'\")\n            sys.exit(1)\n    except Exception as e:\n        print(f\"FAIL: step 5 - Locate Outstanding balance and verify it shows 125000.00: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    # Step 6: Locate EMI Payment and click\n    try:\n        emi_payment_link = driver.find_element(By.ID, \"nav-emi-payment\")\n        emi_payment_link.click()\n    except Exception as e:\n        print(f\"FAIL: step 6 - Locate EMI Payment and click: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    # Step 7: Locate Outstanding balance and verify it shows 125000.00\n    try:\n        incomplete(\"Locate Outstanding balance and verify it shows 125000.00\")\n    except Exception as e:\n        print(f\"FAIL: step 7 - Locate Outstanding balance and verify it shows 125000.00: {str(e)}\", file=sys.stderr)\n        import traceback\n        traceback.print_exc()\n        sys.exit(1)\n    \n    print(\"PASS: all steps and checks passed\")\n    \nfinally:\n    if driver:\n        driver.quit()\n",
+   "followed_rules": true,
+   "why": ""
+  }
+ ]
+}

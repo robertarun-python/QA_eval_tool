@@ -61,3 +61,14 @@ def test_a_live_round2_gets_todays_screens_not_the_copy_saved_at_approval():
     loans = next(p for p in panel["pages"] if p["name"] == "Loans")
     assert "LN-45678" in _text(loans["source"])
     assert reference.current_panel({"reference_panel": stale}) is None  # an older practice app has none
+
+
+def test_a_value_shown_under_a_label_is_listed_with_that_label():
+    """Owner's Round 2 (2026-09-28): "Outstanding balance" on the EMI Details page was listed only as
+    dd id=detail-outstanding-balance, so the assistant asked which page it was on instead of finding it."""
+    from app.services.practice_engine import reference
+    parser = reference._Elements()
+    parser.feed('<dl><dt>Outstanding balance</dt><dd id="detail-outstanding-balance">125000.00</dd></dl>')
+    lines = [reference._element_line(el, parser.labels) for el in parser.items]
+    assert 'dd labelled "Outstanding balance" id=detail-outstanding-balance' in lines
+    assert not any("125000" in line for line in lines)  # the value itself is data, never listed

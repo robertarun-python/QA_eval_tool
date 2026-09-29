@@ -155,7 +155,7 @@ def test_round2_shows_ai_errors_beside_the_test_case():
     from .page_js import page_js
     js = page_js()
     assert 'id="r4a-tc-status-${row.index}"' in js
-    assert re.search(r'auto/turn".*?\),\s*rowIndex, "Asking the assistant', js, re.S)
+    assert re.search(r'auto/turn".*?[)}],\s*rowIndex, "Asking the assistant', js, re.S)
 
 
 # ---- replies that aren't valid JSON: one corrective retry ----

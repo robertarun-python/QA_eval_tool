@@ -374,6 +374,8 @@ def round3_coding_turn(payload: Round3TurnCreate, db: Session = Depends(get_db),
                 declared_constructs=declared_constructs,
                 io_format=scenario.round3_io_format,
             )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -417,6 +419,8 @@ def round3_coding_direct_edit(payload: Round3DirectEditCreate, db: Session = Dep
                 required_constructs=required_constructs,
                 declared_constructs=declared_constructs,
             )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try saving again.")
@@ -705,6 +709,13 @@ def _auto_environment_code(scenario: Scenario, language: str) -> str:
     if configured.get(language):
         return configured[language]
     return llm_service._load_prompt(_AUTO_LANGUAGE_HELPER_FILES[language])
+
+
+def _paused(limit: "llm_service.AIBudgetReached") -> HTTPException:
+    """A spending limit stopped the assistant before any AI call: nothing of the candidate's is lost (a turn
+    is saved only after its reply), and the candidate is told to contact HR - never the amounts. HR sees
+    which limit on the AI health card."""
+    return HTTPException(429, limit.candidate_message)
 
 
 def _practice_spec(scenario: Scenario) -> dict | None:
@@ -1062,6 +1073,18 @@ _FILLER_WORDS = {"please", "pls", "can", "could", "would", "you", "the", "a", "a
 _EXACT_VALUE_RE = re.compile(r"""["'][^"']*["']|\d+(?:\.\d+)?|[\w.+-]+@[\w.-]+""")
 
 
+def _test_data_now(row: dict) -> str:
+    """The test data as it stands - the candidate's correction (Save test data) if they made one."""
+    return str(row.get("test_data_override") or row.get("test_data") or "")
+
+
+def _identical_message(a: str | None, b: str | None) -> bool:
+    """Word for word the same message (case, spacing and end punctuation aside) - a reworded one is new."""
+    def norm(t: str | None) -> str:
+        return " ".join((t or "").lower().split()).strip(" .!?")
+    return bool(norm(a)) and norm(a) == norm(b)
+
+
 def _same_message(a: str | None, b: str | None) -> bool:
     """The same request again, even reworded ("write code to log in" / "please
     write the code to log in again"): the same exact values (numbers, quoted
@@ -1115,14 +1138,28 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
 
     turns = list(row.get("turns") or [])
     conversation_so_far = [
-        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind")} for t in turns
+        {"candidate_prompt": t["candidate_prompt"], "response_message": t["response_message"], "response_kind": t.get("response_kind"),
+         **({"steps": t["steps"]} if isinstance(t.get("steps"), list) else {})} for t in turns
     ]
     language = content.get("language", "python")
     if _practice_spec(scenario) is not None:  # the typing assistant: it never sees the application
+        last = turns[-1] if turns else None
+        if (last and _identical_message(last.get("candidate_prompt"), payload.candidate_prompt)
+                and last.get("state_seen") == _state_fingerprint(row) and last.get("test_data_seen", _test_data_now(row)) == _test_data_now(row)):
+            # The same message again, and nothing changed since (no edit, no Run, same test data): the earlier
+            # reply still stands - given again with no AI call (simulated candidates, 2026-09-28: "Just generate
+            # the code" twice paid for the same program twice).
+            response = {"response_kind": "explain" if last.get("response_kind") == "code_edit" else last.get("response_kind", "clarify"),
+                        "response_message": last.get("response_message") or REPEAT_MESSAGE, "code_after": None}
+            if isinstance(last.get("steps"), list):
+                response["steps"] = last["steps"]
+            return _record_round2_turn(submission, content, selected, row, turns, payload.candidate_prompt, db, response)
         try:
             app_reference = reference.assistant_reference(reference.current_panel({**(scenario.config_json or {}), "practice_spec": _practice_spec(scenario)}))
             response = round2_typist.turn(language, row, conversation_so_far, row.get("code", ""), payload.candidate_prompt,
                                           app_reference=app_reference)
+        except llm_service.AIBudgetReached as limit:
+            raise _paused(limit)
         except Exception:
             traceback.print_exc()
             raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -1183,6 +1220,8 @@ def _round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session, ca
                 conversation_so_far=conversation_so_far,
                 candidate_prompt=payload.candidate_prompt,
             )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")
@@ -1197,6 +1236,10 @@ def _record_round2_turn(submission, content, selected, row, turns, candidate_pro
         "response_message": response["response_message"],
         "code_after": response.get("code_after"),
     }
+    if isinstance(response.get("steps"), list):
+        turn_record["steps"] = response["steps"]
+    if "steps" in response:  # the typing assistant's turns: what the test data was, for the same-message check
+        turn_record["test_data_seen"] = _test_data_now(row)
     for key in ("planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"):  # assessor-only - see schemas.SubmissionOut
         if response.get(key):
             turn_record[key] = response[key]
@@ -1250,6 +1293,8 @@ def round2_automation_clarify(payload: Round2AutomationClarifyCreate, db: Sessio
             conversation_so_far=conversation_so_far,
             candidate_prompt=payload.candidate_prompt,
         )
+    except llm_service.AIBudgetReached as limit:
+        raise _paused(limit)
     except Exception:
         traceback.print_exc()  # the real cause - the candidate/HR only sees the generic message
         raise HTTPException(502, "The assistant had trouble responding just now - try sending your message again.")

@@ -22,7 +22,7 @@ from app.services.practice_engine import render, validate
 
 LIBRARY = Path(__file__).parent / "fixtures" / "practice_engine" / "real_outputs"
 BUILDS = sorted((LIBRARY / "builds").glob("*.json"))
-ASSISTANT = sorted((LIBRARY / "assistant").glob("*.json"))
+ASSISTANT = sorted(p for p in (LIBRARY / "assistant").glob("*.json") if not p.stem.endswith("_conversation") and p.stem != "simulated_java_programs")
 
 
 def _load(path):
@@ -73,11 +73,23 @@ def test_real_assistant_reply_judged_as_recorded(r):
 # Drafts the real AI wrote that broke the rules (paid assistant checks,
 # 2026-09-27); the replacement reply went out, the draft never did.
 REAL_BAD_DRAFTS = [
-    ("Automate TC-01. Log in as Priya. Generate it.",
-     "I need to know: What's the URL or page where I start? Which field takes the email?"),
     ("Log in as Priya through the API.",
      "Should I POST to /api/login and expect 200?"),
+    # owner's Round 2, 2026-09-28: they never mentioned the API - a hint at a scored kind of check
+    ("Locate Outstanding balance and verify it shows 125000.00. if so pass the test case, else fail it",
+     "Where should the test locate Outstanding balance? (which page or API response should it check?)"),
 ]
+# Asking which page or field a step means is how the assistant asks for a detail (agreed design,
+# 2026-09-28) - this draft was blocked under the old "knows nothing" rules and is fine now.
+REAL_ASKING_DRAFTS = [
+    ("Automate TC-01. Log in as Priya. Generate it.",
+     "I need to know: What's the URL or page where I start? Which field takes the email?"),
+]
+
+
+@pytest.mark.parametrize("said,draft", REAL_ASKING_DRAFTS)
+def test_real_asking_drafts_let_through(said, draft):
+    assert round2_typist.unsaid(draft, said, code=False) == []
 
 
 @pytest.mark.parametrize("said,draft", REAL_BAD_DRAFTS)
@@ -98,3 +110,41 @@ def test_reference_conflicts_flag_only_the_real_ones(path):
         title = str(c["title"]).strip().lower()
         flagged = bool(reference_conflicts(entry.get("reference_expected", {}).get(title, ""), c))
         assert flagged == ((path.stem, title) in KNOWN_CONFLICTS), f"{c['title']}: flagged={flagged}"
+
+
+# Whole real conversations, judged turn by turn exactly as the assistant judges them live: what the
+# candidate had said by then (their Round 1 case once they point at it), the Reference the AI saw.
+CONVERSATIONS = sorted((LIBRARY / "assistant").glob("*_conversation.json"))
+
+
+def _conversation_drafts():
+    for path in CONVERSATIONS:
+        entry = _load(path)
+        for i, d in enumerate(entry["drafts"]):
+            yield pytest.param(entry, d, id=f"{path.stem}:turn{d['turn']}:{i}")
+
+
+@pytest.mark.parametrize("entry,draft", list(_conversation_drafts()))
+def test_real_conversation_drafts_judged_as_recorded(entry, draft):
+    msgs, n = entry["messages"], draft["turn"] - 1
+    said = round2_typist.candidate_text(entry["design"], [{"candidate_prompt": m} for m in msgs[:n]], msgs[n])
+    ref = entry["app_reference"]
+    reply_said = said + "\n" + "\n".join(round2_typist._ACCOUNTS_LINE_RE.findall(ref)) if round2_typist._ACCOUNT_REF_RE.search(said) else said
+    reply_said += "\n" + " ".join(round2_typist._REF_ID_RE.findall(ref))
+    named = round2_typist.unsaid(draft["reply"], reply_said, code=False)
+    if round2_typist.wants_code(msgs[n], []):
+        named += round2_typist.unsaid(draft["code"], said + "\n" + round2_typist._reference_terms(ref, said), code=True)
+    if draft["followed_rules"]:
+        assert named == [], f"a correct draft would be blocked for {named}"
+    else:
+        assert named, f"a draft that {draft['why']} would get through"
+
+
+SIM_PROGRAMS = _load(LIBRARY / "assistant" / "simulated_java_programs.json")["programs"]
+
+
+@pytest.mark.parametrize("p", SIM_PROGRAMS, ids=lambda p: p["persona"])
+def test_real_programs_that_typed_the_values_as_asked_pass_the_typed_values_check(p):
+    """Run 3 of the simulated candidates (2026-09-28): this check misfired and withheld correct code
+    for 12 turns. Every real program here typed what its candidate asked."""
+    assert round2_typist._values_not_typed(p["said"], p["code"], p["own"]) == []

@@ -214,7 +214,7 @@ class _Elements(HTMLParser):
     text element that has an id, with their id/name/type - one line each."""
     def __init__(self):
         super().__init__()
-        self.items, self.labels, self._open, self._skip = [], {}, [], 0
+        self.items, self.labels, self._open, self._skip, self._term = [], {}, [], 0, ""
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
@@ -234,6 +234,10 @@ class _Elements(HTMLParser):
             if self._open[i]["tag"] == tag:
                 el = self._open.pop(i)
                 el["text"] = " ".join(el["text"].split())
+                if tag == "dt":
+                    self._term = el["text"]  # the visible label of the value that follows
+                if tag == "dd" and self._term:
+                    el["label"] = self._term
                 if tag == "label" and el.get("for"):
                     self.labels[el["for"]] = el["text"]
                 elif tag in ("button", "a", "h1", "h2", "h3", "th", "table") or el.get("id"):
@@ -251,6 +255,10 @@ def _element_line(el: dict, labels: dict) -> str:
     bits = [el["tag"]]
     if el["tag"] in ("input", "select", "textarea") and el.get("id") in labels:
         bits.append(f'labelled "{labels[el["id"]]}"')
+    elif el.get("label"):
+        # a value shown under a label ("Outstanding balance") is found by that label - without it the
+        # assistant couldn't match the candidate's words to the value (owner's Round 2, 2026-09-28)
+        bits.append(f'labelled "{el["label"][:60]}"')
     if el.get("text") and el["tag"] not in ("dd", "span", "table"):  # values are data - the id says what it is
         bits.append(f'text "{el["text"][:60]}"')
     for k in ("id", "name", "type", "href"):
@@ -265,7 +273,9 @@ def assistant_reference(panel: dict | None, round1_address: str = "") -> str:
         return "(no application reference - older practice app)"
     out = [f"APPLICATION: {panel.get('app_name') or ''}",
            f"Address: PRACTICE_APP_URL in code (the address Round 1 showed, {panel.get('web_address') or round1_address or '-'}, is the same app)",
-           "API base: PRACTICE_API_URL; database file: PRACTICE_DB (SQLite); browser: SELENIUM_GRID_URL",
+           "API: the paths listed below go after PRACTICE_APP_URL (PRACTICE_APP_URL ends with \"/\": PRACTICE_APP_URL + "
+           "\"api/login\"); PRACTICE_API_URL is PRACTICE_APP_URL + \"api/\" (so PRACTICE_API_URL + \"login\"). "
+           "Database file: PRACTICE_DB (SQLite); browser: SELENIUM_GRID_URL",
            "Test accounts (as the Reference shows them): " + "; ".join(
                f"login {a.get('login')} / password {a.get('password')} ({a.get('name')})" for a in panel.get("accounts") or [])]
     for page in panel.get("pages") or []:

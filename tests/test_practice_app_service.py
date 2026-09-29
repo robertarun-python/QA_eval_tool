@@ -193,7 +193,8 @@ def test_a_rebuild_reuses_the_facts_candidates_already_see(client, monkeypatch, 
     calls = _fake_factory(monkeypatch)
     client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
     client.post(f"/hr/scenarios/{r1['id']}/practice-app/approve", cookies=_auth(token))
-    client.post(f"/hr/scenarios/{r1['id']}/practice-app", cookies=_auth(token))
+    # the test cases are unchanged, so only a fresh build asked for on purpose runs (see test_round2_p0_savings)
+    client.post(f"/hr/scenarios/{r1['id']}/practice-app?fresh=true", cookies=_auth(token))
     assert calls[1]["known_facts"]["fields"]["Test account email"] == "qa.patient.demo@testportal.io"
 
 

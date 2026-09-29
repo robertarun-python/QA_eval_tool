@@ -215,14 +215,21 @@ function aiBudgetHtml(s) {
     : used >= 0.8 ? `<span class="error-text">Over 80% of the limit used.</span>` : "";
   return `
     <p>This month's AI spend: <strong>$${Number(s.month_usd).toFixed(2)}</strong> of the <strong>$${Number(s.monthly_limit_usd).toFixed(2)}</strong> monthly limit. ${note}</p>
-    <p><label>Monthly limit (US$) <input id="ai-budget-input" type="number" min="0" max="10000" step="1" value="${Number(s.monthly_limit_usd)}" style="width:6em"></label>
-      <button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limit</button> <span id="ai-budget-status" class="muted"></span></p>`;
+    <div class="ai-limits">
+      <label for="ai-budget-input">Monthly limit (US$)</label><input id="ai-budget-input" type="number" min="0" max="10000" step="1" value="${Number(s.monthly_limit_usd)}">
+      ${Object.entries(s.limit_labels || {}).map(([key, label]) => `<label for="ai-limit-${key}">${escapeHtml(label)}</label><input id="ai-limit-${key}" class="ai-limit-input" data-limit="${key}" type="number" min="0" step="${key === "candidate_round_calls" ? 1 : 0.05}" value="${Number((s.limits || {})[key])}">`).join("")}
+    </div>
+    <p><button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limits</button> <span id="ai-budget-status" class="muted"></span></p>
+    ${(s.limits_reached || []).length ? `<p class="error-text">Limits reached recently - the AI call was stopped before it was made (raise the limit above to let it continue):</p>
+      <ul>${s.limits_reached.map((b) => `<li>${escapeHtml(b.at || "")} &middot; <strong>${escapeHtml(((s.limit_labels || {})[b.limit]) || "Monthly limit")}</strong>${b.email ? ` &middot; ${escapeHtml(b.email)}` : ""}${b.round_number ? ` &middot; round ${escapeHtml(String(b.round_number))}` : ""} &middot; ${escapeHtml(b.detail || "")}</li>`).join("")}</ul>` : ""}`;
 }
 
 async function saveAiBudget() {
   const status = document.getElementById("ai-budget-status");
   try {
-    await api("/hr/ai-budget", { method: "PUT", body: JSON.stringify({ monthly_usd: Number(document.getElementById("ai-budget-input").value) }) });
+    const body = { monthly_usd: Number(document.getElementById("ai-budget-input").value) };
+    document.querySelectorAll(".ai-limit-input").forEach((el) => { body[el.dataset.limit] = Number(el.value); });
+    await api("/hr/ai-budget", { method: "PUT", body: JSON.stringify(body) });
     status.textContent = "Saved.";
     loadAiHealth();
   } catch (e) {
@@ -782,7 +789,10 @@ function practiceAppReadyLine(d, stats) {
 
 function renderPracticeAppPanel(id, d) {
   const intro = `<p class="muted">In Round 2, candidates automate the test cases they designed in Round 1, against a small pretend version of this application. Build it here: it is checked automatically against every reference test case in Python, JavaScript and Java before you can approve it.</p>`;
-  const buildButton = (label) => d.cannot_start
+  // Round 1 test cases unchanged since the approved build: say so, and a fresh (paid) build only on purpose.
+  const buildButton = (label) => d.unchanged
+    ? `<span class="muted">${escapeHtml(d.unchanged_message || "")}</span> <button class="btn-secondary" onclick="buildPracticeApp(${id}, true)">Build fresh anyway (paid)</button>`
+    : d.cannot_start
     ? `<p class="muted">${escapeHtml(d.cannot_start)}</p>`
     : `<button onclick="buildPracticeApp(${id})">${label}</button>`;
   const approved = d.approved_round2_scenario_id
@@ -824,7 +834,12 @@ async function buildPracticeAppFromRound2(round1Id) {
   const status = document.getElementById("practice-app-r2-status");
   if (status) { status.className = "muted"; status.textContent = "Starting…"; }
   try {
-    await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
+    const result = await api(`/hr/scenarios/${round1Id}/practice-app`, { method: "POST" });
+    if (result && result.unchanged) {  // nothing built, nothing paid - the approved app stays
+      buttons.forEach((b) => { b.disabled = false; });
+      if (status) { status.className = "muted"; status.textContent = result.message; }
+      return;
+    }
   } catch (e) {
     buttons.forEach((b) => { b.disabled = false; });
     if (status) { status.className = "error-text"; status.textContent = e.message; }
@@ -983,10 +998,15 @@ function showToast(message, kind = "info", action = null) {
 // Pick up builds started before a page reload.
 startPracticeAppWatch();
 
-async function buildPracticeApp(id) {
+async function buildPracticeApp(id, fresh = false) {
   if (!confirm(`Build the Round 2 practice app for this scenario? ${PRACTICE_APP_BUILD_COST} Nothing changes for candidates until you approve it.`)) return;
   try {
-    await api(`/hr/scenarios/${id}/practice-app`, { method: "POST" });
+    const result = await api(`/hr/scenarios/${id}/practice-app` + (fresh ? "?fresh=true" : ""), { method: "POST" });
+    if (result && result.unchanged) {  // nothing built, nothing paid - the approved app stays
+      const status = document.getElementById("practice-app-status");
+      if (status) status.textContent = result.message;
+      return;
+    }
   } catch (e) {
     const status = document.getElementById("practice-app-status");
     if (status) status.textContent = e.message;

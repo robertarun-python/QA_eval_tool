@@ -89,9 +89,18 @@ def _reply(caller: str, prompt: str):
     if caller == "turn":  # round2_typist.turn - the Round 2 typing assistant
         said = " ".join((_between(prompt, "<candidate_message>", "</candidate_message>") or "").split())
         code = None
-        if re.search(r"\b(generate|write|create)\b", said, re.I):  # asked for code: the current file, unchanged
-            code = (_between(prompt, "<candidate_code>", "</candidate_code>") or "").strip("\n") + "\n"
-        return {"reply": "Fake AI mode - the assistant would write down: " + said[:200], "code": code}
+        # the test so far as the tool keeps it, plus this message as a step unless it asks for code
+        steps = [{"step": re.sub(r"^\d+\.\s*", "", line).split("  [missing:")[0].strip(), "missing": ""}
+                 for line in (_between(prompt, "<steps_so_far>", "</steps_so_far>") or "").splitlines()
+                 if re.match(r"^\d+\.\s", line.strip())]
+        if re.search(r"\b(generate|write|create)\b", said, re.I):  # asked for code: the current file, with the steps noted
+            lang = (re.search(r"^LANGUAGE: (\w+)", prompt, re.M) or [None, "python"])[1]
+            mark = "#" if lang == "python" else "//"
+            code = ((_between(prompt, "<candidate_code>", "</candidate_code>") or "").strip("\n") + "\n"
+                    + "".join(f"{mark} step: \"{x.replace(chr(34), chr(39))}\"\n" for x in [s["step"] for s in steps] + [said]))
+        elif said:
+            steps.append({"step": said[:300], "missing": ""})
+        return {"reply": "Fake AI mode - the assistant would write down: " + said[:200], "steps": steps, "code": code}
     if caller == "round2_automation_clarify":
         return {"status": "sufficient", "question": None, "prior_value": None, "current_value": None}
     if caller in ("round2_automation_turn", "_round3_coding_turn_once"):

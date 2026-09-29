@@ -179,3 +179,21 @@ def test_pages_need_sign_in_and_each_browser_has_its_own_session(app):
     with pytest.raises(urllib.error.HTTPError) as err:
         anonymous.get("/page/nowhere")
     assert err.value.code == 404 and "Page not found" in err.value.read().decode()
+
+
+def test_after_a_lookup_form_the_address_is_the_pages_own(app):
+    """A simulated candidate (2026-09-28) checked the address after "View EMI Details" against the page
+    listed in the Reference and got /ui/query/... - every form now lands on its page's own address, with
+    the results still shown."""
+    base, _ = app
+    b = Browser(base)
+    b.post("/ui/login", {"email": "testuser@library.test", "password": "Test@123"})
+    b.get("/page/search")                               # the search form is on the Search page
+    with b.opener.open(base + "/ui/query/search_books?term=gatsby") as res:
+        page, address = res.read().decode(), res.geturl()
+    assert address.endswith("/page/search?shown=1") and '<table id="results">' in page and "The Great Gatsby" in page
+    with b.opener.open(base + "/ui/query/open_book?book_id=BK-001") as res:
+        page, address = res.read().decode(), res.geturl()
+    assert "/page/book-details?shown=1" in address and text_of(page, "page-title") == "Book Details"
+    page = b.get("/page/search")                        # opening the page again starts it fresh
+    assert "The Great Gatsby" not in page

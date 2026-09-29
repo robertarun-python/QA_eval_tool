@@ -4,6 +4,7 @@ as text - never as live HTML on the candidate's screen. Runs the page's own
 round2AutomationPanelHtml in Node. No AI calls.
 """
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -49,3 +50,13 @@ process.stdout.write(vm.runInContext("round2AutomationPanelHtml(panel)", ctx));
     assert len(frames) == len(panel["pages"]) and all("&lt;form" in f or "&lt;html" in f for f in frames)
     assert out.count("<iframe") == len(frames)  # no frame without the sandbox
     assert all("pointer-events:none" in f for f in frames)  # a picture: clicking a link used to blank the frame
+
+
+def test_the_failing_step_is_shown_even_when_printed_to_the_error_output():
+    import subprocess
+    js = (JS / "round2_automation.js").read_text()
+    fn = re.search(r"function round2AutomationFirstFailHtml[\s\S]*?\n}\n", js).group(0)
+    script = ("const escapeHtml = (s) => s;\n" + fn + "\nprocess.stdout.write(round2AutomationFirstFailHtml("
+              "{stdout: '', stderr: 'FAIL: step 2 - Locate Signed in as Test User: no such element\\nStacktrace:'}, false));")
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True, check=True).stdout
+    assert "FAIL: step 2 - Locate Signed in as Test User: no such element" in out

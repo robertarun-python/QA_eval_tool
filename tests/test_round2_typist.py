@@ -115,7 +115,7 @@ def test_run_status(exit_code, stdout, timed_out, infra, status):
 
 def test_the_prompt_template_formats():
     text = llm_service._load_prompt("round2_typist_turn.txt").format(language="java", conventions="c", design="d", current_code="",
-                                                                   conversation="", candidate_prompt="p", app_reference="a")
+                                                                   conversation="", candidate_prompt="p", app_reference="a", steps_so_far="s")
     assert '{"reply"' in text and "<<CACHE_BREAK>>" in text
 
 
@@ -145,13 +145,18 @@ def test_what_a_program_prints_is_not_checked_as_app_knowledge():
     assert "/api/signin" in round2_typist.unsaid(code + '\nurl = "/api/signin"', said, code=True)  # app details still checked
 
 
-def test_a_reply_may_not_bring_up_parts_of_the_app_the_candidate_never_mentioned():
-    """Measured: "I need to know: What's the URL or page..." after a vague "Generate it"."""
+def test_a_reply_may_ask_which_element_but_never_guess_the_app_or_invent_values():
+    """Agreed design (2026-09-28): the assistant sees the Reference, so asking "which page / which button?"
+    is how it asks for a detail - blocking those words withheld 14 of 26 correct drafts in the owner's
+    Round 2. What it may never do is name a part of the app that is neither the candidate's nor on the
+    Reference (a guess), or bring up a value the candidate never gave (a hint)."""
     said = "Automate TC-01. Log in as Priya. Just check it works. Generate it."
-    assert set(round2_typist.unsaid("I need to know: what's the URL or page, and which button?", said, code=False)) >= {"URL", "page", "button"}
+    assert round2_typist.unsaid("I need to know: what's the URL or page, and which button?", said, code=False) == []
     assert round2_typist.unsaid("Got it, you want me to log in as Priya and check it works.", said, code=False) == []
-    said_more = "Click the login button on the login page."
-    assert round2_typist.unsaid("Got it: click the login button on the login page.", said_more, code=False) == []
+    assert "Dashboard page" in round2_typist.unsaid("Should I start from the Dashboard page?", said, code=False)
+    assert "BK-009" in round2_typist.unsaid("Should the booking be BK-009?", said, code=False)
+    reference = "PAGE Dashboard (/page/dashboard):\n  button text \"Log in\" id=login"
+    assert round2_typist.unsaid("I found the Dashboard page and the login button.", said + "\n" + reference, code=False) == []
 
 
 def test_when_asked_for_code_a_reply_without_code_is_asked_again(monkeypatch):
@@ -261,3 +266,243 @@ def test_it_never_claims_a_change_it_did_not_make(monkeypatch):
 
 def test_the_selected_test_case_counts_as_the_candidates_own_design():
     assert round2_typist._OWN_DESIGN_RE.search("automate the selected test case")
+
+
+# ---- Owner's Round 2, Loan EMI, 2026-09-28: four "What's next for this test?" in a row, and no code ----
+
+def test_when_no_draft_can_go_out_the_reply_is_built_from_the_candidates_words(monkeypatch):
+    """Never a bare "What's next?": it read as the assistant ignoring what was said."""
+    leak = {"reply": "Should the booking be BK-009?", "code": None}
+    out = _turn(monkeypatch, Model(leak), "Locate Outstanding balance and verify it shows 125000.00")
+    assert "Locate Outstanding balance and verify it shows 125000.00" in out["response_message"]
+    assert "BK-009" not in out["response_message"] and "generate" in out["response_message"]
+    # ... and it offers the code, so a "yes" next counts as asking for it
+    assert round2_typist.wants_code("yes", [{"candidate_prompt": "x", "response_message": out["response_message"]}])
+
+
+def test_the_required_not_enough_details_sentence_may_be_said_again(monkeypatch):
+    """The rules make it say this whenever it is true; the old sentence check blocked the second time."""
+    earlier = [{"candidate_prompt": "Log in", "response_message": "Noted: log in. I don't have enough details to generate the code yet."}]
+    reply = {"reply": "You want to click EMI Details. I don't have enough details to generate the code yet.", "code": None}
+    out = _turn(monkeypatch, Model(reply), "Click EMI Details", earlier)
+    assert out["response_message"] == reply["reply"]
+    same = {"reply": earlier[0]["response_message"], "code": None}  # the whole reply again is still a repeat
+    assert _turn(monkeypatch, Model(same), "Click EMI Details", earlier)["response_message"] != same["reply"]
+
+
+def test_step_numbers_exit_codes_and_python_main_are_not_application_values():
+    said = "Enter SAV-1001, check Outstanding balance shows 125000.00"
+    code = ('# Step 4: enter the account\nfield.send_keys("SAV-1001")\nsys.exit(1)\nsteps[6]\n'
+            'if actual != "125000.00":\n    fail(7)\nif __name__ == "__main__":\n    main()\n')
+    assert round2_typist.unsaid(code, said, code=True) == []
+    assert "99999.50" in round2_typist.unsaid(code + "expected = 99999.50\n", said, code=True)  # a real value still caught
+
+
+def test_logging_in_with_no_account_named_may_use_the_test_account(monkeypatch):
+    """Agreed with the owner: "After login" means the Reference's test account, and the reply says so."""
+    ref = "Test accounts (as the Reference shows them): login CUST001 / password Pass@123 (Test User)"
+    reply = {"reply": "For 'After login' I'll use the test account CUST001 / Pass@123. What next?", "code": None}
+    monkeypatch.setattr(llm_service, "_call_claude_json", Model(reply))
+    out = round2_typist.turn("python", DESIGN, [], "", "After login, click EMI Details", app_reference=ref)
+    assert out["response_message"] == reply["reply"]
+    monkeypatch.setattr(llm_service, "_call_claude_json", Model(reply))
+    out = round2_typist.turn("python", DESIGN, [], "", "Click EMI Details", app_reference=ref)
+    assert "CUST001" not in out["response_message"]  # no login mentioned: the account is still a hint
+
+
+@pytest.mark.parametrize("reply", ["Perhaps wait for the page to load?", "Should I also check the total?",
+                                   "You could add a wait after login.", "Which page or API response should it check?"])
+def test_offering_a_step_or_hinting_the_api_is_still_blocked(reply):
+    assert round2_typist.unsaid(reply, "Log in and click EMI Details", code=False)
+
+
+def test_a_variable_inside_code_text_is_not_an_application_value():
+    said = "After login click EMI Details"
+    code = 'driver.get(f"{practice_url}/page/login")\nfetch(`${baseUrl}/api/loans`)\n'
+    assert round2_typist.unsaid(code, said + "\n/page/login /api/loans", code=True) == []
+    assert "LN-45678" in round2_typist.unsaid(code + 'x = f"{a} LN-45678"\n', said, code=True)
+
+
+def test_asked_for_code_the_first_try_already_says_write_it_now(monkeypatch):
+    model = Model({"reply": "Here it is.", "code": 'incomplete("click EMI Details")'})
+    _turn(monkeypatch, model, "Click EMI Details. Generate the code.")
+    assert round2_typist._WRITE_NOTE in model.prompts[0]
+
+
+# ---- The candidate's test is kept by the tool (owner's Round 2 replay, 2026-09-28: the model offered
+# "should I skip those steps?", took the next "yes" as agreement and two steps vanished from the code) ----
+
+PRIOR = [{"step": "After login", "missing": ""}, {"step": "Locate EMI Details and click", "missing": ""},
+         {"step": "Locate loan account and enter his account details", "missing": "which value"}]
+SO_FAR = [{"candidate_prompt": "After login. Locate EMI Details and click. Locate loan account and enter his account details",
+           "response_message": "Noted.", "steps": PRIOR}]
+
+
+def test_a_step_the_model_drops_is_redrafted_and_never_lost(monkeypatch):
+    dropping = {"reply": "Now I have: login, click EMI Details, check the balance.",
+                "steps": [PRIOR[0], PRIOR[1], {"step": "Locate Outstanding balance and verify 125000.00"}], "code": None}
+    keeping = {"reply": "Added your check at the end.",
+               "steps": PRIOR + [{"step": "Locate Outstanding balance and verify 125000.00", "missing": ""}], "code": None}
+    model = Model(dropping, keeping)
+    out = _turn(monkeypatch, model, "Locate Outstanding balance and verify 125000.00", SO_FAR)
+    assert out["response_message"] == keeping["reply"] and len(out["steps"]) == 4
+    assert "left out steps" in model.prompts[1] and "loan account" in model.prompts[1]
+    # a model that keeps dropping it: the tool keeps their steps anyway, and adds the new one
+    out = _turn(monkeypatch, Model(dropping), "Locate Outstanding balance and verify 125000.00", SO_FAR)
+    assert [s["step"] for s in out["steps"]][:3] == [s["step"] for s in PRIOR] and len(out["steps"]) == 4
+
+
+def test_the_candidate_may_remove_a_step(monkeypatch):
+    fewer = {"reply": "Removed the loan account step.", "steps": PRIOR[:2], "code": None}
+    out = _turn(monkeypatch, Model(fewer), "Remove the loan account step", SO_FAR)
+    assert out["response_message"] == fewer["reply"] and len(out["steps"]) == 2
+
+
+def test_code_that_leaves_out_a_step_of_theirs_never_reaches_them(monkeypatch):
+    code = 'login()\nprint("FAIL: step 2 - Locate EMI Details and click")\n'  # no loan account step
+    full = code + 'incomplete("Locate loan account and enter his account details")\n'
+    model = Model({"reply": "Here it is.", "steps": PRIOR, "code": code}, {"reply": "Here it is.", "steps": PRIOR, "code": full})
+    out = _turn(monkeypatch, model, "Generate the code", SO_FAR)
+    assert out["code_after"] == full
+
+
+@pytest.mark.parametrize("reply", ["Or should I skip those steps and just do the login?", "Should I drop step 3?",
+                                   "Should I remove the EMI Payment steps?"])
+def test_offering_to_skip_or_drop_their_steps_is_blocked(reply):
+    assert round2_typist.unsaid(reply, "After login. Locate EMI Payment and click", code=False)
+
+
+def test_yes_to_not_enough_details_is_not_asking_for_code():
+    """Replay 2026-09-28: "I don't have enough details to generate the code yet" read as an offer."""
+    said = [{"candidate_prompt": "x", "response_message": "Noted. I don't have enough details to generate the code yet - which value?"}]
+    assert not round2_typist.wants_code("yes", said)
+    offer = [{"candidate_prompt": "x", "response_message": "I have everything. Shall I generate the code now?"}]
+    assert round2_typist.wants_code("yes", offer)
+
+
+# ---- Simulated candidates, Java, 2026-09-28 ----
+
+def test_yes_followed_by_a_new_step_is_not_asking_for_code():
+    offer = [{"candidate_prompt": "x", "response_message": "Shall I generate the code for this step now?"}]
+    assert not round2_typist.wants_code("Yes, continue. Next step: Log in using the test account CUST001 / Pass@123.", offer)
+    assert round2_typist.wants_code("yes please", offer) and round2_typist.wants_code("ok, go ahead", offer)
+
+
+@pytest.mark.parametrize("said, own, code, missing", [
+    ("Locate Password and enter Password", None, 'send("Pass@123")', ["Password"]),        # the owner's rule
+    ("Locate Password and enter Password", None, 'send("Password")', []),
+    ("Locate Customer id and enter CUST001", None, 'send("CUST01")', ["CUST001"]),
+    ("Enter SAV-1001 in the account field", None, 'send("LN-45678")', ["SAV-1001"]),
+    ("Locate loan account and enter his account details", None, 'send("x")', []),        # not a value
+    ("Locate Password and enter Password. use the test account password from the reference", None, 'send("Pass@123")', []),
+    # Round 1 said "enter Password", the conversation said Pass@123: their latest words win
+    ("Locate Password and enter Password\nEnter Pass@123 in the password field", "Enter Pass@123 in the password field",
+     'send("Pass@123")', []),
+])
+def test_values_the_candidate_typed_are_typed_as_written(said, own, code, missing):
+    assert round2_typist._values_not_typed(said, code, own) == missing
+
+
+def test_code_that_changes_a_typed_value_is_redrafted(monkeypatch):
+    wrong = {"reply": "Here it is.", "steps": [{"step": "Locate Password and enter Password", "missing": ""}],
+             "code": 'password.send_keys("Pass@123")\n# Locate Password and enter Password\n'}
+    right = dict(wrong, code='password.send_keys("Password")\n# Locate Password and enter Password\n')
+    model = Model(wrong, right)
+    out = _turn(monkeypatch, model, "Locate Password and enter Password. Generate the code.")
+    assert out["code_after"] == right["code"] and "Password" in model.prompts[1].split("changed:")[1]
+
+
+def test_a_new_step_nobody_gave_is_redrafted(monkeypatch):
+    s1 = [{"step": "Click EMI Details", "missing": ""}]
+    extra = {"reply": "Noted.", "steps": s1 + [{"step": "Verify the application header shows the bank name", "missing": ""}], "code": None}
+    model = Model(extra, {"reply": "Noted.", "steps": s1, "code": None})
+    out = _turn(monkeypatch, model, "Click EMI Details")
+    assert [s["step"] for s in out["steps"]] == ["Click EMI Details"] and "never gave" in model.prompts[1]
+
+
+def test_when_code_goes_out_a_blocked_reply_never_asks_whether_to_generate(monkeypatch):
+    code = 'incomplete("Just generate the code")\n'
+    earlier = [{"candidate_prompt": "Generate", "response_message": "The code is ready."}]
+    out = _turn(monkeypatch, Model({"reply": "The code is ready.", "code": code}), "Just generate the code.", earlier)
+    assert out["code_after"] and "shall I generate" not in out["response_message"]
+
+
+# ---- Simulated candidates, run 2 (Java, 12 of 12, 2026-09-28): drafts blocked for nothing ----
+
+@pytest.mark.parametrize("reply, said", [
+    ("I understand you want me to add debugging output to print the full API response.", "Add debugging output printing the API response"),
+    ("You want to try a different approach: after the Loans page, enter the loan account.", "try a different approach: Loans page first, then the loan account"),
+    ("Perfect! I'll generate the complete code now.", "Generate the code"),
+    ("Done - PASS** lines for each check.", "print PASS for each check"),
+    ("I'll add a 3-second wait after clicking.", "wait 3 seconds after clicking"),
+    ("It fails on a non-200 status.", "check the status is 200"),
+])
+def test_what_the_simulation_found_blocked_for_nothing_now_goes_through(reply, said):
+    assert round2_typist.unsaid(reply, said, code=False) == []
+
+
+def test_html_tags_and_tolerances_in_code_are_plumbing():
+    code = 'rows = driver.find_elements(By.CSS_SELECTOR, "tbody tr td")\nassert abs(a - b) < 0.01\n'
+    assert round2_typist.unsaid(code, "check the table", code=True) == []
+
+
+@pytest.mark.parametrize("reply", ["Would you like me to add a step to verify the login API returns HTTP 200 status?",
+                                   "Should I also check the total?", "Perfect! The booking is BK-009."])
+def test_real_offers_and_values_are_still_blocked(reply):
+    assert round2_typist.unsaid(reply, "Log in via the API and check the loans", code=False)
+
+
+@pytest.mark.parametrize("prompt", ["Now proceed with the code", "Please implement it", "ok, automate this"])
+def test_more_ways_of_asking_for_the_code(prompt):
+    assert round2_typist.wants_code(prompt, [])
+    assert not round2_typist.wants_code("proceed to the payment page", [])
+
+
+def test_repeating_the_request_back_as_a_question_is_not_an_offer():
+    said = "Add debugging output printing the API response"
+    assert round2_typist.unsaid("So you want me to add debugging output printing the API response - is that right?", said, code=False) == []
+
+
+# ---- Simulated candidates, run 3 (2026-09-28): a best-guess check withheld correct code for 12 turns ----
+
+def test_the_later_value_for_a_field_wins_in_the_same_message():
+    said = ("Steps: Locate Customer id and enter CUST001\nlocate Password and enter Password\n"
+            "Please use the real one: enter Pass@123 in the password field (CUST001 as the id).")
+    assert round2_typist._values_not_typed(said, 'id("CUST001"); pw("Pass@123")', said) == []
+
+
+def test_a_best_guess_check_never_withholds_the_code(monkeypatch):
+    """A draft that keeps missing a step still goes out - with a note naming the step to check."""
+    steps = [{"step": "Open the Loans page", "missing": ""}, {"step": "Check the outstanding balance", "missing": ""}]
+    draft = {"reply": "Here it is.", "steps": steps, "code": 'open("Open the Loans page")\n'}
+    out = _turn(monkeypatch, Model(draft), "Open the Loans page, check the outstanding balance. Generate the code.")
+    assert out["code_after"] == draft["code"]
+    assert "Please check these in the code" in out["response_message"] and "Check the outstanding balance" in out["response_message"]
+
+
+def test_a_hard_rule_still_withholds_the_code(monkeypatch):
+    leak = {"reply": "Here it is.", "code": 'book("BK-009")\n'}
+    out = _turn(monkeypatch, Model(leak), "Borrow a book. Generate the code.")
+    assert out["code_after"] is None and "BK-009" not in out["response_message"]
+
+
+def test_the_last_good_draft_is_kept_when_a_later_one_breaks_a_hard_rule(monkeypatch):
+    good = {"reply": "Here it is.", "steps": [{"step": "Borrow a book", "missing": ""}],
+            "code": 'incomplete("Borrow a book")\n'}
+    leak = {"reply": "Here it is.", "code": 'book("BK-009")\n'}
+    # the first draft only fails the best-guess check (typed value) - the redrafts leak
+    monkeypatch.setattr(round2_typist, "_values_not_typed", lambda said, code, own=None: ["x"] if code == good["code"] else [])
+    out = _turn(monkeypatch, Model(good, leak, leak), "Borrow a book. Generate the code.")
+    assert out["code_after"] == good["code"]
+
+
+def test_the_assistant_sees_the_test_data_the_candidate_corrected(monkeypatch):
+    """"Save test data" keeps the correction beside the Round 1 record; the assistant must work from the
+    corrected value, as the candidate's screen shows it - never the old one."""
+    row = {**DESIGN, "test_data": "SAV-1001", "test_data_override": "LN-45678"}
+    model = Model({"reply": "Noted: LN-45678.", "code": None})
+    monkeypatch.setattr(llm_service, "_call_claude_json", model)
+    out = round2_typist.turn("python", row, [], "", "Automate the selected test case")
+    assert "LN-45678" in model.prompts[0] and "SAV-1001" not in model.prompts[0]
+    assert out["response_message"] == "Noted: LN-45678."            # the corrected value counts as said
+    assert round2_typist._as_shown({"test_data": "a"}) == {"test_data": "a"}

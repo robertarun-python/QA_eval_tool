@@ -82,6 +82,12 @@ class Settings(BaseSettings):
     # card (kept in ai_budget.json next to the call record). See
     # llm_service.check_budget.
     ai_monthly_limit_usd: float = 10.0
+    # Guardrails beside the monthly limit (owner, 2026-09-28), also set on the
+    # AI health card: a day's spend across everything, and one candidate's
+    # spend and number of AI calls in one round. See llm_service.check_budget.
+    ai_daily_limit_usd: float = 3.0
+    ai_candidate_round_limit_usd: float = 0.75
+    ai_candidate_round_calls: int = 60
     # For test and measurement runs only - both off for the live tool, where
     # HR's "build again" must really ask again and nobody should wait:
     # ai_reuse_replies answers a request identical to an earlier one from the
