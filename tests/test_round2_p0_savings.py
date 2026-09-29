@@ -13,7 +13,7 @@ from app.services.practice_app import service
 from app.services.practice_engine import practice_run, render
 from app.services import execution_service
 from .conftest import HR_EMAIL, HR_PASSWORD, _auth, _login
-from .test_practice_app_service import _leave_round1, _recorded_leave, builds_dir  # noqa: F401 - fixture
+from .test_practice_app_service import _leave_round1, _recorded_leave
 from .test_round2_typist_endpoints import SPEC, _environment_round
 
 
@@ -101,6 +101,12 @@ def test_a_repeated_code_request_keeps_the_code_and_the_steps(client, monkeypatc
 
 
 # ---- 3. build again with unchanged Round 1 test cases: nothing built, nothing paid ----
+
+@pytest.fixture
+def builds_dir(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "BUILDS_DIR", tmp_path)
+    return tmp_path
+
 
 def _approved_leave(client, monkeypatch):
     recorded, titles = _recorded_leave()

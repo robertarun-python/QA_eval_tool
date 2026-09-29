@@ -332,7 +332,7 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     own = candidate_text(None, conversation, candidate_prompt)  # their messages only, not their Round 1 case
     best_code = None  # the latest draft code that breaks no hard rule (see below)
     attempts = []  # every draft and what was wrong with it - for the simulated-candidate tester
-    keep = None           # a correct program whose reply alone was rejected: only a new reply is asked for
+    keep, keep_why = None, ""  # a correct program whose reply alone was rejected (and why): only a new reply is asked for
     tried_reply_only = False
     for attempt in range(3):
         if keep is not None:

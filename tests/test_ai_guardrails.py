@@ -20,6 +20,10 @@ CANDIDATE = dict(round_number=2, scenario_id=1, submission_id=5, user_id=9)
 
 @pytest.fixture
 def paid(tmp_path, monkeypatch):
+    return make_paid(tmp_path, monkeypatch)
+
+
+def make_paid(tmp_path, monkeypatch):
     """A call record and a fake model: $0.30 a call (Sonnet 4.5, 20,000 output tokens), or a cut-off reply."""
     path = tmp_path / "ai_calls.jsonl"
     monkeypatch.setattr(llm_service.settings, "ai_call_log_path", str(path))
