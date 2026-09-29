@@ -494,3 +494,15 @@ def test_the_last_good_draft_is_kept_when_a_later_one_breaks_a_hard_rule(monkeyp
     monkeypatch.setattr(round2_typist, "_values_not_typed", lambda said, code, own=None: ["x"] if code == good["code"] else [])
     out = _turn(monkeypatch, Model(good, leak, leak), "Borrow a book. Generate the code.")
     assert out["code_after"] == good["code"]
+
+
+def test_the_assistant_sees_the_test_data_the_candidate_corrected(monkeypatch):
+    """"Save test data" keeps the correction beside the Round 1 record; the assistant must work from the
+    corrected value, as the candidate's screen shows it - never the old one."""
+    row = {**DESIGN, "test_data": "SAV-1001", "test_data_override": "LN-45678"}
+    model = Model({"reply": "Noted: LN-45678.", "code": None})
+    monkeypatch.setattr(llm_service, "_call_claude_json", model)
+    out = round2_typist.turn("python", row, [], "", "Automate the selected test case")
+    assert "LN-45678" in model.prompts[0] and "SAV-1001" not in model.prompts[0]
+    assert out["response_message"] == "Noted: LN-45678."            # the corrected value counts as said
+    assert round2_typist._as_shown({"test_data": "a"}) == {"test_data": "a"}

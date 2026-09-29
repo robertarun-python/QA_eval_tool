@@ -295,6 +295,7 @@ def _noted(prompt: str, used: set[str]) -> str:
 def turn(language: str, design: dict, conversation: list[dict], current_code: str, candidate_prompt: str,
          app_reference: str = "") -> dict:
     """One reply: {"response_kind": "clarify"|"refuse"|"code_edit", "response_message", "code_after"}."""
+    design = _as_shown(design)
     earlier = [t.get("response_message") or "" for t in conversation]
     prior = next((t["steps"] for t in reversed(conversation) if isinstance(t.get("steps"), list)), [])
     used = {_norm(e) for e in earlier}
@@ -612,6 +613,15 @@ def _still_to_do(code: str, said: str) -> list[str]:
         if step and step not in steps and not unsaid(f'"{step}"', said, code=False):
             steps.append(step)
     return steps[:10]
+
+
+def _as_shown(design: dict | None) -> dict | None:
+    """The candidate's test case as their screen shows it: test data they corrected in Round 2 ("Save test
+    data" - kept beside the Round 1 record, which never changes) replaces the Round 1 value. The assistant
+    used to see only the Round 1 value (found 2026-09-28)."""
+    if isinstance(design, dict) and design.get("test_data_override"):
+        return {**design, "test_data": design["test_data_override"]}
+    return design
 
 
 def _design_text(design: dict | None) -> str:

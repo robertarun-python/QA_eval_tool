@@ -531,7 +531,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             app.leave(client)
             return self._send(404, self.app.document("Not found", '<p id="message">Not found</p>'), "text/html", cookie)
-        if method == "POST":  # after a form: show the resulting page at its own address (refresh-safe)
+        # After a form: show the resulting page at its own address (refresh-safe) - a lookup form (GET) too:
+        # it used to stay on /ui/query/..., which isn't any page the Reference lists, so a candidate checking
+        # the address after "View EMI Details" was told they weren't on the EMI Details page (2026-09-28).
+        if method == "POST" or path.startswith("/ui/query/"):
             app.leave(client)
             return self._send(303, "", "text/html", {**cookie, "Location": f"/page/{slug(e.page)}?shown=1"})
         body = self.app.render_page(client)

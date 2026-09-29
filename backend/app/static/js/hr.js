@@ -215,9 +215,11 @@ function aiBudgetHtml(s) {
     : used >= 0.8 ? `<span class="error-text">Over 80% of the limit used.</span>` : "";
   return `
     <p>This month's AI spend: <strong>$${Number(s.month_usd).toFixed(2)}</strong> of the <strong>$${Number(s.monthly_limit_usd).toFixed(2)}</strong> monthly limit. ${note}</p>
-    <p><label>Monthly limit (US$) <input id="ai-budget-input" type="number" min="0" max="10000" step="1" value="${Number(s.monthly_limit_usd)}" style="width:6em"></label>
-      ${Object.entries(s.limit_labels || {}).map(([key, label]) => `<label style="margin-left:0.8rem">${escapeHtml(label)} <input class="ai-limit-input" data-limit="${key}" type="number" min="0" step="${key === "candidate_round_calls" ? 1 : 0.05}" value="${Number((s.limits || {})[key])}" style="width:6em"></label>`).join("")}
-      <button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limits</button> <span id="ai-budget-status" class="muted"></span></p>
+    <div class="ai-limits">
+      <label for="ai-budget-input">Monthly limit (US$)</label><input id="ai-budget-input" type="number" min="0" max="10000" step="1" value="${Number(s.monthly_limit_usd)}">
+      ${Object.entries(s.limit_labels || {}).map(([key, label]) => `<label for="ai-limit-${key}">${escapeHtml(label)}</label><input id="ai-limit-${key}" class="ai-limit-input" data-limit="${key}" type="number" min="0" step="${key === "candidate_round_calls" ? 1 : 0.05}" value="${Number((s.limits || {})[key])}">`).join("")}
+    </div>
+    <p><button type="button" class="btn-secondary" onclick="saveAiBudget()">Save limits</button> <span id="ai-budget-status" class="muted"></span></p>
     ${(s.limits_reached || []).length ? `<p class="error-text">Limits reached recently - the AI call was stopped before it was made (raise the limit above to let it continue):</p>
       <ul>${s.limits_reached.map((b) => `<li>${escapeHtml(b.at || "")} &middot; <strong>${escapeHtml(((s.limit_labels || {})[b.limit]) || "Monthly limit")}</strong>${b.email ? ` &middot; ${escapeHtml(b.email)}` : ""}${b.round_number ? ` &middot; round ${escapeHtml(String(b.round_number))}` : ""} &middot; ${escapeHtml(b.detail || "")}</li>`).join("")}</ul>` : ""}`;
 }
