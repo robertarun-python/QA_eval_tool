@@ -17,6 +17,17 @@ from playwright.sync_api import expect
 from .conftest import HR, PASSWORDS, login
 
 pytestmark = pytest.mark.e2e
+
+
+def _browser_tools_installed() -> bool:
+    from app.services.practice_engine import practice_run
+    return (practice_run.vendor() / "selenium-server.jar").exists()
+
+
+# A Run needs the Selenium tools in vendor/ (tools/setup_vendor.sh) - not on GitHub's test machines (vendor/ is
+# never uploaded), where these tests failed from 2026-09-28 for that reason alone. Same rule as
+# tests/test_practice_run.py's needs_tools.
+needs_tools = pytest.mark.skipif(not _browser_tools_installed(), reason="browser tools not installed (vendor/)")
 PERSONA = ("candidate5@example.com", PASSWORDS["CANDIDATE5_PASSWORD"])  # no other browser test uses it
 
 PROGRAMS = {
@@ -116,6 +127,7 @@ def _open_round(page, n):
         page.click(f'button[onclick="loadRound({n})"]')
 
 
+@needs_tools
 @pytest.mark.parametrize("language", ["java", "python", "javascript"])
 def test_a_candidate_goes_from_round1_to_a_passing_round2_run(app_page, e2e_server, language):
     _engine_round2(e2e_server)
@@ -154,6 +166,7 @@ def test_a_candidate_goes_from_round1_to_a_passing_round2_run(app_page, e2e_serv
     expect(page.locator('button[onclick="loadRound(3)"]')).to_be_enabled()
 
 
+@needs_tools
 def test_after_an_incomplete_run_the_candidate_is_told_why_and_answers_right_there(app_page, e2e_server):
     """Owner's Round 2 (2026-09-28): the run stopped at an unfinished step and the only place to reply was
     above the whole program - it looked like the conversation was over. The result now says which step
