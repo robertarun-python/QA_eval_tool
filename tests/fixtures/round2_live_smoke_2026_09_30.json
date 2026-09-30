@@ -1,0 +1,74 @@
+{
+ "label": "Live smoke test 2026-09-30 (candidate4, Python, Loan app): 5 real Round 2 messages, 13 Claude calls, 8 of them redrafts - the saved turns (the rejected drafts weren't recorded then; see D0)",
+ "language": "python",
+ "design": {
+  "title": "View upcoming EMI",
+  "preconditions": "Login to the app successfully",
+  "steps": "Login to the app successfully\nClick on EMI Details \nLook for label Account number\nLook for label Emi amount",
+  "test_data": "Account number LN-45678",
+  "expected_result": "Emi amount should be 5250.00. If so pass the test case else fail the test case\n"
+ },
+ "turns": [
+  {
+   "message": "automate thet test case selected",
+   "reply": "Noted: \"automate thet test case selected\". Is there more for this test, or shall I generate the code?",
+   "kind": "clarify",
+   "saved_steps": [
+    "automate thet test case selected"
+   ],
+   "request_id": "7bae050c904c44baaab862cd5ea5d368"
+  },
+  {
+   "message": "Login to the app successfully\nClick on EMI Details\nLook for label Account number\nLook for label Emi amount",
+   "reply": "I understand you want to:\n1. Login to the app successfully\n2. Click on EMI Details\n3. Look for label Account number\n4. Look for label Emi amount\n\nI found the login fields (Customer id and Password), the EMI Details link, and the labels Account number and Emi amount on the EMI Details page. However, I need a few more details:\n- What value should I enter for Customer id?\n- What value should I enter for Password?\n- What should I check about the Account number label?\n- What should I check about the Emi amount label?\n\nI don't have enough details to generate the code yet.",
+   "kind": "clarify",
+   "saved_steps": [
+    "automate thet test case selected",
+    "Login to the app successfully Click on EMI Details Look for label Account number Look for label Emi amount"
+   ],
+   "request_id": "2615e18602dc4c4b842a1039db9f8c7f"
+  },
+  {
+   "message": "Customer id - CUST001\nPassword -  Pass@123\n<form id=\"login-form\" method=\"post\" action=\"/ui/login\">\n      <label for=\"customer_id\">Customer id</label>\n\n<body>\n    <header>\n      <strong id=\"app-name\">Online Loan EMI Payment System</strong>\n    </header>",
+   "reply": "I understand you've provided the Customer id (CUST001) and Password (Pass@123). I'll use these values for the login step.\n\nHowever, I still need to know:\n- What should I check about the Account number label? (What value should it show, or just that it exists?)\n- What should I check about the Emi amount label? (What value should it show, or just that it exists?)\n\nI don't have enough details to generate the code yet.",
+   "kind": "clarify",
+   "saved_steps": [
+    "automate thet test case selected",
+    "Login to the app successfully Click on EMI Details Look for label Account number Look for label Emi amount",
+    "Customer id - CUST001 Password - Pass@123 <form id=\"login-form\" method=\"post\" action=\"/ui/login\"> <label for=\"customer_id\">Customer id</label> <body> <header> <strong id=\"app-name\">Online Loan EMI Payment System</strong> </header>"
+   ],
+   "request_id": "2193f2879b884007b5f70ce324677f1b"
+  },
+  {
+   "message": "Check if they only exists, same for EMI label as well",
+   "reply": "I understand you want to check that the Account number label exists and that the Emi amount label exists.\n\nI have all the details I need:\n1. Automate the test case selected\n2. Login to the app successfully with Customer id CUST001 and Password Pass@123\n3. Click on EMI Details\n4. Look for label Account number (check it exists)\n5. Look for label Emi amount (check it exists)\n\nShall I generate the code now?",
+   "kind": "clarify",
+   "saved_steps": [
+    "automate thet test case selected",
+    "Login to the app successfully Click on EMI Details Look for label Account number Look for label Emi amount",
+    "Customer id - CUST001 Password - Pass@123 <form id=\"login-form\" method=\"post\" action=\"/ui/login\"> <label for=\"customer_id\">Customer id</label> <body> <header> <strong id=\"app-name\">Online Loan EMI Payment System</strong> </header>",
+    "Check if they only exists, same for EMI label as well"
+   ],
+   "request_id": "4fe27c5445ac4e11bfd677929d917184"
+  },
+  {
+   "message": "yes",
+   "reply": "Here's the complete code for your test:\n\nBefore this can run, tell me for each of these steps of yours how to find it (the words you see on it, or its id) or which exact value to use:\n1. Customer id - CUST001 Password - Pass@123 <form id=\"login-form\" method=\"post\" action=\"/ui/login\"> <label for=\"customer_id\">Customer id</label> <body> <header> <strong id=\"app-name\">Online Loan EMI Payment System</strong> </header>",
+   "kind": "code_edit",
+   "saved_steps": [
+    "automate thet test case selected",
+    "Login to the app successfully Click on EMI Details Look for label Account number Look for label Emi amount",
+    "Customer id - CUST001 Password - Pass@123 <form id=\"login-form\" method=\"post\" action=\"/ui/login\"> <label for=\"customer_id\">Customer id</label> <body> <header> <strong id=\"app-name\">Online Loan EMI Payment System</strong> </header>",
+    "Check if they only exists, same for EMI label as well"
+   ],
+   "request_id": "6b9f038133ba4e209aa2be5c37d67a03"
+  }
+ ],
+ "calls_per_request": [
+  3,
+  3,
+  3,
+  2,
+  2
+ ]
+}

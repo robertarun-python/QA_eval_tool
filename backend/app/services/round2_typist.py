@@ -59,7 +59,12 @@ _YES_RE = re.compile(r"^\s*(yes|yeah|yep|ok(ay)?|sure|please do|do it|go on|that
 _OFFERED_RE = re.compile(r"\b(generate|write|create) (the |your |this )?(code|test)\b", re.I)
 _NOT_OFFER_RE = re.compile(r"\b(not enough|don'?t have enough|do not have enough|can'?t|cannot|yet|before i can)\b", re.I)
 _OWN_DESIGN_RE = re.compile(r"\b(round ?1|my (own )?(test case|steps|design|test data)|as (i )?(designed|wrote)|tc[- ]?\d+|"
-                            r"(the |this )(selected |chosen )?test case)\b", re.I)
+                            r"(the |this )(selected |chosen )?test case|"
+                            # D1 (live smoke test, 2026-09-30: "automate thet test case selected" wasn't recognised, so the
+                            # candidate's own Round 1 case was treated as unsaid): always anchored on "test case" together
+                            # with selected/chosen, in either order - whatever comes before it ("the", "thet", "teh", nothing)
+                            r"(?:selected|chosen)\s+test\s*case|"
+                            r"test\s*case\s+(?:(?:i|you)\s+(?:have\s+)?)?(?:selected|chosen))\b", re.I)
 # "Fix the syntax error": the assistant's own mistakes in the code it wrote - it fixes those, and only those
 # (owner's Round 2, 2026-09-28: asked twice, it changed nothing and then said it had).
 _SYNTAX_FIX_RE = re.compile(r"\b(fix|correct|resolve|repair|sort out)\b.*\b(syntax|compil\w*|indent\w*|bracket|parenthes\w*|typo)", re.I | re.S)
@@ -332,24 +337,27 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     own = candidate_text(None, conversation, candidate_prompt)  # their messages only, not their Round 1 case
     best_code = None  # the latest draft code that breaks no hard rule (see below)
     attempts = []  # every draft and what was wrong with it - for the simulated-candidate tester
+    code_call = best_call = keep_call = None  # D0: the answered_call() record of the call that wrote each program
     keep, keep_why = None, ""  # a correct program whose reply alone was rejected (and why): only a new reply is asked for
     tried_reply_only = False
     for attempt in range(3):
         if keep is not None:
             # Reply-only redraft (P1 2b, owner-approved 2026-09-28): the program was fine - paying for the whole
             # program again (~2,500 output tokens) to fix a sentence was most of a redraft's cost.
-            with llm_service.call_type("reply_only"):  # a label for the cost record only
+            with llm_service.call_type("reply_only"), llm_service.answered_call() as answered:  # labels for the records only
                 raw = llm_service._call_claude_json(prompt + _REPLY_ONLY_NOTE.format(program=keep, problems=keep_why),
                                                     max_tokens=llm_service._CODE_REPLY_TOKENS)
             reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
             code, steps = keep, _steps_from(raw, steps)  # the program stays exactly as it was - whatever came back
+            code_call = keep_call
             keep, tried_reply_only = None, True
         else:
-            with llm_service.call_type("first_draft" if attempt == 0 else "full_redraft"):
+            with llm_service.call_type("first_draft" if attempt == 0 else "full_redraft"), llm_service.answered_call() as answered:
                 raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
             reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
             code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
             code = code if isinstance(code, str) and code.strip() else None
+            code_call = answered  # D0: the call that wrote this program
             steps = _steps_from(raw, prior)
         bad = unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False) + unsaid(code, code_said, code=True)
         missing_code = allow_code and code is None
@@ -358,17 +366,24 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         invented = _not_theirs(prior, steps, reply_said)
         retyped = _values_not_typed(said, code, own) if code else []
         if code is not None and not unsaid(code, code_said, code=True):
-            best_code = code
+            best_code, best_call = code, code_call
         attempts.append({"reply": reply, "code": code, "problems": {"named": bad, "dropped": dropped, "left_out": left_out,
                                                                    "invented": invented, "retyped": retyped}})
-        if (not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out
-                and not invented and not retyped):
+        accepted = (not bad and reply and not _repeats(reply, earlier) and not missing_code and not dropped and not left_out
+                    and not invented and not retyped)
+        # D0 (owner, 2026-09-30): which rule judged this draft and on what - a record beside the call, nothing else
+        llm_service.record_validation(answered, "accepted" if accepted else "rejected", {
+            "named_in_reply": unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False),
+            "named_in_code": unsaid(code, code_said, code=True), "dropped": dropped, "left_out_of_code": left_out,
+            "invented": invented, "retyped": retyped, "no_code_when_asked": missing_code,
+            "repeated_reply": bool(reply) and _repeats(reply, earlier), "empty_reply": not reply})
+        if accepted:
             break
         reply_bad = unsaid(reply + "\n" + _steps_text(steps), reply_said, code=False)
         if (code is not None and not tried_reply_only and attempt < 2 and not unsaid(code, code_said, code=True)
                 and not dropped and not left_out and not invented and not retyped
                 and (reply_bad or not reply or _repeats(reply, earlier)) and not compile_problem(language, code)):
-            keep = code  # every code check passed and it compiles: only the reply is redone
+            keep, keep_call = code, code_call  # every code check passed and it compiles: only the reply is redone
             keep_why = ("it named things the candidate never said: " + ", ".join(reply_bad)) if reply_bad else \
                        ("it was empty" if not reply else "it repeated an earlier reply word for word")
             continue
@@ -399,12 +414,15 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         # (2026-09-28): a misfiring best-guess check withheld correct code for 12 turns running.
         if code is None or unsaid(code, code_said, code=True):
             code = best_code
+            code_call = best_call
         check = []
         if code is not None:
             check = [f'your step "{x}"' for x in _left_out_of_code(steps, code)] + \
                     [f'typing "{v}" as you asked' for v in _values_not_typed(said, code, own)]
         if dropped or invented or unsaid(_steps_text(steps), reply_said, code=False):
-            steps = prior + ([{"step": " ".join(candidate_prompt.split())[:300], "missing": ""}]
+            # D2 (live smoke test, 2026-09-30): one step per non-empty line, in order, every word kept - a pasted
+            # multi-line message stored as one step made the assistant's correct split look like a dropped step
+            steps = prior + ([{"step": " ".join(line.split())[:300], "missing": ""} for line in candidate_prompt.splitlines() if line.strip()]
                              if _is_a_step(candidate_prompt, conversation) else [])
         if code is None and allow_code:
             # No code reaches them: a reply saying "here's the code" would be a broken promise.
@@ -416,11 +434,17 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
             reply = _pick(_CODE_READY, used) if code is not None else _noted(candidate_prompt, used)
     problem = compile_problem(language, code) if code is not None else None
     if problem:
+        llm_service.record_validation(code_call, "compile_failed", {"compile": problem.splitlines()[0]})
         # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
-        with llm_service.call_type("compile_fix"):
+        with llm_service.call_type("compile_fix"), llm_service.answered_call() as fix_call:
             raw = llm_service._call_claude_json(prompt + _COMPILE_NOTE.format(error=problem), max_tokens=llm_service._CODE_REPLY_TOKENS)
         fixed = (raw or {}).get("code") if isinstance(raw, dict) else None
-        if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, code_said, code=True) and not compile_problem(language, fixed):
+        fix_problem = compile_problem(language, fixed) if isinstance(fixed, str) and fixed.strip() else "no program"
+        llm_service.record_validation(fix_call,
+                                      "accepted" if not fix_problem and not unsaid(fixed, code_said, code=True) else "rejected",
+                                      {"compile": (fix_problem or "").splitlines()[0] if fix_problem else "",
+                                       "named_in_code": unsaid(fixed, code_said, code=True) if isinstance(fixed, str) else []})
+        if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, code_said, code=True) and not fix_problem:  # compiled once, above
             code = fixed
         else:
             # Code that doesn't compile never reaches the candidate (owner: "no syntax error at any point").

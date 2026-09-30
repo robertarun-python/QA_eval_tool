@@ -142,7 +142,7 @@ def _accepts_temperature(model: str) -> bool:
 # restart; the log lines don't.
 _CALL_LOG: deque = deque(maxlen=500)
 _INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_call_claude_tool", "_record_call", "check_budget", "_blocked",
-                     "_restoring_call_type"}
+                     "_restoring_call_type", "record_validation"}
 
 
 def _calling_function() -> str:
@@ -181,6 +181,9 @@ def _record_call(outcome: str, *, started: float | None = None, max_tokens: int 
         entry["pricing"] = pricing
         cost = 0.0 if pricing == "reused" else None if cost is None else cost * BATCH_DISCOUNT
     lasting = {**entry, "model": model, "cost_usd": cost, **_CALL_CONTEXT.get(), **_call_fields(entry)}
+    answer = _ANSWER.get()
+    if answer is not None and outcome in ("ok", "fake"):  # this record's reply is the one handed back
+        answer.update(call_id=lasting["call_id"], call_type=lasting["call_type"])
     prompt = _LAST_PROMPT.get()
     if prompt:
         lasting["prompt_file"], lasting["prompt_hash"] = prompt
@@ -204,12 +207,54 @@ def call_type(name: str | None):
         _CALL_TYPE.reset(token)
 
 
+_ANSWER: contextvars.ContextVar = contextvars.ContextVar("ai_answer", default=None)
+
+
 def _call_fields(entry: dict) -> dict:
     import uuid
     parts = [entry.get(k) for k in ("input_tokens", "output_tokens")]
     total = None if None in parts else sum(parts) + (entry.get("cache_read_tokens") or 0) + (entry.get("cache_write_tokens") or 0)
     return {"call_id": uuid.uuid4().hex, "call_type": _CALL_TYPE.get(), "total_tokens": total,
             "success": entry.get("outcome") in ("ok", "fake")}
+
+
+@contextmanager
+def answered_call():
+    """Which call answered (D0): yields {"call_id", "call_type"}, filled in by the record of the reply that
+    was handed back inside this block (outcome ok/fake) - a blocked, failed, cut-off or note record never
+    fills it. After a JSON retry that's the retry, whose reply is the one returned."""
+    holder = {"call_id": None, "call_type": None}
+    token = _ANSWER.set(holder)
+    try:
+        yield holder
+    finally:
+        _ANSWER.reset(token)
+
+
+def fingerprint(text) -> str:
+    """A keyed SHA-256 of one offending item (spacing ignored): the same item always gives the same value
+    on this server, so a D0 record can be matched to the conversation saved in the database - but it can't
+    be turned back into the text, not even a short password by guessing (a plain hash could be)."""
+    import hashlib
+    import hmac
+    key = hashlib.sha256(b"d0-validation-fingerprint:" + settings.jwt_secret_key.encode()).digest()
+    return hmac.new(key, " ".join(str(text).split()).encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def record_validation(call: dict, verdict: str, reasons: dict | None = None) -> None:
+    """Why the tool accepted or rejected the reply of `call` (from answered_call) - D0, owner 2026-09-30: a
+    record beside that call's own, with the same call_id, the rule(s) that fired, how many items each and
+    their fingerprints. Never the text itself (candidate words, values, passwords, HTML, code). Not a call:
+    no cost, never counted. Nothing is written without an answering call."""
+    if not (call or {}).get("call_id"):
+        return
+    fired = {k: v for k, v in (reasons or {}).items() if v}
+    entry = {"at": datetime.utcnow().isoformat(timespec="seconds") + "Z", "caller": _calling_function(), "outcome": "validation",
+             "detail": ", ".join(sorted(fired))}
+    counts = {k: {"count": len(v), "fingerprints": [fingerprint(x) for x in v[:10]]} if isinstance(v, list)
+              else {"count": 1, **({"fingerprints": [fingerprint(v)]} if isinstance(v, str) else {})} for k, v in fired.items()}
+    _append_call_log({**entry, "cost_usd": 0.0, **_CALL_CONTEXT.get(), "call_id": call["call_id"], "call_type": call.get("call_type"),
+                      "verdict": verdict, "rules": sorted(fired), "reasons": counts})
 
 
 def request_totals(request_id: str, entries: list[dict] | None = None) -> dict:
@@ -399,7 +444,7 @@ def set_limits(**values) -> None:
 # Spend so far today (UTC) and per candidate per round, kept up to date like the month's.
 _SPEND = {"day": None, "day_usd": 0.0, "candidates": {}}  # candidates: (user_id, round_number) -> [usd, calls]
 _NOT_A_CALL = {"fake", "budget_reached", "limit_reached", "tool_output_disabled", "invalid_json_retrying", "invalid_json",
-               "invalid_reply"}  # records that aren't a paid request to the model
+               "invalid_reply", "validation"}  # records that aren't a paid request to the model
 
 
 def _is_call(entry: dict) -> bool:
