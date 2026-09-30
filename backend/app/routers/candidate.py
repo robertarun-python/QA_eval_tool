@@ -13,6 +13,7 @@ import re
 import threading
 import time
 import traceback
+import uuid
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -1112,8 +1113,9 @@ def round2_automation_turn(payload: Round2AutomationTurnCreate, db: Session = De
     if not lock.acquire(blocking=False):
         raise HTTPException(409, "The assistant is still answering your previous message for this test case - wait for that reply.")
     try:
+        # One request_id per candidate message: every AI call it makes is recorded under it (cost records only)
         with llm_service.call_context(round_number=submission.round_number, scenario_id=scenario.id,
-                                      submission_id=submission.id, user_id=candidate.id):
+                                      submission_id=submission.id, user_id=candidate.id, request_id=uuid.uuid4().hex):
             return _round2_automation_turn(payload, db, candidate)
     finally:
         lock.release()
@@ -1238,6 +1240,9 @@ def _record_round2_turn(submission, content, selected, row, turns, candidate_pro
     }
     if isinstance(response.get("steps"), list):
         turn_record["steps"] = response["steps"]
+    request_id = llm_service._CALL_CONTEXT.get().get("request_id")
+    if request_id:  # the AI calls behind this reply are recorded under it (see llm_service.request_totals)
+        turn_record["request_id"] = request_id
     if "steps" in response:  # the typing assistant's turns: what the test data was, for the same-message check
         turn_record["test_data_seen"] = _test_data_now(row)
     for key in ("planted_flaw", "unrequested_checks", "fabricated_observations", "changed_values"):  # assessor-only - see schemas.SubmissionOut
