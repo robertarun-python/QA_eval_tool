@@ -338,13 +338,15 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
         if keep is not None:
             # Reply-only redraft (P1 2b, owner-approved 2026-09-28): the program was fine - paying for the whole
             # program again (~2,500 output tokens) to fix a sentence was most of a redraft's cost.
-            raw = llm_service._call_claude_json(prompt + _REPLY_ONLY_NOTE.format(program=keep, problems=keep_why),
-                                                max_tokens=llm_service._CODE_REPLY_TOKENS)
+            with llm_service.call_type("reply_only"):  # a label for the cost record only
+                raw = llm_service._call_claude_json(prompt + _REPLY_ONLY_NOTE.format(program=keep, problems=keep_why),
+                                                    max_tokens=llm_service._CODE_REPLY_TOKENS)
             reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
             code, steps = keep, _steps_from(raw, steps)  # the program stays exactly as it was - whatever came back
             keep, tried_reply_only = None, True
         else:
-            raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
+            with llm_service.call_type("first_draft" if attempt == 0 else "full_redraft"):
+                raw = llm_service._call_claude_json(prompt + note, max_tokens=llm_service._CODE_REPLY_TOKENS)
             reply = str((raw or {}).get("reply") or "").strip() if isinstance(raw, dict) else ""
             code = (raw or {}).get("code") if isinstance(raw, dict) and allow_code else None
             code = code if isinstance(code, str) and code.strip() else None
@@ -415,7 +417,8 @@ def turn(language: str, design: dict, conversation: list[dict], current_code: st
     problem = compile_problem(language, code) if code is not None else None
     if problem:
         # The code it wrote doesn't compile: its own mistake, fixed before the candidate ever sees it.
-        raw = llm_service._call_claude_json(prompt + _COMPILE_NOTE.format(error=problem), max_tokens=llm_service._CODE_REPLY_TOKENS)
+        with llm_service.call_type("compile_fix"):
+            raw = llm_service._call_claude_json(prompt + _COMPILE_NOTE.format(error=problem), max_tokens=llm_service._CODE_REPLY_TOKENS)
         fixed = (raw or {}).get("code") if isinstance(raw, dict) else None
         if isinstance(fixed, str) and fixed.strip() and not unsaid(fixed, code_said, code=True) and not compile_problem(language, fixed):
             code = fixed

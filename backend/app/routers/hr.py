@@ -151,6 +151,8 @@ def _lasting_ai_cost(db: Session) -> dict:
     week = {(today - timedelta(days=n)).isoformat() for n in range(7)}
     top = sorted(by_candidate.items(), key=lambda item: item[1]["usd"], reverse=True)[:10]
     recent_blocked = blocked[-20:][::-1]
+    # per candidate request (a Round 2 message): its calls, tokens and cost, the most recent first
+    request_ids = list(dict.fromkeys(e["request_id"] for e in reversed(entries) if e.get("request_id")))[:20]
     ids = {user_id for user_id, _ in top} | {e["user_id"] for e in recent_blocked if e.get("user_id") is not None}
     emails = dict(db.query(User.id, User.email).filter(User.id.in_(ids)).all()) if ids else {}
     return {
@@ -162,6 +164,7 @@ def _lasting_ai_cost(db: Session) -> dict:
         "limits_reached": [{"at": e.get("at"), "limit": e.get("limit") or "monthly", "detail": e.get("detail"),
                             "email": emails.get(e.get("user_id")), "round_number": e.get("round_number")} for e in recent_blocked],
         "calls": sum(1 for e in entries if llm_service._is_call(e)),
+        "recent_requests": [llm_service.request_totals(rid, entries) for rid in request_ids],
         "unpriced_calls": sum(1 for e in entries if e.get("cost_usd") is None),
         "all_time_usd": round(total, 4),
         "today_usd": round(by_day.get(today.isoformat(), {}).get("usd", 0.0), 4),

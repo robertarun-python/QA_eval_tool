@@ -141,7 +141,8 @@ def _accepts_temperature(model: str) -> bool:
 # only: never the prompt or the reply. The history resets on a server
 # restart; the log lines don't.
 _CALL_LOG: deque = deque(maxlen=500)
-_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_call_claude_tool", "_record_call", "check_budget"}
+_INTERNAL_CALLERS = {"_call_claude", "_call_claude_json", "_call_claude_tool", "_record_call", "check_budget", "_blocked",
+                     "_restoring_call_type"}
 
 
 def _calling_function() -> str:
@@ -179,11 +180,47 @@ def _record_call(outcome: str, *, started: float | None = None, max_tokens: int 
     if pricing and message is not None:
         entry["pricing"] = pricing
         cost = 0.0 if pricing == "reused" else None if cost is None else cost * BATCH_DISCOUNT
-    lasting = {**entry, "model": model, "cost_usd": cost, **_CALL_CONTEXT.get()}
+    lasting = {**entry, "model": model, "cost_usd": cost, **_CALL_CONTEXT.get(), **_call_fields(entry)}
     prompt = _LAST_PROMPT.get()
     if prompt:
         lasting["prompt_file"], lasting["prompt_hash"] = prompt
     _append_call_log(lasting)
+
+
+# ---- Request- and call-level cost records (owner, 2026-09-30) ----
+# A candidate's request is labelled with a request_id (call_context); each request to the model gets its own
+# call_id and a call_type (first_draft, full_redraft, reply_only, compile_fix, json_retry, cutoff_retry - set
+# with call_type() where the pipeline decides it). Only labels: no call, prompt or setting changes, and the
+# token and cost figures are the ones already recorded - a missing one stays null.
+_CALL_TYPE: contextvars.ContextVar = contextvars.ContextVar("ai_call_type", default=None)
+
+
+@contextmanager
+def call_type(name: str | None):
+    token = _CALL_TYPE.set(name)
+    try:
+        yield
+    finally:
+        _CALL_TYPE.reset(token)
+
+
+def _call_fields(entry: dict) -> dict:
+    import uuid
+    parts = [entry.get(k) for k in ("input_tokens", "output_tokens")]
+    total = None if None in parts else sum(parts) + (entry.get("cache_read_tokens") or 0) + (entry.get("cache_write_tokens") or 0)
+    return {"call_id": uuid.uuid4().hex, "call_type": _CALL_TYPE.get(), "total_tokens": total,
+            "success": entry.get("outcome") in ("ok", "fake")}
+
+
+def request_totals(request_id: str, entries: list[dict] | None = None) -> dict:
+    """One request's calls and their recorded tokens and cost (a blocked call isn't a call)."""
+    rows = [e for e in (entries if entries is not None else read_call_log()) if e.get("request_id") == request_id and _is_call(e)]
+    total = lambda k: sum(e.get(k) or 0 for e in rows)
+    priced = [e["cost_usd"] for e in rows if e.get("cost_usd") is not None]
+    return {"request_id": request_id, "calls": len(rows), "input_tokens": total("input_tokens"), "output_tokens": total("output_tokens"),
+            "cache_read_tokens": total("cache_read_tokens"), "cache_write_tokens": total("cache_write_tokens"),
+            "cost_usd": round(sum(priced), 6) if priced else None, "unpriced_calls": len(rows) - len(priced),
+            "call_types": [e.get("call_type") for e in rows]}
 
 
 # ---- The lasting call record (settings.ai_call_log_path) ----
@@ -425,7 +462,7 @@ def _blocked(limit: str, detail: str) -> None:
              "outcome": "budget_reached" if limit == "monthly" else "limit_reached", "limit": limit, "detail": detail}
     _CALL_LOG.append(entry)
     print("[llm] blocked " + " ".join(f"{k}={v}" for k, v in entry.items()), file=sys.stderr)
-    _append_call_log({**entry, "cost_usd": 0.0, **_CALL_CONTEXT.get()})
+    _append_call_log({**entry, "cost_usd": 0.0, **_CALL_CONTEXT.get(), **_call_fields(entry)})
 
 
 def check_budget() -> None:
@@ -621,6 +658,19 @@ def _without_cache_breaks(prompt: str) -> str:
     return prompt.replace(CACHE_BREAK, "")
 
 
+def _keeps_call_type(fn):
+    """A cut-off retry inside `fn` is labelled "cutoff_retry"; the caller's label comes back afterwards."""
+    @functools.wraps(fn)
+    def _restoring_call_type(*args, **kwargs):  # listed in _INTERNAL_CALLERS: the log names the real caller
+        token = _CALL_TYPE.set(_CALL_TYPE.get())
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            _CALL_TYPE.reset(token)
+    return _restoring_call_type
+
+
+@_keeps_call_type
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     """The one place every Claude call goes through. A reply cut off at
     max_tokens (stop_reason "max_tokens") used to be returned as-is and only
@@ -662,6 +712,7 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
         _record_call("cut_off_retrying", started=started, max_tokens=budget, message=message,
                      detail=f"retrying once with {min(budget * 2, _MAX_OUTPUT_TOKENS)} tokens")
         budget = min(budget * 2, _MAX_OUTPUT_TOKENS)
+        _CALL_TYPE.set("cutoff_retry")
     raise LLMReplyTruncated(f"The model's reply was cut off at its {budget}-token limit.")
 
 
@@ -734,6 +785,7 @@ _TOOL_NOTE = (
 _tool_output_disabled_reason: str | None = None  # set once if the API rejects tool use - then JSON text only
 
 
+@_keeps_call_type
 def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict:
     """Same guarantees as _call_claude (cut-off retry, scaled timeout,
     logging), but the reply comes back as the arguments of a forced tool
@@ -762,6 +814,7 @@ def _call_claude_tool(prompt: str, schema: dict, max_tokens: int = 4096) -> dict
                 break
             _record_call("cut_off_retrying", started=started, max_tokens=budget, message=message, detail="tool")
             budget = min(budget * 2, _MAX_OUTPUT_TOKENS)
+            _CALL_TYPE.set("cutoff_retry")
             continue
         block = next((b for b in (message.content or []) if getattr(b, "type", None) == "tool_use"), None)
         if block is None or not isinstance(getattr(block, "input", None), dict):
@@ -791,7 +844,8 @@ def _call_claude_json(prompt: str, max_tokens: int = 4096, schema: dict | None =
     except json.JSONDecodeError as error:
         _log_unparseable(raw, error)
         _record_call("invalid_json_retrying", detail=str(error))
-        retry_raw = _call_claude(prompt + "\n\n" + _JSON_RETRY_NOTE.format(error=error), max_tokens=max_tokens)
+        with call_type("json_retry"):
+            retry_raw = _call_claude(prompt + "\n\n" + _JSON_RETRY_NOTE.format(error=error), max_tokens=max_tokens)
         try:
             return _parse_json_response(retry_raw)
         except json.JSONDecodeError as retry_error:
