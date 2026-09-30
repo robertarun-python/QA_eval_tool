@@ -170,7 +170,7 @@ def test_a_blocked_call_is_logged_with_who_which_round_which_limit_and_when(paid
     assert (record["user_id"], record["round_number"]) == (9, 2) and record["at"].endswith("Z") and "$0.75" in record["detail"]
     assert record["cost_usd"] == 0.0
     # blocked records are not calls: they neither cost nor count toward any limit
-    assert llm_service._spend_now()["candidates"][(9, 2)] == [pytest.approx(0.75), 1]
+    assert llm_service._spend_now()["candidates"][(9, 2, 5)] == [pytest.approx(0.75), 1]
 
 
 # h) + i) the candidate's work is saved and the messages are clear

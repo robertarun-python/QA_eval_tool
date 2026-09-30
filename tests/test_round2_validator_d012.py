@@ -304,7 +304,7 @@ def test_verdicts_are_not_calls_costs_or_limits(claude, monkeypatch):
     calls, checks = claude.calls(), claude.checks()
     assert len(calls) == len(claude.sent) == len(checks) == 15
     assert [llm_service.request_totals(t["request_id"])["calls"] for t in SMOKE["turns"]] == [3, 3, 3, 3, 3]
-    spent, count = llm_service._SPEND["candidates"][(9, 2)]
+    spent, count = llm_service._SPEND["candidates"][(9, 2, 5)]
     assert count == 15 and spent == pytest.approx(sum(c["cost_usd"] for c in calls))
     assert llm_service.month_spent_usd() == pytest.approx(sum(c["cost_usd"] for c in calls))
     assert sum(1 for r in claude.rows() if llm_service._is_call(r)) == 15             # HR's AI-health "calls" counts this way
