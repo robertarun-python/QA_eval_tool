@@ -442,7 +442,7 @@ def set_limits(**values) -> None:
 
 
 # Spend so far today (UTC) and per candidate per round, kept up to date like the month's.
-_SPEND = {"day": None, "day_usd": 0.0, "candidates": {}}  # candidates: (user_id, round_number) -> [usd, calls]
+_SPEND = {"day": None, "day_usd": 0.0, "candidates": {}}  # candidates: (user_id, round_number, submission_id) -> [usd, calls]
 _NOT_A_CALL = {"fake", "budget_reached", "limit_reached", "tool_output_disabled", "invalid_json_retrying", "invalid_json",
                "invalid_reply", "validation"}  # records that aren't a paid request to the model
 
@@ -452,9 +452,13 @@ def _is_call(entry: dict) -> bool:
 
 
 def _candidate_key(entry: dict):
+    """One attempt at one round: its submission. An HR reset archives the submission and the candidate
+    starts on a new one with a fresh allowance - the old attempts' spend no longer blocks the new one
+    (live, 2026-09-30: candidate4's earlier Round 2 attempts had used up the $0.75 before they began).
+    A candidate can't start a new submission themselves - only HR's reset (or a new scenario) does."""
     if entry.get("user_id") is None or entry.get("round_number") is None:
         return None
-    return (entry["user_id"], entry["round_number"])
+    return (entry["user_id"], entry["round_number"], entry.get("submission_id"))
 
 
 def _count(entry: dict) -> None:
