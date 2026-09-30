@@ -160,6 +160,12 @@ def _current_submission(db: Session, candidate: User, scenario: Scenario) -> Sub
     )
 
 
+# A round the candidate has handed in. scoring_failed counts: it only ever follows a submit, the failure is
+# on the scoring side, and HR retries it (hr.py retry_scoring) - leaving it out kept the candidate on a round
+# they could no longer do anything with (live, 2026-09-30: candidate4's Round 2 reopened in a loop).
+_FINISHED = (RoundStatus.submitted, RoundStatus.scored, RoundStatus.scoring_failed)
+
+
 def _max_completed_round(db: Session, candidate: User) -> int:
     """Highest round number the candidate has submitted (or scored) in
     their CURRENT cycle. 0 if none yet. Excludes archived submissions
@@ -180,7 +186,7 @@ def _max_completed_round(db: Session, candidate: User) -> int:
         db.query(Submission.round_number)
         .filter(
             Submission.user_id == candidate.id,
-            Submission.status.in_([RoundStatus.submitted, RoundStatus.scored]),
+            Submission.status.in_(_FINISHED),
             Submission.archived.is_(False),
         )
         .all()

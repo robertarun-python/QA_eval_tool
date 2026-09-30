@@ -10,10 +10,17 @@
 // one. Recomputed from /candidate/submissions rather than trusted
 // client state, since that's the same source of truth the backend's
 // own _require_round_unlocked check uses.
+// Handed in: scoring_failed too - scoring is HR's side (they retry it), and treating it as still open
+// reopened the round with its time long gone, which auto-submitted, was refused and reopened it again,
+// in a loop (live, 2026-09-30: candidate4's screen flickered and Log out couldn't be reached).
+function roundHandedIn(status) {
+  return status === "submitted" || status === "scored" || status === "scoring_failed";
+}
+
 async function refreshCandidateNav() {
   const submissions = await api("/candidate/submissions");
   candidateCompletedRounds = submissions
-    .filter((s) => s.status === "submitted" || s.status === "scored")
+    .filter((s) => roundHandedIn(s.status))
     .map((s) => s.round_number);
   const nextRound = [1, 2, 3, 4].find((n) => !candidateCompletedRounds.includes(n));
   renderCandidateRoundNav();
@@ -118,7 +125,7 @@ function renderRoundView(box, n, state) {
     return;
   }
 
-  if (submission && (submission.status === "submitted" || submission.status === "scored")) {
+  if (submission && roundHandedIn(submission.status)) {
     // Only reachable via a stale nav click (disabled buttons prevent it
     // normally) - a neutral landing, no status/score wording at all.
     box.innerHTML = `<h3>Round ${n}: ${escapeHtml(scenario.title)}</h3><p class="muted">You've already submitted this round.</p>`;
