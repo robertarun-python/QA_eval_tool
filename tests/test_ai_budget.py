@@ -20,6 +20,9 @@ def paid(tmp_path, monkeypatch):
     monkeypatch.setattr(llm_service.settings, "ai_call_log_path", str(path))
     monkeypatch.setattr(llm_service.settings, "claude_model", "claude-sonnet-4-5")
     monkeypatch.setattr(llm_service.settings, "ai_monthly_limit_usd", 10.0)
+    # The month's limit alone: the earlier spend is dated the 1st, which on the 1st is also today, and the
+    # $3 daily limit (tested in test_ai_guardrails) then stopped the call first (failed on 2026-10-01).
+    monkeypatch.setattr(llm_service.settings, "ai_daily_limit_usd", 1000.0)
     monkeypatch.setattr(llm_service, "_MONTH_SPEND", {"month": None, "usd": 0.0})
     monkeypatch.setattr(llm_service, "_SPEND", {"day": None, "day_usd": 0.0, "candidates": {}})
     llm_service._CALL_LOG.clear()
