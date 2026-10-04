@@ -69,6 +69,25 @@ def _normalize(text: str | None) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 
+# The scorer is shown each evidence block as json.dumps text, so it sometimes quotes a value with
+# its JSON escapes still in (\" for a quote, \n for a line break) - or a mix of escaped and real
+# characters within one quote (seen live: an escaped \" next to a real line break), which then
+# matched neither the raw run output nor its JSON form. One left-to-right pass, so an escaped
+# backslash (\\) followed by n stays a backslash and an n.
+_JSON_ESCAPE_RE = re.compile(r'\\(["\\/nrt])')
+_JSON_ESCAPES = {'"': '"', "\\": "\\", "/": "/", "n": "\n", "r": "\n", "t": "\t"}
+
+
+def _evidence_form(text: str | None) -> str:
+    """The form a cited quote and the recorded evidence are compared in: JSON escapes undone,
+    then _normalize (line endings and runs of whitespace become one space). Applied to both
+    sides of a containment check, never to anything else - the quote still has to be found
+    inside the evidence it cites."""
+    if not text:
+        return ""
+    return _normalize(_JSON_ESCAPE_RE.sub(lambda m: _JSON_ESCAPES[m.group(1)], text))
+
+
 def _turn_text(turn: dict) -> str:
     """Every piece of literal text a human (or the scorer) could actually
     read for one turn - candidate_prompt plus every string field of
@@ -243,8 +262,8 @@ def _check_evidence(
     # ever produce, and scoping a turn citation by it would be meaningless.
     is_quote_only = quote_text is not None and evidence.get("turn") is None and not evidence.get("no_turns")
 
-    if is_quote_only and _normalize(quote_text):
-        needle = _normalize(quote_text)
+    if is_quote_only and _evidence_form(quote_text):
+        needle = _evidence_form(quote_text)
         # TC-scoped check, when the caller supplied per-test-case evidence
         # (supporting_texts_by_tc, keyed the same way
         # _auto_tc_audit_payload/round2_automation_scoring.txt label a test
@@ -274,12 +293,12 @@ def _check_evidence(
     # regardless of is_quote_only (preserves the exact original condition
     # - any quote-bearing citation, not only quote-only ones) so every
     # existing caller's behavior is untouched byte-for-byte.
-    if supporting_texts and quote_text and _normalize(quote_text):
-        needle = _normalize(quote_text)
+    if supporting_texts and quote_text and _evidence_form(quote_text):
+        needle = _evidence_form(quote_text)
         if any(needle in text for text in supporting_texts):
             return EvidenceCheck(True, "ok_supporting_evidence")
-    if is_quote_only and _normalize(quote_text):
-        needle = _normalize(quote_text)
+    if is_quote_only and _evidence_form(quote_text):
+        needle = _evidence_form(quote_text)
         if any(needle in text for texts in evidence_text_by_tc.values() for text in texts):
             return EvidenceCheck(True, "ok_evidence_package")
 
@@ -299,9 +318,9 @@ def _check_evidence(
     quote = evidence.get("quote")
     if not isinstance(turn_no, int) or turn_no < 1 or turn_no > len(flat):
         return EvidenceCheck(False, "invalid_turn")
-    if not quote or not _normalize(quote):
+    if not quote or not _evidence_form(quote):
         return EvidenceCheck(False, "missing_quote")
-    if _normalize(quote) in turn_texts[turn_no - 1]:
+    if _evidence_form(quote) in turn_texts[turn_no - 1]:
         return EvidenceCheck(True, "ok")
     return EvidenceCheck(False, "quote_not_found")
 
@@ -402,20 +421,21 @@ def audit_round2_automation_findings(
     with no recognizable tag still falls back to the flattened union of
     every test case's texts, so this is purely additive strictness."""
     flat = _flatten(test_cases)
-    turn_texts = [_turn_text(item["raw"]) for item in flat]
+    # Evidence texts in _evidence_form, the form _check_evidence compares quotes in.
+    turn_texts = [_evidence_form(_turn_text(item["raw"])) for item in flat]
     turn_counts = {(tc.get("title") or ""): len(tc.get("turns") or []) for tc in test_cases or []}
     if isinstance(supporting_texts, dict):
         support_by_tc = {
-            str(label): [_normalize(t) for t in (texts or []) if t and _normalize(t)]
+            str(label): [_evidence_form(t) for t in (texts or []) if t and _evidence_form(t)]
             for label, texts in supporting_texts.items()
         }
         normalized_support = [text for texts in support_by_tc.values() for text in texts]
     else:
         support_by_tc = {}
-        normalized_support = [_normalize(t) for t in (supporting_texts or []) if t and _normalize(t)]
+        normalized_support = [_evidence_form(t) for t in (supporting_texts or []) if t and _evidence_form(t)]
 
     package_by_tc = {
-        str(label): [_normalize(t) for t in (texts or []) if t and _normalize(t)]
+        str(label): [_evidence_form(t) for t in (texts or []) if t and _evidence_form(t)]
         for label, texts in (evidence_text_by_tc or {}).items()
     }
     known = {str(d.get("id")): d for d in known_defects or [] if isinstance(d, dict) and d.get("id")}
