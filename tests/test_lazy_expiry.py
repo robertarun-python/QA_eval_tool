@@ -86,7 +86,7 @@ def test_expired_in_progress_submission_no_longer_blocks_hr_time_limit_edit(clie
     # part of this same request.
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **kwargs: {
-        "scores": {}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
+        "scores": {"automation_design": 0, "test_data_and_assertions": 0, "ai_usage": 0, "ai_output_review": 0, "execution_and_validation": 0}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
     })
     res = client.patch(f"/hr/scenarios/{published['id']}/time-limit", json={"time_limit_minutes": 45}, cookies=_auth(hr_token))
     assert res.status_code == 200

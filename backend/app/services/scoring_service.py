@@ -5,6 +5,7 @@ is "what do we do with the answer" - easier to unit test scoring logic
 without mocking the Anthropic client every time.
 """
 import json
+import math
 import threading
 import traceback
 from datetime import datetime, timedelta
@@ -313,9 +314,74 @@ def _anchor_round3_correctness(result: dict, test_results: list[dict], conversat
     }
 
 
+_R2_AREAS = ("automation_design", "test_data_and_assertions", "ai_usage", "ai_output_review", "execution_and_validation")
+
+
+def _r2_final_from_subscores(result: dict) -> None:
+    """final_score is the sum of the five 0-20 area scores (clamped 0-100), whatever total
+    the model wrote; its own figure is kept as ai_final_score when the two disagree. A missing
+    or invalid area raises, so the submission lands in scoring_failed for HR instead of falling
+    back to the model's own total."""
+    scores = result.get("scores")
+    if not isinstance(scores, dict):
+        raise ValueError("Automation scoring response has no area scores")
+    bad = [a for a in _R2_AREAS
+           if isinstance(scores.get(a), bool) or not isinstance(scores.get(a), (int, float)) or not math.isfinite(scores[a])]
+    if bad:
+        raise ValueError(f"Automation scoring response has missing or invalid area scores: {', '.join(bad)}")
+    total = max(0, min(100, int(sum(min(20, max(0, int(scores[a]))) for a in _R2_AREAS))))
+    if result.get("final_score") != total:
+        result["ai_final_score"] = result.get("final_score")  # kept in raw_llm_response_json for HR
+    result["final_score"] = total
+
+
+def _known_defects_for_prompt(known_defects) -> str:
+    """The scenario's operator-only known defects as scorer reference text (never shown to a candidate)."""
+    lines = []
+    for d in known_defects or []:
+        if isinstance(d, dict) and d.get("id"):
+            lines.append(f"- {d['id']}: requirement: {d.get('requirement', '')} | actual behaviour: {d.get('actual_behaviour', '')}"
+                         f" | how a run shows it: {d.get('observable_signal', '')}"
+                         f" | creditable: {'yes' if d.get('creditable') else 'no - never credit or require it'}")
+    return "\n".join(lines) or "None declared."
+
+
+def _r2_audit_texts(tc_evidence: list[dict]) -> tuple[dict, dict]:
+    """What the auditor checks a finding's citations against, per test case label:
+    final_code/stdout/stderr (as before); the whole evidence block serialized the way the
+    scorer received it (llm_service.score_round2_automation_conversation: json.dumps(...,
+    indent=2)), plus the unescaped form in case a quote copies a non-ASCII character as itself;
+    the run output; and what the candidate aimed the test at (design + their own prompts)."""
+    supporting = {
+        block["label"]: [
+            block["final_code"],
+            block["execution_result"].get("stdout", ""),
+            block["execution_result"].get("stderr", ""),
+        ]
+        for block in tc_evidence
+    }
+    return supporting, {
+        "evidence_text_by_tc": {
+            block["label"]: [json.dumps(block, indent=2), json.dumps(block, indent=2, ensure_ascii=False)]
+            for block in tc_evidence
+        },
+        "execution_text_by_tc": {
+            block["label"]: "\n".join([block["execution_result"].get("stdout", "") or "",
+                                       block["execution_result"].get("stderr", "") or ""])
+            for block in tc_evidence
+        },
+        "target_text_by_tc": {
+            block["label"]: " ".join([json.dumps(block["design"], ensure_ascii=False)]
+                                     + [str(t.get("candidate_prompt") or "") for t in block["turns"]])
+            for block in tc_evidence
+        },
+    }
+
+
 def _round2_automation_findings_to_misses(
     result: dict, test_cases_payload: list[dict],
     supporting_texts: list[str] | dict[str, list[str]] | None = None,
+    **audit_inputs,
 ) -> tuple[list[str], int | None, dict | None]:
     """Runs the scorer's structured findings (see prompts/round2_automation_scoring.txt
     and schemas.Round2AutomationFinding) through the deterministic, non-LLM evidence
@@ -334,10 +400,11 @@ def _round2_automation_findings_to_misses(
     if findings is None:
         return result.get("misses", []), result.get("final_score"), None
 
-    report = round2_automation_evidence_audit.audit_round2_automation_findings(test_cases_payload, findings, supporting_texts)
+    report = round2_automation_evidence_audit.audit_round2_automation_findings(
+        test_cases_payload, findings, supporting_texts, **audit_inputs)
     final_score = result.get("final_score")
     if isinstance(final_score, (int, float)):
-        final_score = min(100, int(final_score) + report.score_adjustment())
+        final_score = min(100, int(final_score) + report.bounded_adjustment(int(final_score)))
     # "findings" carries the full explainable chain per finding (Finding
     # -> Evidence -> Evidence status -> Score impact - see
     # FindingAudit.to_dict); the rest are the pre-existing aggregate
@@ -345,6 +412,11 @@ def _round2_automation_findings_to_misses(
     # HR-internal diagnostics only (see routers/hr.py - never surfaced to
     # a candidate).
     audit_report = {**report.summary(), "findings": report.findings_detail()}
+    if report.defects_detected():
+        audit_report["defects_detected"] = report.defects_detected()
+    if report.unverified_detections():
+        audit_report["unverified_detections"] = report.unverified_detections()
+        audit_report["needs_review"] = True  # the scorer claimed a detection the evidence doesn't verify
     return report.surviving_claims(), final_score, audit_report
 
 
@@ -496,12 +568,15 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
     # another's.
     audit_payload = _auto_tc_audit_payload(selected)
 
-    result = llm_service.score_round2_automation_conversation(
-        language=language,
-        tc_evidence=tc_evidence,
-        ground_truth=reference.get("ground_truth", ""),
-        validation_notes=reference.get("validation_notes", ""),
-    )
+    # Operator-only (reference_json is never served to a candidate): the scorer gets them as
+    # reference text, the auditor uses them to verify a claimed detection.
+    known_defects = reference.get("known_defects") or []
+    scorer_inputs = dict(language=language, tc_evidence=tc_evidence,
+                         ground_truth=reference.get("ground_truth", ""), validation_notes=reference.get("validation_notes", ""))
+    if known_defects:
+        scorer_inputs["known_defects"] = _known_defects_for_prompt(known_defects)
+    result = llm_service.score_round2_automation_conversation(**scorer_inputs)
+    _r2_final_from_subscores(result)
     # This round's PRIMARY EVIDENCE is not only the conversation: the
     # rubric grades each TC's own final code and execution result too.
     # supporting_texts_by_tc keeps a quote-only citation scoped to the
@@ -511,16 +586,9 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
     # round2_automation_evidence_audit._check_evidence. An untagged or
     # unrecognized-tag citation still falls back to the lenient
     # whole-submission check below it, unchanged from before.
-    supporting_texts_by_tc = {
-        block["label"]: [
-            block["final_code"],
-            block["execution_result"].get("stdout", ""),
-            block["execution_result"].get("stderr", ""),
-        ]
-        for block in tc_evidence
-    }
+    supporting_texts_by_tc, audit_inputs = _r2_audit_texts(tc_evidence)
     misses, final_score, evidence_audit_summary = _round2_automation_findings_to_misses(
-        result, audit_payload, supporting_texts_by_tc,
+        result, audit_payload, supporting_texts_by_tc, known_defects=known_defects, **audit_inputs,
     )
 
     score = _get_or_create_score(db, submission)

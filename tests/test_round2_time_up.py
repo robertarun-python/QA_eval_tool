@@ -38,7 +38,7 @@ def test_round2_timer_is_wired_to_the_round2_auto_submit():
 def test_expire_closes_an_overdue_round2_attempt(client, monkeypatch):
     from app.services import llm_service
     monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **kwargs: {
-        "scores": {}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
+        "scores": {"automation_design": 0, "test_data_and_assertions": 0, "ai_usage": 0, "ai_output_review": 0, "execution_and_validation": 0}, "final_score": 0, "findings": [], "feedback_text": "Nothing submitted.",
     })
     hr_token = _login(client, HR_EMAIL, HR_PASSWORD)
     _publish_scenario(client, hr_token, monkeypatch, round_number=1)

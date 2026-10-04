@@ -47,7 +47,8 @@ def journey(client, monkeypatch, tmp_path):
     assert res.status_code == 200, res.text
     score = {"coverage_score": 50, "misses": [], "final_score": 50, "feedback_text": "ok"}
     monkeypatch.setattr(llm_service, "score_round1_submission", lambda **k: dict(score))
-    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {**score, "findings": []})
+    monkeypatch.setattr(llm_service, "score_round2_automation_conversation", lambda **k: {**score, "findings": [], "scores": {a: 10 for a in (
+        "automation_design", "test_data_and_assertions", "ai_usage", "ai_output_review", "execution_and_validation")}})
     monkeypatch.setattr(llm_service, "_call_claude_json",
                         lambda *a, **k: {"reply": "Here's the code for what you described.", "code": 'incomplete("step one")'})
     ok = execution_service.ExecutionResult(stdout="PASS", stderr="", exit_code=0, timed_out=False, infra_error=False, duration_ms=1)

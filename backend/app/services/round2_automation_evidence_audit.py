@@ -113,25 +113,40 @@ class FindingAudit:
     on each of them."""
     claim: str
     severity: str
-    status: str  # "SUPPORTED" | "NOT_ESTABLISHED" | "CONTRADICTED"
+    # candidate_weakness: "SUPPORTED" | "NOT_ESTABLISHED" | "CONTRADICTED" | "SUPERSEDED_BY_DEFECT"
+    # defect_detected:    "VERIFIED_DEFECT" | "UNVERIFIED_DETECTION"
+    status: str
     evidence: list[dict] = field(default_factory=list)
     evidence_checks: list[EvidenceCheck] = field(default_factory=list)
+    kind: str = "candidate_weakness"
+    defect_id: str | None = None
+    reason: str | None = None  # why a detection wasn't verified, or which detection superseded a weakness
+
+    @property
+    def is_weakness(self) -> bool:
+        return self.kind != "defect_detected"
 
     @property
     def score_impact(self) -> int:
         """Points restored to the candidate because this finding's
         implied deduction was voided (0 for a finding that stands - see
-        AuditReport.score_adjustment, which is just the sum of these)."""
-        return SEVERITY_WEIGHTS.get(self.severity, 0) if self.status != "SUPPORTED" else 0
+        AuditReport.score_adjustment, which is just the sum of these).
+        A detection never carried a deduction, so it never restores one."""
+        return SEVERITY_WEIGHTS.get(self.severity, 0) if self.is_weakness and self.status != "SUPPORTED" else 0
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "finding": self.claim,
             "severity": self.severity,
             "evidence_status": self.status,
             "evidence": self.evidence,
             "score_impact": self.score_impact,
         }
+        if not self.is_weakness:
+            out.update(kind=self.kind, defect_id=self.defect_id)
+        if self.reason:
+            out["reason"] = self.reason
+        return out
 
 
 @dataclass
@@ -142,13 +157,20 @@ class AuditReport:
         invalid_references = sum(
             1 for f in self.findings for c in f.evidence_checks if c.reason == "invalid_turn"
         )
-        return {
+        out = {
             "total_findings": len(self.findings),
             "supported": sum(1 for f in self.findings if f.status == "SUPPORTED"),
             "not_established": sum(1 for f in self.findings if f.status == "NOT_ESTABLISHED"),
             "contradicted": sum(1 for f in self.findings if f.status == "CONTRADICTED"),
             "invalid_references": invalid_references,
         }
+        # Only present when a scenario declares known defects and the scorer used them.
+        for key, status in (("superseded_by_defect", "SUPERSEDED_BY_DEFECT"), ("verified_defects", "VERIFIED_DEFECT"),
+                            ("unverified_detections", "UNVERIFIED_DETECTION")):
+            count = sum(1 for f in self.findings if f.status == status)
+            if count:
+                out[key] = count
+        return out
 
     def findings_detail(self) -> list[dict]:
         """The full explainable chain for every finding, in order -
@@ -161,7 +183,7 @@ class AuditReport:
     def surviving_claims(self) -> list[str]:
         """Claim text for every finding that actually cleared the audit -
         this, not the LLM's raw findings list, is what becomes Score.misses_json."""
-        return [f.claim for f in self.findings if f.status == "SUPPORTED"]
+        return [f.claim for f in self.findings if f.is_weakness and f.status == "SUPPORTED"]
 
     def score_adjustment(self) -> int:
         """Points to add back to the LLM's final_score - one rejected
@@ -169,14 +191,44 @@ class AuditReport:
         scoring_service._round2_automation_findings_to_misses; this is what makes
         requirement 8 (an unsupported deduction must not survive) hold
         even though the LLM computes final_score as one holistic number
-        rather than a literal running total."""
+        rather than a literal running total. The raw upper bound - the
+        Round 2 automation score uses bounded_adjustment."""
         return sum(f.score_impact for f in self.findings)
+
+    def bounded_adjustment(self, base_score: int) -> int:
+        """The refund actually applied to a 0-100 score: never more than the rejected
+        findings' own weights, and never more than their proportional share of the
+        deduction the scorer actually made (100 - base_score), so rejecting a finding can
+        only undo part of a real deduction - never lift a score past it (candidate A:
+        3 x 15 refunded on a 62 used to give 100). 0 when nothing was rejected."""
+        rejected = sum(SEVERITY_WEIGHTS.get(f.severity, 0) for f in self.findings if f.score_impact)
+        if not rejected:
+            return 0
+        supported = sum(SEVERITY_WEIGHTS.get(f.severity, 0) for f in self.findings if f.is_weakness and f.status == "SUPPORTED")
+        deduction = max(0, 100 - base_score)
+        return min(rejected, round(deduction * rejected / (supported + rejected)))
+
+    def defects_detected(self) -> list[dict]:
+        """Verified detections of known application defects - HR-only, never misses."""
+        return [{"defect_id": f.defect_id, "finding": f.claim, "evidence": f.evidence}
+                for f in self.findings if f.status == "VERIFIED_DEFECT"]
+
+    def unverified_detections(self) -> list[dict]:
+        return [{"defect_id": f.defect_id, "finding": f.claim, "reason": f.reason}
+                for f in self.findings if f.status == "UNVERIFIED_DETECTION"]
 
 
 def _check_evidence(
     evidence: dict, flat: list[dict], turn_texts: list[str], turn_counts: dict[str, int],
     supporting_texts: list[str] | None = None, supporting_texts_by_tc: dict[str, list[str]] | None = None,
+    evidence_text_by_tc: dict[str, list[str]] | None = None,
 ) -> EvidenceCheck:
+    # evidence_text_by_tc: each test case's whole evidence block exactly as the scorer was
+    # shown it (design, code_edits, execution_result incl. exit_code, ...). A quote the
+    # scorer copied from any of it is real recorded evidence - candidate A's true findings
+    # quoted "exit_code": 1 and "code_edits": [] and were wrongly refunded because only
+    # final_code/stdout/stderr were searched. Same verbatim matching, same TC scoping.
+    evidence_text_by_tc = evidence_text_by_tc or {}
     # A quote that appears verbatim in one of the caller's OTHER persisted
     # evidence artefacts (see audit_round2_automation_findings' supporting_texts) is
     # established the same way a turn quote is: the text demonstrably
@@ -211,6 +263,8 @@ def _check_evidence(
         if supporting_texts_by_tc and tc_label and tc_label in supporting_texts_by_tc:
             if any(needle in text for text in supporting_texts_by_tc[tc_label]):
                 return EvidenceCheck(True, "ok_supporting_evidence")
+            if any(needle in text for text in evidence_text_by_tc.get(tc_label, [])):
+                return EvidenceCheck(True, "ok_evidence_package")
             return EvidenceCheck(False, "wrong_test_case")
 
     # Unchanged from before this feature existed: a quote that appears
@@ -224,6 +278,10 @@ def _check_evidence(
         needle = _normalize(quote_text)
         if any(needle in text for text in supporting_texts):
             return EvidenceCheck(True, "ok_supporting_evidence")
+    if is_quote_only and _normalize(quote_text):
+        needle = _normalize(quote_text)
+        if any(needle in text for texts in evidence_text_by_tc.values() for text in texts):
+            return EvidenceCheck(True, "ok_evidence_package")
 
     if evidence.get("no_turns"):
         title = evidence.get("test_case") or ""
@@ -268,9 +326,51 @@ def _contradicted_by_followup(claim: str, evidence: list[dict], flat: list[dict]
     return False
 
 
+def _verify_detection(
+    defect_id: str | None, evidence: list[dict], checks: list[EvidenceCheck], known: dict[str, dict],
+    execution_text_by_tc: dict[str, str], target_text_by_tc: dict[str, str],
+) -> tuple[bool, str, list[str]]:
+    """A "defect_detected" finding earns its status only when ALL hold: it names a declared,
+    creditable known defect; its evidence is real; at least one cited quote comes from a test
+    case's own run output AND shows that defect's observable signal; and that same test case's
+    design or the candidate's own prompts targeted the affected behaviour. Seeing a failure,
+    naming a defect, or the defect merely existing earns nothing. Returns (verified, reason,
+    [(test case label, matched execution quote), ...])."""
+    entry = known.get(defect_id or "")
+    if entry is None:
+        return False, "unknown_defect", []
+    if not entry.get("creditable", False):
+        return False, "not_creditable", []  # e.g. an expected value only the operator knows
+    if not evidence or not all(c.valid for c in checks):
+        return False, "evidence_not_established", []
+    signals = [_normalize(s).lower() for s in entry.get("observable_signals") or [] if _normalize(s)]
+    targets = [_normalize(t).lower() for t in entry.get("targets") or [] if _normalize(t)]
+    if not signals or not targets:
+        return False, "defect_not_fully_declared", []
+    shown_in = []
+    for ev in evidence:
+        quote = _normalize(ev.get("quote")).lower()
+        if not quote:
+            continue
+        labels = [ev["test_case"]] if ev.get("test_case") in execution_text_by_tc else list(execution_text_by_tc)
+        for label in labels:
+            if quote in execution_text_by_tc[label] and any(s in quote for s in signals):
+                shown_in.append((label, quote))
+    if not shown_in:
+        return False, "not_shown_in_run_output", []
+    targeted = [(label, q) for label, q in shown_in if any(t in target_text_by_tc.get(label, "") for t in targets)]
+    if not targeted:
+        return False, "test_did_not_target_behaviour", []
+    return True, "", targeted
+
+
 def audit_round2_automation_findings(
     test_cases: list[dict], findings: list[dict],
     supporting_texts: list[str] | dict[str, list[str]] | None = None,
+    evidence_text_by_tc: dict[str, list[str]] | None = None,
+    known_defects: list[dict] | None = None,
+    execution_text_by_tc: dict[str, str] | None = None,
+    target_text_by_tc: dict[str, str] | None = None,
 ) -> AuditReport:
     """The single entry point: check every LLM-generated finding against
     the transcript and return a verdict per finding, deterministically.
@@ -314,17 +414,28 @@ def audit_round2_automation_findings(
         support_by_tc = {}
         normalized_support = [_normalize(t) for t in (supporting_texts or []) if t and _normalize(t)]
 
+    package_by_tc = {
+        str(label): [_normalize(t) for t in (texts or []) if t and _normalize(t)]
+        for label, texts in (evidence_text_by_tc or {}).items()
+    }
+    known = {str(d.get("id")): d for d in known_defects or [] if isinstance(d, dict) and d.get("id")}
+    execution_by_tc = {str(k): _normalize(v).lower() for k, v in (execution_text_by_tc or {}).items()}
+    target_by_tc = {str(k): _normalize(v).lower() for k, v in (target_text_by_tc or {}).items()}
+
     audited = []
+    detection_quotes: list[tuple[str, str, str]] = []  # (defect_id, test case label, execution quote) of verified detections
     for raw in findings or []:
         claim = (raw.get("claim") or "").strip()
         severity = raw.get("severity") if raw.get("severity") in SEVERITY_WEIGHTS else "low"
         evidence = raw.get("evidence") or []
+        kind = raw.get("kind") if raw.get("kind") == "defect_detected" else "candidate_weakness"
 
         if not evidence:
             status = "NOT_ESTABLISHED"
             checks: list[EvidenceCheck] = []
         else:
-            checks = [_check_evidence(ev, flat, turn_texts, turn_counts, normalized_support, support_by_tc) for ev in evidence]
+            checks = [_check_evidence(ev, flat, turn_texts, turn_counts, normalized_support, support_by_tc, package_by_tc)
+                      for ev in evidence]
             if any(c.reason == "turns_exist" for c in checks):
                 status = "CONTRADICTED"
             elif all(c.valid for c in checks):
@@ -332,9 +443,37 @@ def audit_round2_automation_findings(
             else:
                 status = "NOT_ESTABLISHED"
 
+        if kind == "defect_detected":
+            verified, reason, quotes = _verify_detection(raw.get("defect_id"), evidence, checks, known, execution_by_tc, target_by_tc)
+            detection_quotes += [(raw.get("defect_id"), label, q) for label, q in quotes]
+            audited.append(FindingAudit(claim=claim, severity=severity, status="VERIFIED_DEFECT" if verified else "UNVERIFIED_DETECTION",
+                                        evidence=evidence, evidence_checks=checks, kind=kind,
+                                        defect_id=raw.get("defect_id"), reason=reason or None))
+            continue
+
         if status != "CONTRADICTED" and _contradicted_by_followup(claim, evidence, flat):
             status = "CONTRADICTED"
 
         audited.append(FindingAudit(claim=claim, severity=severity, status=status, evidence=evidence, evidence_checks=checks))
+
+    # No double penalty: a supported weakness that rests ONLY on the verified defect's own failure
+    # output is the application's fault, not the candidate's - every quote it cites must come
+    # from the run output of the test case where that defect was verified (and not be tagged with
+    # another test case) AND contain one of that defect's declared failure signals. Claim wording
+    # and quote overlap alone never cancel anything. It stops being a miss and its deduction is
+    # undone like any other rejected one.
+    verified_at = {(d, label) for d, label, _ in detection_quotes}
+    for f in audited:
+        if not (f.is_weakness and f.status == "SUPPORTED" and f.evidence):
+            continue
+        for d, label in sorted(verified_at):
+            signals = [_normalize(s).lower() for s in known[d].get("observable_signals") or [] if _normalize(s)]
+            if all(_normalize(ev.get("quote")).lower()
+                   and ev.get("test_case") in (None, "", label)
+                   and _normalize(ev.get("quote")).lower() in execution_by_tc.get(label, "")
+                   and any(s in _normalize(ev.get("quote")).lower() for s in signals)
+                   for ev in f.evidence):
+                f.status, f.reason = "SUPERSEDED_BY_DEFECT", f"rests only on verified {d}'s failure output"
+                break
 
     return AuditReport(findings=audited)

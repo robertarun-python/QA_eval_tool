@@ -717,6 +717,12 @@ class Round2AutomationFinding(BaseModel):
     claim: str = Field(min_length=1)
     severity: Literal["low", "medium", "high"] = "low"
     evidence: list[Round2AutomationFindingEvidence] = Field(default_factory=list)
+    # "defect_detected": the candidate's run exposed a known application defect (the scenario's
+    # operator-only reference_json["known_defects"], named by defect_id). Never a miss, and only
+    # counted once the auditor verifies it from the run output - see
+    # round2_automation_evidence_audit._verify_detection.
+    kind: Literal["candidate_weakness", "defect_detected"] = "candidate_weakness"
+    defect_id: Optional[str] = None
 
 
 class Round4TestCaseOut(BaseModel):

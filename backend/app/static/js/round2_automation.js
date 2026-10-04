@@ -680,7 +680,9 @@ async function round2AutomationSubmitClicked() {
       if (st) st.textContent = `Run "${r.title || `test case ${r.index}`}" at least once before submitting.`;
       return;
     }
-    entries.push({ row_index: r.index, code: round2AutomationCode(r.index) });
+    // Only the test case on screen has a code box - the others send the code saved for them.
+    const onScreen = document.getElementById(`r4a-code-${r.index}`);
+    entries.push({ row_index: r.index, code: onScreen ? round2AutomationCode(r.index) : (tc.code || null) });
   }
 
   round2AutomationBusy = true;

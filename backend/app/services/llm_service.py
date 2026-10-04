@@ -1867,6 +1867,7 @@ def round2_automation_clarify(
 
 def score_round2_automation_conversation(
     language: str, tc_evidence: list[dict], ground_truth: str, validation_notes: str,
+    known_defects: str = "None declared.",
 ) -> dict:
     """Scores one automation submission against the 5-area rubric (20 each
     = 100 - see prompts/round2_automation_scoring.txt). tc_evidence is a list of
@@ -1884,6 +1885,7 @@ def score_round2_automation_conversation(
         tc_evidence_json=_as_data(json.dumps(tc_evidence, indent=2)),
         ground_truth=ground_truth,
         validation_notes=validation_notes,
+        known_defects=known_defects or "None declared.",
     )
     result = _call_claude_json(prompt, max_tokens=8192)
     if not isinstance(result, dict):

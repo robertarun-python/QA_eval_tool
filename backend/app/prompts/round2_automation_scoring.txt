@@ -36,7 +36,15 @@ How the provided environment actually behaves - ground truth for judging whether
 
 Notes for your judgment (not a checklist to match literally):
 {validation_notes}
+
+Known application defects (operator knowledge - the provided app deliberately or knowingly breaks these requirements; the candidate was never told):
+{known_defects}
 ======================== END REFERENCE ONLY ========================
+
+Known application defects - how to judge them:
+- A check that fails because the app shows one of the known defects above is the candidate's test working correctly, not a weakness: do NOT lower test_data_and_assertions, execution_and_validation or any other area for that failure. Report it as a finding with "kind": "defect_detected" and its "defect_id", citing the exact run output (execution_result stdout/stderr) that shows it, tagged with that block's label. Only do this when the run output itself shows the defect and the test case was aimed at that behaviour - never because a defect is known, mentioned, or merely possible. A defect marked "creditable: no" is never credited and never required.
+- Never penalise a candidate for not exercising a known defect, and never mention a known defect in feedback_text unless the candidate's own run output shows it.
+- If execution_result shows infra_error or timed_out, that is a platform failure, not the candidate's fault - do not penalise it.
 
 Score these five areas, each 0-20 (total 100), using PRIMARY EVIDENCE only:
 
@@ -71,7 +79,8 @@ Respond with ONLY a JSON object, no other text, in this exact shape:
   "final_score": <int 0-100>,
   "findings": [
     {{"claim": "<specific claim>", "severity": "low" | "medium" | "high",
-      "evidence": [{{"turn": <int>, "quote": "<exact quote>"}}] | [{{"quote": "<exact quote from the code or run output>", "test_case": "<block label>"}}]}}
+      "evidence": [{{"turn": <int>, "quote": "<exact quote>"}}] | [{{"quote": "<exact quote from the code or run output>", "test_case": "<block label>"}}],
+      "kind": "candidate_weakness" | "defect_detected", "defect_id": "<known defect id, only for defect_detected>"}}
   ],
   "feedback_text": "<2-4 sentences of candidate-facing feedback>"
 }}
