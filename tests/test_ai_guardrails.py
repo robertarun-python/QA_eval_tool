@@ -200,13 +200,17 @@ def test_hr_sees_which_limit_was_reached_and_changes_the_limits(client, paid):
     with llm_service.call_context(**CANDIDATE), pytest.raises(llm_service.AILimitReached):
         llm_service._call_claude("p")
     lasting = client.get("/hr/ai-health", cookies=hr).json()["lasting"]
-    assert lasting["limits"] == {"monthly_usd": 12.0, "daily_usd": 3.0, "candidate_round_usd": 0.75, "candidate_round_calls": 60}
+    assert lasting["limits"] == {"monthly_usd": 12.0, "daily_usd": 3.0, "candidate_round_usd": 0.75, "candidate_round_calls": 60,
+                                 "candidate_round_messages": 40}
+    assert lasting["limit_labels"]["candidate_round_messages"] == "Assistant messages per candidate per round"
     [reached] = lasting["limits_reached"]
     assert reached["limit"] == "candidate_round_usd" and reached["round_number"] == 2
     assert lasting["limit_labels"]["candidate_round_usd"] == "AI spend per candidate per round (US$)"
     assert lasting["calls"] == 1                           # the blocked call isn't counted as a call
-    res = client.put("/hr/ai-budget", json={"candidate_round_usd": 1.5, "candidate_round_calls": 80, "daily_usd": 5}, cookies=hr)
+    res = client.put("/hr/ai-budget", json={"candidate_round_usd": 1.5, "candidate_round_calls": 80, "daily_usd": 5,
+                                            "candidate_round_messages": 25}, cookies=hr)
     assert res.status_code == 200 and res.json()["limits"]["candidate_round_usd"] == 1.5
+    assert res.json()["limits"]["candidate_round_messages"] == 25
     assert res.json()["limits"]["monthly_usd"] == 12.0     # the others keep their values
     with llm_service.call_context(**CANDIDATE):
         llm_service._call_claude("p")                       # raised: the candidate may continue

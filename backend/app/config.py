@@ -85,9 +85,14 @@ class Settings(BaseSettings):
     # Guardrails beside the monthly limit (owner, 2026-09-28), also set on the
     # AI health card: a day's spend across everything, and one candidate's
     # spend and number of AI calls in one round. See llm_service.check_budget.
+    # The per-candidate limits are checked when a candidate's message starts, never
+    # in the middle of one: the dollars are a runaway backstop (the most a strong
+    # candidate's whole Round 2 has cost is $1.19, pilot 2026-10-04), the messages
+    # the everyday limit (the most seen in one Round 2 attempt is 10).
     ai_daily_limit_usd: float = 3.0
-    ai_candidate_round_limit_usd: float = 0.75
+    ai_candidate_round_limit_usd: float = 2.50
     ai_candidate_round_calls: int = 60
+    ai_candidate_round_messages: int = 40
     # For test and measurement runs only - both off for the live tool, where
     # HR's "build again" must really ask again and nobody should wait:
     # ai_reuse_replies answers a request identical to an earlier one from the

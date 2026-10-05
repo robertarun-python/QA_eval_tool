@@ -575,7 +575,10 @@ def score_round2_automation_submission(db: Session, submission: Submission) -> S
                          ground_truth=reference.get("ground_truth", ""), validation_notes=reference.get("validation_notes", ""))
     if known_defects:
         scorer_inputs["known_defects"] = _known_defects_for_prompt(known_defects)
-    result = llm_service.score_round2_automation_conversation(**scorer_inputs)
+    # A system call, not the candidate's: it never counts toward or is stopped by their per-round
+    # allowance (llm_service.check_budget) - the daily and monthly limits still apply to it.
+    with llm_service.call_context(system_call="r2_scoring"):
+        result = llm_service.score_round2_automation_conversation(**scorer_inputs)
     _r2_final_from_subscores(result)
     # This round's PRIMARY EVIDENCE is not only the conversation: the
     # rubric grades each TC's own final code and execution result too.

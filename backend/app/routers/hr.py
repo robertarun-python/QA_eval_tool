@@ -178,10 +178,11 @@ def _lasting_ai_cost(db: Session) -> dict:
 @router.put("/ai-budget")
 def set_ai_budget(payload: dict, hr: User = Depends(require_hr)):
     """HR sets the AI limits: monthly_usd (0 stops all new AI work), daily_usd, candidate_round_usd,
-    candidate_round_calls - any of them; the others keep their values."""
+    candidate_round_calls, candidate_round_messages - any of them; the others keep their values."""
     if not isinstance(payload, dict):
         raise HTTPException(400, "Send the limits to change as a JSON object")
-    ranges = {"monthly_usd": 10000, "daily_usd": 10000, "candidate_round_usd": 1000, "candidate_round_calls": 100000}
+    ranges = {"monthly_usd": 10000, "daily_usd": 10000, "candidate_round_usd": 1000, "candidate_round_calls": 100000,
+              "candidate_round_messages": 100000}
     changes = {}
     for key, value in payload.items():
         if key not in ranges:
