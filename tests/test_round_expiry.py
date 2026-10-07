@@ -97,7 +97,7 @@ def test_expire_saves_whatever_draft_content_was_sent(client, monkeypatch):
     assert res.status_code == 200
     saved = res.json()["content"]
     assert saved == [{
-        "title": "Login with valid creds", "preconditions": "", "steps": "", "expected_result": "",
+        "title": "Login with valid creds", "preconditions": "", "steps": "", "test_data": "", "expected_result": "",
         "priority": "Medium", "type": "Positive",
     }]
 

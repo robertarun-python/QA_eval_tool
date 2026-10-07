@@ -56,6 +56,9 @@ def _sanitize_expired_round1_row(row: dict) -> dict:
         "title": str(row.get("title") or ""),
         "preconditions": str(row.get("preconditions") or ""),
         "steps": str(row.get("steps") or ""),
+        # Kept like every other field: dropping it lost a timed-out candidate's test data before scoring
+        # (production, 2026-10-06) - the scorer then marked them down for having none.
+        "test_data": str(row.get("test_data") or ""),
         "expected_result": str(row.get("expected_result") or ""),
         "priority": row.get("priority") if row.get("priority") in _VALID_PRIORITIES else "Medium",
         "type": row.get("type") if row.get("type") in _VALID_TYPES else "Positive",

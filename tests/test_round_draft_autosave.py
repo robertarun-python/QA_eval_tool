@@ -27,7 +27,7 @@ def test_round1_draft_is_saved_and_returned_on_resume(client, monkeypatch):
 
     state = client.get("/candidate/round/1", cookies=_auth(cand_token)).json()
     assert state["submission"]["content"] == [
-        {"title": "Login works", "preconditions": "", "steps": "typing...", "expected_result": "",
+        {"title": "Login works", "preconditions": "", "steps": "typing...", "test_data": "", "expected_result": "",
          "priority": "Medium", "type": "Positive"},
     ]
     # Still genuinely in progress - autosave never finalizes anything.
