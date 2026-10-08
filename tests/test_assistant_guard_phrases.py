@@ -157,13 +157,17 @@ def test_r3_done_signal_ends_the_questions(monkeypatch):
     assert "they have said they're done" in prompts[1]
 
 
-def test_r3_falls_back_to_one_fixed_prompt_then_stops_asking(monkeypatch):
+def test_r3_loop_keeps_a_new_specific_question_and_otherwise_moves_forward(monkeypatch):
+    """Batch 1a (2026-10-07): the no-questions retry's NEW, specific question is something the
+    candidate can answer - shown as it is, not swapped for a generic line. A repeated question, or a
+    long run of them, ends in a progress message that names direct editing - never a question."""
     result, _ = _run_r3(monkeypatch, [_clarify("Q3?"), _clarify("Q4?")], conversation=_asked("Q1?", "Q2?"))
-    assert result == {**result, "response_kind": "clarify", "response_message": llm_service.R3_FINAL_PROMPT}
-    # Once that fixed prompt has been shown, it's never shown again.
-    again, _ = _run_r3(monkeypatch, [_clarify("Q5?"), _clarify("Q6?")],
-                       conversation=_asked("Q1?", "Q2?", llm_service.R3_FINAL_PROMPT))
-    assert again["response_kind"] == "explain"
+    assert result["response_kind"] == "clarify" and result["response_message"] == "Q4?"
+    again, _ = _run_r3(monkeypatch, [_clarify("Q3?"), _clarify("Q1?")], conversation=_asked("Q1?", "Q2?"))
+    assert again["response_kind"] == "explain" and "Edit code" in again["response_message"]
+    assert again["response_message"] in llm_service.R3_PROGRESS_MESSAGES
+    long_run, _ = _run_r3(monkeypatch, [_clarify("Q9?"), _clarify("Q10?")], conversation=_asked("Q1?", "Q2?", "Q3?", "Q4?"))
+    assert long_run["response_kind"] == "explain" and "Edit code" in long_run["response_message"]
 
 
 # ---- Java class name -------------------------------------------------------

@@ -26,6 +26,7 @@ from ..schemas import (
     Round2AutomationEnvironmentOut, Round2AutomationUiMockupOut, Round3CodingTurnResponse, Round2AutomationFinding,
     Round4PilotTurnResponse, Round2AutomationClarifyLLMResponse,
 )
+from . import assistant_operations
 from . import clarify_loop
 from . import fake_llm
 from . import execution_service
@@ -1128,9 +1129,316 @@ _R3_STOP_ASKING_NOTE = (
     "without asking a question."
 )
 
-# Shown at most once per conversation, when even the no-questions retry
-# still comes back as a question.
-R3_FINAL_PROMPT = "Tell me the exact next step or line you want, and I'll write exactly that."
+# When even the no-questions retry comes back without code or a new, specific question: a way
+# forward that never repeats the previous reply and always names direct editing (production,
+# 2026-10-07: one fixed line shown three times, and "one step at a time", which the page contradicts).
+R3_FINAL_PROMPT = ("Tell me what the code should do next, in your own words - several steps at once is fine - "
+                   "or type or paste the code yourself with Edit code.")
+R3_PROGRESS_MESSAGES = (
+    R3_FINAL_PROMPT,
+    "I'll write exactly what you describe. Say what the code should do next, or write it yourself with Edit code.",
+    "I couldn't turn that into code without choosing something you haven't said. Describe it your way, "
+    "or use Edit code to type it.",
+)
+_R3_REFUSAL_AGAIN = ("I still can't do that part for you - tell me a specific step of your own, "
+                     "or type the code yourself with Edit code.")
+# Earlier wording, still in stored conversations - counted like the messages above.
+_R3_OLD_FALLBACKS = ("I'll write exactly what you tell me next - one specific step or line at a time.",
+                     "Tell me the exact next step or line you want, and I'll write exactly that.")
+# A run of questions/fallbacks this long always ends in a progress message, never another question.
+R3_MAX_QUESTIONS_BEFORE_PROGRESS = 4
+
+
+# Cases a task's hidden tests assess. A reply that raises one the candidate never raised gives the
+# requirement away (real-AI gate, 2026-10-07: "What should the program do if there aren't enough
+# distinct values?" for complete steps - the task's hidden -1 rule). A fixed list of topics, checked
+# against everything the candidate has said; not a classifier. "What threshold should I use?" names
+# none of them and is still asked.
+_R3_UNRAISED_CASE_TOPICS = {
+    "empty input": re.compile(r"\bempty\b|\bblank\b|\bno\s+(values?|numbers?|input|elements?|items?|data)\b|\bnothing\s+(is\s+)?(entered|given|typed)\b", re.I),
+    "too few values": re.compile(r"\b(aren'?t|isn'?t|are\s+not|is\s+not|not)\s+(enough|two|2|at\s+least)\b|\btoo\s+few\b|\bfewer\s+than\b"
+                                 r"|\bless\s+than\s+(two|2|three|3)\b|\bonly\s+(one|1)\s+(distinct\s+|unique\s+)?(value|number|element|item)s?\b"
+                                 r"|\bsingle\s+(value|number|element|item)\b|\bat\s+least\s+(two|2)\b", re.I),
+    "ties": re.compile(r"\bti(e|es|ed|ing)\b|\b(equal|identical)\s+(values?|numbers?|elements?|items?)\b"
+                       r"|\b(same|equal)\s+(largest|maximum|max|value|number)\b|\ball\s+(the\s+)?(values?|numbers?|elements?)\s+are\s+(the\s+same|equal|identical)\b", re.I),
+    "a fallback value": re.compile(r"(?<![\w.])-\s?1\b|\bminus\s+one\b|\bfallback\b|\bsentinel\b|\bdefault\s+(value|output|answer|result)\b|\b(none|null)\b", re.I),
+    "invalid input or errors": re.compile(r"\binvalid\b|\berrors?\b|\bexceptions?\b|\bnon[- ]?(numeric|integer|number)s?\b|\bnot\s+(a\s+)?(number|numeric|integer)s?\b|\bmalformed\b|\bbad\s+input\b", re.I),
+    "edge cases": re.compile(r"\b(edge|corner|special)[- ]cases?\b|\bunusual\s+(input|values?|cases?)\b", re.I),
+}
+
+_R3_NO_UNRAISED_CASES_NOTE = (
+    "IMPORTANT - do NOT ask the candidate anything this turn, and do not mention, ask about or handle any input "
+    "case they have not raised themselves (empty input, too few values, ties, fallback values, invalid input, "
+    "errors). Respond with \"code_edit\" and write EXACTLY and ONLY the steps the candidate has stated across "
+    "this conversation. If nothing they've said can be written as code yet, respond with \"explain\" and say "
+    "in one sentence which of their steps you need next, without asking a question."
+)
+
+
+def r3_unraised_case(message: str | None, conversation_so_far: list[dict], candidate_prompt: str) -> str | None:
+    """The hidden-test topic a reply raises that the candidate never raised, or None."""
+    said = " ".join([*(t.get("candidate_prompt") or "" for t in conversation_so_far or []), candidate_prompt or ""])
+    for topic, pattern in _R3_UNRAISED_CASE_TOPICS.items():
+        if pattern.search(message or "") and not pattern.search(said):
+            return topic
+    return None
+
+
+# A complete approach of the candidate's own (steps through to an output) is written as stated, even
+# when it won't produce the task's answer - finding that out is theirs to do. Real-AI gate, 2026-10-08:
+# "remove duplicates, sort descending, and return the first element" got "What should the code do to
+# get the second-largest distinct value?" (the task's goal, steering them), "...print the first
+# element" got "What should the code do after sorting?", and "Find the maximum value with max(), then
+# print how many times it appears" was refused as solve-it-for-me. Two fixed checks, no classifier:
+# a step question ("what should the code do ...") or a goal word of the task the candidate never used.
+# A question for information their own step needs ("What threshold should I use?") matches neither.
+_R3_STEP_QUESTION = re.compile(
+    r"\bwhat\s+(should|do\s+you\s+want|would\s+you\s+like)\s+(the\s+|your\s+|this\s+)?(code|program|solution|script|it)\s+(to\s+)?(do|output|print|return|display|show|produce)\b"
+    r"|\bhow\s+should\s+(the\s+|your\s+)?(code|program|solution|it)\s+(get|find|work\s+out|reach|determine|produce|compute)\b", re.I)
+_R3_GOAL_WORD = re.compile(r"[a-z][a-z0-9]{3,}")
+# Words any task statement and any reply share - never evidence of the task's own goal.
+_R3_PLAIN_WORDS = frozenset((
+    "given write program code solution prints print printed return returns value values number numbers integer "
+    "integers list lists array element elements item items input output line read that this with from what "
+    "should does the then each instead which your into them there their have will would when where count "
+    "counts string strings word words text find finds".split()))
+_R3_APPROACH_NOTE = (
+    "IMPORTANT - the candidate has stated their own complete approach. Respond with \"code_edit\" and write "
+    "EXACTLY the steps they stated, in their order, even if they would not produce the answer the problem "
+    "statement asks for - judging that is the candidate's job. Do not ask what the code should do, do not ask "
+    "how to reach or mention the problem's goal or expected result, do not change or improve their algorithm, "
+    "and do not refuse. Do not handle any input case they have not raised. Print what the candidate's steps produce, "
+    "using the published output shape, even if the output format describes a different value."
+)
+
+
+def _r3_goal_words(text: str | None) -> set[str]:
+    return {w.rstrip("s") for w in _R3_GOAL_WORD.findall((text or "").lower()) if w not in _R3_PLAIN_WORDS}
+
+
+# A question for the METHOD behind a result the candidate named themselves is not steering (final audit,
+# 2026-10-08): "Remove the duplicates, then print the second largest distinct value" names an operation, but the
+# result it prints still needs a method nobody gave - "How should the code find the second-largest distinct
+# value?" asks for exactly that, and holding it back would push the model to supply the method itself. Only a
+# "how should the code find/get X" or "what should the code do to get/find X" question, where every content word
+# of X is the candidate's own and X is part of the task. "What should the program output?" (no X), "...do with
+# the values once it has them?" (not a method question) and "...do to get the second-largest distinct value?"
+# when they never said that (not their words) are still steering.
+_R3_METHOD_QUESTION = re.compile(
+    r"\bhow\s+should\s+(?:the\s+|your\s+)?(?:code|program|solution|it)\s+"
+    r"(?:get|find|work\s+out|reach|determine|produce|compute|calculate)\b(.*)"
+    r"|\bwhat\s+should\s+(?:the\s+|your\s+|this\s+)?(?:code|program|solution|script|it)\s+do\s+to\s+"
+    r"(?:get|find|work\s+out|reach|determine|produce|compute|calculate)\b(.*)", re.I)
+
+
+_R3_CLAUSE_SPLIT = re.compile(r"[,;:.]|\bthen\b|\band\b", re.I)
+
+
+def _r3_asks_method_for_their_result(message: str, candidate_prompt: str, scenario_description: str) -> bool:
+    """X is named only in their OUTPUT step ("...then print the second largest distinct value") - no step of theirs
+    says how to get it. Named in another step too ("keep the largest value seen, and print it"), the method is theirs."""
+    m = _R3_METHOD_QUESTION.search(message or "")
+    named = _r3_goal_words((m.group(1) or m.group(2) or "") if m else "")
+    clauses = [c for c in _R3_CLAUSE_SPLIT.split(candidate_prompt or "") if c.strip()]
+    in_output = set().union(*[_r3_goal_words(c) for c in clauses if assistant_operations.OUTPUT.search(c)])
+    elsewhere = set().union(*[_r3_goal_words(c) for c in clauses if not assistant_operations.OUTPUT.search(c)])
+    return bool(named and named <= in_output and not named & elsewhere and named & _r3_goal_words(scenario_description))
+
+
+def r3_steers_complete_approach(result: dict, candidate_prompt: str, scenario_description: str) -> str | None:
+    """Why a reply without code fails a complete approach of the candidate's own, or None. Applies only
+    when this message states one (assistant_operations), ending in an output step."""
+    families = assistant_operations.families(candidate_prompt)
+    if not (assistant_operations.is_candidate_approach(candidate_prompt) and "output" in families):
+        return None
+    kind, message = result.get("response_kind"), result.get("response_message") or ""
+    if kind == "refuse" and clarify_loop.normalize_question(message) == clarify_loop.normalize_question(
+            round3_policy.WHOLE_TASK_REFUSAL_MESSAGE):
+        return "refused their own approach"
+    if kind not in ("clarify", "explain"):
+        return None
+    if kind == "clarify" and _R3_STEP_QUESTION.search(message) and not _r3_asks_method_for_their_result(
+            message, candidate_prompt, scenario_description):
+        return "asked what the code should do"
+    if _r3_goal_words(message) & (_r3_goal_words(scenario_description) - _r3_goal_words(candidate_prompt)):
+        return "named the task's goal"
+    return None
+
+
+# The same cases in CODE (real-AI gate, 2026-10-08): for steps that never mentioned empty input the
+# model wrapped the read in "if input_line: ... else: values = []". Fixed signals, checked only on
+# lines the edit ADDS; a case the candidate raised (same topic patterns as above) may be handled.
+_R3_UNRAISED_CASE_CODE = {
+    "empty input": re.compile(
+        r"^\s*(el)?if\s+(not\s+)?[A-Za-z_][\w.]*(\(\))?\s*:"            # if line:  /  if not nums:  /  if line.strip():
+        r"|\bif\s+(not\s+)?[A-Za-z_][\w.]*(\(\))?\s+else\b"              # [...] if line else []
+        r"|\blen\([^)]*\)\s*(==|<=?)\s*0\b|(==|!=)\s*(\"\"|''|\[\])", re.M),
+    "too few values": re.compile(r"\blen\([^)]*\)\s*(<|<=|==|>=|>|!=)\s*[1-9]"),
+    "ties": re.compile(r"^\s*(el)?if\b.*\b[A-Za-z_]\w*\s*!=\s*[A-Za-z_]\w*", re.M),
+    "a fallback value": re.compile(
+        r"\b(print|return)\b\s*\(?\s*(-\s?1|None|float\(\s*['\"][+-]?inf['\"]\s*\))\s*\)?\s*$|^\s*\w+\s*=\s*-\s?1\s*$"
+        r"|\belse\s+(-\s?1|None)\b", re.M),
+    "invalid input or errors": re.compile(r"^\s*try\s*:|\bexcept\b|\braise\b|\.is(digit|numeric|decimal)\(|\bisinstance\(", re.M),
+}
+# A stated de-duplication or comparison is the candidate raising equal values - a "!=" may implement it.
+_R3_RAISED_TIES = re.compile(r"\b(distinct|unique|different|differ\w*|equal|same|duplicat\w*|repeat\w*|dupes?|ti(e|es|ed))\b", re.I)
+
+
+# The published input format can itself state the empty case (the default: "An empty line means there
+# are no values."). Reading such a line as an empty collection then implements the format the candidate
+# was shown, not an invented case - but only that read: "values = [...] if line else []", or an
+# if/else whose one branch parses the line and whose other only sets the same name to []. Anything
+# else the program does for empty input (skipping its logic, printing a message) is still caught.
+# What the published format says an empty line MEANS - "no values" (the default), "an empty list" (scenario
+# overrides, 2026-10-08 audit), or the same meaning in other words. Only a statement that an empty/blank line
+# stands for no data counts; anything else the format says about empty input unlocks nothing.
+_R3_FORMAT_EMPTY_LINE = re.compile(
+    r"\b(empty|blank)\s+(input\s+)?line\s+(means|represents|indicates|denotes|stands\s+for|is\s+read\s+as)\s+"
+    r"(that\s+)?(there\s+(are|is)\s+)?(no|zero|an?\s+empty)\s+"
+    r"(values?|numbers?|integers?|elements?|items?|entries|data|list|array|collection|sequence|input)\b", re.I)
+_R3_EMPTY_LIST = r"(\[\]|list\(\))"
+_R3_INLINE_EMPTY_READ = re.compile(
+    r"^\s*(\w+)\s*=\s*.*\bsplit\(.*\bif\s+(\w+)(\.strip\(\))?\s+else\s+" + _R3_EMPTY_LIST + r"\s*$")
+_R3_IF_LINE = re.compile(r"^(\s*)if\s+(not\s+)?(\w+)(\.strip\(\))?\s*:\s*$")
+_R3_ELSE = re.compile(r"^(\s*)else\s*:\s*$")
+_R3_SET_EMPTY = re.compile(r"^\s*(\w+)\s*=\s*" + _R3_EMPTY_LIST + r"\s*$")
+_R3_ASSIGN = re.compile(r"^\s*(\w+)\s*=")
+
+
+def _r3_without_format_empty_reads(lines: list[str], as_plain_read: bool = False) -> list[str]:
+    """The lines minus reads that turn an empty input line into an empty collection - or, with
+    `as_plain_read`, with each such read replaced by the plain read it stands for (the parse alone)."""
+    keep, i = [], 0
+    while i < len(lines):
+        if _R3_INLINE_EMPTY_READ.match(lines[i]):
+            if as_plain_read:
+                keep.append(re.sub(r"\s+if\s+\w+(\.strip\(\))?\s+else\s+" + _R3_EMPTY_LIST + r"\s*$", "", lines[i]))
+            i += 1
+            continue
+        head = _R3_IF_LINE.match(lines[i])
+        if head:
+            indent = len(head.group(1))
+
+            def block(j):
+                body = []
+                while j < len(lines) and len(lines[j]) - len(lines[j].lstrip()) > indent:
+                    body.append(lines[j])
+                    j += 1
+                return body, j
+            first, j = block(i + 1)
+            tail = _R3_ELSE.match(lines[j]) if j < len(lines) else None
+            if first and tail and len(tail.group(1)) == indent:
+                second, end = block(j + 1)
+                parse, empty = (second, first) if head.group(2) else (first, second)
+                target = _R3_SET_EMPTY.match(empty[0]) if len(empty) == 1 else None
+                if (target and parse and any("split(" in line for line in parse)
+                        and all(_R3_ASSIGN.match(line) for line in parse)
+                        and target.group(1) in {_R3_ASSIGN.match(line).group(1) for line in parse}):
+                    if as_plain_read:
+                        cut = len(parse[0]) - len(parse[0].lstrip()) - indent
+                        keep.extend(line[cut:] for line in parse)
+                    i = end
+                    continue
+        keep.append(lines[i])
+        i += 1
+    return keep
+
+
+def _r3_as_plain_read(code: str | None, io_format: dict | None) -> str | None:
+    """`code` with the published empty-line read written as the plain read, when the format states that rule."""
+    if not code or not _R3_FORMAT_EMPTY_LINE.search((io_format or {}).get("input") or ""):
+        return code
+    return "\n".join(_r3_without_format_empty_reads(code.splitlines(), as_plain_read=True)) + ("\n" if code.endswith("\n") else "")
+
+
+def r3_unraised_case_in_code(current_code: str | None, code_after: str | None, conversation_so_far: list[dict],
+                             candidate_prompt: str, published_input_format: str = "") -> str | None:
+    """The hidden-test case that lines this edit adds handle without the candidate ever raising it, or None.
+    `published_input_format` is the input format the candidate was shown (round3_io_format)."""
+    found = r3_unraised_case_code_lines(current_code, code_after, conversation_so_far, candidate_prompt, published_input_format)
+    return found[0] if found else None
+
+
+def r3_unraised_case_code_lines(current_code: str | None, code_after: str | None, conversation_so_far: list[dict],
+                                candidate_prompt: str, published_input_format: str = "") -> tuple[str, list[str]] | None:
+    """As r3_unraised_case_in_code, plus the added lines that do it - for the retry that removes them."""
+    before = {line.strip() for line in (current_code or "").splitlines()}
+    new_lines = [line for line in (code_after or "").splitlines() if line.strip() and line.strip() not in before]
+    if _R3_FORMAT_EMPTY_LINE.search(published_input_format or ""):
+        new_lines = _r3_without_format_empty_reads(new_lines)
+    added = "\n".join(new_lines)
+    said = " ".join([*(t.get("candidate_prompt") or "" for t in conversation_so_far or []), candidate_prompt or ""])
+    for topic, pattern in _R3_UNRAISED_CASE_CODE.items():
+        hits = [m.group(0) for m in pattern.finditer(added)]
+        if topic == "empty input":  # "if found:" for a test the candidate named themselves ("if found, print it")
+            hits = [h for h in hits if not re.search(r"\bif\s+(not\s+)?" + re.escape(
+                re.sub(r"^\s*(el)?if\s+(not\s+)?|\(\)|\s*:$|\s+else$", "", h.strip()).split(".")[0]) + r"\b", said, re.I)]
+        if not hits or _R3_UNRAISED_CASE_TOPICS[topic].search(said) or (topic == "ties" and _R3_RAISED_TIES.search(said)):
+            continue
+        # "...or -1 if there isn't one": the check that guards a fallback they named is part of their rule
+        if topic in ("empty input", "too few values") and _R3_UNRAISED_CASE_TOPICS["a fallback value"].search(said) \
+                and _R3_UNRAISED_CASE_CODE["a fallback value"].search(added):
+            continue
+        return topic, [line.strip() for line in new_lines if any(h.strip() in line for h in hits)]
+    return None
+
+
+# The retry for code rejected by the check above (real-AI gate, 2026-10-08: "Find the maximum value with
+# max(), then print how many times it appears" came back twice with the whole program inside
+# "if input_line:" - the generic no-questions note didn't say what to take out). It names the category
+# and quotes the model's own offending lines, asks for exactly those to go, and keeps the candidate's
+# steps. Nothing in it is a requirement of the task; the candidate never sees it.
+_R3_CODE_CASE_WHAT = {
+    "empty input": "handling for empty input (a check on whether the input or the values are empty, or code that "
+                   "only runs when they are not)",
+    "too few values": "a check on how many values there are",
+    "ties": "special handling for equal values",
+    "a fallback value": "a fallback value printed or returned in place of the result",
+    "invalid input or errors": "error handling or input validation",
+}
+_R3_CODE_CASE_NOTE = (
+    "IMPORTANT - your previous code for this turn was rejected before the candidate saw it, because it added {what}, "
+    "which the candidate never asked for. The lines that did it:\n{lines}\n"
+    "Write the code again with ONLY that handling removed. Keep every operation the candidate stated exactly as "
+    "before, in the same order - do not change their algorithm, swap in other operations or add anything new. "
+    "The rest of the program runs the same way for every input, never inside a check on the input.{format_note} "
+    "Do not ask the candidate anything and do not mention this - respond with \"code_edit\"."
+)
+_R3_FORMAT_READ_NOTE = (" Reading an empty input line as no values, as the published input format says, may stay - "
+                        "but nothing else may depend on it.")
+
+
+def r3_code_case_note(topic: str, lines: list[str], published_input_format: str = "") -> str:
+    format_note = _R3_FORMAT_READ_NOTE if topic == "empty input" and _R3_FORMAT_EMPTY_LINE.search(published_input_format or "") else ""
+    return _R3_CODE_CASE_NOTE.format(what=_R3_CODE_CASE_WHAT.get(topic, "handling for an input case"),
+                                     lines="\n".join(f"    {line}" for line in lines[:6]), format_note=format_note)
+
+
+def _r3_previous_reply(conversation_so_far: list[dict]) -> str:
+    return (conversation_so_far or [{}])[-1].get("response_message") or "" if conversation_so_far else ""
+
+
+def _r3_progress_message(conversation_so_far: list[dict]) -> str:
+    """The first progress message not among the last two replies - never the previous one."""
+    recent = {clarify_loop.normalize_question(t.get("response_message")) for t in (conversation_so_far or [])[-2:]}
+    return next((m for m in R3_PROGRESS_MESSAGES if clarify_loop.normalize_question(m) not in recent), R3_PROGRESS_MESSAGES[-1])
+
+
+def _r3_never_repeat(result: dict, conversation_so_far: list[dict]) -> dict:
+    """No reply without code is ever the previous reply word for word (a model copying it from
+    the history did this live, 2026-10-07): a repeated refusal gets its follow-up wording, anything
+    else a progress message."""
+    if result.get("response_kind") not in ("clarify", "explain", "refuse") or not conversation_so_far:
+        return result
+    same = clarify_loop.normalize_question(result.get("response_message")) == clarify_loop.normalize_question(
+        _r3_previous_reply(conversation_so_far))
+    if not same:
+        return result
+    if result["response_kind"] == "refuse":
+        whole_task = clarify_loop.normalize_question(result.get("response_message")) == clarify_loop.normalize_question(
+            round3_policy.WHOLE_TASK_REFUSAL_MESSAGE)
+        return {**result, "response_message": round3_policy.WHOLE_TASK_REFUSAL_AGAIN if whole_task else _R3_REFUSAL_AGAIN}
+    return {**result, "response_kind": "explain", "code_after": None, "response_message": _r3_progress_message(conversation_so_far)}
 
 
 # A reply that is valid JSON but not a usable turn (seen live: an empty {}
@@ -1186,34 +1494,95 @@ def round3_coding_turn(
     )
     def _finish(r: dict) -> dict:
         r = _ensure_java_main(r, language)
-        if r["response_kind"] == "code_edit" and round3_scope_guard.misleading_claim(
+        if r["response_kind"] == "code_edit" and (round3_scope_guard.misleading_claim(
             r["response_message"], current_code, r.get("code_after"),
-        ):
+        ) or r3_unraised_case(r["response_message"], conversation_so_far, candidate_prompt)):
             r = {**r, "response_message": round3_scope_guard.diff_summary(current_code, r.get("code_after"))}
         return r
 
-    result = _round3_coding_turn_once(**kwargs)
-    if result["response_kind"] != "clarify" or not clarify_loop.should_stop_clarifying(
-        conversation_so_far, candidate_prompt, result["response_message"], max_streak=R3_MAX_CONSECUTIVE_CLARIFIES,
-    ):
-        return _finish(result)
+    def _reveals(r: dict, kinds=("clarify",)) -> bool:
+        """A question (or, from the no-questions retry, its "which step next" sentence) about a case the
+        candidate never raised. An explanation they asked for - why their code crashes - is never touched."""
+        return r["response_kind"] in kinds and bool(r3_unraised_case(r["response_message"], conversation_so_far, candidate_prompt))
 
-    if clarify_loop.was_already_asked(conversation_so_far, result["response_message"]):
-        reason = ", and your next question repeats one already asked"
-    elif clarify_loop.is_done_signal(candidate_prompt):
-        reason = ", and they have said they're done"
+    # A deterministic pre-AI refusal (round3_policy) is final - this check only ever overrides the model.
+    refused_before_ai = round3_policy.is_prohibited(candidate_prompt) or round3_policy.is_continuation_of_whole_task(
+        conversation_so_far, candidate_prompt, scenario_description)
+
+    def _steers(r: dict) -> bool:
+        return not refused_before_ai and bool(r3_steers_complete_approach(r, candidate_prompt, scenario_description))
+
+    published_input = (io_format or round3_io_format.for_config(None)).get("input") or ""
+
+    def _codes_case(r: dict) -> bool:
+        """Code that handles a case the candidate never raised - never delivered. Reading the input as the
+        published format states (an empty line meaning no values) is not such a case."""
+        return r["response_kind"] == "code_edit" and bool(r3_unraised_case_in_code(
+            current_code, r.get("code_after"), conversation_so_far, candidate_prompt, published_input))
+
+    counted = R3_PROGRESS_MESSAGES + _R3_OLD_FALLBACKS + (round3_scope_guard.SCOPE_FALLBACK_MESSAGE,)
+    # Batch 1c: a ranked value named with no way to get it - the method is the candidate's to give. A fixed
+    # question, no AI call, so no model can supply the method (see round3_policy.names_target_without_method).
+    if (not refused_before_ai and not round3_io_format.is_format_question(candidate_prompt)
+            and round3_policy.names_target_without_method(conversation_so_far, candidate_prompt)):
+        return _r3_never_repeat({"response_kind": "clarify", "response_message": round3_policy.MISSING_METHOD_MESSAGE,
+                                 "code_after": None, "declared_constructs": dict(declared_constructs or {})},
+                                conversation_so_far)
+    result = _round3_coding_turn_once(**kwargs)
+    code_case = r3_unraised_case_code_lines(current_code, result.get("code_after"), conversation_so_far, candidate_prompt,
+                                            published_input) if result["response_kind"] == "code_edit" else None
+    reveals = _reveals(result) or bool(code_case)  # never shown: it goes through a no-questions retry instead
+    steers = _steers(result)  # never shown either: their own approach gets written instead
+    if not reveals and not steers and (result["response_kind"] != "clarify" or not clarify_loop.should_stop_clarifying(
+        conversation_so_far, candidate_prompt, result["response_message"], max_streak=R3_MAX_CONSECUTIVE_CLARIFIES,
+        also_count=counted,
+    )):
+        return _r3_never_repeat(_finish(result), conversation_so_far)
+
+    if code_case:  # code that handled an unraised case: the retry says exactly what to take out
+        note = r3_code_case_note(*code_case, published_input)
+    elif reveals:  # the edge-case guard keeps its own retry, which also asks for exactly their steps
+        note = _R3_NO_UNRAISED_CASES_NOTE
+    elif steers:
+        note = _R3_APPROACH_NOTE
     else:
-        reason = ""
-    note = _R3_STOP_ASKING_NOTE.format(streak=clarify_loop.clarify_streak(conversation_so_far), reason=reason)
+        if clarify_loop.was_already_asked(conversation_so_far, result["response_message"]):
+            reason = ", and your next question repeats one already asked"
+        elif clarify_loop.is_done_signal(candidate_prompt):
+            reason = ", and they have said they're done"
+        else:
+            reason = ""
+        note = _R3_STOP_ASKING_NOTE.format(streak=clarify_loop.clarify_streak(conversation_so_far), reason=reason)
     retry = _round3_coding_turn_once(**kwargs, force_note=note)
-    if retry["response_kind"] != "clarify":
-        return _finish(retry)
-    if not clarify_loop.was_already_asked(conversation_so_far, R3_FINAL_PROMPT):
-        return {**retry, "response_message": R3_FINAL_PROMPT}
+    # Steering retry -> their algorithm, but handling a case they never raised (real-AI gate, 2026-10-08,
+    # case 4: "keep the largest value seen" came back inside "if input_line:"). The one retry was spent on
+    # steering, so the targeted repair a first reply would have had never ran. This chain alone gets it:
+    # one more call, with both notes; if that fails too, the usual no-code way forward. Never a third.
+    repair_case = (r3_unraised_case_code_lines(current_code, retry.get("code_after"), conversation_so_far, candidate_prompt,
+                                               published_input)
+                   if note is _R3_APPROACH_NOTE and retry["response_kind"] == "code_edit" else None)
+    if repair_case:
+        repair = _round3_coding_turn_once(
+            **kwargs, force_note=_R3_APPROACH_NOTE + "\n\n" + r3_code_case_note(*repair_case, published_input))
+        if repair["response_kind"] == "code_edit" and not _codes_case(repair):
+            return _r3_never_repeat(_finish(repair), conversation_so_far)
+        return {**repair, "response_kind": "explain", "code_after": None,
+                "response_message": _r3_progress_message(conversation_so_far)}
+    if retry["response_kind"] != "clarify" and not _reveals(retry, ("explain",)) and not _steers(retry) and not _codes_case(retry):
+        return _r3_never_repeat(_finish(retry), conversation_so_far)
+    # A new, specific question is something the candidate can answer - kept, not swapped for a
+    # generic line - unless the run of questions is already long. A repeated or generic one isn't.
+    question = retry["response_message"]
+    generic = clarify_loop.normalize_question(question) in {clarify_loop.normalize_question(m) for m in counted + (UNUSABLE_REPLY_MESSAGE,)}
+    if (not generic and not _reveals(retry, ("clarify", "explain")) and not _steers(retry) and not _codes_case(retry)
+            and not clarify_loop.was_already_asked(conversation_so_far, question)
+            and clarify_loop.clarify_streak(conversation_so_far, also_count=counted) < R3_MAX_QUESTIONS_BEFORE_PROGRESS):
+        return _r3_never_repeat(retry, conversation_so_far)
     return {
         **retry,
         "response_kind": "explain",
-        "response_message": "I'll write exactly what you tell me next - one specific step or line at a time.",
+        "code_after": None,
+        "response_message": _r3_progress_message(conversation_so_far),
     }
 
 
@@ -1256,7 +1625,7 @@ def _round3_coding_turn_once(
     # A "build the whole thing" request - including a one-word answer to a
     # clarifying question that was ABOUT such a request - is refused here,
     # not left to the model (see round3_policy.is_continuation_of_whole_task).
-    if round3_policy.is_continuation_of_whole_task(conversation_so_far, candidate_prompt):
+    if round3_policy.is_continuation_of_whole_task(conversation_so_far, candidate_prompt, scenario_description):
         return {
             "response_kind": "refuse",
             "response_message": round3_policy.WHOLE_TASK_REFUSAL_MESSAGE,
@@ -1313,7 +1682,14 @@ def _round3_coding_turn_once(
                 return "noop"
             # Added what wasn't asked for, and/or dropped a requirement that was
             # (round3_scope_guard.dropped_requirement) - one retry covers both.
-            additions = round3_scope_guard.unrequested_additions(language, current_code, p.code_after, instruction)
+            # The published empty-line read (an "if line: ... else: nums = []") is the format, not a
+            # collection or a check the candidate must ask for: the scope check sees the plain read it
+            # stands for (2026-10-08 - it rejected "else: nums = []" for "max() then count").
+            additions = round3_scope_guard.unrequested_additions(
+                language, _r3_as_plain_read(current_code, io_format), _r3_as_plain_read(p.code_after, io_format), instruction,
+                io_format_mechanics=round3_scope_guard.io_mechanics(io_format, scenario_description),
+                technique_free=not required_constructs,
+            )
             dropped = round3_scope_guard.dropped_requirement(instruction, p.code_after)
             return (additions, dropped) if additions or dropped else None
 

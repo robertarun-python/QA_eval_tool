@@ -33,6 +33,8 @@ before shipping - see tests/test_round3_scope_guard.py for the cases.
 """
 import re
 
+from . import assistant_operations
+
 # capability -> (pattern in an ADDED code line, pattern in the instruction that justifies it)
 _CAPABILITIES = {
     "reading input": (
@@ -169,21 +171,83 @@ def added_lines(current_code: str | None, new_code: str | None) -> list[str]:
 
 
 def instruction_text(conversation_so_far: list[dict], candidate_prompt: str) -> str:
-    """The instruction this code edit is answering: the new message plus,
-    when it's a reply to one or more clarifying questions, the candidate
-    messages that led to those questions (see the prompt's "Continuation
-    check" - a short answer completes an earlier instruction)."""
+    """The instruction this code edit is answering: the new message plus everything the candidate
+    has said since the last code that was accepted - their questions' answers, and steps they gave
+    before a refusal or an explanation broke the chain (production, 2026-10-07: details given two
+    turns earlier no longer counted). A refused message is never part of it - its words can't
+    justify what the assistant adds."""
     parts = [candidate_prompt or ""]
     for turn in reversed(conversation_so_far or []):
-        if turn.get("response_kind") != "clarify":
+        if turn.get("response_kind") in ("code_edit", "direct_edit"):
             break
-        parts.append(turn.get("candidate_prompt") or "")
+        if turn.get("response_kind") != "refuse":
+            parts.append(turn.get("candidate_prompt") or "")
     return " ".join(parts).lower()
 
 
-def unrequested_additions(language: str, current_code: str | None, new_code: str | None, instruction: str) -> list[str]:
+# Separator named in the round's published input format -> the code that reads it that way.
+_FORMAT_SEPARATORS = (
+    (re.compile(r"comma", re.I), re.compile(r"""\.split\s*\(\s*['"],['"]\s*\)|useDelimiter\s*\(\s*['"],""")),
+    (re.compile(r"space|whitespace", re.I), re.compile(r"""\.split\s*\(\s*\)|\.split\s*\(\s*['"] ['"]\s*\)|\.next(Int)?\s*\(""")),
+)
+_NUMERIC_TASK_RE = re.compile(r"\b(integers?|numbers?|numeric|digits?)\b", re.I)
+
+
+def io_mechanics(io_format: dict | None, scenario_description: str | None) -> dict:
+    """What the round itself fixes, so the candidate never has to ask for it: reading standard
+    input in the published format, splitting on its separator, and converting to numbers when the
+    task is about numbers."""
+    fmt_text = " ".join((io_format or {}).values()) if isinstance(io_format, dict) else ""
+    separator = next((code for named, code in _FORMAT_SEPARATORS if named.search(fmt_text)), None)
+    return {"separator_code": separator,
+            "numeric": bool(_NUMERIC_TASK_RE.search(f"{fmt_text} {scenario_description or ''}"))}
+
+
+# Choices a stated operation justifies whichever standard technique implements it - unless the
+# scenario's own construct checklist assesses that choice (then the construct engine asks).
+_TECHNIQUE_OF = {
+    "chose a set to remove duplicates": "de-duplication",
+}
+
+
+def _justified_by_wording(name: str, instruction: str, technique_free: bool, added: str) -> bool:
+    """The candidate's own wording, in any of its everyday forms, asks for this capability."""
+    dedupe = assistant_operations.states_deduplication(instruction)
+    if name == "de-duplication" and dedupe:
+        return True
+    if name == "chose descending order" and assistant_operations.DESCENDING.search(instruction):
+        return True  # "desc", "biggest first", "high to low" name the order as surely as "descending"
+    if name == "printing output" and assistant_operations.OUTPUT.search(instruction):
+        return True  # "return the 1st element" - a Round 3 program returns its answer by printing it
+    if technique_free and name in _TECHNIQUE_OF and assistant_operations.TRANSFORM_FAMILIES[_TECHNIQUE_OF[name]].search(instruction):
+        return True  # "remove the duplicates": a set is one standard way of doing what they stated
+    if technique_free and dedupe and name in ("a loop", "a collection") and _DISTINCT_EVIDENCE_RE.search(added):
+        return True  # ...and so is a loop that keeps each value once
+    return False
+
+
+def _format_mechanics(name: str, added: str, mechanics: dict | None) -> bool:
+    """Reading the round's own published input format is never the candidate's choice to make."""
+    if not mechanics:
+        return False
+    reads_format = bool(mechanics.get("separator_code") and mechanics["separator_code"].search(added))
+    if name == "reading input":
+        return True
+    if name == "chose how the input values are separated":
+        return reads_format
+    if name == "type conversion":
+        return reads_format and mechanics.get("numeric", False)
+    return False
+
+
+def unrequested_additions(language: str, current_code: str | None, new_code: str | None, instruction: str,
+                          io_format_mechanics: dict | None = None, technique_free: bool = False) -> list[str]:
     """Capabilities the edit adds that the instruction gives no sign of
-    asking for, in a stable order. Empty list = the edit stays in scope."""
+    asking for, in a stable order. Empty list = the edit stays in scope.
+
+    io_format_mechanics (see io_mechanics) exempts reading the round's published input format.
+    technique_free (no construct checklist on the scenario) lets an operation the candidate stated
+    be written with any standard technique - with a checklist, the construct engine owns that."""
     lines = added_lines(current_code, new_code)
     if not lines:
         return []
@@ -193,6 +257,8 @@ def unrequested_additions(language: str, current_code: str | None, new_code: str
     found = []
     for name, (code_re, ask_re) in _CAPABILITIES.items():
         if not re.search(code_re, text, re.M) or re.search(ask_re, instruction):
+            continue
+        if _justified_by_wording(name, instruction, technique_free, text) or _format_mechanics(name, text, io_format_mechanics):
             continue
         if name in _ALREADY_PRESENT_OK and re.search(code_re, old, re.M):
             continue
@@ -266,7 +332,7 @@ def regeneration_note(additions: list | None, dropped: str | None) -> str:
 
 SCOPE_FALLBACK_MESSAGE = (
     "I need a more specific instruction for that - tell me exactly what this step should do, "
-    "and I'll write only that."
+    "and I'll write only that. You can also type or edit the code yourself with Edit code."
 )
 
 NOOP_MESSAGE = "The code already does that - nothing needed to change."
@@ -345,12 +411,14 @@ _DISTINCT_EVIDENCE_RE = re.compile(
 def _stated_requirements(text: str | None) -> list[str]:
     """The distinct/unique phrases a text actually asks for, sentence by
     sentence - a sentence that negates it ("not distinct", "including
-    duplicates") states no requirement."""
+    duplicates") states no requirement. A de-duplication the candidate states
+    as an operation ("keep each value once") is a requirement too: the code
+    must never drop it (real-AI gate, 2026-10-07)."""
     found = []
     for sentence in re.split(r"(?<=[.!?;])\s+|\n+", (text or "").lower()):
         if _DISTINCT_NEGATED_RE.search(sentence):
             continue
-        m = _DISTINCT_REQ_RE.search(sentence)
+        m = _DISTINCT_REQ_RE.search(sentence) or assistant_operations.TRANSFORM_FAMILIES["de-duplication"].search(sentence)
         if m:
             found.append(m.group(0))
     return found

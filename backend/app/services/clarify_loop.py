@@ -18,11 +18,14 @@ def normalize_question(text: str | None) -> str:
     return _NON_WORD_RE.sub(" ", (text or "").lower()).strip()
 
 
-def clarify_streak(conversation_so_far: list[dict]) -> int:
-    """How many of the most recent turns in a row were clarifying questions."""
+def clarify_streak(conversation_so_far: list[dict], also_count: tuple = ()) -> int:
+    """How many of the most recent turns in a row were clarifying questions. `also_count`: reply
+    texts that count as one too whatever their kind - R3's fallback lines are stored as "explain",
+    and used to reset the run, so a loop of questions and fallbacks never ended (2026-10-07)."""
+    extra = {normalize_question(m) for m in also_count}
     streak = 0
     for turn in reversed(conversation_so_far or []):
-        if turn.get("response_kind") != "clarify":
+        if turn.get("response_kind") != "clarify" and normalize_question(turn.get("response_message")) not in extra:
             break
         streak += 1
     return streak
@@ -62,11 +65,12 @@ def is_done_signal(candidate_prompt: str | None) -> bool:
 
 def should_stop_clarifying(
     conversation_so_far: list[dict], candidate_prompt: str, next_question: str | None, max_streak: int,
+    also_count: tuple = (),
 ) -> bool:
     """True when asking `next_question` would continue a loop rather than
     help. Only applies once at least one question has been asked, so a
     first, genuinely unclear instruction still gets its question."""
-    streak = clarify_streak(conversation_so_far)
+    streak = clarify_streak(conversation_so_far, also_count)
     if streak == 0:
         return False
     return (
